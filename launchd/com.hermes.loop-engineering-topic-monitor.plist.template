@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hermes.loop-engineering-topic-monitor</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{LOOP_DIR}}/run-topic-monitor-loop.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key>
+  <string>{{LOOP_DIR}}/outputs/history/topic-monitor-launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{LOOP_DIR}}/outputs/history/topic-monitor-launchd.err.log</string>
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

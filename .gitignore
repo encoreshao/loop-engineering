@@ -1,0 +1,47 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Live run state - personal/instance-specific, never source. Real GitLab
+# issue content and Activity messages live here; keep them out of a public
+# repo entirely rather than just the previously-ignored *.log/status.json.
+outputs/daily-review.md
+outputs/messages.json
+outputs/*.lock
+outputs/history/*.md
+outputs/history/*.log
+outputs/status.json
+outputs/topic-monitor/
+
+# The unified log every `claude` CLI invocation across this project writes
+# to (see bin/web/dashboard_server.py's append_unified_log/render_logs_page,
+# and run-loop.sh/run-topic-monitor-loop.sh) - live process output, never
+# project source.
+/logs/
+
+# Claude Code / superpowers runtime state - session-local, not project source
+.claude/
+.superpowers/
+
+# Design specs/plans written while building each feature - internal working
+# notes, not something someone using this loop needs; kept locally, not in git.
+docs/superpowers/
+
+# Personal config, written by bin/scripts/setup.sh and the dashboard's
+# Instructions page into this same directory when it doubles as the
+# install target (~/.loop-engineering) - never project source.
+/projects.json
+/topics.json
+/instructions.md
+
+# Generated from launchd/*.plist.template (python3 + clone-dir substituted
+# in for this machine) by install.sh - machine-specific, never source.
+launchd/*.plist
+
+# Per-issue git worktrees for tracked projects, created under the default
+# worktree_root (~/.loop-engineering/worktrees) - other repos' own
+# checkouts (each with its own .git), never this repo's source.
+/worktrees/
+
+# macOS
+.DS_Store
