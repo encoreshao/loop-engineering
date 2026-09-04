@@ -204,21 +204,21 @@ def _run_completed(run_id, data=None):
     return {"event_type": "run.completed", "run_id": run_id, "data": data or {}}
 
 
-def _issue_started(issue_run_id, ts="2026-09-04T10:00:00.000Z"):
-    return {"event_type": "issue.started", "issue_run_id": issue_run_id, "timestamp": ts}
+def _issue_started(issue_run_id, run_id=None, ts="2026-09-04T10:00:00.000Z"):
+    return {"event_type": "issue.started", "run_id": run_id, "issue_run_id": issue_run_id, "timestamp": ts}
 
 
-def _issue_completed(issue_run_id, ts="2026-09-04T10:05:00.000Z"):
-    return {"event_type": "issue.completed", "issue_run_id": issue_run_id, "timestamp": ts}
+def _issue_completed(issue_run_id, run_id=None, ts="2026-09-04T10:05:00.000Z"):
+    return {"event_type": "issue.completed", "run_id": run_id, "issue_run_id": issue_run_id, "timestamp": ts}
 
 
 def test_compute_cost_metrics_sums_and_divides_correctly():
     events = [
         _run_completed("run_1", {"cost_usd": 1.5, "input_tokens": 100, "output_tokens": 50, "cache_read_tokens": 10, "cache_write_tokens": 5}),
         _run_completed("run_2", {"cost_usd": 2.5, "input_tokens": 200, "output_tokens": 60, "cache_read_tokens": 20, "cache_write_tokens": 15}),
-        _issue_started("run_1_p_1"),
-        _issue_completed("run_1_p_1"),
-        _issue_started("run_1_p_2"),
+        _issue_started("run_1_p_1", run_id="run_1"),
+        _issue_completed("run_1_p_1", run_id="run_1"),
+        _issue_started("run_1_p_2", run_id="run_2"),
     ]
 
     result = cost.compute_cost_metrics(events)
@@ -241,6 +241,29 @@ def test_compute_cost_metrics_ignores_run_completed_without_cost_usd():
     assert result["total_tokens"] == 15
 
 
+def test_compute_cost_metrics_denominator_excludes_issues_from_unpriced_runs():
+    # Reviewer's reproduction: one priced Claude run with 1 completed issue,
+    # plus an unrelated unpriced (e.g. Codex) run with 2 more completed
+    # issues under a DIFFERENT run_id - those 2 must not dilute
+    # cost_per_issue/cost_per_resolution.
+    events = [
+        _run_completed("run_claude", {"cost_usd": 10.0, "input_tokens": 1, "output_tokens": 1, "cache_read_tokens": 0, "cache_write_tokens": 0}),
+        _issue_started("run_claude_p_1", run_id="run_claude"),
+        _issue_completed("run_claude_p_1", run_id="run_claude"),
+        _run_completed("run_codex", {}),  # no cost_usd - simulates Codex
+        _issue_started("run_codex_p_1", run_id="run_codex"),
+        _issue_completed("run_codex_p_1", run_id="run_codex"),
+        _issue_started("run_codex_p_2", run_id="run_codex"),
+        _issue_completed("run_codex_p_2", run_id="run_codex"),
+    ]
+
+    result = cost.compute_cost_metrics(events)
+
+    assert result["total_cost_usd"] == 10.0
+    assert result["cost_per_issue"] == 10.0
+    assert result["cost_per_resolution"] == 10.0
+
+
 def test_compute_cost_metrics_zero_denominator_returns_none():
     result = cost.compute_cost_metrics([])
 
@@ -253,8 +276,8 @@ def test_compute_cost_metrics_zero_denominator_returns_none():
 def test_wasted_cost_always_none_with_fixed_reason_regardless_of_input():
     events = [
         _run_completed("run_1", {"cost_usd": 100.0, "input_tokens": 1, "output_tokens": 1, "cache_read_tokens": 1, "cache_write_tokens": 1}),
-        _issue_started("run_1_p_1"),
-        _issue_completed("run_1_p_1"),
+        _issue_started("run_1_p_1", run_id="run_1"),
+        _issue_completed("run_1_p_1", run_id="run_1"),
     ]
 
     result = cost.compute_cost_metrics(events)

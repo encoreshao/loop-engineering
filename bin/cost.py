@@ -117,6 +117,21 @@ RETRY_WASTE_UNAVAILABLE_REASON = (
 )
 
 
+def _priced_run_ids(events):
+    """Set of run_ids with a run.completed event whose data carries a
+    non-None "cost_usd" - the runs that actually contribute to
+    total_cost_usd."""
+    run_ids = set()
+    for event in events:
+        if event.get("event_type") != "run.completed":
+            continue
+        data = event.get("data") or {}
+        if data.get("cost_usd") is None:
+            continue
+        run_ids.add(event.get("run_id"))
+    return run_ids
+
+
 def compute_cost_metrics(events):
     """{"total_cost_usd", "total_tokens", "cost_per_issue",
     "cost_per_resolution", "wasted_cost", "wasted_cost_unavailable_reason"}
@@ -125,7 +140,11 @@ def compute_cost_metrics(events):
     docs/superpowers/specs/2026-09-04-cost-tracking-design.md's
     "Constraint" section for why. Only run.completed events whose data
     carries a numeric "cost_usd" contribute to the totals - a Codex run or
-    a failed extraction contributes 0, not an error."""
+    a failed extraction contributes 0, not an error. The issue-count
+    denominator is restricted to events from those same priced runs, so
+    issues processed/completed during an unpriced run (Codex, or a failed
+    Claude cost extraction) don't dilute cost_per_issue/cost_per_resolution."""
+    events = list(events)
     total_cost_usd = 0.0
     total_tokens = 0
 
@@ -140,7 +159,9 @@ def compute_cost_metrics(events):
         for key in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"):
             total_tokens += data.get(key) or 0
 
-    issue_metrics = metrics.compute_issue_metrics(events)
+    priced_run_ids = _priced_run_ids(events)
+    priced_events = [event for event in events if event.get("run_id") in priced_run_ids]
+    issue_metrics = metrics.compute_issue_metrics(priced_events)
     processed = issue_metrics["issues_processed"]
     completed = issue_metrics["issues_completed"]
 
