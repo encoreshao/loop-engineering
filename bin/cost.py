@@ -10,6 +10,8 @@ see the spec's "Investigation" section for why."""
 import json
 import sys
 
+import metrics
+
 
 def extract_claude_usage(parsed_json):
     """Pull {"provider", "model", "input_tokens", "output_tokens",
@@ -105,6 +107,48 @@ def _cmd_usage_json(argv):
         return 0
     print(json.dumps(usage))
     return 0
+
+
+RETRY_WASTE_UNAVAILABLE_REASON = (
+    "no retry tracking exists yet - wasted tokens can't be distinguished from productive ones"
+)
+
+
+def compute_cost_metrics(events):
+    """{"total_cost_usd", "total_tokens", "cost_per_issue",
+    "cost_per_resolution", "wasted_cost", "wasted_cost_unavailable_reason"}
+    from run.completed events' data field, plus issue counts via
+    metrics.compute_issue_metrics(events) - no project filter, see
+    docs/superpowers/specs/2026-09-04-cost-tracking-design.md's
+    "Constraint" section for why. Only run.completed events whose data
+    carries a numeric "cost_usd" contribute to the totals - a Codex run or
+    a failed extraction contributes 0, not an error."""
+    total_cost_usd = 0.0
+    total_tokens = 0
+
+    for event in events:
+        if event.get("event_type") != "run.completed":
+            continue
+        data = event.get("data") or {}
+        cost_usd = data.get("cost_usd")
+        if cost_usd is None:
+            continue
+        total_cost_usd += cost_usd
+        for key in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"):
+            total_tokens += data.get(key) or 0
+
+    issue_metrics = metrics.compute_issue_metrics(events)
+    processed = issue_metrics["issues_processed"]
+    completed = issue_metrics["issues_completed"]
+
+    return {
+        "total_cost_usd": total_cost_usd,
+        "total_tokens": total_tokens,
+        "cost_per_issue": (total_cost_usd / processed) if processed else None,
+        "cost_per_resolution": (total_cost_usd / completed) if completed else None,
+        "wasted_cost": None,
+        "wasted_cost_unavailable_reason": RETRY_WASTE_UNAVAILABLE_REASON,
+    }
 
 
 def main():

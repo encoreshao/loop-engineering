@@ -194,3 +194,70 @@ def test_cli_missing_cli_output_file_flag_exits_one(tmp_path):
 
     assert result.returncode == 1
     assert "--cli-output-file is required" in result.stderr
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin"))
+import metrics  # noqa: F401 - not called directly in these tests, but confirms the sibling import bin/cost.py itself relies on is resolvable in this test environment too
+
+
+def _run_completed(run_id, data=None):
+    return {"event_type": "run.completed", "run_id": run_id, "data": data or {}}
+
+
+def _issue_started(issue_run_id, ts="2026-09-04T10:00:00.000Z"):
+    return {"event_type": "issue.started", "issue_run_id": issue_run_id, "timestamp": ts}
+
+
+def _issue_completed(issue_run_id, ts="2026-09-04T10:05:00.000Z"):
+    return {"event_type": "issue.completed", "issue_run_id": issue_run_id, "timestamp": ts}
+
+
+def test_compute_cost_metrics_sums_and_divides_correctly():
+    events = [
+        _run_completed("run_1", {"cost_usd": 1.5, "input_tokens": 100, "output_tokens": 50, "cache_read_tokens": 10, "cache_write_tokens": 5}),
+        _run_completed("run_2", {"cost_usd": 2.5, "input_tokens": 200, "output_tokens": 60, "cache_read_tokens": 20, "cache_write_tokens": 15}),
+        _issue_started("run_1_p_1"),
+        _issue_completed("run_1_p_1"),
+        _issue_started("run_1_p_2"),
+    ]
+
+    result = cost.compute_cost_metrics(events)
+
+    assert result["total_cost_usd"] == 4.0
+    assert result["total_tokens"] == 100 + 50 + 10 + 5 + 200 + 60 + 20 + 15
+    assert result["cost_per_issue"] == 4.0 / 2  # 2 issues processed
+    assert result["cost_per_resolution"] == 4.0 / 1  # 1 completed
+
+
+def test_compute_cost_metrics_ignores_run_completed_without_cost_usd():
+    events = [
+        _run_completed("run_codex", {}),  # e.g. a Codex run, no usage data
+        _run_completed("run_claude", {"cost_usd": 3.0, "input_tokens": 10, "output_tokens": 5, "cache_read_tokens": 0, "cache_write_tokens": 0}),
+    ]
+
+    result = cost.compute_cost_metrics(events)
+
+    assert result["total_cost_usd"] == 3.0
+    assert result["total_tokens"] == 15
+
+
+def test_compute_cost_metrics_zero_denominator_returns_none():
+    result = cost.compute_cost_metrics([])
+
+    assert result["total_cost_usd"] == 0.0
+    assert result["total_tokens"] == 0
+    assert result["cost_per_issue"] is None
+    assert result["cost_per_resolution"] is None
+
+
+def test_wasted_cost_always_none_with_fixed_reason_regardless_of_input():
+    events = [
+        _run_completed("run_1", {"cost_usd": 100.0, "input_tokens": 1, "output_tokens": 1, "cache_read_tokens": 1, "cache_write_tokens": 1}),
+        _issue_started("run_1_p_1"),
+        _issue_completed("run_1_p_1"),
+    ]
+
+    result = cost.compute_cost_metrics(events)
+
+    assert result["wasted_cost"] is None
+    assert result["wasted_cost_unavailable_reason"] == cost.RETRY_WASTE_UNAVAILABLE_REASON
