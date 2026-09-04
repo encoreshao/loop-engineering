@@ -3804,6 +3804,54 @@ def test_gitlab_issue_url_prefixes_never_leaks_the_token(tmp_path):
     assert "glpat-super-secret" not in json.dumps(prefixes)
 
 
+def test_resolve_gitlab_issue_url_matches_a_tracked_alias():
+    prefixes = {"harbor": "https://gitlab.acme.com/acme/harbor/harbor"}
+    result = ds._resolve_gitlab_issue_url(
+        "https://gitlab.acme.com/acme/harbor/harbor/-/issues/482", prefixes)
+    assert result == ("harbor", 482)
+
+
+def test_resolve_gitlab_issue_url_tolerates_a_trailing_slash():
+    prefixes = {"harbor": "https://gitlab.acme.com/acme/harbor/harbor"}
+    result = ds._resolve_gitlab_issue_url(
+        "https://gitlab.acme.com/acme/harbor/harbor/-/issues/482/", prefixes)
+    assert result == ("harbor", 482)
+
+
+def test_resolve_gitlab_issue_url_tolerates_surrounding_whitespace():
+    prefixes = {"harbor": "https://gitlab.acme.com/acme/harbor/harbor"}
+    result = ds._resolve_gitlab_issue_url(
+        "  https://gitlab.acme.com/acme/harbor/harbor/-/issues/482  ", prefixes)
+    assert result == ("harbor", 482)
+
+
+def test_resolve_gitlab_issue_url_rejects_untracked_project():
+    prefixes = {"harbor": "https://gitlab.acme.com/acme/harbor/harbor"}
+    result = ds._resolve_gitlab_issue_url(
+        "https://gitlab.acme.com/acme/some-other-project/-/issues/1", prefixes)
+    assert result is None
+
+
+def test_resolve_gitlab_issue_url_rejects_a_merge_request_link():
+    prefixes = {"harbor": "https://gitlab.acme.com/acme/harbor/harbor"}
+    result = ds._resolve_gitlab_issue_url(
+        "https://gitlab.acme.com/acme/harbor/harbor/-/merge_requests/9", prefixes)
+    assert result is None
+
+
+def test_resolve_gitlab_issue_url_rejects_a_different_gitlab_instance():
+    prefixes = {"harbor": "https://gitlab.acme.com/acme/harbor/harbor"}
+    result = ds._resolve_gitlab_issue_url(
+        "https://gitlab.other.example.com/acme/harbor/harbor/-/issues/482", prefixes)
+    assert result is None
+
+
+def test_resolve_gitlab_issue_url_returns_none_for_empty_prefixes():
+    result = ds._resolve_gitlab_issue_url(
+        "https://gitlab.acme.com/acme/harbor/harbor/-/issues/482", {})
+    assert result is None
+
+
 def test_render_activity_page_renders_review_markdown_not_raw_text(tmp_path, monkeypatch):
     status_path = tmp_path / "status.json"
     monkeypatch.setattr(ds, "STATUS_PATH", status_path)

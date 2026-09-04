@@ -1257,6 +1257,22 @@ def gitlab_issue_url_prefixes(loop_config_path=None, gitlab_config_path=None):
     return result
 
 
+def _resolve_gitlab_issue_url(url, prefixes):
+    """Match a pasted GitLab issue URL against gitlab_issue_url_prefixes()'s
+    {alias: base_url} map. Returns (alias, issue_iid) on a match, or None
+    if it doesn't match any tracked project's issue URL shape - wrong
+    host, wrong project, or not an issue URL at all (e.g. a merge
+    request link). Pure function, no I/O, so the caller (_chat_tool_run_issue)
+    controls exactly which prefixes are considered."""
+    url = url.strip()
+    for alias, base_url in prefixes.items():
+        pattern = re.escape(base_url.rstrip("/")) + r"/-/issues/(\d+)/?$"
+        match = re.match(pattern, url)
+        if match:
+            return alias, int(match.group(1))
+    return None
+
+
 def _run_gitlab_api(alias, subcommand):
     result = subprocess.run(
         [sys.executable, str(GITLAB_API), subcommand, alias, "opened"],
