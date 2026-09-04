@@ -7,6 +7,15 @@ UNIFIED_LOG_DIR="$LOOP_DIR/logs"
 UNIFIED_LOG="$UNIFIED_LOG_DIR/loop-engineering.log"
 DATE_STAMP="$(date +%F)"
 
+# A stable identity for this run, threaded through every event emitted
+# below and (via the exported env var) every issue/verification event the
+# agent itself emits per LOOPX_INSTRUCTIONS.md - see
+# docs/superpowers/specs/2026-09-04-event-system-design.md. Generated here
+# rather than left to the agent because this is the one place a real,
+# collision-free timestamp is cheap and deterministic.
+RUN_ID="run_$(date -u +%Y%m%d_%H%M%S)"
+export LOOP_RUN_ID="$RUN_ID"
+
 mkdir -p "$LOG_DIR" "$UNIFIED_LOG_DIR"
 
 # Redirect all output (stdout+stderr) for the rest of this script to the
@@ -31,7 +40,7 @@ cd "$LOOP_DIR"
 # dashboard_server.py are both stdlib-only, so plain `python3` works even
 # under launchd's minimal PATH. Each command is guarded with `|| true` so a
 # failure in the notify/status-write itself can't cause a second ERR trap.
-trap 'loop_exit=$?; echo "[$(date "+%Y-%m-%d %H:%M:%S")] ---- gitlab-loop ---- run FAILED (exit $loop_exit) ----" >> "$UNIFIED_LOG"; python3 bin/slack_notify.py "*Daily GitLab loop FAILED* (exit $loop_exit) — see outputs/history/$DATE_STAMP.log" || true; python3 bin/web/dashboard_server.py write-status failed --exit-code $loop_exit || true' ERR
+trap 'loop_exit=$?; echo "[$(date "+%Y-%m-%d %H:%M:%S")] ---- gitlab-loop ---- run FAILED (exit $loop_exit) ----" >> "$UNIFIED_LOG"; python3 bin/slack_notify.py "*Daily GitLab loop FAILED* (exit $loop_exit) — see outputs/history/$DATE_STAMP.log" || true; python3 bin/web/dashboard_server.py write-status failed --exit-code $loop_exit || true; python3 bin/events.py emit --type run.failed --run-id "$RUN_ID" --data "{\"exit_code\": $loop_exit}" || true' ERR
 
 # NOTE: this script deliberately does NOT source ~/.zprofile / ~/.zshrc.
 # Those are zsh files containing zsh-only syntax (`typeset -g`, subscript
@@ -98,6 +107,20 @@ DISALLOWED_TOOLS="Bash(git merge*) Bash(git push --force*) Bash(git push -f*) Ba
 # dashboard's chat-tool run-issue action) to scope this run to exactly
 # one issue instead of every assigned issue. See
 # bin/scripts/build_run_prompt.sh for what changes in the prompt.
+#
+# "dashboard" when the dashboard's run-issue chat action scoped this run to
+# one issue (build_run_prompt.sh takes the same $@ and branches on it the
+# same way); otherwise this script's normal invocation path is launchd, and
+# a manual terminal run is indistinguishable from a scheduled one - that
+# distinction isn't needed for anything downstream, so no new flag is added
+# just to make it.
+if [[ $# -eq 2 ]]; then
+  RUN_TRIGGER="dashboard"
+else
+  RUN_TRIGGER="scheduled"
+fi
+python3 bin/events.py emit --type run.started --run-id "$RUN_ID" \
+  --data "{\"trigger\": \"$RUN_TRIGGER\"}" || true
 PROMPT="$(bash "$LOOP_DIR/bin/scripts/build_run_prompt.sh" "$@")"
 
 # Which AI CLI to invoke - set via the dashboard's /ai-cli page (see
@@ -164,4 +187,5 @@ zsh -i -l -c "timeout 3600 $SERIALIZED_CMD" | tee -a "$UNIFIED_LOG"
 # Reaching here means the delegated command exited zero (a non-zero exit
 # would have tripped `set -e` and the ERR trap above instead).
 python3 bin/web/dashboard_server.py write-status idle --exit-code 0
+python3 bin/events.py emit --type run.completed --run-id "$RUN_ID" || true
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] ---- gitlab-loop ---- run finished (exit 0) ----" >> "$UNIFIED_LOG"
