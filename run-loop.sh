@@ -161,7 +161,7 @@ case "$AI_CLI" in
       "$PROMPT")
     ;;
   *)
-    CLI_CMD=(claude -p "${ADD_DIR_ARGS[@]}" --permission-mode acceptEdits --allowedTools "$ALLOWED_TOOLS" --disallowedTools "$DISALLOWED_TOOLS" --output-format text "$PROMPT")
+    CLI_CMD=(claude -p "${ADD_DIR_ARGS[@]}" --permission-mode acceptEdits --allowedTools "$ALLOWED_TOOLS" --disallowedTools "$DISALLOWED_TOOLS" --output-format json "$PROMPT")
     ;;
 esac
 
@@ -183,18 +183,45 @@ python3 bin/web/dashboard_server.py write-status running
 # `timeout ... zsh ...` from a minimal PATH exits 127, while
 # `zsh -i -l -c "timeout ..."` runs and still enforces the limit (exit 124).
 #
-# `| tee -a "$UNIFIED_LOG"` duplicates this one command's already-merged
-# stdout+stderr (merged by the exec redirect above) into the unified log
-# too, in addition to the exec'd dated log - a plain foreground pipeline,
-# not `exec > >(...)`, specifically so the shell actually waits for tee to
-# finish flushing before the script can exit; `set -o pipefail` (already
-# in this script's `set -euo pipefail` at the top) is what makes the
-# pipeline's own exit status reflect zsh's, not tee's, so `set -e`/the ERR
-# trap still fire on a real failure exactly as before this line existed.
-zsh -i -l -c "timeout 3600 $SERIALIZED_CMD" | tee -a "$UNIFIED_LOG"
+# Captured to a temp file rather than piped through tee: the Claude branch's
+# --output-format json (see above) means stdout is a single JSON blob that
+# must stay parseable, not intermixed with tee's own buffering. Deliberately
+# no `2>&1` on this redirect either - stderr keeps flowing to the script's
+# own inherited fd2 (the exec redirect at the top of this script already
+# sends it to outputs/history/$DATE_STAMP.log), so nothing is lost, it's
+# just no longer duplicated into the unified log the way merged
+# stdout+stderr used to be under the old `| tee` pipeline. Removing the pipe
+# also removes any dependence on `pipefail` for this line: `$?` below
+# reflects zsh's own exit code directly.
+CLI_OUTPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/loop-cli-output.XXXXXX")"
+zsh -i -l -c "timeout 3600 $SERIALIZED_CMD" > "$CLI_OUTPUT_FILE"
 
 # Reaching here means the delegated command exited zero (a non-zero exit
 # would have tripped `set -e` and the ERR trap above instead).
+#
+# Claude's --output-format json wraps the same final answer text
+# (previously the entirety of stdout under --output-format text) inside a
+# JSON envelope alongside usage/cost data - bin/cost.py extract-result-text
+# pulls the text back out for the human-readable log, and usage-json pulls
+# the cost data out for the run.completed event's --data. Codex is
+# untouched: its own output format never changed, so its raw output is just
+# appended to the unified log and run.completed stays bare, exactly as
+# before this sprint - see
+# docs/superpowers/specs/2026-09-04-cost-tracking-design.md for why Codex
+# usage tracking isn't built yet.
+if [[ "$AI_CLI" == "codex" ]]; then
+  cat "$CLI_OUTPUT_FILE" >> "$UNIFIED_LOG"
+  RUN_USAGE_DATA=""
+else
+  python3 bin/cost.py extract-result-text --cli-output-file "$CLI_OUTPUT_FILE" >> "$UNIFIED_LOG" || true
+  RUN_USAGE_DATA="$(python3 bin/cost.py usage-json --cli-output-file "$CLI_OUTPUT_FILE" 2>/dev/null || true)"
+fi
+rm -f "$CLI_OUTPUT_FILE"
+
 python3 bin/web/dashboard_server.py write-status idle --exit-code 0
-python3 bin/events.py emit --type run.completed --run-id "$RUN_ID" || true
+if [[ -n "$RUN_USAGE_DATA" ]]; then
+  python3 bin/events.py emit --type run.completed --run-id "$RUN_ID" --data "$RUN_USAGE_DATA" || true
+else
+  python3 bin/events.py emit --type run.completed --run-id "$RUN_ID" || true
+fi
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] ---- gitlab-loop ---- run finished (exit 0) ----" >> "$UNIFIED_LOG"
