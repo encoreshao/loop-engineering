@@ -30,7 +30,7 @@ exec >> "$LOG_DIR/$DATE_STAMP.log" 2>&1
 # rather than folded into the exec redirect above, so this stays a plain,
 # synchronous append with no risk of the last few lines being lost to an
 # unflushed background `tee` at process exit (see the claude invocation's
-# own tee below for why that risk is real and how it's avoided there).
+# own tee -a calls below for why that risk is real and how it's avoided there).
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] ---- gitlab-loop ---- run started ----" >> "$UNIFIED_LOG"
 
 cd "$LOOP_DIR"
@@ -194,6 +194,7 @@ python3 bin/web/dashboard_server.py write-status running
 # also removes any dependence on `pipefail` for this line: `$?` below
 # reflects zsh's own exit code directly.
 CLI_OUTPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/loop-cli-output.XXXXXX")"
+trap 'rm -f "$CLI_OUTPUT_FILE"' EXIT
 zsh -i -l -c "timeout 3600 $SERIALIZED_CMD" > "$CLI_OUTPUT_FILE"
 
 # Reaching here means the delegated command exited zero (a non-zero exit
@@ -210,13 +211,12 @@ zsh -i -l -c "timeout 3600 $SERIALIZED_CMD" > "$CLI_OUTPUT_FILE"
 # docs/superpowers/specs/2026-09-04-cost-tracking-design.md for why Codex
 # usage tracking isn't built yet.
 if [[ "$AI_CLI" == "codex" ]]; then
-  cat "$CLI_OUTPUT_FILE" >> "$UNIFIED_LOG"
+  cat "$CLI_OUTPUT_FILE" | tee -a "$UNIFIED_LOG"
   RUN_USAGE_DATA=""
 else
-  python3 bin/cost.py extract-result-text --cli-output-file "$CLI_OUTPUT_FILE" >> "$UNIFIED_LOG" || true
-  RUN_USAGE_DATA="$(python3 bin/cost.py usage-json --cli-output-file "$CLI_OUTPUT_FILE" 2>/dev/null || true)"
+  python3 bin/cost.py extract-result-text --cli-output-file "$CLI_OUTPUT_FILE" | tee -a "$UNIFIED_LOG" || true
+  RUN_USAGE_DATA="$(python3 bin/cost.py usage-json --cli-output-file "$CLI_OUTPUT_FILE" || true)"
 fi
-rm -f "$CLI_OUTPUT_FILE"
 
 python3 bin/web/dashboard_server.py write-status idle --exit-code 0
 if [[ -n "$RUN_USAGE_DATA" ]]; then
