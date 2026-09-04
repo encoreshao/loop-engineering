@@ -6239,6 +6239,11 @@ def test_chat_assistant_system_prompt_does_not_mention_history_delete():
     assert "history-delete" not in ds._CHAT_ASSISTANT_SYSTEM_PROMPT
 
 
+def test_chat_assistant_system_prompt_documents_run_issue_action():
+    assert "run-issue" in ds._CHAT_ASSISTANT_SYSTEM_PROMPT
+    assert "GitLab issue link" in ds._CHAT_ASSISTANT_SYSTEM_PROMPT
+
+
 def test_send_user_message_success(tmp_path):
     ok, message = ds.send_user_message("please hold off on brightleaf.web today", tmp_path / "messages.json")
     assert ok is True

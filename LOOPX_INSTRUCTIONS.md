@@ -2,6 +2,17 @@
 
 You are running the daily GitLab issue loop. Read `<loop_dir>/docs/tasks/gitlab-issue-loop.md` and `<loop_dir>/PROGRESS.md` before doing anything else — `<loop_dir>` is defined just below, and is where this file lives.
 
+This same procedure also runs on demand, scoped to exactly one issue,
+when triggered from the dashboard's Activity page chat by pasting a
+GitLab issue link (see `chat-tool run-issue` in
+`bin/web/dashboard_server.py`). In that mode, Step 1 below is skipped
+entirely - the task list is just the one issue named in the prompt -
+and the issue does not need to be assigned to the configured username;
+pasting the link is itself the authorization. Every safety boundary
+below (worktree-only edits, the lint/test gate before opening an MR,
+never merging, never touching an untracked project) still applies
+unchanged.
+
 If `~/.loop-engineering/instructions.md` exists and is non-empty, read it too and follow it for the rest of this run, on top of (never in place of) everything in this file — it's the user's own free-text instructions, saved via the dashboard's **Instructions** page (see `render_instructions_page` in `bin/web/dashboard_server.py`). It's fine, and expected, for this file to not exist or to be empty; that just means no additional instructions were set.
 
 ## Configuration
