@@ -45,6 +45,18 @@ python3 <loop_dir>/bin/list_assigned_issues.py
 ```
 With no arguments this defaults to every alias from `loop_config.py aliases` and the username from `loop_config.py assignee`. This returns `{alias: [issue, ...]}` for open issues currently assigned to that user. This is the run's task list. If every list is empty, skip Step 2 and go straight to "End of run" — **but still complete "End of run" in full, including the Slack digest.** A quiet morning still gets a Slack message (e.g. "No assigned issues today — nothing to do"), it just skips the per-issue work.
 
+## Event reporting
+
+Throughout Step 2 below, you'll see `python3 <loop_dir>/bin/events.py emit
+...` calls alongside the existing Slack/status calls. Every one of them is
+best-effort: `$LOOP_RUN_ID` is already set in your environment (exported by
+`run-loop.sh` before it started you), and every issue's own `--issue-run-id`
+is `<run_id>_<alias>_<issue_iid>`, built from values already on hand at each
+call site. If one of these `emit` calls fails, note it and continue the
+issue's own flow exactly as if it had succeeded — it is never a
+verification failure or a tool-permission violation, and never a reason to
+escalate or stop.
+
 ## Step 2: Process issues ONE AT A TIME
 
 For each project alias and each issue in that project's list, in order — never in parallel. Before starting work on a given alias, run `python3 <loop_dir>/bin/loop_config.py project <alias>` once and keep its `project_id`, `local_path`, `target_branch`, `install_cmd`, `lint_cmd`, `test_cmd`, and `instance` values on hand for every step below — `instance` is this alias's own GitLab instance (its own override if `projects.json` set one for it, otherwise the config's default), never the same for every alias when projects span more than one instance. Also run `python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_api.py project-info <alias>` once and note its `bundle` field. Every `slack_notify.py` call below for this alias's issues has `<bundle_flag>` inserted immediately after `slack_notify.py`, where `<bundle_flag>` is: the empty string, if `bundle` is `null` (those calls are then unchanged from today); or the string ` --bundle=<that value>` — including its own leading space — if `bundle` is non-null. Either way, `slack_notify.py<bundle_flag>` produces a correctly-spaced command; don't add or remove any extra space when substituting it. Also keep the issue's own `web_url` (GitLab's permalink to that issue, already present in step 1's output for each issue) on hand alongside its `issue_iid` and title — that is the `<issue_url>` used in every Slack message below.
@@ -66,6 +78,7 @@ Skip the reply if the message doesn't call for one (e.g. it was informational an
 Also report that you're starting this issue, so the dashboard's Activity page reflects real progress:
 ```
 python3 <loop_dir>/bin/web/dashboard_server.py write-status running --current-issue "<alias> #<issue_iid>" --current-step "analyzing"
+python3 <loop_dir>/bin/events.py emit --type issue.started --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> || true
 ```
 
 1. **Sync and detect new comments.**
@@ -113,10 +126,22 @@ python3 <loop_dir>/bin/web/dashboard_server.py write-status running --current-is
 
 6. **Verify**, from inside the worktree, using ONLY `install_cmd`, `lint_cmd`, and `test_cmd` from `loop_config.py project <alias>` — run `install_cmd` once if dependencies look missing, then `lint_cmd`, then `test_cmd`. Also run `git status` and `git diff` and confirm only files relevant to this issue changed.
 
+   ```
+   python3 <loop_dir>/bin/events.py emit --type verification.started --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> || true
+   ```
+
    For a Rails project (`install_cmd` starts with `bundle`): if `test_cmd` fails because the test database schema is out of date, you may run `RAILS_ENV=test bundle exec rake db:test:prepare` ONCE and retry `test_cmd` ONCE. Do not run any other `rake db:*` task.
 
-   - **Any command fails, or unexpected files changed** → go to "Escalate: verification failed" below. Do not retry the same failing command a second time on this issue in this run.
-   - **Everything passes** → continue to step 7.
+   - **Any command fails, or unexpected files changed** →
+     ```
+     python3 <loop_dir>/bin/events.py emit --type verification.failed --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> || true
+     ```
+     then go to "Escalate: verification failed" below. Do not retry the same failing command a second time on this issue in this run.
+   - **Everything passes** →
+     ```
+     python3 <loop_dir>/bin/events.py emit --type verification.passed --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> || true
+     ```
+     then continue to step 7.
 
 7. **Commit the fix.** Stage only the files relevant to this issue (never `git add -A`/`git add .`, which would sweep up unrelated stray changes) and commit with a clear message:
    ```
@@ -149,6 +174,7 @@ python3 <loop_dir>/bin/web/dashboard_server.py write-status running --current-is
    ```
    python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_cache.py annotate-issue <instance> <project_id> <issue_iid> loop_last_action "mr_opened: <mr_web_url>"
    python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Finished* <<issue_url>|#<issue_iid> (<alias>)>: MR opened → <<mr_web_url>|view MR>"
+   python3 <loop_dir>/bin/events.py emit --type issue.completed --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"action\": \"fix\", \"mr_url\": \"<mr_web_url>\"}" || true
    ```
    That message carries two different links: `<issue_url>` (the GitLab **issue**, for context — the same value used in the "starting" message) and `<mr_web_url>` (the **merge request** just opened, the actual "view MR" action). They are never the same URL; do not substitute one for the other.
 
@@ -194,6 +220,7 @@ Some issues don't need a fix at all — a question about behavior, a request to 
 4. Notify:
    ```
    python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Finished* <<issue_url>|#<issue_iid> (<alias>)>: answered directly — see comment"
+   python3 <loop_dir>/bin/events.py emit --type issue.completed --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"action\": \"answer\"}" || true
    ```
 5. Record a learning if there's a reusable pattern here, using the same judgment-based rule and the same `memory_store.py add` command shown in step 9 (also by absolute `<loop_dir>/bin/...` path) — skip it if this was too specific to generalize.
 6. Return to the loop directory before moving to the next issue:
@@ -211,6 +238,7 @@ python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_api.py post-issue-c
 python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_cache.py annotate-issue <instance> <project_id> <issue_iid> loop_last_action awaiting_clarification
 python3 <loop_dir>/bin/track_new_comments.py mark-seen <instance> <project_id> <issue_iid>
 python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Finished* <<issue_url>|#<issue_iid> (<alias>)>: escalated, needs clarification — see comment"
+python3 <loop_dir>/bin/events.py emit --type issue.escalated --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"reason\": \"needs_clarification\"}" || true
 ```
 No worktree is created, no code is touched. Record a learning here too if the ambiguity reflects a recurring pattern (e.g. this project's issues in a certain area are consistently underspecified) rather than something specific to this one issue, using the same `memory_store.py add` command shown in step 9 (also by absolute `<loop_dir>/bin/...` path).
 
@@ -226,6 +254,7 @@ python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_api.py post-issue-c
 python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_cache.py annotate-issue <instance> <project_id> <issue_iid> loop_last_action verification_failed
 python3 <loop_dir>/bin/track_new_comments.py mark-seen <instance> <project_id> <issue_iid>
 python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Finished* <<issue_url>|#<issue_iid> (<alias>)>: escalated, verification failed — see comment"
+python3 <loop_dir>/bin/events.py emit --type issue.escalated --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"reason\": \"verification_failed\"}" || true
 ```
 This section is reachable from three places with different working directories — step 4, if creating the worktree failed (cwd is still `<loop_dir>`); step 6, if verification failed (cwd is the worktree); and step 1 of "Answer directly", if the read-only worktree could not be created (cwd is still `<loop_dir>`). Every command above names its script by absolute path precisely so it behaves identically in all three cases; do not `cd` anywhere before running them.
 
