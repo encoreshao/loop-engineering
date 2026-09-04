@@ -358,6 +358,34 @@ def test_cli_report_days_flag(tmp_path):
     assert "$999.00" not in result.stdout
 
 
+def test_usage_json_to_events_emit_round_trip_via_real_subprocesses(tmp_path):
+    # The actual seam run-loop.sh relies on: `cost.py usage-json`'s stdout is
+    # captured into a shell variable and handed straight to `events.py emit
+    # --data` as a separate process - not the two Python functions called
+    # directly in the same process, as every other test in this file does.
+    cli_output_path = tmp_path / "cli-output.json"
+    cli_output_path.write_text(json.dumps(REAL_CLAUDE_JSON))
+
+    usage_result = _run_cli(["usage-json", "--cli-output-file", str(cli_output_path)])
+    assert usage_result.returncode == 0, usage_result.stderr
+    usage_json_stdout = usage_result.stdout.strip()
+
+    emit_result = subprocess.run(
+        [
+            sys.executable, str(REPO_ROOT / "bin" / "events.py"), "emit",
+            "--type", "run.completed", "--run-id", "run_round_trip",
+            "--data", usage_json_stdout, "--events-dir", str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert emit_result.returncode == 0, emit_result.stderr
+
+    report = cost.build_cost_report(events_dir=tmp_path)
+
+    assert report["cost"]["total_cost_usd"] == REAL_CLAUDE_JSON["total_cost_usd"]
+
+
 def test_cli_report_nonexistent_events_dir_fails_clearly(tmp_path):
     missing_dir = tmp_path / "does-not-exist"
 
