@@ -108,20 +108,44 @@ def _cmd_emit(argv):
     return 0
 
 
-def _print_matching_events(path, run_id_filter):
+def _read_events_file(path):
+    """Yield parsed event dicts from one JSONL file, skipping (and
+    warning to stderr about) any malformed line."""
     with open(path) as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
             try:
-                event = json.loads(line)
+                yield json.loads(line)
             except json.JSONDecodeError as exc:
-                print(f"list: skipping malformed line in {path}: {exc}", file=sys.stderr)
-                continue
-            if run_id_filter is not None and event.get("run_id") != run_id_filter:
-                continue
-            print(json.dumps(event))
+                print(f"events: skipping malformed line in {path}: {exc}", file=sys.stderr)
+
+
+def _print_matching_events(path, run_id_filter):
+    for event in _read_events_file(path):
+        if run_id_filter is not None and event.get("run_id") != run_id_filter:
+            continue
+        print(json.dumps(event))
+
+
+def iter_events(events_dir=None, since_date=None, until_date=None):
+    """Yield every event across outputs/events/*.jsonl files whose
+    date-named filename (YYYY-MM-DD.jsonl) falls within
+    [since_date, until_date] (both 'YYYY-MM-DD' strings, inclusive;
+    either or both may be None for unbounded), in filename order."""
+    if events_dir is None:
+        events_dir = DEFAULT_EVENTS_DIR
+    events_dir = Path(events_dir)
+    if not events_dir.exists():
+        return
+    for path in sorted(events_dir.glob("*.jsonl")):
+        date_stamp = path.stem
+        if since_date is not None and date_stamp < since_date:
+            continue
+        if until_date is not None and date_stamp > until_date:
+            continue
+        yield from _read_events_file(path)
 
 
 def _cmd_list(argv):

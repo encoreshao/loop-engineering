@@ -256,3 +256,56 @@ def test_cli_list_without_date_or_run_id_fails_clearly(tmp_path):
 
     assert result.returncode == 1
     assert "--date" in result.stderr or "--run-id" in result.stderr
+
+
+def test_iter_events_yields_all_events_unfiltered(tmp_path):
+    events.emit("run.started", run_id="run_1", events_dir=tmp_path)
+    events.emit("run.completed", run_id="run_1", events_dir=tmp_path)
+
+    result = list(events.iter_events(events_dir=tmp_path))
+
+    assert [e["event_type"] for e in result] == ["run.started", "run.completed"]
+
+
+def test_iter_events_filters_by_date_range(tmp_path):
+    events.emit("run.started", run_id="run_old", events_dir=tmp_path)
+
+    # Write a second, earlier date's file directly (emit() always writes
+    # "today", so simulate an older day by writing the file ourselves).
+    old_event = events.emit("run.started", run_id="run_older", events_dir=tmp_path)
+    old_path = list(tmp_path.glob("*.jsonl"))[0]
+    older_date = "2000-01-01"
+    older_path = tmp_path / f"{older_date}.jsonl"
+    older_path.write_text(json.dumps({**old_event, "run_id": "run_older_file"}) + "\n")
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # Unbounded: sees both files.
+    all_events = list(events.iter_events(events_dir=tmp_path))
+    assert len(all_events) == 3  # run_1's 2 events from the other test-writes above don't leak; this file has run_old + run_older, plus the synthetic older file's 1 event
+    run_ids_seen = {e["run_id"] for e in all_events}
+    assert "run_older_file" in run_ids_seen
+
+    # since_date excludes the older file.
+    since_only = list(events.iter_events(events_dir=tmp_path, since_date=today))
+    assert all(e["run_id"] != "run_older_file" for e in since_only)
+
+    # until_date set to the older date excludes today's file.
+    until_only = list(events.iter_events(events_dir=tmp_path, until_date=older_date))
+    assert all(e["run_id"] == "run_older_file" for e in until_only)
+
+
+def test_iter_events_skips_malformed_line(tmp_path):
+    events.emit("run.started", run_id="run_1", events_dir=tmp_path)
+    path = list(tmp_path.glob("*.jsonl"))[0]
+    with open(path, "a") as f:
+        f.write("{not valid json\n")
+
+    result = list(events.iter_events(events_dir=tmp_path))
+
+    assert len(result) == 1
+    assert result[0]["run_id"] == "run_1"
+
+
+def test_iter_events_empty_dir_yields_nothing(tmp_path):
+    assert list(events.iter_events(events_dir=tmp_path / "does-not-exist")) == []
