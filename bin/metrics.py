@@ -222,6 +222,33 @@ def build_report(events_dir=None, since_date=None, until_date=None, project=None
     }
 
 
+def bucketed_reports(events_dir=None, days=7, bucket_days=1):
+    """Return a list of build_report()-shaped dicts, oldest first, one
+    per sequential UTC-day bucket covering the last `days` days, each
+    spanning `bucket_days` calendar days. Buckets are constructed
+    newest-to-oldest (starting from today and working backward) so that
+    a remainder when `days` doesn't divide evenly by `bucket_days` lands
+    on the OLDEST bucket, not the newest - after reversing to oldest-first
+    order for the return value, that shorter bucket is therefore first in
+    the list, not last."""
+    today = datetime.now(timezone.utc).date()
+    buckets = []
+    bucket_until = today
+    remaining = days
+    while remaining > 0:
+        span = min(bucket_days, remaining)
+        bucket_since = bucket_until - timedelta(days=span - 1)
+        buckets.append((bucket_since, bucket_until))
+        bucket_until = bucket_since - timedelta(days=1)
+        remaining -= span
+    buckets.reverse()
+
+    return [
+        build_report(events_dir=events_dir, since_date=since.isoformat(), until_date=until.isoformat())
+        for since, until in buckets
+    ]
+
+
 def _fmt_rate(value):
     return f"{value * 100:.1f}%" if value is not None else "N/A"
 

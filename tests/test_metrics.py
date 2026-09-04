@@ -7,7 +7,7 @@ import json
 import os
 import re
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin"))
 import events
@@ -419,3 +419,42 @@ def test_cli_nonexistent_events_dir_fails_clearly(tmp_path):
     assert result.returncode == 1
     assert "does not exist" in result.stderr.lower()
     assert result.stdout == ""
+
+
+def test_bucketed_reports_seven_daily_buckets(tmp_path):
+    reports = metrics.bucketed_reports(events_dir=tmp_path, days=7, bucket_days=1)
+
+    assert len(reports) == 7
+    today = datetime.now(timezone.utc).date()
+    expected_dates = [(today - timedelta(days=n)).isoformat() for n in range(6, -1, -1)]
+    actual_dates = [r["scope"]["since_date"] for r in reports]
+    assert actual_dates == expected_dates
+    for r in reports:
+        assert r["scope"]["since_date"] == r["scope"]["until_date"]  # 1-day bucket
+
+
+def test_bucketed_reports_ninety_days_weekly_buckets_first_bucket_is_shorter(tmp_path):
+    reports = metrics.bucketed_reports(events_dir=tmp_path, days=90, bucket_days=7)
+
+    assert len(reports) == 13
+
+    first_since = datetime.fromisoformat(reports[0]["scope"]["since_date"]).date()
+    first_until = datetime.fromisoformat(reports[0]["scope"]["until_date"]).date()
+    assert (first_until - first_since).days == 5  # 6-day span (5 = span - 1)
+
+    for r in reports[1:]:
+        since = datetime.fromisoformat(r["scope"]["since_date"]).date()
+        until = datetime.fromisoformat(r["scope"]["until_date"]).date()
+        assert (until - since).days == 6  # full 7-day span
+
+    today = datetime.now(timezone.utc).date()
+    assert reports[-1]["scope"]["until_date"] == today.isoformat()
+
+
+def test_bucketed_reports_empty_events_dir_still_returns_well_formed_reports(tmp_path):
+    reports = metrics.bucketed_reports(events_dir=tmp_path, days=3, bucket_days=1)
+
+    assert len(reports) == 3
+    for r in reports:
+        assert r["issue"]["issues_processed"] == 0
+        assert r["quality_and_autonomy"]["resolution_rate"] is None
