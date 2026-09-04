@@ -12,6 +12,7 @@ outputs/history/*.md
 outputs/history/*.log
 outputs/status.json
 outputs/topic-monitor/
+outputs/events/
 
 # The unified log every `claude` CLI invocation across this project writes
 # to (see bin/web/dashboard_server.py's append_unified_log/render_logs_page,

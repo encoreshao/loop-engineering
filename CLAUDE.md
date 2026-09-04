@@ -56,6 +56,11 @@ directory everywhere it's resolved — `bin/loop_config.py`,
 `bin/web/dashboard_server.py`'s `CUSTOM_INSTRUCTIONS_PATH`. Leave it
 unset and every one of those falls back to the real path, which is exactly
 why it must always be set before running anything in dev/verification.
+`bin/events.py` is a deliberate exception: it always writes to
+`<repo_root>/outputs/events/` regardless of `LOOP_ENGINEERING_HOME`,
+because events are per-checkout run history (same category as
+`outputs/daily-review.md`/`outputs/history/`), not per-machine config
+like `projects.json`.
 Run this way, `dashboard_server.py` is a plain foreground process — no
 `launchd`, no `KeepAlive` — kill it whenever you're done. Same idea for the
 loop scripts themselves (`run-loop.sh`, `bin/*.py`): run them with

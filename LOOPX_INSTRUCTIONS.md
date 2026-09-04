@@ -78,7 +78,7 @@ Skip the reply if the message doesn't call for one (e.g. it was informational an
 Also report that you're starting this issue, so the dashboard's Activity page reflects real progress:
 ```
 python3 <loop_dir>/bin/web/dashboard_server.py write-status running --current-issue "<alias> #<issue_iid>" --current-step "analyzing"
-python3 <loop_dir>/bin/events.py emit --type issue.started --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> || true
+python3 <loop_dir>/bin/events.py emit --type issue.started --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid>
 ```
 
 1. **Sync and detect new comments.**
@@ -110,7 +110,7 @@ python3 <loop_dir>/bin/events.py emit --type issue.started --run-id "$LOOP_RUN_I
 
    All further file edits for this issue happen ONLY inside the printed worktree path. Never edit files in `<local_path>` directly.
 
-   If this command fails (e.g. a merge conflict pulling in the latest branch), treat it as a verification failure for this issue — go to "Escalate: verification failed" below rather than trying to resolve the conflict yourself.
+   If this command fails (e.g. a merge conflict pulling in the latest branch), treat it as a verification failure for this issue — go to "Escalate: verification failed" below rather than trying to resolve the conflict yourself. Use reason `worktree_creation_failed` in that block's emit call, since verification itself never ran.
 
    Report the phase change:
    ```
@@ -124,22 +124,24 @@ Report the phase change before verifying:
 python3 <loop_dir>/bin/web/dashboard_server.py write-status running --current-issue "<alias> #<issue_iid>" --current-step "verifying"
 ```
 
-6. **Verify**, from inside the worktree, using ONLY `install_cmd`, `lint_cmd`, and `test_cmd` from `loop_config.py project <alias>` — run `install_cmd` once if dependencies look missing, then `lint_cmd`, then `test_cmd`. Also run `git status` and `git diff` and confirm only files relevant to this issue changed.
+6. **Verify**, from inside the worktree. Before running anything below, emit:
 
    ```
-   python3 <loop_dir>/bin/events.py emit --type verification.started --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> || true
+   python3 <loop_dir>/bin/events.py emit --type verification.started --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid>
    ```
+
+   using ONLY `install_cmd`, `lint_cmd`, and `test_cmd` from `loop_config.py project <alias>` — run `install_cmd` once if dependencies look missing, then `lint_cmd`, then `test_cmd`. Also run `git status` and `git diff` and confirm only files relevant to this issue changed.
 
    For a Rails project (`install_cmd` starts with `bundle`): if `test_cmd` fails because the test database schema is out of date, you may run `RAILS_ENV=test bundle exec rake db:test:prepare` ONCE and retry `test_cmd` ONCE. Do not run any other `rake db:*` task.
 
    - **Any command fails, or unexpected files changed** →
      ```
-     python3 <loop_dir>/bin/events.py emit --type verification.failed --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> || true
+     python3 <loop_dir>/bin/events.py emit --type verification.failed --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid>
      ```
-     then go to "Escalate: verification failed" below. Do not retry the same failing command a second time on this issue in this run.
+     then go to "Escalate: verification failed" below. Use reason `verification_failed` in that block's emit call, since this is the site that actually ran verification. Do not retry the same failing command a second time on this issue in this run.
    - **Everything passes** →
      ```
-     python3 <loop_dir>/bin/events.py emit --type verification.passed --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> || true
+     python3 <loop_dir>/bin/events.py emit --type verification.passed --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid>
      ```
      then continue to step 7.
 
@@ -174,7 +176,7 @@ python3 <loop_dir>/bin/web/dashboard_server.py write-status running --current-is
    ```
    python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_cache.py annotate-issue <instance> <project_id> <issue_iid> loop_last_action "mr_opened: <mr_web_url>"
    python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Finished* <<issue_url>|#<issue_iid> (<alias>)>: MR opened → <<mr_web_url>|view MR>"
-   python3 <loop_dir>/bin/events.py emit --type issue.completed --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"action\": \"fix\", \"mr_url\": \"<mr_web_url>\"}" || true
+   python3 <loop_dir>/bin/events.py emit --type issue.completed --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"action\": \"fix\", \"mr_url\": \"<mr_web_url>\"}"
    ```
    That message carries two different links: `<issue_url>` (the GitLab **issue**, for context — the same value used in the "starting" message) and `<mr_web_url>` (the **merge request** just opened, the actual "view MR" action). They are never the same URL; do not substitute one for the other.
 
@@ -207,7 +209,7 @@ Some issues don't need a fix at all — a question about behavior, a request to 
    ```
    bash <loop_dir>/bin/scripts/new_worktree.sh <local_path> <target_branch> <issue_iid> <worktree_root>
    ```
-   then `cd` into the printed path and read there. This is a read-only visit: make no edits, run no install/lint/test commands, commit nothing, push nothing, open no MR. If the command fails, go to "Escalate: verification failed" below instead of working around it. Skip this entirely when the answer comes from GitLab data or recorded learnings alone — most questions of this kind don't need the source at all.
+   then `cd` into the printed path and read there. This is a read-only visit: make no edits, run no install/lint/test commands, commit nothing, push nothing, open no MR. If the command fails, go to "Escalate: verification failed" below instead of working around it — use reason `worktree_creation_failed` in that block's emit call, since verification itself never ran. Skip this entirely when the answer comes from GitLab data or recorded learnings alone — most questions of this kind don't need the source at all.
 2. Post the answer as a comment:
    ```
    python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_api.py post-issue-comment <alias> <issue_iid> "<the answer, written for the person who asked>"
@@ -220,7 +222,7 @@ Some issues don't need a fix at all — a question about behavior, a request to 
 4. Notify:
    ```
    python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Finished* <<issue_url>|#<issue_iid> (<alias>)>: answered directly — see comment"
-   python3 <loop_dir>/bin/events.py emit --type issue.completed --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"action\": \"answer\"}" || true
+   python3 <loop_dir>/bin/events.py emit --type issue.completed --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"action\": \"answer\"}"
    ```
 5. Record a learning if there's a reusable pattern here, using the same judgment-based rule and the same `memory_store.py add` command shown in step 9 (also by absolute `<loop_dir>/bin/...` path) — skip it if this was too specific to generalize.
 6. Return to the loop directory before moving to the next issue:
@@ -238,7 +240,7 @@ python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_api.py post-issue-c
 python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_cache.py annotate-issue <instance> <project_id> <issue_iid> loop_last_action awaiting_clarification
 python3 <loop_dir>/bin/track_new_comments.py mark-seen <instance> <project_id> <issue_iid>
 python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Finished* <<issue_url>|#<issue_iid> (<alias>)>: escalated, needs clarification — see comment"
-python3 <loop_dir>/bin/events.py emit --type issue.escalated --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"reason\": \"needs_clarification\"}" || true
+python3 <loop_dir>/bin/events.py emit --type issue.escalated --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"reason\": \"needs_clarification\"}"
 ```
 No worktree is created, no code is touched. Record a learning here too if the ambiguity reflects a recurring pattern (e.g. this project's issues in a certain area are consistently underspecified) rather than something specific to this one issue, using the same `memory_store.py add` command shown in step 9 (also by absolute `<loop_dir>/bin/...` path).
 
@@ -254,8 +256,10 @@ python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_api.py post-issue-c
 python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_cache.py annotate-issue <instance> <project_id> <issue_iid> loop_last_action verification_failed
 python3 <loop_dir>/bin/track_new_comments.py mark-seen <instance> <project_id> <issue_iid>
 python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Finished* <<issue_url>|#<issue_iid> (<alias>)>: escalated, verification failed — see comment"
-python3 <loop_dir>/bin/events.py emit --type issue.escalated --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"reason\": \"verification_failed\"}" || true
+python3 <loop_dir>/bin/events.py emit --type issue.escalated --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"reason\": \"<verification_failed_or_worktree_creation_failed>\"}"
 ```
+Substitute `verification_failed` for `<verification_failed_or_worktree_creation_failed>` if you arrived here from step 6's verification failure, otherwise `worktree_creation_failed` — see the note at whichever call site sent you here.
+
 This section is reachable from three places with different working directories — step 4, if creating the worktree failed (cwd is still `<loop_dir>`); step 6, if verification failed (cwd is the worktree); and step 1 of "Answer directly", if the read-only worktree could not be created (cwd is still `<loop_dir>`). Every command above names its script by absolute path precisely so it behaves identically in all three cases; do not `cd` anywhere before running them.
 
 Do not push, do not open an MR. Record a learning here too if this failure looks like a recurring gotcha future runs should know about (e.g. "test X is flaky", "lint requires Y first") rather than a one-off fluke specific to this attempt — using the same `memory_store.py add` command shown in step 9 (also by absolute `<loop_dir>/bin/...` path).
