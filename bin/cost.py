@@ -9,7 +9,10 @@ usage extraction is skipped entirely when the configured AI CLI is Codex -
 see the spec's "Investigation" section for why."""
 import json
 import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
+import events
 import metrics
 
 
@@ -151,9 +154,73 @@ def compute_cost_metrics(events):
     }
 
 
+def build_cost_report(events_dir=None, since_date=None, until_date=None):
+    """Reads events.iter_events(events_dir, since_date, until_date) once,
+    returns {"cost": compute_cost_metrics(...), "scope": {"since_date",
+    "until_date"}}. No project parameter - see the spec's "Constraint"
+    section for why cost has no project dimension."""
+    all_events = list(events.iter_events(events_dir=events_dir, since_date=since_date, until_date=until_date))
+    return {
+        "cost": compute_cost_metrics(all_events),
+        "scope": {"since_date": since_date, "until_date": until_date},
+    }
+
+
+def _fmt_money(value):
+    return f"${value:,.2f}" if value is not None else "N/A"
+
+
+def _fmt_count(value):
+    return f"{value:,}" if value is not None else "N/A"
+
+
+def format_cost_report(report):
+    scope = report["scope"]
+    if scope["since_date"] is None and scope["until_date"] is None:
+        header = "Loop Cost (all time)"
+    else:
+        header = f"Loop Cost ({scope['since_date']} to {scope['until_date']})"
+
+    cost_metrics = report["cost"]
+    lines = [header, ""]
+    lines.append(f"Total AI cost         {_fmt_money(cost_metrics['total_cost_usd'])}")
+    lines.append(f"Total tokens          {_fmt_count(cost_metrics['total_tokens'])}")
+    lines.append("")
+    lines.append(f"Cost per issue         {_fmt_money(cost_metrics['cost_per_issue'])}")
+    lines.append(f"Cost per resolution    {_fmt_money(cost_metrics['cost_per_resolution'])}")
+    lines.append(f"Wasted cost            N/A ({cost_metrics['wasted_cost_unavailable_reason']})")
+    return "\n".join(lines)
+
+
+def _cmd_report(argv):
+    since_date = until_date = None
+    days_raw = _parse_flag(argv, "--days")
+    if days_raw is not None:
+        try:
+            days = int(days_raw)
+        except ValueError:
+            print(f"report: --days must be an integer, got {days_raw!r}", file=sys.stderr)
+            return 1
+        until = datetime.now(timezone.utc).date()
+        since = until - timedelta(days=days - 1)
+        since_date, until_date = since.isoformat(), until.isoformat()
+
+    events_dir_raw = _parse_flag(argv, "--events-dir")
+    events_dir = None
+    if events_dir_raw:
+        if not Path(events_dir_raw).exists():
+            print(f"report: --events-dir {events_dir_raw} does not exist", file=sys.stderr)
+            return 1
+        events_dir = Path(events_dir_raw)
+
+    report = build_cost_report(events_dir=events_dir, since_date=since_date, until_date=until_date)
+    print(format_cost_report(report))
+    return 0
+
+
 def main():
     if len(sys.argv) < 2:
-        print("Usage: cost.py extract-result-text --cli-output-file F | cost.py usage-json --cli-output-file F", file=sys.stderr)
+        print("Usage: cost.py extract-result-text --cli-output-file F | cost.py usage-json --cli-output-file F | cost.py report [--days N] [--events-dir PATH]", file=sys.stderr)
         sys.exit(1)
 
     command, argv = sys.argv[1], sys.argv[2:]
@@ -161,8 +228,10 @@ def main():
         sys.exit(_cmd_extract_result_text(argv))
     elif command == "usage-json":
         sys.exit(_cmd_usage_json(argv))
+    elif command == "report":
+        sys.exit(_cmd_report(argv))
     else:
-        print(f"Usage: unknown command '{command}' (expected extract-result-text|usage-json)", file=sys.stderr)
+        print(f"Usage: unknown command '{command}' (expected extract-result-text|usage-json|report)", file=sys.stderr)
         sys.exit(1)
 
 

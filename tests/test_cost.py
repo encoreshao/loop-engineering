@@ -261,3 +261,91 @@ def test_wasted_cost_always_none_with_fixed_reason_regardless_of_input():
 
     assert result["wasted_cost"] is None
     assert result["wasted_cost_unavailable_reason"] == cost.RETRY_WASTE_UNAVAILABLE_REASON
+
+
+from datetime import timezone
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin"))
+import events
+
+
+def test_build_cost_report_all_time(tmp_path):
+    events.emit(
+        "run.completed", run_id="run_1", events_dir=tmp_path,
+        data={"cost_usd": 2.0, "input_tokens": 10, "output_tokens": 5, "cache_read_tokens": 0, "cache_write_tokens": 0},
+    )
+    events.emit("issue.started", run_id="run_1", issue_run_id="run_1_p_1", events_dir=tmp_path)
+    events.emit("issue.completed", run_id="run_1", issue_run_id="run_1_p_1", events_dir=tmp_path)
+
+    report = cost.build_cost_report(events_dir=tmp_path)
+
+    assert report["cost"]["total_cost_usd"] == 2.0
+    assert report["cost"]["cost_per_resolution"] == 2.0
+    assert report["scope"] == {"since_date": None, "until_date": None}
+
+
+def test_format_cost_report_headers_all_time_and_window():
+    all_time_report = {"cost": cost.compute_cost_metrics([]), "scope": {"since_date": None, "until_date": None}}
+    windowed_report = {"cost": cost.compute_cost_metrics([]), "scope": {"since_date": "2026-08-29", "until_date": "2026-09-04"}}
+
+    assert "Loop Cost (all time)" in cost.format_cost_report(all_time_report)
+    assert "Loop Cost (2026-08-29 to 2026-09-04)" in cost.format_cost_report(windowed_report)
+
+
+def test_format_cost_report_renders_wasted_cost_na_with_reason():
+    report = {"cost": cost.compute_cost_metrics([]), "scope": {"since_date": None, "until_date": None}}
+
+    text = cost.format_cost_report(report)
+
+    assert "N/A" in text
+    assert cost.RETRY_WASTE_UNAVAILABLE_REASON in text
+
+
+def test_cli_report_bare_invocation(tmp_path):
+    events.emit(
+        "run.completed", run_id="run_1", events_dir=tmp_path,
+        data={"cost_usd": 3.25, "input_tokens": 1, "output_tokens": 1, "cache_read_tokens": 0, "cache_write_tokens": 0},
+    )
+
+    result = _run_cli(["report", "--events-dir", str(tmp_path)])
+
+    assert result.returncode == 0, result.stderr
+    assert "Total AI cost" in result.stdout
+    assert "$3.25" in result.stdout
+
+
+def test_cli_report_days_flag(tmp_path):
+    older_date = "2000-01-01"
+    older_event = {
+        "schema_version": 1, "event_id": "evt_old", "timestamp": "2000-01-01T00:00:00.000Z",
+        "event_type": "run.completed", "run_id": "run_older", "issue_run_id": None,
+        "project": None, "issue_iid": None,
+        "data": {"cost_usd": 999.0, "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0},
+    }
+    (tmp_path / f"{older_date}.jsonl").write_text(json.dumps(older_event) + "\n")
+    events.emit(
+        "run.completed", run_id="run_today", events_dir=tmp_path,
+        data={"cost_usd": 1.0, "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0},
+    )
+
+    result = _run_cli(["report", "--days", "1", "--events-dir", str(tmp_path)])
+
+    assert result.returncode == 0, result.stderr
+    assert "$1.00" in result.stdout
+    assert "$999.00" not in result.stdout
+
+
+def test_cli_report_nonexistent_events_dir_fails_clearly(tmp_path):
+    missing_dir = tmp_path / "does-not-exist"
+
+    result = _run_cli(["report", "--events-dir", str(missing_dir)])
+
+    assert result.returncode == 1
+    assert "events-dir" in result.stderr.lower()
+
+
+def test_cli_report_bad_days_value_fails_clearly(tmp_path):
+    result = _run_cli(["report", "--days", "not-a-number", "--events-dir", str(tmp_path)])
+
+    assert result.returncode == 1
+    assert "days" in result.stderr.lower()
