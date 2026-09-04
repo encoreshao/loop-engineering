@@ -70,10 +70,6 @@ def compute_health_score(metrics_report, cost_report):
         score = None
     else:
         weight_sum = sum(_COMPONENT_WEIGHTS[name] for name in available)
-        # When all 4 known components are available, divide by 100 (including the
-        # permanently unavailable components' weights); otherwise use sum of available weights only.
-        if weight_sum == 75:  # all 4 known components present
-            weight_sum = 100
         score = sum(value * _COMPONENT_WEIGHTS[name] for name, value in available.items()) / weight_sum
 
     return {

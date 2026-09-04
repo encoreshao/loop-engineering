@@ -22,7 +22,9 @@ def test_compute_health_score_all_four_available():
     result = health.compute_health_score(metrics_report, {})
 
     # resolution=80, autonomy=80, verification=90, escalation=(1 - 1/10)*100=90
-    expected = (80 * 30 + 80 * 25 + 90 * 15 + 90 * 5) / 100
+    # Renormalization is uniform in every case: divide by the available weight sum (75),
+    # never a fixed 100. This prevents the paradox where more data scores lower.
+    expected = (80 * 30 + 80 * 25 + 90 * 15 + 90 * 5) / 75
     assert abs(result["score"] - expected) < 1e-9
     assert result["is_partial"] is True
     assert result["components"] == {"resolution": 80.0, "autonomy": 80.0, "verification": 90.0, "escalation": 90.0}
