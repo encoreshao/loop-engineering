@@ -44,10 +44,13 @@ def compute_run_metrics(events):
     for event in events:
         et = event.get("event_type")
         run_id = event.get("run_id")
+        ts = event.get("timestamp")
         if et == "run.started":
-            started[run_id] = event["timestamp"]
+            if ts is not None:
+                started[run_id] = ts
         elif et == "run.completed":
-            completed[run_id] = event["timestamp"]
+            if ts is not None:
+                completed[run_id] = ts
         elif et == "run.failed":
             failed_run_ids.add(run_id)
 
@@ -73,26 +76,31 @@ def compute_issue_metrics(events, project=None):
     field equals it are counted."""
     started = {}
     ended = {}
-    completed_count = 0
-    escalated_count = 0
-    failed_count = 0
+    completed_ids = set()
+    escalated_ids = set()
+    failed_ids = set()
 
     for event in events:
         if project is not None and event.get("project") != project:
             continue
         et = event.get("event_type")
         issue_run_id = event.get("issue_run_id")
+        ts = event.get("timestamp")
         if et == "issue.started":
-            started[issue_run_id] = event["timestamp"]
+            if ts is not None:
+                started[issue_run_id] = ts
         elif et == "issue.completed":
-            completed_count += 1
-            ended[issue_run_id] = event["timestamp"]
+            completed_ids.add(issue_run_id)
+            if ts is not None:
+                ended[issue_run_id] = ts
         elif et == "issue.escalated":
-            escalated_count += 1
-            ended[issue_run_id] = event["timestamp"]
+            escalated_ids.add(issue_run_id)
+            if ts is not None:
+                ended[issue_run_id] = ts
         elif et == "issue.failed":
-            failed_count += 1
-            ended[issue_run_id] = event["timestamp"]
+            failed_ids.add(issue_run_id)
+            if ts is not None:
+                ended[issue_run_id] = ts
 
     durations = [
         _duration_ms(start_ts, ended[issue_run_id])
@@ -102,9 +110,9 @@ def compute_issue_metrics(events, project=None):
 
     return {
         "issues_processed": len(started),
-        "issues_completed": completed_count,
-        "issues_escalated": escalated_count,
-        "issues_failed": failed_count,
+        "issues_completed": len(completed_ids),
+        "issues_escalated": len(escalated_ids),
+        "issues_failed": len(failed_ids),
         "average_issue_duration_ms": _mean(durations),
     }
 
@@ -117,22 +125,26 @@ def compute_verification_metrics(events, project=None):
     compute_issue_metrics."""
     started = {}
     ended = {}
-    passed_count = 0
-    failed_count = 0
+    passed_ids = set()
+    failed_ids = set()
 
     for event in events:
         if project is not None and event.get("project") != project:
             continue
         et = event.get("event_type")
         issue_run_id = event.get("issue_run_id")
+        ts = event.get("timestamp")
         if et == "verification.started":
-            started[issue_run_id] = event["timestamp"]
+            if ts is not None:
+                started[issue_run_id] = ts
         elif et == "verification.passed":
-            passed_count += 1
-            ended[issue_run_id] = event["timestamp"]
+            passed_ids.add(issue_run_id)
+            if ts is not None:
+                ended[issue_run_id] = ts
         elif et == "verification.failed":
-            failed_count += 1
-            ended[issue_run_id] = event["timestamp"]
+            failed_ids.add(issue_run_id)
+            if ts is not None:
+                ended[issue_run_id] = ts
 
     durations = [
         _duration_ms(start_ts, ended[issue_run_id])
@@ -140,6 +152,8 @@ def compute_verification_metrics(events, project=None):
         if issue_run_id in ended
     ]
 
+    passed_count = len(passed_ids)
+    failed_count = len(failed_ids)
     denom = passed_count + failed_count
 
     return {
@@ -204,6 +218,7 @@ def build_report(events_dir=None, since_date=None, until_date=None, project=None
         "issue": issue_metrics,
         "verification": verification_metrics,
         "quality_and_autonomy": quality_and_autonomy,
+        "scope": {"since_date": since_date, "until_date": until_date, "project": project},
     }
 
 
@@ -217,7 +232,15 @@ def _fmt_seconds(ms):
 
 def format_report(report):
     """Renders the dict from build_report() as plain text for the CLI."""
-    lines = ["Loop Metrics", ""]
+    scope = report["scope"]
+    since_date, until_date, project = scope["since_date"], scope["until_date"], scope["project"]
+    if since_date is None and until_date is None:
+        header = "Loop Metrics (all time)"
+    else:
+        header = f"Loop Metrics ({since_date} to {until_date})"
+    if project is not None:
+        header += f" — project: {project}"
+    lines = [header, ""]
 
     lines.append("Runs")
     run = report["run"]
@@ -286,7 +309,12 @@ def main():
     project = _parse_flag(argv, "--project")
 
     events_dir_raw = _parse_flag(argv, "--events-dir")
-    events_dir = Path(events_dir_raw) if events_dir_raw else None
+    events_dir = None
+    if events_dir_raw:
+        if not Path(events_dir_raw).exists():
+            print(f"metrics: --events-dir {events_dir_raw} does not exist", file=sys.stderr)
+            sys.exit(1)
+        events_dir = Path(events_dir_raw)
 
     report = build_report(events_dir=events_dir, since_date=since_date, until_date=until_date, project=project)
     print(format_report(report))

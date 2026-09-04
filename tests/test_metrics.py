@@ -63,6 +63,17 @@ def test_compute_run_metrics_zero_runs_returns_none_average():
     assert result["average_run_duration_ms"] is None
 
 
+def test_compute_run_metrics_missing_timestamp_does_not_raise():
+    events = [
+        {"event_type": "run.started", "run_id": "run_1"},  # no "timestamp" key
+    ]
+
+    result = metrics.compute_run_metrics(events)
+
+    assert result["runs_total"] == 0
+    assert result["average_run_duration_ms"] is None
+
+
 def _issue_started(issue_run_id, project, ts):
     return {"event_type": "issue.started", "issue_run_id": issue_run_id, "project": project, "timestamp": ts}
 
@@ -110,6 +121,32 @@ def test_compute_issue_metrics_zero_issues_returns_none_average():
     result = metrics.compute_issue_metrics([])
 
     assert result["issues_processed"] == 0
+    assert result["average_issue_duration_ms"] is None
+
+
+def test_compute_issue_metrics_duplicate_terminal_event_does_not_inflate_count():
+    events = [
+        _issue_started("r1_p_1", "kurrant", "2026-09-04T10:00:00.000Z"),
+        _issue_completed("r1_p_1", "kurrant", "2026-09-04T10:01:00.000Z"),
+        _issue_completed("r1_p_1", "kurrant", "2026-09-04T10:02:00.000Z"),  # duplicate
+    ]
+
+    result = metrics.compute_issue_metrics(events)
+
+    assert result["issues_processed"] == 1
+    assert result["issues_completed"] == 1
+
+
+def test_compute_issue_metrics_missing_timestamp_does_not_raise():
+    events = [
+        {"event_type": "issue.started", "issue_run_id": "r1_p_1", "project": "kurrant"},  # no "timestamp"
+        _issue_completed("r1_p_1", "kurrant", "2026-09-04T10:01:00.000Z"),
+    ]
+
+    result = metrics.compute_issue_metrics(events)
+
+    assert result["issues_processed"] == 0  # started event lacked a timestamp, so it never registered
+    assert result["issues_completed"] == 1
     assert result["average_issue_duration_ms"] is None
 
 
@@ -163,6 +200,32 @@ def test_compute_verification_metrics_filters_by_project():
     assert result["verification_passed"] == 1
     assert result["verification_failed"] == 0
     assert result["verification_pass_rate"] == 1.0
+
+
+def test_compute_verification_metrics_duplicate_terminal_event_does_not_inflate_count():
+    events = [
+        _verification_started("r1_p_1", "kurrant", "2026-09-04T10:00:00.000Z"),
+        _verification_passed("r1_p_1", "kurrant", "2026-09-04T10:00:10.000Z"),
+        _verification_passed("r1_p_1", "kurrant", "2026-09-04T10:00:20.000Z"),  # duplicate
+    ]
+
+    result = metrics.compute_verification_metrics(events)
+
+    assert result["verification_total"] == 1
+    assert result["verification_passed"] == 1
+    assert result["verification_pass_rate"] == 1.0
+
+
+def test_compute_verification_metrics_missing_timestamp_does_not_raise():
+    events = [
+        {"event_type": "verification.started", "issue_run_id": "r1_p_1", "project": "kurrant"},  # no "timestamp"
+        _verification_passed("r1_p_1", "kurrant", "2026-09-04T10:00:10.000Z"),
+    ]
+
+    result = metrics.compute_verification_metrics(events)
+
+    assert result["verification_passed"] == 1
+    assert result["average_verification_duration_ms"] is None
 
 
 def test_compute_quality_and_autonomy_metrics_happy_path():
@@ -260,6 +323,18 @@ def test_build_report_date_filtering(tmp_path):
     assert report["run"]["runs_total"] == 1  # only run_today
 
 
+def test_build_report_missing_timestamp_event_does_not_raise(tmp_path):
+    event = {
+        "schema_version": 1, "event_id": "evt_1", "event_type": "run.started",
+        "run_id": "run_1", "issue_run_id": None, "project": None, "issue_iid": None, "data": {},
+    }  # note: no "timestamp" key at all
+    (tmp_path / "2026-09-04.jsonl").write_text(json.dumps(event) + "\n")
+
+    report = metrics.build_report(events_dir=tmp_path)
+
+    assert report["run"]["runs_total"] == 0
+
+
 def test_format_report_renders_na_for_unavailable_metrics(tmp_path):
     report = metrics.build_report(events_dir=tmp_path)  # empty dir - everything zero/None
 
@@ -268,6 +343,25 @@ def test_format_report_renders_na_for_unavailable_metrics(tmp_path):
     assert "N/A" in text
     assert metrics.RETRY_RATE_UNAVAILABLE_REASON in text
     assert metrics.FAILURE_RATE_UNAVAILABLE_REASON in text
+
+
+def test_format_report_header_shows_all_time_by_default(tmp_path):
+    report = metrics.build_report(events_dir=tmp_path)
+
+    text = metrics.format_report(report)
+
+    assert text.startswith("Loop Metrics (all time)")
+
+
+def test_format_report_header_shows_date_range_and_project(tmp_path):
+    report = metrics.build_report(
+        events_dir=tmp_path, since_date="2026-09-01", until_date="2026-09-04", project="kurrant",
+    )
+
+    text = metrics.format_report(report)
+
+    assert "Loop Metrics (2026-09-01 to 2026-09-04)" in text
+    assert "project: kurrant" in text
 
 
 def test_cli_bare_invocation_prints_report(tmp_path):
@@ -315,3 +409,13 @@ def test_cli_bad_days_value_fails_clearly(tmp_path):
 
     assert result.returncode == 1
     assert "days" in result.stderr.lower()
+
+
+def test_cli_nonexistent_events_dir_fails_clearly(tmp_path):
+    bad_dir = tmp_path / "does-not-exist"
+
+    result = _run_cli(["--events-dir", str(bad_dir)])
+
+    assert result.returncode == 1
+    assert "does not exist" in result.stderr.lower()
+    assert result.stdout == ""
