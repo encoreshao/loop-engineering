@@ -152,3 +152,45 @@ def test_cli_usage_json_empty_stdout_on_non_json(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == ""
+
+
+def test_cli_extract_result_text_exits_zero_on_missing_file(tmp_path):
+    path = tmp_path / "does-not-exist.json"
+
+    result = _run_cli(["extract-result-text", "--cli-output-file", str(path)])
+
+    assert result.returncode == 0, result.stderr
+    assert "FileNotFoundError" not in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_cli_usage_json_exits_zero_on_missing_file(tmp_path):
+    path = tmp_path / "does-not-exist.json"
+
+    result = _run_cli(["usage-json", "--cli-output-file", str(path)])
+
+    assert result.returncode == 0, result.stderr
+    assert "FileNotFoundError" not in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_extract_claude_usage_returns_none_on_json_array():
+    json_array = [1, 2, 3]
+
+    assert cost.extract_claude_usage(json_array) is None
+
+
+def test_cli_extract_result_text_exits_zero_on_json_array(tmp_path):
+    path = tmp_path / "cli-output.json"
+    path.write_text(json.dumps([1, 2, 3]))
+
+    result = _run_cli(["extract-result-text", "--cli-output-file", str(path)])
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_cli_missing_cli_output_file_flag_exits_one(tmp_path):
+    result = _run_cli(["extract-result-text"])
+
+    assert result.returncode == 1
+    assert "--cli-output-file is required" in result.stderr

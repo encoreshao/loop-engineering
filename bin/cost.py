@@ -52,9 +52,13 @@ def _read_cli_output_file(path):
     """Read the file at `path` and try to parse it as JSON. Returns
     (parsed_dict_or_None, raw_text) - parsed is None if the content isn't
     valid JSON at all (e.g. a Codex JSONL stream, or a truncated/corrupt
-    file), or isn't a JSON object."""
-    with open(path) as f:
-        raw_text = f.read()
+    file), or isn't a JSON object. Returns (None, "") if the file cannot be
+    read (missing, permission denied, etc.)."""
+    try:
+        with open(path) as f:
+            raw_text = f.read()
+    except OSError:
+        return None, ""
     try:
         parsed = json.loads(raw_text)
     except json.JSONDecodeError:
