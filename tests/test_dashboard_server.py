@@ -6073,7 +6073,7 @@ def test_chat_tool_run_now_unknown_kind_returns_error():
     assert "error" in result
 
 
-def test_chat_tool_run_issue_refuses_when_already_running(tmp_path):
+def test_chat_tool_run_issue_refuses_when_already_running(tmp_path, monkeypatch):
     status_path = tmp_path / "status.json"
     status_path.write_text(json.dumps({"state": "running"}))
     loop_config_path = tmp_path / "projects.json"
@@ -6085,6 +6085,13 @@ def test_chat_tool_run_issue_refuses_when_already_running(tmp_path):
     gitlab_config_path.write_text(json.dumps({
         "instances": {"acme": {"url": "https://gitlab.acme.com"}},
     }))
+    popen_called = {"value": False}
+
+    def fake_popen(*args, **kwargs):
+        popen_called["value"] = True
+        raise AssertionError("Popen should not be called")
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
 
     result = ds._chat_tool_run_issue(
         "https://gitlab.acme.com/acme/harbor/harbor/-/issues/482",
@@ -6093,9 +6100,10 @@ def test_chat_tool_run_issue_refuses_when_already_running(tmp_path):
     )
 
     assert result == {"ok": False, "message": "A run is already in progress"}
+    assert popen_called["value"] is False
 
 
-def test_chat_tool_run_issue_refuses_unmatched_url(tmp_path):
+def test_chat_tool_run_issue_refuses_unmatched_url(tmp_path, monkeypatch):
     status_path = tmp_path / "status.json"
     ds.write_status("idle", status_path=status_path)
     loop_config_path = tmp_path / "projects.json"
@@ -6107,6 +6115,13 @@ def test_chat_tool_run_issue_refuses_unmatched_url(tmp_path):
     gitlab_config_path.write_text(json.dumps({
         "instances": {"acme": {"url": "https://gitlab.acme.com"}},
     }))
+    popen_called = {"value": False}
+
+    def fake_popen(*args, **kwargs):
+        popen_called["value"] = True
+        raise AssertionError("Popen should not be called")
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
 
     result = ds._chat_tool_run_issue(
         "https://gitlab.acme.com/acme/some-other-project/-/issues/1",
@@ -6116,9 +6131,10 @@ def test_chat_tool_run_issue_refuses_unmatched_url(tmp_path):
 
     assert result["ok"] is False
     assert "tracked project" in result["message"].lower()
+    assert popen_called["value"] is False
 
 
-def test_chat_tool_run_issue_refuses_when_script_missing(tmp_path):
+def test_chat_tool_run_issue_refuses_when_script_missing(tmp_path, monkeypatch):
     status_path = tmp_path / "status.json"
     ds.write_status("idle", status_path=status_path)
     loop_config_path = tmp_path / "projects.json"
@@ -6130,6 +6146,13 @@ def test_chat_tool_run_issue_refuses_when_script_missing(tmp_path):
     gitlab_config_path.write_text(json.dumps({
         "instances": {"acme": {"url": "https://gitlab.acme.com"}},
     }))
+    popen_called = {"value": False}
+
+    def fake_popen(*args, **kwargs):
+        popen_called["value"] = True
+        raise AssertionError("Popen should not be called")
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
 
     result = ds._chat_tool_run_issue(
         "https://gitlab.acme.com/acme/harbor/harbor/-/issues/482",
@@ -6139,6 +6162,7 @@ def test_chat_tool_run_issue_refuses_when_script_missing(tmp_path):
 
     assert result["ok"] is False
     assert "not found" in result["message"]
+    assert popen_called["value"] is False
 
 
 def test_chat_tool_run_issue_launches_the_script(tmp_path, monkeypatch):

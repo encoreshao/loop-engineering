@@ -46,3 +46,9 @@ def test_three_args_is_rejected():
     result = run_script("harbor", "482", "extra")
     assert result.returncode == 1
     assert "Usage" in result.stderr
+
+
+def test_run_loop_sh_forwards_its_args_to_build_run_prompt():
+    run_loop_sh = Path(__file__).resolve().parent.parent / "run-loop.sh"
+    content = run_loop_sh.read_text()
+    assert 'bash "$LOOP_DIR/bin/scripts/build_run_prompt.sh" "$@"' in content
