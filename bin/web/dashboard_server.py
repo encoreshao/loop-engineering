@@ -42,8 +42,11 @@ from pathlib import Path
 # file being imported by tests) gets no implicit path at all.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import ai_cli_config
+import cost
+import health
 import loop_config
 import memory_store
+import metrics
 import project_memory
 import topic_config
 
@@ -2770,7 +2773,7 @@ _FONT_FACE_VARS = "\n".join(
 # to this list before shipping a new icon constant that uses it.
 _MATERIAL_SYMBOLS_ICON_NAMES = (
     "add,bolt,check_circle,chevron_left,circle,delete,description,"
-    "dns,edit_note,error,expand_more,extension,folder,folder_off,forum,history,lightbulb,merge,newspaper,"
+    "dns,edit_note,error,expand_more,extension,folder,folder_off,forum,history,lightbulb,merge,monitoring,newspaper,"
     "open_in_new,palette,send,settings,smart_toy,space_dashboard,terminal,topic,warning"
 )
 
@@ -3199,6 +3202,11 @@ html.collapsed .activity-composer {{ left: 64px; }}
 .dash-stat-icon {{ color: var(--md-primary); font-size: 20px; }}
 .dash-stat-value {{ font-size: 1.4rem; font-weight: 700; }}
 .dash-stat-label {{ font-size: 0.78rem; color: var(--md-on-surface-variant); }}
+.analytics-days-selector {{ display: flex; gap: 0.5rem; margin: 0 0 1rem 0; }}
+.analytics-days-selector a {{ padding: 0.3rem 0.75rem; border-radius: 6px; background: var(--md-surface-container-low); color: var(--md-on-surface-variant); text-decoration: none; font-size: 0.85rem; }}
+.analytics-days-selector a.active {{ background: var(--md-primary); color: var(--md-on-primary); }}
+.analytics-health-score {{ font-size: 2.5rem; font-weight: 700; margin: 0.25rem 0; }}
+.analytics-health-note {{ font-size: 0.8rem; color: var(--md-on-surface-variant); margin: 0 0 0.75rem 0; }}
 .dash-activity-strip-row {{ display: flex; align-items: center; gap: 0.6rem; }}
 .dash-activity-strip-label {{ font-size: 0.78rem; color: var(--md-on-surface-variant); }}
 /* One bar per day, oldest first - color is the day's outcome (see
@@ -4263,6 +4271,8 @@ _SECTION_ICON_OVERVIEW = "<span class='material-symbols-outlined' aria-hidden='t
 
 _SECTION_ICON_HISTORY = "<span class='material-symbols-outlined' aria-hidden='true'>history</span>"
 
+_SECTION_ICON_ANALYTICS = "<span class='material-symbols-outlined' aria-hidden='true'>monitoring</span>"
+
 # The real GitLab "tanuki" brand mark, not a Material Symbols glyph -
 # that icon set has no generic "GitLab" glyph, so this is an inline SVG
 # (path data from Simple Icons' gitlab.svg, a single monochrome outline
@@ -4397,6 +4407,7 @@ def _status_badge(state):
 
 _NAV_ITEMS = (
     ("overview", "/", "Dashboard", _SECTION_ICON_OVERVIEW),
+    ("analytics", "/analytics", "Analytics", _SECTION_ICON_ANALYTICS),
     ("history", "/history", "Run History", _SECTION_ICON_HISTORY),
     ("gitlab", "/gitlab", "Live GitLab", _SECTION_ICON_GITLAB),
     ("memory", "/memory", "Memory", _SECTION_ICON_MEMORY),
@@ -4423,7 +4434,7 @@ _NAV_GROUPS = (
     # deps); Configuration = settings/meta pages; Docs = reference
     # material, deliberately last since it's the least-visited group.
     (None, ("overview",)),
-    ("Monitor", ("gitlab", "topic_monitor", "memory", "activity", "logs", "history")),
+    ("Monitor", ("analytics", "gitlab", "topic_monitor", "memory", "activity", "logs", "history")),
     ("System", ("daemons", "skills")),
     ("Configuration", ("settings", "notifications", "topic_settings", "preferences", "instructions", "ai_cli")),
     ("Docs", ("readme",)),
@@ -6819,6 +6830,163 @@ def render_ai_cli_page(flash=None, flash_ok=True):
     return _render_shell("AI CLI · Loop X Engineering", "ai_cli", _status_badge_markup(status), body)
 
 
+def _stat_tile_html(icon, label, value):
+    return (
+        "<div class='dash-stat-tile'>"
+        f"<span class='material-symbols-outlined dash-stat-icon' aria-hidden='true'>{icon}</span>"
+        f"<span class='dash-stat-value'>{value}</span>"
+        f"<span class='dash-stat-label'>{html.escape(label)}</span>"
+        "</div>"
+    )
+
+
+def _na_stat_tile_html(icon, label, reason):
+    return (
+        f"<div class='dash-stat-tile' title=\"{html.escape(reason)}\">"
+        f"<span class='material-symbols-outlined dash-stat-icon' aria-hidden='true'>{icon}</span>"
+        "<span class='dash-stat-value'>N/A</span>"
+        f"<span class='dash-stat-label'>{html.escape(label)}</span>"
+        "</div>"
+    )
+
+
+def _health_section_html(health_report):
+    score = health_report["score"]
+    score_text = f"{score:.0f}/100" if score is not None else "N/A"
+    partial_note = ""
+    if health_report["is_partial"]:
+        missing = ", ".join(health_report["missing_components"])
+        partial_note = (
+            f"<p class='analytics-health-note' title=\"{html.escape(health_report['missing_reason'])}\">"
+            f"Partial score — not yet tracked: {html.escape(missing)}</p>"
+        )
+
+    component_tiles = "".join(
+        _stat_tile_html("check_circle", name.capitalize(), f"{value:.0f}" if value is not None else "N/A")
+        for name, value in health_report["components"].items()
+    )
+
+    return f"""
+<section class="card">
+<div class="section-header">{_SECTION_ICON_ANALYTICS}<h2>Loop Health</h2></div>
+<p class="analytics-health-score">{score_text}</p>
+{partial_note}
+<div class="dash-stats-grid">{component_tiles}</div>
+</section>
+"""
+
+
+def _outcomes_section_html(metrics_report):
+    issue = metrics_report["issue"]
+    qa = metrics_report["quality_and_autonomy"]
+    autonomy_text = f"{qa['autonomy_rate'] * 100:.1f}%" if qa["autonomy_rate"] is not None else "N/A"
+
+    tiles = "".join([
+        _stat_tile_html("history", "Processed", issue["issues_processed"]),
+        _stat_tile_html("check_circle", "Completed", issue["issues_completed"]),
+        _stat_tile_html("warning", "Escalated", issue["issues_escalated"]),
+        _stat_tile_html("error", "Failed", issue["issues_failed"]),
+        _stat_tile_html("bolt", "Autonomy", autonomy_text),
+    ])
+
+    return f"""
+<section class="card">
+<div class="section-header">{_SECTION_ICON_ACTIVITY}<h2>Outcomes</h2></div>
+<div class="dash-stats-grid">{tiles}</div>
+</section>
+"""
+
+
+def _quality_section_html(metrics_report):
+    verification = metrics_report["verification"]
+    qa = metrics_report["quality_and_autonomy"]
+    verification_text = (
+        f"{verification['verification_pass_rate'] * 100:.1f}%"
+        if verification["verification_pass_rate"] is not None else "N/A"
+    )
+
+    tiles = "".join([
+        _stat_tile_html("check_circle", "Verification", verification_text),
+        _na_stat_tile_html("merge", "First-pass MR", "needs Phase 10 human-review data, not built yet"),
+        _na_stat_tile_html("history", "Retry rate", qa["retry_rate_unavailable_reason"]),
+        _na_stat_tile_html("error", "Regression", "not defined by any sprint built so far"),
+    ])
+
+    return f"""
+<section class="card">
+<div class="section-header">{_SECTION_ICON_LOGS}<h2>Quality</h2></div>
+<div class="dash-stats-grid">{tiles}</div>
+</section>
+"""
+
+
+def _cost_section_html(cost_report):
+    cost_metrics = cost_report["cost"]
+    cost_per_issue = (
+        f"${cost_metrics['cost_per_issue']:,.2f}" if cost_metrics["cost_per_issue"] is not None else "N/A"
+    )
+    cost_per_resolution = (
+        f"${cost_metrics['cost_per_resolution']:,.2f}" if cost_metrics["cost_per_resolution"] is not None else "N/A"
+    )
+
+    tiles = "".join([
+        _stat_tile_html("smart_toy", "AI cost", f"${cost_metrics['total_cost_usd']:,.2f}"),
+        _stat_tile_html("smart_toy", "Cost / issue", cost_per_issue),
+        _stat_tile_html("smart_toy", "Cost / resolution", cost_per_resolution),
+    ])
+
+    return f"""
+<section class="card">
+<div class="section-header">{_SECTION_ICON_AI_CLI}<h2>Cost</h2></div>
+<div class="dash-stats-grid">{tiles}</div>
+</section>
+"""
+
+
+def render_analytics_page(days=7):
+    """The loop's performance-at-a-glance page - see
+    docs/superpowers/specs/2026-09-05-analytics-dashboard-design.md.
+    Reads bin/metrics.py's and bin/cost.py's own report dicts (no new
+    event-reading logic here) for the selected `days` window, computes a
+    partial Loop Health score via bin/health.py, and renders 4 sections
+    (a 5th, Trend, is added by a later task): Loop Health, Outcomes,
+    Quality, Cost. Every unavailable metric renders as "N/A" with its
+    reason as a tooltip, exactly like bin/metrics.py's/bin/cost.py's own
+    CLI output - this page adds no new judgment about what's available,
+    it just presents what those modules already compute."""
+    if days not in (7, 30, 90):
+        days = 7
+
+    until = datetime.now(timezone.utc).date()
+    since = until - timedelta(days=days - 1)
+    since_date, until_date = since.isoformat(), until.isoformat()
+
+    metrics_report = metrics.build_report(since_date=since_date, until_date=until_date)
+    cost_report = cost.build_cost_report(since_date=since_date, until_date=until_date)
+    health_report = health.compute_health_score(metrics_report, cost_report)
+
+    days_selector_html = "".join(
+        f"<a href='/analytics?days={n}' class=\"{'active' if n == days else ''}\">{n}d</a>"
+        for n in (7, 30, 90)
+    )
+
+    body = f"""
+<div class="page-title">
+<h1>Analytics</h1>
+<p class="subtitle">How the loop is performing - no logs required.</p>
+</div>
+
+<div class="analytics-days-selector">{days_selector_html}</div>
+
+{_health_section_html(health_report)}
+{_outcomes_section_html(metrics_report)}
+{_quality_section_html(metrics_report)}
+{_cost_section_html(cost_report)}
+"""
+    status = read_status(STATUS_PATH)
+    return _render_shell("Analytics · Loop X Engineering", "analytics", _status_badge_markup(status), body)
+
+
 def render_activity_page(flash=None, flash_ok=True):
     """The loop status page: this loop actually runs two independent
     daemons - the GitLab issue review loop and the topic monitor - so this
@@ -7080,6 +7248,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
             flash = query.get("flash", [None])[0]
             flash_ok = query.get("ok", ["1"])[0] != "0"
             self._send_html(render_ai_cli_page(flash=flash, flash_ok=flash_ok))
+            return
+
+        if split.path == "/analytics":
+            query = urllib.parse.parse_qs(split.query)
+            days_raw = query.get("days", ["7"])[0]
+            try:
+                days = int(days_raw)
+            except ValueError:
+                days = 7
+            self._send_html(render_analytics_page(days=days))
             return
 
         if split.path == "/activity":

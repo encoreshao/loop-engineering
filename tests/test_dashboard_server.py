@@ -2506,6 +2506,7 @@ def test_nav_items_each_carry_a_material_symbols_icon():
     # test_gitlab_nav_item_present_with_icon.
     expected_names = {
         "overview": "space_dashboard",
+        "analytics": "monitoring",
         "history": "history",
         "memory": "lightbulb",
         "daemons": "dns",
@@ -7914,3 +7915,80 @@ def test_activity_message_list_is_bounded_and_scrollable():
     section = ds._STYLE.split("#activity-message-list {")[1].split("\n}")[0]
     assert "overflow-y: auto" in section
     assert "max-height" in section
+
+
+def test_material_symbols_icon_names_includes_monitoring():
+    assert "monitoring" in ds._MATERIAL_SYMBOLS_ICON_NAMES
+
+
+def test_sidebar_html_marks_analytics_active():
+    sidebar = ds._sidebar_html("analytics")
+    assert "<a href='/analytics' title='Analytics' class='active'>" in sidebar
+
+
+def test_render_analytics_page_empty_event_log_renders_without_crash(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+
+    output = ds.render_analytics_page(days=7)
+
+    assert "Analytics" in output
+    assert "N/A" in output
+
+
+def test_render_analytics_page_health_score_shows_partial_note_and_reason(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+
+    output = ds.render_analytics_page(days=7)
+
+    assert "Partial score" in output
+    assert "cost_efficiency" in output
+
+
+def test_render_analytics_page_quality_section_shows_na_tiles_with_reason(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+
+    output = ds.render_analytics_page(days=7)
+
+    assert "First-pass MR" in output
+    assert "needs Phase 10 human-review data" in output
+
+
+def test_render_analytics_page_invalid_days_value_defaults_to_seven(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+    captured = {}
+    real_build_report = ds.metrics.build_report
+
+    def spy_build_report(events_dir=None, since_date=None, until_date=None):
+        captured["since_date"] = since_date
+        return real_build_report(events_dir=events_dir, since_date=since_date, until_date=until_date)
+
+    monkeypatch.setattr(ds.metrics, "build_report", spy_build_report)
+
+    ds.render_analytics_page(days=999)  # not in (7, 30, 90)
+
+    today = datetime.now(timezone.utc).date()
+    assert captured["since_date"] == (today - timedelta(days=6)).isoformat()
+
+
+def test_render_analytics_page_days_30_changes_query_window(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+    captured = {}
+    real_build_report = ds.metrics.build_report
+
+    def spy_build_report(events_dir=None, since_date=None, until_date=None):
+        captured["since_date"] = since_date
+        captured["until_date"] = until_date
+        return real_build_report(events_dir=events_dir, since_date=since_date, until_date=until_date)
+
+    monkeypatch.setattr(ds.metrics, "build_report", spy_build_report)
+
+    ds.render_analytics_page(days=30)
+
+    today = datetime.now(timezone.utc).date()
+    assert captured["since_date"] == (today - timedelta(days=29)).isoformat()
+    assert captured["until_date"] == today.isoformat()
