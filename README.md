@@ -1,5 +1,3 @@
-![Loop X Engineering](https://raw.githubusercontent.com/encoreshao/loop-engineering/main/assets/loop-engineering.jpeg)
-
 # Loop X Engineering
 
 ![License](https://img.shields.io/github/license/encoreshao/loop-engineering)
