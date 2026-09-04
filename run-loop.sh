@@ -94,7 +94,11 @@ Bash(python3 $LOOP_DIR/bin/*.py*) Bash(python3 $LOOP_DIR/bin/web/*.py*) Bash(bas
 # these can never run.
 DISALLOWED_TOOLS="Bash(git merge*) Bash(git push --force*) Bash(git push -f*) Bash(git checkout*) Bash(git reset*) Bash(git clean*) Read(**/.env*) Read(**/*.key) Read(**/id_rsa*)"
 
-PROMPT="Follow LOOPX_INSTRUCTIONS.md in $LOOP_DIR exactly. This is a scheduled headless run - there is no user available to answer questions, so escalate via GitLab comment instead of asking."
+# Optionally called as `run-loop.sh <alias> <issue_iid>` (from the
+# dashboard's chat-tool run-issue action) to scope this run to exactly
+# one issue instead of every assigned issue. See
+# bin/scripts/build_run_prompt.sh for what changes in the prompt.
+PROMPT="$(bash "$LOOP_DIR/bin/scripts/build_run_prompt.sh" "$@")"
 
 # Which AI CLI to invoke - set via the dashboard's /ai-cli page (see
 # bin/ai_cli_config.py), defaulting to "claude". Codex's --sandbox/-c
