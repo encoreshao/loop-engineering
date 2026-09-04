@@ -58,3 +58,93 @@ def emit(event_type, run_id, issue_run_id=None, project=None, issue_iid=None,
         os.close(fd)
 
     return event
+
+
+def _parse_flag(argv, name):
+    if name not in argv:
+        return None
+    idx = argv.index(name)
+    if idx + 1 >= len(argv):
+        return None
+    return argv[idx + 1]
+
+
+def _cmd_emit(argv):
+    event_type = _parse_flag(argv, "--type")
+    run_id = _parse_flag(argv, "--run-id")
+    if not event_type:
+        print("emit: --type is required", file=sys.stderr)
+        return 1
+    if not run_id:
+        print("emit: --run-id is required", file=sys.stderr)
+        return 1
+
+    data_raw = _parse_flag(argv, "--data")
+    data = None
+    if data_raw is not None:
+        try:
+            data = json.loads(data_raw)
+        except json.JSONDecodeError as exc:
+            print(f"emit: --data is not valid JSON: {exc}", file=sys.stderr)
+            return 1
+
+    issue_iid_raw = _parse_flag(argv, "--issue-iid")
+    issue_iid = int(issue_iid_raw) if issue_iid_raw is not None else None
+
+    events_dir_raw = _parse_flag(argv, "--events-dir")
+    events_dir = Path(events_dir_raw) if events_dir_raw else None
+
+    emit(
+        event_type,
+        run_id,
+        issue_run_id=_parse_flag(argv, "--issue-run-id"),
+        project=_parse_flag(argv, "--project"),
+        issue_iid=issue_iid,
+        data=data,
+        events_dir=events_dir,
+    )
+    return 0
+
+
+def _cmd_list(argv):
+    date_stamp = _parse_flag(argv, "--date")
+    if not date_stamp:
+        print("list: --date is required", file=sys.stderr)
+        return 1
+    run_id_filter = _parse_flag(argv, "--run-id")
+    events_dir_raw = _parse_flag(argv, "--events-dir")
+    events_dir = Path(events_dir_raw) if events_dir_raw else DEFAULT_EVENTS_DIR
+
+    path = Path(events_dir) / f"{date_stamp}.jsonl"
+    if not path.exists():
+        return 0
+
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            event = json.loads(line)
+            if run_id_filter is not None and event.get("run_id") != run_id_filter:
+                continue
+            print(json.dumps(event))
+    return 0
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: events.py emit --type T --run-id R [...] | events.py list --date D [...]", file=sys.stderr)
+        sys.exit(1)
+
+    command, argv = sys.argv[1], sys.argv[2:]
+    if command == "emit":
+        sys.exit(_cmd_emit(argv))
+    elif command == "list":
+        sys.exit(_cmd_list(argv))
+    else:
+        print(f"Usage: unknown command '{command}' (expected emit|list)", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
