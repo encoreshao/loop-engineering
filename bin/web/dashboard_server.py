@@ -3210,6 +3210,7 @@ html.collapsed .activity-composer {{ left: 64px; }}
 .trend-charts-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }}
 .trend-chart {{ background: var(--md-surface-container-low); border-radius: 8px; padding: 0.75rem; }}
 .trend-chart-title {{ font-size: 0.85rem; font-weight: 500; margin: 0 0 0.5rem 0; color: var(--md-on-surface-variant); }}
+.trend-chart-note {{ font-size: 0.75rem; color: var(--md-on-surface-variant); margin: 0 0 0.5rem 0; }}
 .trend-chart-empty p:last-child {{ font-size: 0.8rem; color: var(--md-on-surface-variant); }}
 .dash-activity-strip-row {{ display: flex; align-items: center; gap: 0.6rem; }}
 .dash-activity-strip-label {{ font-size: 0.78rem; color: var(--md-on-surface-variant); }}
@@ -6834,9 +6835,10 @@ def render_ai_cli_page(flash=None, flash_ok=True):
     return _render_shell("AI CLI · Loop X Engineering", "ai_cli", _status_badge_markup(status), body)
 
 
-def _stat_tile_html(icon, label, value):
+def _stat_tile_html(icon, label, value, tooltip=None):
+    tooltip_attr = f" title=\"{html.escape(tooltip)}\"" if tooltip else ""
     return (
-        "<div class='dash-stat-tile'>"
+        f"<div class='dash-stat-tile'{tooltip_attr}>"
         f"<span class='material-symbols-outlined dash-stat-icon' aria-hidden='true'>{icon}</span>"
         f"<span class='dash-stat-value'>{value}</span>"
         f"<span class='dash-stat-label'>{html.escape(label)}</span>"
@@ -6854,7 +6856,15 @@ def _na_stat_tile_html(icon, label, reason):
     )
 
 
-def _health_section_html(health_report):
+_HEALTH_COMPONENT_LABELS = {
+    "escalation": "Non-escalation",
+}
+
+_ESCALATION_TOOLTIP = "1 - (escalated / processed) - higher is healthier"
+_AUTONOMY_PLACEHOLDER_TOOLTIP = "placeholder: currently identical to resolution rate"
+
+
+def _health_section_html(health_report, metrics_report):
     score = health_report["score"]
     score_text = f"{score:.0f}/100" if score is not None else "N/A"
     partial_note = ""
@@ -6865,8 +6875,18 @@ def _health_section_html(health_report):
             f"Partial score — not yet tracked: {html.escape(missing)}</p>"
         )
 
+    autonomy_is_placeholder = metrics_report["quality_and_autonomy"]["autonomy_rate_is_placeholder"]
     component_tiles = "".join(
-        _stat_tile_html("check_circle", name.capitalize(), f"{value:.0f}" if value is not None else "N/A")
+        _stat_tile_html(
+            "check_circle",
+            _HEALTH_COMPONENT_LABELS.get(name, name.capitalize()),
+            f"{value:.0f}" if value is not None else "N/A",
+            tooltip=(
+                _ESCALATION_TOOLTIP if name == "escalation"
+                else _AUTONOMY_PLACEHOLDER_TOOLTIP if name == "autonomy" and autonomy_is_placeholder
+                else None
+            ),
+        )
         for name, value in health_report["components"].items()
     )
 
@@ -6884,13 +6904,14 @@ def _outcomes_section_html(metrics_report):
     issue = metrics_report["issue"]
     qa = metrics_report["quality_and_autonomy"]
     autonomy_text = f"{qa['autonomy_rate'] * 100:.1f}%" if qa["autonomy_rate"] is not None else "N/A"
+    autonomy_tooltip = _AUTONOMY_PLACEHOLDER_TOOLTIP if qa["autonomy_rate_is_placeholder"] else None
 
     tiles = "".join([
         _stat_tile_html("history", "Processed", issue["issues_processed"]),
         _stat_tile_html("check_circle", "Completed", issue["issues_completed"]),
         _stat_tile_html("warning", "Escalated", issue["issues_escalated"]),
         _stat_tile_html("error", "Failed", issue["issues_failed"]),
-        _stat_tile_html("bolt", "Autonomy", autonomy_text),
+        _stat_tile_html("bolt", "Autonomy", autonomy_text, tooltip=autonomy_tooltip),
     ])
 
     return f"""
@@ -6951,7 +6972,7 @@ def _fmt_trend_value(value, unit):
     return f"${value:,.2f}" if unit == "$" else f"{value:.1f}%"
 
 
-def _trend_line_chart_svg(label, points, unit="%", width=520, height=140):
+def _trend_line_chart_svg(label, points, unit="%", width=520, height=140, note=None):
     """One inline-SVG line chart for a single metric's trend - see the
     dataviz skill's guidance (a single series needs no legend box; the
     section header already names each chart). `points` is a list of
@@ -6962,12 +6983,23 @@ def _trend_line_chart_svg(label, points, unit="%", width=520, height=140):
     zero. Uses this app's own --md-primary/--md-outline-variant CSS
     tokens (valid inside an inline SVG's stroke/fill attributes in every
     browser this app targets) rather than a new hardcoded hex, so the
-    chart stays in sync with the rest of the page's theme automatically."""
+    chart stays in sync with the rest of the page's theme automatically.
+
+    A percentage chart (unit="%") always anchors its y-axis to the metric's
+    true 0-100 domain rather than the tight range of the actual data, so a
+    small real change doesn't read as a dramatic full-height swing. A dollar
+    chart (unit="$") anchors its floor to 0 (costs are never negative) but
+    keeps its ceiling at the real data max, shown via a visible max-value
+    label since there's no natural fixed upper bound to read the scale
+    against otherwise. `note`, if given, renders as a one-line caption under
+    the title (e.g. disclosing a placeholder metric)."""
+    note_html = f"<p class='trend-chart-note'>{html.escape(note)}</p>" if note else ""
     values = [v for _, v in points if v is not None]
     if not values:
         return (
             f"<div class='trend-chart trend-chart-empty'>"
             f"<p class='trend-chart-title'>{html.escape(label)}</p>"
+            f"{note_html}"
             f"<p>no data in this window</p></div>"
         )
 
@@ -6975,7 +7007,10 @@ def _trend_line_chart_svg(label, points, unit="%", width=520, height=140):
     plot_w = width - pad_left - pad_right
     plot_h = height - pad_top - pad_bottom
 
-    v_min, v_max = min(values), max(values)
+    if unit == "%":
+        v_min, v_max = 0, 100
+    else:
+        v_min, v_max = 0, max(values)
     if v_min == v_max:
         v_min, v_max = v_min - 1, v_max + 1  # avoid a zero-height range collapsing every point to one y
 
@@ -7018,9 +7053,15 @@ def _trend_line_chart_svg(label, points, unit="%", width=520, height=140):
         "stroke='var(--md-outline-variant)' stroke-width='1' />"
     )
 
+    max_label_html = (
+        f"<p class='trend-chart-note'>max: {html.escape(_fmt_trend_value(max(values), unit))}</p>"
+        if unit == "$" else ""
+    )
+
     return (
         f"<div class='trend-chart'>"
         f"<p class='trend-chart-title'>{html.escape(label)}</p>"
+        f"{note_html}{max_label_html}"
         f"<svg viewBox='0 0 {width} {height}' width='100%' height='{height}' role='img' "
         f"aria-label='{html.escape(label)} trend'>{axis_html}{polylines_html}{dots_html}</svg>"
         f"</div>"
@@ -7063,8 +7104,13 @@ def _trend_section_html(days):
         for mr, cr in zip(metrics_reports, cost_reports)
     ]
 
+    autonomy_is_placeholder = any(
+        r["quality_and_autonomy"]["autonomy_rate_is_placeholder"] for r in metrics_reports
+    )
+    autonomy_note = _AUTONOMY_PLACEHOLDER_TOOLTIP if autonomy_is_placeholder else None
+
     charts_html = "".join([
-        _trend_line_chart_svg("Autonomy rate", autonomy_points, unit="%"),
+        _trend_line_chart_svg("Autonomy rate", autonomy_points, unit="%", note=autonomy_note),
         _trend_line_chart_svg("Resolution rate", resolution_points, unit="%"),
         _trend_line_chart_svg("Verification pass rate", verification_points, unit="%"),
         _trend_line_chart_svg("Cost per resolution", cost_points, unit="$"),
@@ -7116,7 +7162,7 @@ def render_analytics_page(days=7):
 
 <div class="analytics-days-selector">{days_selector_html}</div>
 
-{_health_section_html(health_report)}
+{_health_section_html(health_report, metrics_report)}
 {_outcomes_section_html(metrics_report)}
 {_quality_section_html(metrics_report)}
 {_cost_section_html(cost_report)}

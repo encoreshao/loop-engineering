@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin" / "web"))
 import dashboard_server as ds  # noqa: E402
 import ai_cli_config  # noqa: E402
+import events  # noqa: E402
 import loop_config  # noqa: E402
 import topic_config  # noqa: E402
 
@@ -8028,3 +8029,74 @@ def test_render_analytics_page_trend_section_shows_four_charts_and_mr_acceptance
     assert "Cost per resolution" in output
     assert "MR acceptance" in output
     assert "Not yet tracked" in output
+
+
+def test_trend_line_chart_svg_percentage_uses_fixed_0_100_scale_not_tight_range():
+    # a tight data range (79-81) would, under min/max auto-scaling, spread these
+    # three points across nearly the full plot height; anchored to a fixed 0-100
+    # domain they should instead sit near the top of the chart.
+    svg = ds._trend_line_chart_svg("Resolution rate", [("d1", 79.0), ("d2", 80.0), ("d3", 81.0)], unit="%")
+
+    assert "<polyline" in svg
+    points_attr = svg.split("points='")[1].split("'")[0]
+    y_values = [float(pair.split(",")[1]) for pair in points_attr.split(" ")]
+    plot_top, plot_bottom = 12, 140 - 12
+    plot_h = plot_bottom - plot_top
+    for y in y_values:
+        assert y < plot_top + plot_h * 0.3
+
+
+def test_trend_line_chart_svg_cost_chart_shows_max_value_label():
+    svg = ds._trend_line_chart_svg("Cost per resolution", [("d1", 1.5), ("d2", 3.25)], unit="$")
+
+    assert "3.25" in svg
+    assert "max" in svg.lower()
+
+
+def test_trend_line_chart_svg_note_renders_as_caption():
+    svg = ds._trend_line_chart_svg(
+        "Autonomy rate", [("d1", 50.0)], unit="%", note="placeholder: currently identical to resolution rate"
+    )
+
+    assert "placeholder: currently identical to resolution rate" in svg
+
+
+def test_render_analytics_page_populated_event_log_shows_real_numbers(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    events_dir = tmp_path / "events"
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", events_dir)
+
+    run_id = "run_pop"
+    events.emit("issue.started", run_id=run_id, issue_run_id="run_pop_i1", events_dir=events_dir)
+    events.emit("issue.completed", run_id=run_id, issue_run_id="run_pop_i1", events_dir=events_dir)
+    events.emit("issue.started", run_id=run_id, issue_run_id="run_pop_i2", events_dir=events_dir)
+    events.emit("issue.escalated", run_id=run_id, issue_run_id="run_pop_i2", events_dir=events_dir)
+    events.emit("verification.started", run_id=run_id, issue_run_id="run_pop_i1", events_dir=events_dir)
+    events.emit("verification.passed", run_id=run_id, issue_run_id="run_pop_i1", events_dir=events_dir)
+    events.emit("verification.started", run_id=run_id, issue_run_id="run_pop_i2", events_dir=events_dir)
+    events.emit("verification.failed", run_id=run_id, issue_run_id="run_pop_i2", events_dir=events_dir)
+    events.emit(
+        "run.completed", run_id=run_id, events_dir=events_dir,
+        data={"cost_usd": 12.0, "input_tokens": 1000, "output_tokens": 500, "cache_read_tokens": 0, "cache_write_tokens": 0},
+    )
+
+    output = ds.render_analytics_page(days=7)
+
+    # real issue counts (2 processed, 1 completed, 1 escalated) - not "N/A"
+    assert "50.0%" in output  # resolution rate AND autonomy rate: 1 completed / 2 processed
+    assert "$12.00" in output  # total AI cost
+    assert "$6.00" in output  # cost per issue: 12.0 / 2 processed (same priced run_id)
+    assert "50/100" in output  # health score: every known component computes to 50 with this fixture
+
+    outcomes_html = output.split("<h2>Outcomes</h2>")[1].split("<h2>Quality</h2>")[0]
+    assert "N/A" not in outcomes_html
+
+    cost_html = output.split("<h2>Cost</h2>")[1].split("<h2>Trend</h2>")[0]
+    assert "N/A" not in cost_html
+
+    # finding 1: autonomy placeholder disclosed (Outcomes tile, Health tile, Trend caption)
+    assert output.count("placeholder: currently identical to resolution rate") >= 2
+
+    # finding 2: escalation tile's inverted meaning is disclosed
+    assert "Non-escalation" in output
+    assert "higher is healthier" in output
