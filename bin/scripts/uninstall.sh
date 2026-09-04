@@ -58,6 +58,7 @@ NGINX_DOMAIN="loop.local"
 NGINX_SERVERS_DIR=""
 HOSTS_FILE="/etc/hosts"
 PROJECT_DIR="$HOME/.loop-engineering"
+PROJECT_DIR_GIVEN=0
 SKIP_NGINX=0
 SKIP_HOSTS=0
 SKIP_SERVICE=0
@@ -87,6 +88,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     --project-dir)
       PROJECT_DIR="$2"
+      PROJECT_DIR_GIVEN=1
       shift 2
       ;;
     --skip-nginx)
@@ -192,6 +194,19 @@ echo "${C_BLUE}==> Project directory ($PROJECT_DIR)${C_RESET}"
 if [ "$KEEP_CONFIG" -eq 1 ]; then
   echo "    Left in place (--keep-config)"
 else
+  # Refuse an implicit (no --project-dir) delete when this script's own
+  # location (LOOP_DIR) doesn't match the directory it's about to rm -rf.
+  # A real end user's install has the script living inside PROJECT_DIR
+  # itself (LOOP_DIR == PROJECT_DIR), or has no local clone at all (LOOP_DIR
+  # empty, e.g. curl | bash) - both fine. But a developer running a
+  # *separate* clone's copy of this script bare would otherwise silently
+  # delete an unrelated real install at the default path - that's the
+  # actual incident this guards against (see CLAUDE.md's dev-mode section).
+  if [ "$PROJECT_DIR_GIVEN" -eq 0 ] && [ -n "$LOOP_DIR" ] && [ "$LOOP_DIR" != "$PROJECT_DIR" ]; then
+    echo "${C_RED}    Refusing to remove $PROJECT_DIR: this uninstall.sh is running from $LOOP_DIR, a different directory.${C_RESET}" >&2
+    echo "    If you're really uninstalling that real install, pass --project-dir '$PROJECT_DIR' to confirm. If you're developing on a separate clone, pass --project-dir to target a scratch directory instead." >&2
+    exit 1
+  fi
   if [ -d "$PROJECT_DIR" ]; then
     rm -rf "$PROJECT_DIR"
     echo "${C_GREEN}    Removed $PROJECT_DIR${C_RESET}"

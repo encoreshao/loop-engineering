@@ -1,8 +1,21 @@
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent.parent / "bin" / "scripts" / "uninstall.sh"
+
+
+def copy_script_to(dest_dir):
+    """Copies uninstall.sh to <dest_dir>/bin/scripts/uninstall.sh so that,
+    when run from there, its own BASH_SOURCE-derived LOOP_DIR resolves to
+    dest_dir - simulating a real local clone (a dev checkout, or a genuine
+    end-user install) rather than running the repo's own copy in place."""
+    target = Path(dest_dir) / "bin" / "scripts" / "uninstall.sh"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(SCRIPT, target)
+    target.chmod(0o755)
+    return target
 
 
 def run_uninstall(*args, check=True):
@@ -69,6 +82,7 @@ def test_uninstall_unloads_and_removes_installed_plist(tmp_path):
         "--launchd-dir", str(launchd_dir),
         "--launch-agents-dir", str(launch_agents_dir),
         "--nginx-servers-dir", str(tmp_path / "nginx-servers"),
+        "--project-dir", str(tmp_path / "no-such-project-dir"),
     )
 
     assert not (launch_agents_dir / name).exists()
@@ -83,6 +97,7 @@ def test_uninstall_reports_when_daemon_was_not_installed(tmp_path):
         "--launchd-dir", str(launchd_dir),
         "--launch-agents-dir", str(tmp_path / "LaunchAgents"),
         "--nginx-servers-dir", str(tmp_path / "nginx-servers"),
+        "--project-dir", str(tmp_path / "no-such-project-dir"),
     )
 
     assert f"{name} was not installed" in result.stdout
@@ -99,6 +114,7 @@ def test_uninstall_removes_nginx_conf(tmp_path):
         "--launchd-dir", str(launchd_dir),
         "--launch-agents-dir", str(tmp_path / "LaunchAgents"),
         "--nginx-servers-dir", str(servers_dir),
+        "--project-dir", str(tmp_path / "no-such-project-dir"),
     )
 
     assert not (servers_dir / "loop.local.conf").exists()
@@ -115,6 +131,7 @@ def test_uninstall_skip_nginx_leaves_conf_in_place(tmp_path):
         "--launchd-dir", str(launchd_dir),
         "--launch-agents-dir", str(tmp_path / "LaunchAgents"),
         "--nginx-servers-dir", str(servers_dir),
+        "--project-dir", str(tmp_path / "no-such-project-dir"),
         "--skip-nginx",
     )
 
@@ -133,6 +150,7 @@ def test_uninstall_uses_custom_domain_for_nginx_conf(tmp_path):
         "--launch-agents-dir", str(tmp_path / "LaunchAgents"),
         "--nginx-servers-dir", str(servers_dir),
         "--nginx-domain", "myloop.test",
+        "--project-dir", str(tmp_path / "no-such-project-dir"),
     )
 
     assert not (servers_dir / "myloop.test.conf").exists()
@@ -206,6 +224,7 @@ def test_uninstall_falls_back_to_known_agent_names_without_local_launchd_dir(tmp
         "--launchd-dir", str(tmp_path / "no-such-launchd-dir"),
         "--launch-agents-dir", str(launch_agents_dir),
         "--nginx-servers-dir", str(tmp_path / "nginx-servers"),
+        "--project-dir", str(tmp_path / "no-such-project-dir"),
     )
 
     for name in known_names:
@@ -255,6 +274,75 @@ def test_uninstall_primes_sudo_once_before_hosts_cleanup(tmp_path):
     assert "loop.local" not in hosts_file.read_text()
     assert "localhost" in hosts_file.read_text()
     assert result.returncode == 0
+
+
+def test_uninstall_refuses_default_project_dir_when_run_from_different_clone(tmp_path):
+    # The actual incident this guards against: a developer runs their own
+    # dev clone's bin/scripts/uninstall.sh bare (no --project-dir), while a
+    # separate, real install sits at the default ~/.loop-engineering. Since
+    # the script's own location (LOOP_DIR) doesn't match the directory it's
+    # about to rm -rf, it must refuse rather than silently deleting the
+    # real install.
+    home = tmp_path / "home"
+    home.mkdir()
+    real_install = home / ".loop-engineering"
+    real_install.mkdir()
+    (real_install / "projects.json").write_text("{}")
+    dev_clone = tmp_path / "dev-clone"
+    script_path = copy_script_to(dev_clone)
+    env = dict(os.environ)
+    env["HOME"] = str(home)
+
+    result = subprocess.run(
+        ["bash", str(script_path), "--skip-hosts", "--skip-service", "--skip-nginx"],
+        env=env, capture_output=True, text=True,
+    )
+
+    assert result.returncode != 0
+    assert real_install.exists()
+    assert (real_install / "projects.json").exists()
+
+
+def test_uninstall_proceeds_when_run_from_inside_the_real_project_dir(tmp_path):
+    # The legitimate documented flow (README: "bin/scripts/uninstall.sh"
+    # run bare) must keep working: a real end user runs their install's own
+    # copy of the script, from inside the very directory it's uninstalling.
+    home = tmp_path / "home"
+    home.mkdir()
+    real_install = home / ".loop-engineering"
+    script_path = copy_script_to(real_install)
+    (real_install / "projects.json").write_text("{}")
+    env = dict(os.environ)
+    env["HOME"] = str(home)
+
+    result = subprocess.run(
+        ["bash", str(script_path), "--skip-hosts", "--skip-service", "--skip-nginx"],
+        env=env, capture_output=True, text=True,
+    )
+
+    assert result.returncode == 0
+    assert not real_install.exists()
+
+
+def test_uninstall_allows_default_project_dir_via_curl_style_stdin(tmp_path):
+    # The other legitimate documented flow: `curl -fsSL .../uninstall.sh |
+    # bash` with no local clone at all (LOOP_DIR empty, BASH_SOURCE unset)
+    # must still remove the real default ~/.loop-engineering.
+    home = tmp_path / "home"
+    home.mkdir()
+    real_install = home / ".loop-engineering"
+    real_install.mkdir()
+    (real_install / "projects.json").write_text("{}")
+    env = dict(os.environ)
+    env["HOME"] = str(home)
+
+    result = subprocess.run(
+        ["bash", "-s", "--", "--skip-hosts", "--skip-service", "--skip-nginx"],
+        input=SCRIPT.read_text(), env=env, capture_output=True, text=True,
+    )
+
+    assert result.returncode == 0
+    assert not real_install.exists()
 
 
 def test_uninstall_does_not_invoke_sudo_when_nothing_needs_it(tmp_path):

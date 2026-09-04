@@ -68,6 +68,20 @@ the user's real projects.
 `rm -rf`s) both default straight to the real `$HOME/.loop-engineering`
 unless you pass their own `--dir`/`--project-dir` flag explicitly. Setting
 `LOOP_ENGINEERING_HOME` before running these does nothing to protect you.
+This bit us for real twice: the second time, the actual command that
+deleted the live `~/.loop-engineering` was the ordinary, CLAUDE.md-mandated
+`python3 -m pytest tests/ -q` — several pre-existing `tests/test_uninstall.py`
+cases invoked the real `bin/scripts/uninstall.sh` without `--project-dir`,
+so on any machine that also has a real install, running the test suite
+deleted it as a side effect. `uninstall.sh` now refuses to delete the
+default `$HOME/.loop-engineering` path whenever it's invoked from a
+*different* on-disk location than that path (a dev clone's own copy of the
+script, run bare) and `--project-dir` wasn't passed explicitly — see the
+`PROJECT_DIR_GIVEN`/`LOOP_DIR` check right before its `rm -rf`. That guard
+is the real backstop; treat every test in `tests/test_uninstall.py` and
+`tests/test_install.py` that invokes the real script as required to pass
+an explicit `--project-dir`/`--dir` regardless — never rely on the guard
+alone to justify a new test skipping it.
 Never run `install.sh` or `uninstall.sh` bare for dev/verification — always
 pass `--dir`/`--project-dir` (and `--launch-agents-dir` if it touches
 launchd) pointed at a scratch directory, e.g.:
