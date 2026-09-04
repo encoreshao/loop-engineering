@@ -3,6 +3,25 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin"))
 import metrics
+import json
+import os
+import re
+import subprocess
+from datetime import datetime, timezone
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin"))
+import events
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _run_cli(args, env=None):
+    return subprocess.run(
+        [sys.executable, str(REPO_ROOT / "bin" / "metrics.py"), *args],
+        capture_output=True,
+        text=True,
+        env=env if env is not None else {**os.environ},
+    )
 
 
 def _run_started(run_id, ts):
@@ -182,3 +201,117 @@ def test_retry_and_failure_rate_always_none_with_fixed_reason_regardless_of_inpu
     assert result["retry_rate_unavailable_reason"] == metrics.RETRY_RATE_UNAVAILABLE_REASON
     assert result["failure_rate"] is None
     assert result["failure_rate_unavailable_reason"] == metrics.FAILURE_RATE_UNAVAILABLE_REASON
+
+
+def test_build_report_integrates_real_events(tmp_path):
+    events.emit("run.started", run_id="run_1", events_dir=tmp_path)
+    events.emit(
+        "issue.started", run_id="run_1", issue_run_id="run_1_kurrant_1",
+        project="kurrant", issue_iid=1, events_dir=tmp_path,
+    )
+    events.emit(
+        "issue.completed", run_id="run_1", issue_run_id="run_1_kurrant_1",
+        project="kurrant", issue_iid=1, events_dir=tmp_path,
+    )
+    events.emit("run.completed", run_id="run_1", events_dir=tmp_path)
+
+    report = metrics.build_report(events_dir=tmp_path)
+
+    assert report["run"]["runs_total"] == 1
+    assert report["issue"]["issues_processed"] == 1
+    assert report["issue"]["issues_completed"] == 1
+    assert report["quality_and_autonomy"]["resolution_rate"] == 1.0
+
+
+def test_build_report_project_filter_replaces_run_section(tmp_path):
+    events.emit("run.started", run_id="run_1", events_dir=tmp_path)
+    events.emit(
+        "issue.started", run_id="run_1", issue_run_id="run_1_alpha_1",
+        project="alpha", issue_iid=1, events_dir=tmp_path,
+    )
+    events.emit(
+        "issue.started", run_id="run_1", issue_run_id="run_1_beta_1",
+        project="beta", issue_iid=1, events_dir=tmp_path,
+    )
+
+    report = metrics.build_report(events_dir=tmp_path, project="alpha")
+
+    assert "not_applicable_reason" in report["run"]
+    assert "runs_total" not in report["run"]
+    assert report["issue"]["issues_processed"] == 1
+
+
+def test_build_report_date_filtering(tmp_path):
+    # Today's file, via real emit().
+    events.emit("run.started", run_id="run_today", events_dir=tmp_path)
+
+    # A synthetic older file.
+    older_date = "2000-01-01"
+    older_event = {
+        "schema_version": 1, "event_id": "evt_old", "timestamp": "2000-01-01T00:00:00.000Z",
+        "event_type": "run.started", "run_id": "run_older", "issue_run_id": None,
+        "project": None, "issue_iid": None, "data": {},
+    }
+    (tmp_path / f"{older_date}.jsonl").write_text(json.dumps(older_event) + "\n")
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    report = metrics.build_report(events_dir=tmp_path, since_date=today)
+
+    assert report["run"]["runs_total"] == 1  # only run_today
+
+
+def test_format_report_renders_na_for_unavailable_metrics(tmp_path):
+    report = metrics.build_report(events_dir=tmp_path)  # empty dir - everything zero/None
+
+    text = metrics.format_report(report)
+
+    assert "N/A" in text
+    assert metrics.RETRY_RATE_UNAVAILABLE_REASON in text
+    assert metrics.FAILURE_RATE_UNAVAILABLE_REASON in text
+
+
+def test_cli_bare_invocation_prints_report(tmp_path):
+    events.emit("run.started", run_id="run_1", events_dir=tmp_path)
+    events.emit("run.completed", run_id="run_1", events_dir=tmp_path)
+
+    result = _run_cli(["--events-dir", str(tmp_path)])
+
+    assert result.returncode == 0, result.stderr
+    assert "Runs" in result.stdout
+    assert "Total" in result.stdout
+
+
+def test_cli_days_flag_filters(tmp_path):
+    older_date = "2000-01-01"
+    older_event = {
+        "schema_version": 1, "event_id": "evt_old", "timestamp": "2000-01-01T00:00:00.000Z",
+        "event_type": "run.started", "run_id": "run_older", "issue_run_id": None,
+        "project": None, "issue_iid": None, "data": {},
+    }
+    (tmp_path / f"{older_date}.jsonl").write_text(json.dumps(older_event) + "\n")
+    events.emit("run.started", run_id="run_today", events_dir=tmp_path)
+
+    result = _run_cli(["--days", "1", "--events-dir", str(tmp_path)])
+
+    assert result.returncode == 0, result.stderr
+    # Whitespace-tolerant: don't assume format_report's exact column padding.
+    assert re.search(r"Total\s+1\b", result.stdout), result.stdout
+
+
+def test_cli_project_flag(tmp_path):
+    events.emit(
+        "issue.started", run_id="run_1", issue_run_id="run_1_alpha_1",
+        project="alpha", issue_iid=1, events_dir=tmp_path,
+    )
+
+    result = _run_cli(["--project", "alpha", "--events-dir", str(tmp_path)])
+
+    assert result.returncode == 0, result.stderr
+    assert re.search(r"Processed\s+1\b", result.stdout), result.stdout
+
+
+def test_cli_bad_days_value_fails_clearly(tmp_path):
+    result = _run_cli(["--days", "not-a-number", "--events-dir", str(tmp_path)])
+
+    assert result.returncode == 1
+    assert "days" in result.stderr.lower()

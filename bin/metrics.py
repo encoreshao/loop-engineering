@@ -8,7 +8,10 @@ is cheap to unit-test independently of event reading. build_report() (see
 the next task) is the only function that touches disk, via
 events.iter_events()."""
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import events
 
 RETRY_RATE_UNAVAILABLE_REASON = (
     "the loop escalates on first verification failure; no retry behavior exists yet"
@@ -177,3 +180,117 @@ def compute_quality_and_autonomy_metrics(issue_metrics, verification_metrics):
         "autonomy_rate_is_placeholder": True,
         "human_intervention_rate": human_intervention_rate,
     }
+
+
+def build_report(events_dir=None, since_date=None, until_date=None, project=None):
+    """Reads events.iter_events(events_dir, since_date, until_date) once,
+    then assembles {"run", "issue", "verification", "quality_and_autonomy"}.
+    When project is given, "run" becomes {"not_applicable_reason": ...}
+    instead of a filtered (and therefore meaningless) run tally - a run
+    spans every project touched that run."""
+    all_events = list(events.iter_events(events_dir=events_dir, since_date=since_date, until_date=until_date))
+
+    issue_metrics = compute_issue_metrics(all_events, project=project)
+    verification_metrics = compute_verification_metrics(all_events, project=project)
+    quality_and_autonomy = compute_quality_and_autonomy_metrics(issue_metrics, verification_metrics)
+
+    if project is not None:
+        run_section = {"not_applicable_reason": "a run is not scoped to a single project"}
+    else:
+        run_section = compute_run_metrics(all_events)
+
+    return {
+        "run": run_section,
+        "issue": issue_metrics,
+        "verification": verification_metrics,
+        "quality_and_autonomy": quality_and_autonomy,
+    }
+
+
+def _fmt_rate(value):
+    return f"{value * 100:.1f}%" if value is not None else "N/A"
+
+
+def _fmt_seconds(ms):
+    return f"{ms / 1000:.1f}s" if ms is not None else "N/A"
+
+
+def format_report(report):
+    """Renders the dict from build_report() as plain text for the CLI."""
+    lines = ["Loop Metrics", ""]
+
+    lines.append("Runs")
+    run = report["run"]
+    if "not_applicable_reason" in run:
+        lines.append(f"  N/A ({run['not_applicable_reason']})")
+    else:
+        lines.append(f"  Total          {run['runs_total']}")
+        lines.append(f"  Success        {run['runs_success']}")
+        lines.append(f"  Failed         {run['runs_failed']}")
+        lines.append(f"  Avg duration   {_fmt_seconds(run['average_run_duration_ms'])}")
+    lines.append("")
+
+    issue = report["issue"]
+    lines.append("Issues")
+    lines.append(f"  Processed      {issue['issues_processed']}")
+    lines.append(f"  Completed      {issue['issues_completed']}")
+    lines.append(f"  Escalated      {issue['issues_escalated']}")
+    lines.append(f"  Failed         {issue['issues_failed']}")
+    lines.append("")
+
+    qa = report["quality_and_autonomy"]
+    verification = report["verification"]
+    lines.append("Quality")
+    lines.append(f"  Resolution rate         {_fmt_rate(qa['resolution_rate'])}")
+    lines.append(f"  Verification pass rate  {_fmt_rate(verification['verification_pass_rate'])}")
+    lines.append(f"  Retry rate              N/A ({qa['retry_rate_unavailable_reason']})")
+    lines.append(f"  Failure rate            N/A ({qa['failure_rate_unavailable_reason']})")
+    lines.append("")
+
+    lines.append("Autonomy")
+    lines.append(f"  Autonomy rate            {_fmt_rate(qa['autonomy_rate'])} (placeholder: currently identical to resolution rate)")
+    lines.append(f"  Human intervention rate  {_fmt_rate(qa['human_intervention_rate'])}")
+    lines.append("")
+
+    lines.append("Duration")
+    lines.append(f"  Avg issue duration          {_fmt_seconds(issue['average_issue_duration_ms'])}")
+    lines.append(f"  Avg verification duration   {_fmt_seconds(verification['average_verification_duration_ms'])}")
+
+    return "\n".join(lines)
+
+
+def _parse_flag(argv, name):
+    if name not in argv:
+        return None
+    idx = argv.index(name)
+    if idx + 1 >= len(argv):
+        return None
+    return argv[idx + 1]
+
+
+def main():
+    argv = sys.argv[1:]
+
+    since_date = until_date = None
+    days_raw = _parse_flag(argv, "--days")
+    if days_raw is not None:
+        try:
+            days = int(days_raw)
+        except ValueError:
+            print(f"metrics: --days must be an integer, got {days_raw!r}", file=sys.stderr)
+            sys.exit(1)
+        until = datetime.now(timezone.utc).date()
+        since = until - timedelta(days=days - 1)
+        since_date, until_date = since.isoformat(), until.isoformat()
+
+    project = _parse_flag(argv, "--project")
+
+    events_dir_raw = _parse_flag(argv, "--events-dir")
+    events_dir = Path(events_dir_raw) if events_dir_raw else None
+
+    report = build_report(events_dir=events_dir, since_date=since_date, until_date=until_date, project=project)
+    print(format_report(report))
+
+
+if __name__ == "__main__":
+    main()
