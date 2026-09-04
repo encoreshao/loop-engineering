@@ -568,10 +568,21 @@ def _run_chat_job(reply_key, prompt, messages_path=None):
     front, then a "reply"/"error" entry with the human-readable outcome
     once one is known (see append_unified_log) - the raw --output-format
     stream-json isn't human-readable, so this logs the same text the
-    reply bubble/error actually shows, not the raw subprocess output."""
+    reply bubble/error actually shows, not the raw subprocess output.
+    Every one of those entries' detail string also carries the AI
+    provider's display name in parentheses (e.g. "reply (Claude Code)"),
+    so the Logs page shows which provider produced it without opening
+    the entry. That name is always _AI_CLI_DISPLAY_NAMES["claude"], not
+    derived from ai_cli_config.get_selected_cli() - build_chat_command
+    always invokes the `claude` binary regardless of that project-loop
+    setting (which only governs run-loop.sh/run-topic-monitor-loop.sh),
+    so deriving it from get_selected_cli would mislabel entries as
+    "Codex CLI" on a machine configured to use codex for the loop while
+    this chat assistant still actually ran claude."""
     if messages_path is None:
         messages_path = MESSAGES_PATH
-    append_unified_log("chat-assistant", "turn started")
+    ai_cli_name = _AI_CLI_DISPLAY_NAMES["claude"]
+    append_unified_log("chat-assistant", f"turn started ({ai_cli_name})")
     try:
         process = subprocess.Popen(
             build_chat_command(prompt),
@@ -582,7 +593,7 @@ def _run_chat_job(reply_key, prompt, messages_path=None):
             text=True,
         )
     except OSError as exc:
-        append_unified_log("chat-assistant", "error", body=f"Could not start assistant: {exc}")
+        append_unified_log("chat-assistant", f"error ({ai_cli_name})", body=f"Could not start assistant: {exc}")
         _chat_job_finish(reply_key, error=f"Could not start assistant: {exc}")
         return
 
@@ -620,9 +631,9 @@ def _run_chat_job(reply_key, prompt, messages_path=None):
         # the raw subprocess output - "reply"/"error" mirrors the two
         # outcomes _chat_job_finish itself distinguishes.
         if finish_error:
-            append_unified_log("chat-assistant", "error", body=finish_error)
+            append_unified_log("chat-assistant", f"error ({ai_cli_name})", body=finish_error)
         else:
-            append_unified_log("chat-assistant", "reply", body=finish_text)
+            append_unified_log("chat-assistant", f"reply ({ai_cli_name})", body=finish_text)
         _chat_job_finish(reply_key, error=finish_error, final_text=finish_text)
 
 
@@ -7554,6 +7565,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not ok:
                 self._send_json(400, {"error": message})
                 return
+            # Logged as its own "question" entry, distinct from _run_chat_job's
+            # own "turn started"/"reply"/"error" entries for the same turn, so
+            # the Logs page shows what was actually asked - written right here
+            # (synchronously, before the background thread even exists) so a
+            # question is always logged even if thread.start() below fails.
+            append_unified_log("chat-assistant", "question", body=text.strip())
             reply_key = _chat_job_create()
             prompt = build_chat_prompt(text.strip(), recent)
             thread = threading.Thread(target=_run_chat_job, args=(reply_key, prompt), daemon=True)

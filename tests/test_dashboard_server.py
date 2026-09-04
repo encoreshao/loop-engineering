@@ -4229,8 +4229,8 @@ def test_run_chat_job_logs_turn_started_and_reply_to_unified_log(tmp_path, monke
     ds._run_chat_job(key, "hi", messages_path=messages_path)
 
     content = log_path.read_text()
-    assert "chat-assistant ---- turn started" in content
-    assert "chat-assistant ---- reply" in content
+    assert "chat-assistant ---- turn started (Claude Code)" in content
+    assert "chat-assistant ---- reply (Claude Code)" in content
     assert "hello there" in content
 
 
@@ -4246,7 +4246,7 @@ def test_run_chat_job_logs_error_to_unified_log_on_failed_result(tmp_path, monke
     ds._run_chat_job(key, "hi", messages_path=messages_path)
 
     content = log_path.read_text()
-    assert "chat-assistant ---- error" in content
+    assert "chat-assistant ---- error (Claude Code)" in content
     assert "Not logged in" in content
 
 
@@ -7595,14 +7595,22 @@ def test_activity_route_chat_appends_user_message_and_streams_a_reply(monkeypatc
     assert saved[-1]["from"] == "loop"
     assert saved[-1]["text"] == "hello there"
 
+    log_content = (tmp_path / "logs" / "loop-engineering.log").read_text()
+    assert "chat-assistant ---- question" in log_content
+    assert "hi there" in log_content
+
 
 def test_activity_route_chat_thread_start_failure_still_finishes_the_job(monkeypatch, tmp_path):
     """Fix 2's second failure mode: if threading.Thread.start() itself
     raises (e.g. resource exhaustion) after the job was already created
     via _chat_job_create(), the job must not sit in the registry forever
     with no cleanup timer ever scheduled - the route must finish it with
-    an error right there."""
+    an error right there. Also proves the "question" entry (written
+    synchronously in the route handler, before _chat_job_create()/
+    thread.start() even run) is logged even when starting the background
+    thread afterwards fails."""
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds, "UNIFIED_LOG_PATH", tmp_path / "logs" / "loop-engineering.log")
     messages_path = tmp_path / "messages.json"
     monkeypatch.setattr(ds, "MESSAGES_PATH", messages_path)
 
@@ -7627,6 +7635,10 @@ def test_activity_route_chat_thread_start_failure_still_finishes_the_job(monkeyp
         events = list(ds._iter_chat_job_chunks(parsed["reply_key"]))
         assert events[0][0] == "done"
         assert "can't start new thread" in events[0][1]
+
+    log_content = (tmp_path / "logs" / "loop-engineering.log").read_text()
+    assert "chat-assistant ---- question" in log_content
+    assert "hi there" in log_content
 
 
 # --- GET /activity/chat-stream route (Activity page live chat assistant) ---
