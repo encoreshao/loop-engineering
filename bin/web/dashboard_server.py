@@ -3207,6 +3207,10 @@ html.collapsed .activity-composer {{ left: 64px; }}
 .analytics-days-selector a.active {{ background: var(--md-primary); color: var(--md-on-primary); }}
 .analytics-health-score {{ font-size: 2.5rem; font-weight: 700; margin: 0.25rem 0; }}
 .analytics-health-note {{ font-size: 0.8rem; color: var(--md-on-surface-variant); margin: 0 0 0.75rem 0; }}
+.trend-charts-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }}
+.trend-chart {{ background: var(--md-surface-container-low); border-radius: 8px; padding: 0.75rem; }}
+.trend-chart-title {{ font-size: 0.85rem; font-weight: 500; margin: 0 0 0.5rem 0; color: var(--md-on-surface-variant); }}
+.trend-chart-empty p:last-child {{ font-size: 0.8rem; color: var(--md-on-surface-variant); }}
 .dash-activity-strip-row {{ display: flex; align-items: center; gap: 0.6rem; }}
 .dash-activity-strip-label {{ font-size: 0.78rem; color: var(--md-on-surface-variant); }}
 /* One bar per day, oldest first - color is the day's outcome (see
@@ -6943,6 +6947,140 @@ def _cost_section_html(cost_report):
 """
 
 
+def _fmt_trend_value(value, unit):
+    return f"${value:,.2f}" if unit == "$" else f"{value:.1f}%"
+
+
+def _trend_line_chart_svg(label, points, unit="%", width=520, height=140):
+    """One inline-SVG line chart for a single metric's trend - see the
+    dataviz skill's guidance (a single series needs no legend box; the
+    section header already names each chart). `points` is a list of
+    (date_label, value_or_None) tuples, oldest first; value is already
+    the 0-100 (or dollar) number to plot, never a raw 0-1 rate. A None
+    value means that bucket had no data (e.g. zero processed issues that
+    week) - it breaks the line at that point rather than plotting a false
+    zero. Uses this app's own --md-primary/--md-outline-variant CSS
+    tokens (valid inside an inline SVG's stroke/fill attributes in every
+    browser this app targets) rather than a new hardcoded hex, so the
+    chart stays in sync with the rest of the page's theme automatically."""
+    values = [v for _, v in points if v is not None]
+    if not values:
+        return (
+            f"<div class='trend-chart trend-chart-empty'>"
+            f"<p class='trend-chart-title'>{html.escape(label)}</p>"
+            f"<p>no data in this window</p></div>"
+        )
+
+    pad_left, pad_right, pad_top, pad_bottom = 8, 8, 12, 12
+    plot_w = width - pad_left - pad_right
+    plot_h = height - pad_top - pad_bottom
+
+    v_min, v_max = min(values), max(values)
+    if v_min == v_max:
+        v_min, v_max = v_min - 1, v_max + 1  # avoid a zero-height range collapsing every point to one y
+
+    n = len(points)
+
+    def x_at(i):
+        return pad_left + (plot_w * i / (n - 1) if n > 1 else plot_w / 2)
+
+    def y_at(v):
+        return pad_top + plot_h - ((v - v_min) / (v_max - v_min) * plot_h)
+
+    segments = []
+    current = []
+    for i, (_, v) in enumerate(points):
+        if v is None:
+            if current:
+                segments.append(current)
+                current = []
+            continue
+        current.append((x_at(i), y_at(v)))
+    if current:
+        segments.append(current)
+
+    polylines_html = "".join(
+        "<polyline points='" + " ".join(f"{x:.1f},{y:.1f}" for x, y in seg) + "' "
+        "fill='none' stroke='var(--md-primary)' stroke-width='2' "
+        "stroke-linecap='round' stroke-linejoin='round' />"
+        for seg in segments
+    )
+
+    dots_html = "".join(
+        f"<circle cx='{x_at(i):.1f}' cy='{y_at(v):.1f}' r='3' fill='var(--md-primary)'>"
+        f"<title>{html.escape(date_label)}: {_fmt_trend_value(v, unit)}</title></circle>"
+        for i, (date_label, v) in enumerate(points) if v is not None
+    )
+
+    baseline_y = pad_top + plot_h
+    axis_html = (
+        f"<line x1='{pad_left}' y1='{baseline_y}' x2='{width - pad_right}' y2='{baseline_y}' "
+        "stroke='var(--md-outline-variant)' stroke-width='1' />"
+    )
+
+    return (
+        f"<div class='trend-chart'>"
+        f"<p class='trend-chart-title'>{html.escape(label)}</p>"
+        f"<svg viewBox='0 0 {width} {height}' width='100%' height='{height}' role='img' "
+        f"aria-label='{html.escape(label)} trend'>{axis_html}{polylines_html}{dots_html}</svg>"
+        f"</div>"
+    )
+
+
+def _pct_or_none(rate):
+    return (rate * 100) if rate is not None else None
+
+
+def _trend_bucket_label(scope):
+    return (
+        scope["since_date"] if scope["since_date"] == scope["until_date"]
+        else f"{scope['since_date']}–{scope['until_date']}"
+    )
+
+
+def _trend_section_html(days):
+    bucket_days = 1 if days <= 7 else 7
+    metrics_reports = metrics.bucketed_reports(days=days, bucket_days=bucket_days)
+    cost_reports = [
+        cost.build_cost_report(since_date=r["scope"]["since_date"], until_date=r["scope"]["until_date"])
+        for r in metrics_reports
+    ]
+
+    autonomy_points = [
+        (_trend_bucket_label(r["scope"]), _pct_or_none(r["quality_and_autonomy"]["autonomy_rate"]))
+        for r in metrics_reports
+    ]
+    resolution_points = [
+        (_trend_bucket_label(r["scope"]), _pct_or_none(r["quality_and_autonomy"]["resolution_rate"]))
+        for r in metrics_reports
+    ]
+    verification_points = [
+        (_trend_bucket_label(r["scope"]), _pct_or_none(r["verification"]["verification_pass_rate"]))
+        for r in metrics_reports
+    ]
+    cost_points = [
+        (_trend_bucket_label(mr["scope"]), cr["cost"]["cost_per_resolution"])
+        for mr, cr in zip(metrics_reports, cost_reports)
+    ]
+
+    charts_html = "".join([
+        _trend_line_chart_svg("Autonomy rate", autonomy_points, unit="%"),
+        _trend_line_chart_svg("Resolution rate", resolution_points, unit="%"),
+        _trend_line_chart_svg("Verification pass rate", verification_points, unit="%"),
+        _trend_line_chart_svg("Cost per resolution", cost_points, unit="$"),
+        "<div class='trend-chart trend-chart-empty'>"
+        "<p class='trend-chart-title'>MR acceptance</p>"
+        "<p>Not yet tracked — needs Phase 10 human-review data.</p></div>",
+    ])
+
+    return f"""
+<section class="card">
+<div class="section-header">{_SECTION_ICON_ANALYTICS}<h2>Trend</h2></div>
+<div class="trend-charts-grid">{charts_html}</div>
+</section>
+"""
+
+
 def render_analytics_page(days=7):
     """The loop's performance-at-a-glance page - see
     docs/superpowers/specs/2026-09-05-analytics-dashboard-design.md.
@@ -6982,6 +7120,7 @@ def render_analytics_page(days=7):
 {_outcomes_section_html(metrics_report)}
 {_quality_section_html(metrics_report)}
 {_cost_section_html(cost_report)}
+{_trend_section_html(days)}
 """
     status = read_status(STATUS_PATH)
     return _render_shell("Analytics · Loop X Engineering", "analytics", _status_badge_markup(status), body)

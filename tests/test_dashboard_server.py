@@ -7963,7 +7963,7 @@ def test_render_analytics_page_invalid_days_value_defaults_to_seven(monkeypatch,
     real_build_report = ds.metrics.build_report
 
     def spy_build_report(events_dir=None, since_date=None, until_date=None):
-        captured["since_date"] = since_date
+        captured.setdefault("since_date", since_date)  # only the page's own main-report call, not the Trend section's per-bucket calls
         return real_build_report(events_dir=events_dir, since_date=since_date, until_date=until_date)
 
     monkeypatch.setattr(ds.metrics, "build_report", spy_build_report)
@@ -7981,8 +7981,9 @@ def test_render_analytics_page_days_30_changes_query_window(monkeypatch, tmp_pat
     real_build_report = ds.metrics.build_report
 
     def spy_build_report(events_dir=None, since_date=None, until_date=None):
-        captured["since_date"] = since_date
-        captured["until_date"] = until_date
+        # only the page's own main-report call, not the Trend section's per-bucket calls
+        captured.setdefault("since_date", since_date)
+        captured.setdefault("until_date", until_date)
         return real_build_report(events_dir=events_dir, since_date=since_date, until_date=until_date)
 
     monkeypatch.setattr(ds.metrics, "build_report", spy_build_report)
@@ -7992,3 +7993,38 @@ def test_render_analytics_page_days_30_changes_query_window(monkeypatch, tmp_pat
     today = datetime.now(timezone.utc).date()
     assert captured["since_date"] == (today - timedelta(days=29)).isoformat()
     assert captured["until_date"] == today.isoformat()
+
+
+def test_trend_line_chart_svg_renders_polyline_for_real_values():
+    svg = ds._trend_line_chart_svg("Autonomy rate", [("2026-09-01", 50.0), ("2026-09-02", 75.0)], unit="%")
+
+    assert "<polyline" in svg
+    assert "Autonomy rate" in svg
+
+
+def test_trend_line_chart_svg_breaks_line_across_none_gap():
+    svg = ds._trend_line_chart_svg("Autonomy rate", [("d1", 50.0), ("d2", None), ("d3", 60.0)], unit="%")
+
+    assert svg.count("<polyline") == 2  # one segment before the gap, one after
+
+
+def test_trend_line_chart_svg_empty_data_shows_no_data_message():
+    svg = ds._trend_line_chart_svg("Autonomy rate", [("d1", None), ("d2", None)], unit="%")
+
+    assert "no data" in svg
+    assert "<svg" not in svg
+
+
+def test_render_analytics_page_trend_section_shows_four_charts_and_mr_acceptance_placeholder(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+
+    output = ds.render_analytics_page(days=7)
+
+    assert "Trend" in output
+    assert "Autonomy rate" in output
+    assert "Resolution rate" in output
+    assert "Verification pass rate" in output
+    assert "Cost per resolution" in output
+    assert "MR acceptance" in output
+    assert "Not yet tracked" in output
