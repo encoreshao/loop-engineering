@@ -315,6 +315,76 @@ def test_upsert_tracked_project_updates_existing_and_can_clear_instance_override
     assert "instance" not in project
 
 
+def test_upsert_tracked_project_renames_existing_entry(tmp_path):
+    config_path = tmp_path / "projects.json"
+    ds.write_loop_projects_config({
+        "projects": {"harbor": {"project_id": "acme/harbor", "instance": "other-gitlab"}},
+    }, config_path)
+
+    ok, message = ds.upsert_tracked_project(
+        "harbor-renamed", "acme/harbor", "/tmp/harbor", "staging", "npm ci", "npm run lint", "npm run test",
+        instance="other-gitlab", config_path=config_path, original_alias="harbor",
+    )
+
+    assert ok is True
+    assert "harbor" in message and "harbor-renamed" in message
+    projects = ds.read_loop_projects_config(config_path)["projects"]
+    assert "harbor" not in projects
+    assert projects["harbor-renamed"]["project_id"] == "acme/harbor"
+
+
+def test_upsert_tracked_project_rename_rejects_unknown_original_alias(tmp_path):
+    config_path = tmp_path / "projects.json"
+    ds.write_loop_projects_config({"projects": {}}, config_path)
+
+    ok, message = ds.upsert_tracked_project(
+        "harbor-renamed", "acme/harbor", "", "", "", "", "",
+        config_path=config_path, original_alias="no-such-alias",
+    )
+
+    assert ok is False
+    assert "Unknown project" in message
+    assert ds.read_loop_projects_config(config_path)["projects"] == {}
+
+
+def test_upsert_tracked_project_rename_rejects_alias_already_in_use(tmp_path):
+    config_path = tmp_path / "projects.json"
+    ds.write_loop_projects_config({
+        "projects": {
+            "harbor": {"project_id": "acme/harbor"},
+            "vault": {"project_id": "acme/vault"},
+        },
+    }, config_path)
+
+    ok, message = ds.upsert_tracked_project(
+        "vault", "acme/harbor", "", "", "", "", "",
+        config_path=config_path, original_alias="harbor",
+    )
+
+    assert ok is False
+    assert "already in use" in message.lower()
+    projects = ds.read_loop_projects_config(config_path)["projects"]
+    assert projects["harbor"]["project_id"] == "acme/harbor"
+    assert projects["vault"]["project_id"] == "acme/vault"
+
+
+def test_upsert_tracked_project_original_alias_equal_to_alias_is_plain_update(tmp_path):
+    config_path = tmp_path / "projects.json"
+    ds.write_loop_projects_config({
+        "projects": {"harbor": {"project_id": "acme/harbor"}},
+    }, config_path)
+
+    ok, message = ds.upsert_tracked_project(
+        "harbor", "acme/harbor-2", "", "", "", "", "",
+        config_path=config_path, original_alias="harbor",
+    )
+
+    assert ok is True
+    assert "Updated" in message
+    projects = ds.read_loop_projects_config(config_path)["projects"]
+    assert projects["harbor"]["project_id"] == "acme/harbor-2"
+
+
 def test_upsert_tracked_project_requires_alias_and_project_id(tmp_path):
     config_path = tmp_path / "projects.json"
     ds.write_loop_projects_config({"projects": {}}, config_path)

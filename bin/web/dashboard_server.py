@@ -1500,15 +1500,19 @@ def write_loop_projects_config(config, path=None):
 
 
 def upsert_tracked_project(alias, project_id, local_path, target_branch, install_cmd, lint_cmd, test_cmd,
-                            instance="", config_path=None):
+                            instance="", config_path=None, original_alias=""):
     """Add or update one entry in ~/.loop-engineering/projects.json's
     `projects` map. `instance` blank means "use this config's default
     gitlab_instance" - stored by omitting the key entirely (never as an
     empty string), matching loop_config.get_project's setdefault-based
-    fallback."""
+    fallback. `original_alias`, when non-empty and different from `alias`,
+    renames the existing entry at that key to `alias` instead of adding a
+    second one - the Tracked Projects edit form sends it as a hidden field
+    alongside the now-editable alias input."""
     if config_path is None:
         config_path = loop_config.DEFAULT_CONFIG_PATH
     alias = alias.strip()
+    original_alias = original_alias.strip()
     project_id = project_id.strip()
     instance = instance.strip()
     if not alias:
@@ -1517,6 +1521,13 @@ def upsert_tracked_project(alias, project_id, local_path, target_branch, install
         return False, "Project ID is required"
     config = read_loop_projects_config(config_path)
     projects = config.setdefault("projects", {})
+    renaming = bool(original_alias) and original_alias != alias
+    if renaming:
+        if original_alias not in projects:
+            return False, f"Unknown project: {original_alias}"
+        if alias in projects:
+            return False, f"Project alias already in use: {alias}"
+        del projects[original_alias]
     is_new = alias not in projects
     entry = {
         "project_id": project_id,
@@ -1530,6 +1541,8 @@ def upsert_tracked_project(alias, project_id, local_path, target_branch, install
         entry["instance"] = instance
     projects[alias] = entry
     write_loop_projects_config(config, config_path)
+    if renaming:
+        return True, f"Renamed project {original_alias} to {alias}"
     return True, f"{'Added' if is_new else 'Updated'} project {alias}"
 
 
@@ -5048,6 +5061,31 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     }});
   }});
 }})();
+(function() {{
+  // Every .daemon-action-form is a plain `method='post'` form (no fetch/JS
+  // submit interception), so saving one is a full POST-redirect-GET - a
+  // fresh page load that the browser scrolls to the top of by default.
+  // That's jarring for a form living far down a long page (e.g. the loop
+  // settings form at the bottom of /settings) when the redirect lands
+  // back on the same page. Stash the scroll offset in sessionStorage,
+  // keyed by the page being submitted from, and restore it if the next
+  // page load is that same page.
+  var SCROLL_KEY_PREFIX = 'daemon-action-scroll:';
+  document.addEventListener('submit', function(ev) {{
+    if (!ev.target.matches || !ev.target.matches('.daemon-action-form')) return;
+    try {{
+      sessionStorage.setItem(SCROLL_KEY_PREFIX + location.pathname, String(window.scrollY));
+    }} catch (e) {{}}
+  }});
+  document.addEventListener('DOMContentLoaded', function() {{
+    var key = SCROLL_KEY_PREFIX + location.pathname;
+    var saved;
+    try {{ saved = sessionStorage.getItem(key); }} catch (e) {{ saved = null; }}
+    if (saved === null) return;
+    try {{ sessionStorage.removeItem(key); }} catch (e) {{}}
+    window.scrollTo(0, parseInt(saved, 10) || 0);
+  }});
+}})();
 </script>
 </head>
 <body>
@@ -6483,11 +6521,11 @@ def render_settings_page(flash=None, flash_ok=True):
         confirm_attr = html.escape(confirm_msg, quote=True)
         tracked_project_rows.append(
             "<tr>"
-            f"<td>{safe_alias}</td>"
             "<td>"
             "<form method='post' action='/settings/loop-projects' class='daemon-action-form'>"
             f"{csrf_input}"
-            f"<input type='hidden' name='alias' value='{safe_alias}'>"
+            f"<input type='hidden' name='original_alias' value='{safe_alias}'>"
+            f"<input type='text' name='alias' value='{safe_alias}' placeholder='project alias' required>"
             f"<input type='text' name='project_id' value='{html.escape(project.get('project_id', ''))}' placeholder='namespace/project'>"
             f"<input type='text' name='local_path' value='{html.escape(project.get('local_path', ''))}' placeholder='/abs/path/to/checkout'>"
             f"<input type='text' name='target_branch' value='{html.escape(project.get('target_branch', ''))}' placeholder='target branch'>"
@@ -6509,7 +6547,7 @@ def render_settings_page(flash=None, flash_ok=True):
         )
     tracked_projects_html = (
         "<div class='table-wrap'><table class='daemons'>"
-        "<thead><tr><th>Alias</th><th>Edit</th><th>Delete</th></tr></thead>"
+        "<thead><tr><th>Project</th><th>Delete</th></tr></thead>"
         f"<tbody>{''.join(tracked_project_rows)}</tbody>"
         "</table></div>"
     ) if tracked_project_rows else "<p>(no tracked projects configured)</p>"
@@ -7452,6 +7490,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
             alias = form.get("alias", [""])[0]
+            original_alias = form.get("original_alias", [""])[0]
             project_id = form.get("project_id", [""])[0]
             local_path = form.get("local_path", [""])[0]
             target_branch = form.get("target_branch", [""])[0]
@@ -7461,6 +7500,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             instance = form.get("instance", [""])[0]
             ok, message = upsert_tracked_project(
                 alias, project_id, local_path, target_branch, install_cmd, lint_cmd, test_cmd, instance,
+                original_alias=original_alias,
             )
             self._redirect_with_flash(ok, message, location="/settings")
             return
