@@ -197,3 +197,62 @@ def test_cli_list_no_matches_prints_nothing(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == ""
+
+
+def test_cli_list_skips_malformed_line_without_crashing(tmp_path):
+    events.emit("run.started", run_id="run_1", events_dir=tmp_path)
+
+    path = list(tmp_path.glob("*.jsonl"))[0]
+    with open(path, "a") as f:
+        f.write("{not valid json\n")
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    result = _run_cli(
+        ["list", "--date", today, "--events-dir", str(tmp_path)],
+        {**os.environ},
+    )
+
+    assert result.returncode == 0, result.stderr
+    lines = [l for l in result.stdout.splitlines() if l.strip()]
+    assert len(lines) == 1
+    assert json.loads(lines[0])["event_type"] == "run.started"
+
+
+def test_cli_list_by_run_id_scans_all_dates_without_date_flag(tmp_path):
+    events.emit("run.started", run_id="run_shared", events_dir=tmp_path)
+
+    other_path = tmp_path / "2020-01-01.jsonl"
+    other_event = {
+        "schema_version": 1,
+        "event_id": "evt_other",
+        "timestamp": "2020-01-01T00:00:00.000Z",
+        "event_type": "run.completed",
+        "run_id": "run_shared",
+        "issue_run_id": None,
+        "project": None,
+        "issue_iid": None,
+        "data": {},
+    }
+    other_path.write_text(json.dumps(other_event) + "\n")
+
+    result = _run_cli(
+        ["list", "--run-id", "run_shared", "--events-dir", str(tmp_path)],
+        {**os.environ},
+    )
+
+    assert result.returncode == 0, result.stderr
+    lines = [l for l in result.stdout.splitlines() if l.strip()]
+    assert len(lines) == 2
+    types = [json.loads(l)["event_type"] for l in lines]
+    # 2020-01-01.jsonl sorts before today's file, so it comes first.
+    assert types == ["run.completed", "run.started"]
+
+
+def test_cli_list_without_date_or_run_id_fails_clearly(tmp_path):
+    result = _run_cli(
+        ["list", "--events-dir", str(tmp_path)],
+        {**os.environ},
+    )
+
+    assert result.returncode == 1
+    assert "--date" in result.stderr or "--run-id" in result.stderr

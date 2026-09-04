@@ -36,7 +36,7 @@ def emit(event_type, run_id, issue_run_id=None, project=None, issue_iid=None,
     event = {
         "schema_version": SCHEMA_VERSION,
         "event_id": f"evt_{uuid.uuid4().hex}",
-        "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "timestamp": now.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
         "event_type": event_type,
         "run_id": run_id,
         "issue_run_id": issue_run_id,
@@ -53,7 +53,9 @@ def emit(event_type, run_id, issue_run_id=None, project=None, issue_iid=None,
     line = (json.dumps(event) + "\n").encode("utf-8")
     fd = os.open(str(path), os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644)
     try:
-        os.write(fd, line)
+        written = os.write(fd, line)
+        if written != len(line):
+            raise RuntimeError(f"short write: wrote {written} of {len(line)} bytes")
     finally:
         os.close(fd)
 
@@ -106,34 +108,49 @@ def _cmd_emit(argv):
     return 0
 
 
-def _cmd_list(argv):
-    date_stamp = _parse_flag(argv, "--date")
-    if not date_stamp:
-        print("list: --date is required", file=sys.stderr)
-        return 1
-    run_id_filter = _parse_flag(argv, "--run-id")
-    events_dir_raw = _parse_flag(argv, "--events-dir")
-    events_dir = Path(events_dir_raw) if events_dir_raw else DEFAULT_EVENTS_DIR
-
-    path = Path(events_dir) / f"{date_stamp}.jsonl"
-    if not path.exists():
-        return 0
-
+def _print_matching_events(path, run_id_filter):
     with open(path) as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
-            event = json.loads(line)
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError as exc:
+                print(f"list: skipping malformed line in {path}: {exc}", file=sys.stderr)
+                continue
             if run_id_filter is not None and event.get("run_id") != run_id_filter:
                 continue
             print(json.dumps(event))
+
+
+def _cmd_list(argv):
+    date_stamp = _parse_flag(argv, "--date")
+    run_id_filter = _parse_flag(argv, "--run-id")
+    if not date_stamp and not run_id_filter:
+        print("list: either --date or --run-id is required", file=sys.stderr)
+        return 1
+    events_dir_raw = _parse_flag(argv, "--events-dir")
+    events_dir = Path(events_dir_raw) if events_dir_raw else DEFAULT_EVENTS_DIR
+
+    if date_stamp:
+        path = Path(events_dir) / f"{date_stamp}.jsonl"
+        if not path.exists():
+            return 0
+        _print_matching_events(path, run_id_filter)
+        return 0
+
+    events_dir = Path(events_dir)
+    if not events_dir.exists():
+        return 0
+    for path in sorted(events_dir.glob("*.jsonl")):
+        _print_matching_events(path, run_id_filter)
     return 0
 
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: events.py emit --type T --run-id R [...] | events.py list --date D [...]", file=sys.stderr)
+        print("Usage: events.py emit --type T --run-id R [...] | events.py list (--date D | --run-id R) [...]", file=sys.stderr)
         sys.exit(1)
 
     command, argv = sys.argv[1], sys.argv[2:]
