@@ -6073,6 +6073,110 @@ def test_chat_tool_run_now_unknown_kind_returns_error():
     assert "error" in result
 
 
+def test_chat_tool_run_issue_refuses_when_already_running(tmp_path):
+    status_path = tmp_path / "status.json"
+    status_path.write_text(json.dumps({"state": "running"}))
+    loop_config_path = tmp_path / "projects.json"
+    loop_config_path.write_text(json.dumps({
+        "gitlab_instance": "acme",
+        "projects": {"harbor": {"project_id": "acme/harbor/harbor"}},
+    }))
+    gitlab_config_path = tmp_path / "gitlab_config.json"
+    gitlab_config_path.write_text(json.dumps({
+        "instances": {"acme": {"url": "https://gitlab.acme.com"}},
+    }))
+
+    result = ds._chat_tool_run_issue(
+        "https://gitlab.acme.com/acme/harbor/harbor/-/issues/482",
+        status_path=status_path, run_loop_path=tmp_path / "run-loop.sh",
+        loop_config_path=loop_config_path, gitlab_config_path=gitlab_config_path,
+    )
+
+    assert result == {"ok": False, "message": "A run is already in progress"}
+
+
+def test_chat_tool_run_issue_refuses_unmatched_url(tmp_path):
+    status_path = tmp_path / "status.json"
+    ds.write_status("idle", status_path=status_path)
+    loop_config_path = tmp_path / "projects.json"
+    loop_config_path.write_text(json.dumps({
+        "gitlab_instance": "acme",
+        "projects": {"harbor": {"project_id": "acme/harbor/harbor"}},
+    }))
+    gitlab_config_path = tmp_path / "gitlab_config.json"
+    gitlab_config_path.write_text(json.dumps({
+        "instances": {"acme": {"url": "https://gitlab.acme.com"}},
+    }))
+
+    result = ds._chat_tool_run_issue(
+        "https://gitlab.acme.com/acme/some-other-project/-/issues/1",
+        status_path=status_path, run_loop_path=tmp_path / "run-loop.sh",
+        loop_config_path=loop_config_path, gitlab_config_path=gitlab_config_path,
+    )
+
+    assert result["ok"] is False
+    assert "tracked project" in result["message"].lower()
+
+
+def test_chat_tool_run_issue_refuses_when_script_missing(tmp_path):
+    status_path = tmp_path / "status.json"
+    ds.write_status("idle", status_path=status_path)
+    loop_config_path = tmp_path / "projects.json"
+    loop_config_path.write_text(json.dumps({
+        "gitlab_instance": "acme",
+        "projects": {"harbor": {"project_id": "acme/harbor/harbor"}},
+    }))
+    gitlab_config_path = tmp_path / "gitlab_config.json"
+    gitlab_config_path.write_text(json.dumps({
+        "instances": {"acme": {"url": "https://gitlab.acme.com"}},
+    }))
+
+    result = ds._chat_tool_run_issue(
+        "https://gitlab.acme.com/acme/harbor/harbor/-/issues/482",
+        status_path=status_path, run_loop_path=tmp_path / "does-not-exist.sh",
+        loop_config_path=loop_config_path, gitlab_config_path=gitlab_config_path,
+    )
+
+    assert result["ok"] is False
+    assert "not found" in result["message"]
+
+
+def test_chat_tool_run_issue_launches_the_script(tmp_path, monkeypatch):
+    status_path = tmp_path / "status.json"
+    ds.write_status("idle", status_path=status_path)
+    run_loop_path = tmp_path / "run-loop.sh"
+    run_loop_path.write_text("#!/bin/bash\ntrue\n")
+    run_loop_path.chmod(0o755)
+    loop_config_path = tmp_path / "projects.json"
+    loop_config_path.write_text(json.dumps({
+        "gitlab_instance": "acme",
+        "projects": {"harbor": {"project_id": "acme/harbor/harbor"}},
+    }))
+    gitlab_config_path = tmp_path / "gitlab_config.json"
+    gitlab_config_path.write_text(json.dumps({
+        "instances": {"acme": {"url": "https://gitlab.acme.com"}},
+    }))
+
+    captured = {}
+
+    class FakePopen:
+        def __init__(self, args, **kwargs):
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(subprocess, "Popen", FakePopen)
+
+    result = ds._chat_tool_run_issue(
+        "https://gitlab.acme.com/acme/harbor/harbor/-/issues/482",
+        status_path=status_path, run_loop_path=run_loop_path,
+        loop_config_path=loop_config_path, gitlab_config_path=gitlab_config_path,
+    )
+
+    assert result == {"ok": True, "message": "Started work on harbor #482"}
+    assert captured["args"] == ["bash", str(run_loop_path), "harbor", "482"]
+    assert captured["kwargs"]["start_new_session"] is True
+
+
 def test_dispatch_chat_tool_daemon_enable_without_filename_exits_1(capsys):
     with pytest.raises(SystemExit) as exc_info:
         ds._dispatch_chat_tool("daemon-enable", [])
@@ -6083,6 +6187,26 @@ def test_dispatch_chat_tool_run_now_without_kind_exits_1(capsys):
     with pytest.raises(SystemExit) as exc_info:
         ds._dispatch_chat_tool("run-now", [])
     assert exc_info.value.code == 1
+
+
+def test_dispatch_chat_tool_run_issue_without_url_exits_1(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        ds._dispatch_chat_tool("run-issue", [])
+    assert exc_info.value.code == 1
+
+
+def test_dispatch_chat_tool_run_issue_dispatches_to_chat_tool_run_issue(monkeypatch, capsys):
+    captured = {}
+
+    def fake_run_issue(url):
+        captured["url"] = url
+        return {"ok": True, "message": "Started work on harbor #482"}
+
+    monkeypatch.setattr(ds, "_chat_tool_run_issue", fake_run_issue)
+    ds._dispatch_chat_tool("run-issue", ["https://gitlab.acme.com/acme/harbor/harbor/-/issues/482"])
+
+    assert captured["url"] == "https://gitlab.acme.com/acme/harbor/harbor/-/issues/482"
+    assert "Started work on harbor #482" in capsys.readouterr().out
 
 
 def test_chat_tool_history_delete(tmp_path):

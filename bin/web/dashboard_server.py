@@ -2359,6 +2359,42 @@ def _chat_tool_run_now(kind, status_path=None, run_loop_path=None,
     return {"ok": ok, "message": message}
 
 
+def _chat_tool_run_issue(url, status_path=None, run_loop_path=None,
+                          loop_config_path=None, gitlab_config_path=None):
+    """Launches run-loop.sh scoped to exactly one issue, resolved from a
+    pasted GitLab issue URL - the chat-tool action behind the Activity
+    page chat's "paste an issue link" flow. Reuses trigger_manual_run's
+    exact concurrency guard (same STATUS_PATH) so a single-issue run can
+    never overlap with the scheduled loop, a plain run-now, or another
+    single-issue run. The issue does NOT need to be assigned to the
+    configured username - pasting the link here is itself the
+    authorization - but its project must still resolve to one of the
+    tracked aliases in projects.json."""
+    if status_path is None:
+        status_path = STATUS_PATH
+    if run_loop_path is None:
+        run_loop_path = RUN_LOOP_SH
+    prefixes = gitlab_issue_url_prefixes(loop_config_path, gitlab_config_path)
+    resolved = _resolve_gitlab_issue_url(url, prefixes)
+    if resolved is None:
+        return {"ok": False, "message": f"Could not match {url!r} to a tracked project"}
+    alias, issue_iid = resolved
+    status = read_status(status_path)
+    if status.get("state") == "running":
+        return {"ok": False, "message": "A run is already in progress"}
+    if not run_loop_path.exists():
+        return {"ok": False, "message": f"run-loop.sh not found at {run_loop_path}"}
+    subprocess.Popen(
+        ["bash", str(run_loop_path), alias, str(issue_iid)],
+        cwd=str(LOOP_DIR),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    return {"ok": True, "message": f"Started work on {alias} #{issue_iid}"}
+
+
 def _chat_tool_history_delete(name, history_dir=None):
     if history_dir is None:
         history_dir = HISTORY_DIR
@@ -2415,6 +2451,11 @@ def _dispatch_chat_tool(action, args):
             print("Usage: chat-tool run-now <gitlab|topic-monitor>", file=sys.stderr)
             sys.exit(1)
         result = _chat_tool_run_now(args[0])
+    elif action == "run-issue":
+        if not args:
+            print("Usage: chat-tool run-issue <gitlab issue url>", file=sys.stderr)
+            sys.exit(1)
+        result = _chat_tool_run_issue(args[0])
     else:
         print(f"Unknown chat-tool action: {action!r}", file=sys.stderr)
         sys.exit(1)
