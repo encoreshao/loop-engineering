@@ -42,6 +42,28 @@ cd "$LOOP_DIR"
 # failure in the notify/status-write itself can't cause a second ERR trap.
 trap 'loop_exit=$?; echo "[$(date "+%Y-%m-%d %H:%M:%S")] ---- gitlab-loop ---- run FAILED (exit $loop_exit) ----" >> "$UNIFIED_LOG"; python3 bin/slack_notify.py "*Daily GitLab loop FAILED* (exit $loop_exit) — see outputs/history/$DATE_STAMP.log" || true; python3 bin/web/dashboard_server.py write-status failed --exit-code $loop_exit || true; python3 bin/events.py emit --type run.failed --run-id "$RUN_ID" --data "{\"exit_code\": $loop_exit}" || true' ERR
 
+# Emit run.started as early as possible - right after the ERR trap above is
+# armed, and before anything below that can actually fail under
+# `set -euo pipefail` (starting with WORKTREE_ROOT=... further down, this
+# script's most common real failure point). Emitting any later risks a
+# run.failed with no matching run.started, if one of those earlier commands
+# trips the trap first. $# is this script's own positional args, already
+# available here regardless of where in the script it's read.
+#
+# "dashboard" when the dashboard's run-issue chat action scoped this run to
+# one issue (build_run_prompt.sh takes the same $@ and branches on it the
+# same way); otherwise this script's normal invocation path is launchd, and
+# a manual terminal run is indistinguishable from a scheduled one - that
+# distinction isn't needed for anything downstream, so no new flag is added
+# just to make it.
+if [[ $# -eq 2 ]]; then
+  RUN_TRIGGER="dashboard"
+else
+  RUN_TRIGGER="scheduled"
+fi
+python3 bin/events.py emit --type run.started --run-id "$RUN_ID" \
+  --data "{\"trigger\": \"$RUN_TRIGGER\"}" || true
+
 # NOTE: this script deliberately does NOT source ~/.zprofile / ~/.zshrc.
 # Those are zsh files containing zsh-only syntax (`typeset -g`, subscript
 # flags like `$precmd_functions[(r)...]` from pyenv-virtualenv-init and the
@@ -105,22 +127,9 @@ DISALLOWED_TOOLS="Bash(git merge*) Bash(git push --force*) Bash(git push -f*) Ba
 
 # Optionally called as `run-loop.sh <alias> <issue_iid>` (from the
 # dashboard's chat-tool run-issue action) to scope this run to exactly
-# one issue instead of every assigned issue. See
-# bin/scripts/build_run_prompt.sh for what changes in the prompt.
-#
-# "dashboard" when the dashboard's run-issue chat action scoped this run to
-# one issue (build_run_prompt.sh takes the same $@ and branches on it the
-# same way); otherwise this script's normal invocation path is launchd, and
-# a manual terminal run is indistinguishable from a scheduled one - that
-# distinction isn't needed for anything downstream, so no new flag is added
-# just to make it.
-if [[ $# -eq 2 ]]; then
-  RUN_TRIGGER="dashboard"
-else
-  RUN_TRIGGER="scheduled"
-fi
-python3 bin/events.py emit --type run.started --run-id "$RUN_ID" \
-  --data "{\"trigger\": \"$RUN_TRIGGER\"}" || true
+# one issue instead of every assigned issue - build_run_prompt.sh takes
+# the same $@ and branches on it (see the RUN_TRIGGER detection above,
+# which reads the same $#).
 PROMPT="$(bash "$LOOP_DIR/bin/scripts/build_run_prompt.sh" "$@")"
 
 # Which AI CLI to invoke - set via the dashboard's /ai-cli page (see
