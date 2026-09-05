@@ -3207,6 +3207,8 @@ html.collapsed .activity-composer {{ left: 64px; }}
 .analytics-days-selector a.active {{ background: var(--md-primary); color: var(--md-on-primary); }}
 .analytics-health-score {{ font-size: 2.5rem; font-weight: 700; margin: 0.25rem 0; }}
 .analytics-health-note {{ font-size: 0.8rem; color: var(--md-on-surface-variant); margin: 0 0 0.75rem 0; }}
+.analytics-breakdown-columns {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-top: 0.75rem; }}
+.analytics-breakdown-columns h3 {{ font-size: 0.8rem; font-weight: 500; margin: 0 0 0.35rem; color: var(--md-on-surface-variant); }}
 .trend-charts-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }}
 .trend-chart {{ background: var(--md-surface-container-low); border-radius: 8px; padding: 0.75rem; }}
 .trend-chart-title {{ font-size: 0.85rem; font-weight: 500; margin: 0 0 0.5rem 0; color: var(--md-on-surface-variant); }}
@@ -4277,6 +4279,8 @@ _SECTION_ICON_OVERVIEW = "<span class='material-symbols-outlined' aria-hidden='t
 _SECTION_ICON_HISTORY = "<span class='material-symbols-outlined' aria-hidden='true'>history</span>"
 
 _SECTION_ICON_ANALYTICS = "<span class='material-symbols-outlined' aria-hidden='true'>monitoring</span>"
+_SECTION_ICON_RISK = "<span class='material-symbols-outlined' aria-hidden='true'>warning</span>"
+_SECTION_ICON_FAILURE = "<span class='material-symbols-outlined' aria-hidden='true'>error</span>"
 
 # The real GitLab "tanuki" brand mark, not a Material Symbols glyph -
 # that icon set has no generic "GitLab" glyph, so this is an inline SVG
@@ -6862,6 +6866,7 @@ _HEALTH_COMPONENT_LABELS = {
 
 _ESCALATION_TOOLTIP = "1 - (escalated / processed) - higher is healthier"
 _AUTONOMY_PLACEHOLDER_TOOLTIP = "placeholder: currently identical to resolution rate"
+_FIRST_PASS_VERIFICATION_TOOLTIP = "currently identical to Verification — the loop has no retry behavior yet"
 
 
 def _health_section_html(health_report, metrics_report):
@@ -6929,9 +6934,17 @@ def _quality_section_html(metrics_report):
         f"{verification['verification_pass_rate'] * 100:.1f}%"
         if verification["verification_pass_rate"] is not None else "N/A"
     )
+    first_pass_text = (
+        f"{verification['first_pass_verification_rate'] * 100:.1f}%"
+        if verification["first_pass_verification_rate"] is not None else "N/A"
+    )
 
     tiles = "".join([
         _stat_tile_html("check_circle", "Verification", verification_text),
+        _stat_tile_html(
+            "check_circle", "First-pass verification", first_pass_text,
+            tooltip=_FIRST_PASS_VERIFICATION_TOOLTIP,
+        ),
         _na_stat_tile_html("merge", "First-pass MR", "needs Phase 10 human-review data, not built yet"),
         _na_stat_tile_html("history", "Retry rate", qa["retry_rate_unavailable_reason"]),
         _na_stat_tile_html("error", "Regression", "not defined by any sprint built so far"),
@@ -6940,6 +6953,60 @@ def _quality_section_html(metrics_report):
     return f"""
 <section class="card">
 <div class="section-header">{_SECTION_ICON_LOGS}<h2>Quality</h2></div>
+<div class="dash-stats-grid">{tiles}</div>
+</section>
+"""
+
+
+_RISK_LEVELS = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+
+
+def _risk_classification_section_html(metrics_report):
+    classification = metrics_report["classification"]
+
+    headline_and_risk_tiles = "".join([
+        _stat_tile_html("check_circle", "Classified", classification["classified_total"]),
+        *(
+            _stat_tile_html("warning", level.capitalize(), classification["by_risk_level"].get(level, 0))
+            for level in _RISK_LEVELS
+        ),
+    ])
+
+    type_rows = "".join(
+        f"<li><span class='k'>{html.escape(str(value))}</span><span>{count}</span></li>"
+        for value, count in sorted(classification["by_type"].items())
+    ) or "<li><span class='k'>No data</span><span>-</span></li>"
+    complexity_rows = "".join(
+        f"<li><span class='k'>{html.escape(str(value))}</span><span>{count}</span></li>"
+        for value, count in sorted(classification["by_complexity"].items())
+    ) or "<li><span class='k'>No data</span><span>-</span></li>"
+
+    return f"""
+<section class="card">
+<div class="section-header">{_SECTION_ICON_RISK}<h2>Risk &amp; Classification</h2></div>
+<div class="dash-stats-grid">{headline_and_risk_tiles}</div>
+<div class="analytics-breakdown-columns">
+<div><h3>By type</h3><ul class="field-list">{type_rows}</ul></div>
+<div><h3>By complexity</h3><ul class="field-list">{complexity_rows}</ul></div>
+</div>
+</section>
+"""
+
+
+def _failure_breakdown_section_html(metrics_report):
+    failure_taxonomy = metrics_report["failure_taxonomy"]
+
+    if failure_taxonomy["total"] == 0:
+        tiles = _na_stat_tile_html("error", "Failure breakdown", "no escalations in this window")
+    else:
+        tiles = "".join(
+            _stat_tile_html("error", category.capitalize(), f"{pct * 100:.1f}%")
+            for category, pct in sorted(failure_taxonomy["by_category_pct"].items(), key=lambda kv: -kv[1])
+        )
+
+    return f"""
+<section class="card">
+<div class="section-header">{_SECTION_ICON_FAILURE}<h2>Failure Breakdown</h2></div>
 <div class="dash-stats-grid">{tiles}</div>
 </section>
 """
@@ -7165,6 +7232,8 @@ def render_analytics_page(days=7):
 {_health_section_html(health_report, metrics_report)}
 {_outcomes_section_html(metrics_report)}
 {_quality_section_html(metrics_report)}
+{_risk_classification_section_html(metrics_report)}
+{_failure_breakdown_section_html(metrics_report)}
 {_cost_section_html(cost_report)}
 {_trend_section_html(days)}
 """

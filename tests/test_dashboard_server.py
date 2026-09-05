@@ -8100,3 +8100,81 @@ def test_render_analytics_page_populated_event_log_shows_real_numbers(monkeypatc
     # finding 2: escalation tile's inverted meaning is disclosed
     assert "Non-escalation" in output
     assert "higher is healthier" in output
+
+
+def test_render_analytics_page_risk_classification_section_shows_zero_state(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+
+    output = ds.render_analytics_page(days=7)
+
+    assert "Risk" in output
+    assert "Classification" in output
+    assert "By type" in output
+    assert "No data" in output
+
+
+def test_render_analytics_page_risk_classification_section_shows_real_breakdown(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    events_dir = tmp_path / "events"
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", events_dir)
+    events.emit(
+        "issue.classified", run_id="run_1", issue_run_id="run_1_kurrant_1",
+        project="kurrant", issue_iid=1,
+        data={"type": "bug", "complexity": "M", "risk_level": "MEDIUM"},
+        events_dir=events_dir,
+    )
+
+    output = ds.render_analytics_page(days=7)
+
+    assert "bug" in output
+    assert "Medium" in output
+
+
+def test_render_analytics_page_failure_breakdown_section_shows_na_when_no_escalations(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+
+    output = ds.render_analytics_page(days=7)
+
+    assert "Failure Breakdown" in output
+    assert "no escalations in this window" in output
+
+
+def test_render_analytics_page_failure_breakdown_section_shows_percentage(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    events_dir = tmp_path / "events"
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", events_dir)
+    events.emit(
+        "issue.escalated", run_id="run_1", issue_run_id="run_1_kurrant_1",
+        project="kurrant", issue_iid=1, data={"reason": "needs_clarification"},
+        events_dir=events_dir,
+    )
+
+    output = ds.render_analytics_page(days=7)
+
+    assert "Requirement" in output
+    assert "100.0%" in output
+
+
+def test_render_analytics_page_quality_section_shows_first_pass_verification_tile(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+
+    output = ds.render_analytics_page(days=7)
+
+    quality_html = output.split("<h2>Quality</h2>")[1].split("</section>")[0]
+    assert "First-pass verification" in quality_html
+
+
+def test_render_analytics_page_sections_ordered_quality_then_risk_then_failure_then_cost(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+
+    output = ds.render_analytics_page(days=7)
+
+    quality_idx = output.index("<h2>Quality</h2>")
+    risk_idx = output.index("Classification</h2>")
+    failure_idx = output.index("<h2>Failure Breakdown</h2>")
+    cost_idx = output.index("<h2>Cost</h2>")
+    assert quality_idx < risk_idx < failure_idx < cost_idx
