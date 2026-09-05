@@ -913,7 +913,7 @@ def test_light_color_mode_defined_for_auto_and_explicit_choice():
 
 def test_roboto_is_the_default_font_family():
     """Roboto is the bare :root default (see _FONT_CHOICES/_FONT_FACE_VARS in
-    render_preferences_page's font picker) - every other name in _STYLE is a
+    render_general_settings_page's font picker) - every other name in _STYLE is a
     legitimate picker choice, not a leftover experiment like Poppins."""
     default_root_block = ds._STYLE.split(":root {")[1].split("\n}")[0]
     assert "--font-family-stack: 'Roboto'," in default_root_block
@@ -1155,7 +1155,7 @@ def test_render_shell_shows_selected_ai_cli_badge_for_claude(monkeypatch, tmp_pa
     body = ds._render_shell("Test Page", "overview", "<span>badge</span>", "<p>body</p>")
 
     assert "Claude Code" in body
-    assert "href='/ai-cli'" in body
+    assert "href='/settings/general?tab=ai-cli'" in body
 
 
 def test_render_shell_shows_selected_ai_cli_badge_for_codex(monkeypatch, tmp_path):
@@ -2513,14 +2513,12 @@ def test_nav_items_each_carry_a_material_symbols_icon():
         "daemons": "dns",
         "skills": "extension",
         "settings": "settings",
+        "general_settings": "tune",
         "activity": "bolt",
         "readme": "description",
-        "preferences": "palette",
-        "instructions": "edit_note",
         "topic_monitor": "newspaper",
         "topic_settings": "settings",
         "logs": "terminal",
-        "ai_cli": "smart_toy",
     }
     for key, href, label, icon in ds._NAV_ITEMS:
         if key in ("notifications", "gitlab"):
@@ -2548,22 +2546,39 @@ def test_settings_nav_item_present_with_icon():
     assert len(matching) == 1
     key, href, label, icon = matching[0]
     assert href == "/settings"
-    assert label == "GitLab"
+    assert label == "GitLab Settings"
     assert icon == "<span class='material-symbols-outlined' aria-hidden='true'>settings</span>"
 
 
-def test_slack_nav_item_present_with_icon():
-    matching = [item for item in ds._NAV_ITEMS if item[0] == "notifications"]
+def test_general_settings_nav_item_present_with_icon():
+    matching = [item for item in ds._NAV_ITEMS if item[0] == "general_settings"]
     assert len(matching) == 1
     key, href, label, icon = matching[0]
-    assert href == "/notifications"
-    assert label == "Notifications"
+    assert href == "/settings/general"
+    assert label == "Settings"
+    # Deliberately not the GitLab settings page's gear glyph - see
+    # _SECTION_ICON_GENERAL_SETTINGS's own comment.
+    assert icon == ds._SECTION_ICON_GENERAL_SETTINGS
+    assert icon != ds._SECTION_ICON_SETTINGS
+
+
+def test_general_settings_material_symbol_name_is_registered():
+    assert "tune" in ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
+
+
+def test_render_general_settings_page_notifications_tab_uses_slack_mark(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "does-not-exist-slack.json")
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
+
+    output = ds.render_general_settings_page(active_tab="notifications")
+
     # The Slack mark - an inline SVG, not a Material Symbols glyph (there's
     # no generic "Slack" glyph in that icon set) - but drawn in
-    # currentColor so it matches every other nav icon's color exactly,
+    # currentColor so it matches every other tab icon's color exactly,
     # including across accent/theme changes, rather than Slack's fixed
-    # brand colors.
-    assert icon == ds._SECTION_ICON_SLACK
+    # brand colors (which never appear in the icon constant itself).
+    assert ds._SECTION_ICON_SLACK in output
+    icon = ds._SECTION_ICON_SLACK
     assert icon.startswith("<svg")
     assert "fill='currentColor'" in icon
     assert "#e01e5a" not in icon and "#36c5f0" not in icon and "#2eb67d" not in icon and "#ecb22e" not in icon
@@ -2780,7 +2795,7 @@ def test_collapsed_sidebar_top_stacks_brand_and_toggle_instead_of_squeezing_them
 
     assert "flex-direction: column;" in collapsed_rule
     sidebar = ds._sidebar_html("overview")
-    for label in ("Dashboard", "Run History", "Live GitLab", "Memory", "Daemons", "GitLab", "Activity"):
+    for label in ("Dashboard", "Run History", "Live GitLab", "Memory", "Daemons", "GitLab Settings", "Activity"):
         assert label in sidebar
     # The GitLab settings page lives in the Configuration group, which
     # comes after System in _NAV_GROUPS, regardless of _NAV_ITEMS's own
@@ -2790,19 +2805,17 @@ def test_collapsed_sidebar_top_stacks_brand_and_toggle_instead_of_squeezing_them
     assert (
         sidebar.index("Dashboard") < sidebar.index("Live GitLab")
         < sidebar.index("Memory") < sidebar.index("Activity")
-        < sidebar.index("Run History") < sidebar.index("Daemons") < sidebar.index("title='GitLab'")
+        < sidebar.index("Run History") < sidebar.index("Daemons") < sidebar.index("title='GitLab Settings'")
     )
 
 
-def test_sidebar_html_groups_settings_preferences_instructions_under_configuration():
+def test_sidebar_html_groups_settings_and_general_settings_under_configuration():
     sidebar = ds._sidebar_html("overview")
     assert "sidebar-group-label'>Configuration<" in sidebar
     config_index = sidebar.index("sidebar-group-label'>Configuration<")
     config_block = sidebar[config_index:]
-    assert "title='GitLab'" in config_block
-    assert "Notifications" in config_block
-    assert "Preferences" in config_block
-    assert "Instructions" in config_block
+    assert "title='GitLab Settings'" in config_block
+    assert "title='Settings'" in config_block
     assert "Topic Settings" in config_block
     # Activity is a Monitor-group page, not Configuration - it must appear
     # before the Configuration label, not inside its block.
@@ -2829,7 +2842,7 @@ def test_sidebar_html_groups_main_nav_items_with_labels():
     docs_index = sidebar.index("sidebar-group-label'>Docs<")
     readme_index = sidebar.index("title='README'")
     config_index = sidebar.index("sidebar-group-label'>Configuration<")
-    settings_index = sidebar.index("title='GitLab'")
+    settings_index = sidebar.index("title='GitLab Settings'")
 
     # Dashboard comes before any group label - it isn't inside one
     assert overview_index < monitor_index
@@ -2848,7 +2861,7 @@ def test_sidebar_html_groups_main_nav_items_with_labels():
 
     for key in (
         "history", "gitlab", "memory", "activity", "daemons", "skills", "readme",
-        "settings", "preferences", "instructions", "topic_settings",
+        "settings", "general_settings", "topic_settings",
     ):
         assert ds._NAV_GROUP_OF[key]
 
@@ -2860,8 +2873,7 @@ def test_sidebar_html_groups_main_nav_items_with_labels():
     assert ds._NAV_GROUP_OF["skills"] == "System"
     assert ds._NAV_GROUP_OF["readme"] == "Docs"
     assert ds._NAV_GROUP_OF["settings"] == "Configuration"
-    assert ds._NAV_GROUP_OF["preferences"] == "Configuration"
-    assert ds._NAV_GROUP_OF["instructions"] == "Configuration"
+    assert ds._NAV_GROUP_OF["general_settings"] == "Configuration"
     assert ds._NAV_GROUP_OF["topic_settings"] == "Configuration"
     assert "overview" not in ds._NAV_GROUP_OF
 
@@ -2894,7 +2906,7 @@ def test_render_shell_omits_auto_refresh_by_default():
 def test_render_shell_schedules_a_configurable_auto_refresh_when_enabled():
     """Auto-refresh is JS-driven (setTimeout + reload), not a fixed
     <meta http-equiv="refresh">, so the interval can be a per-browser
-    preference (see render_preferences_page) rather than hardcoded."""
+    preference (see render_general_settings_page) rather than hardcoded."""
     page = ds._render_shell("Test Title", "overview", "<span>badge</span>", "<p>body</p>", refresh=True)
     assert '<meta http-equiv="refresh"' not in page
     assert "loop-dashboard-refresh-interval" in page
@@ -3687,10 +3699,10 @@ def test_render_readme_page_handles_missing_file(monkeypatch, tmp_path):
     assert "No README.md found" in output
 
 
-def test_render_preferences_page_shows_color_mode_and_accent_controls():
-    output = ds.render_preferences_page()
+def test_render_general_settings_page_shows_color_mode_and_accent_controls():
+    output = ds.render_general_settings_page(active_tab="appearance")
 
-    assert "<h1>Preferences</h1>" in output
+    assert "<h1>Settings</h1>" in output
     for mode in ("light", "dark", "auto"):
         assert f"data-color-mode-choice=\"{mode}\"" in output
     for accent in ("default", "indigo", "blue", "green", "red", "gray"):
@@ -3699,8 +3711,8 @@ def test_render_preferences_page_shows_color_mode_and_accent_controls():
     assert "loop-dashboard-accent" in output
 
 
-def test_render_preferences_page_default_is_first_accent_and_default():
-    output = ds.render_preferences_page()
+def test_render_general_settings_page_default_is_first_accent_and_default():
+    output = ds.render_general_settings_page(active_tab="appearance")
 
     default_index = output.index('data-accent-choice="default"')
     blue_index = output.index('data-accent-choice="blue"')
@@ -3708,22 +3720,22 @@ def test_render_preferences_page_default_is_first_accent_and_default():
     assert "localStorage.getItem('loop-dashboard-accent') || 'default'" in output
 
 
-def test_render_preferences_page_color_mode_section_has_a_subtitle():
-    output = ds.render_preferences_page()
+def test_render_general_settings_page_color_mode_section_has_a_subtitle():
+    output = ds.render_general_settings_page(active_tab="appearance")
 
     color_mode_section = output.split("<h2>Color mode</h2>")[1].split("</section>")[0]
     assert "<p class=\"section-subtitle\">" in color_mode_section
 
 
-def test_render_preferences_page_theme_section_title_and_subtitle():
-    output = ds.render_preferences_page()
+def test_render_general_settings_page_theme_section_title_and_subtitle():
+    output = ds.render_general_settings_page(active_tab="appearance")
 
     assert "<h2>Theme</h2>" in output
     assert "Select the accent color for the application interface." in output
 
 
-def test_render_preferences_page_shows_font_controls():
-    output = ds.render_preferences_page()
+def test_render_general_settings_page_shows_font_controls():
+    output = ds.render_general_settings_page(active_tab="appearance")
 
     assert "<h2>Font</h2>" in output
     for key, label, name in ds._FONT_CHOICES:
@@ -3733,8 +3745,8 @@ def test_render_preferences_page_shows_font_controls():
     assert "loop-dashboard-font" in output
 
 
-def test_render_preferences_page_roboto_is_the_default_font():
-    output = ds.render_preferences_page()
+def test_render_general_settings_page_roboto_is_the_default_font():
+    output = ds.render_general_settings_page(active_tab="appearance")
 
     assert "localStorage.getItem('loop-dashboard-font') || 'roboto'" in output
 
@@ -3747,24 +3759,24 @@ def test_style_defines_font_family_stack_per_choice():
         assert f':root[data-font="{key}"] {{ --font-family-stack: \'{name}\',' in ds._STYLE
 
 
-def test_render_preferences_page_shows_auto_refresh_interval_controls():
-    output = ds.render_preferences_page()
+def test_render_general_settings_page_shows_auto_refresh_interval_controls():
+    output = ds.render_general_settings_page(active_tab="appearance")
 
     for seconds in ("5", "11", "30", "60", "300"):
         assert f"data-refresh-choice=\"{seconds}\"" in output
     assert "loop-dashboard-refresh-interval" in output
 
 
-def test_render_preferences_page_thirty_seconds_is_the_default_refresh_interval():
-    output = ds.render_preferences_page()
+def test_render_general_settings_page_thirty_seconds_is_the_default_refresh_interval():
+    output = ds.render_general_settings_page(active_tab="appearance")
 
     assert "localStorage.getItem('loop-dashboard-refresh-interval') || '30'" in output
 
 
-def test_render_preferences_page_accent_swatches_show_a_layout_preview():
+def test_render_general_settings_page_accent_swatches_show_a_layout_preview():
     """Swatches show a mini sidebar+content layout preview, not a plain
     color dot - so you can see how the page will actually look."""
-    output = ds.render_preferences_page()
+    output = ds.render_general_settings_page(active_tab="appearance")
 
     assert "pref-swatch-preview-nav" in output
     assert "pref-swatch-preview-content" in output
@@ -3780,10 +3792,11 @@ def test_pref_swatch_preview_is_larger_than_a_plain_color_dot():
     assert "height: 100px" in rule
 
 
-def test_render_preferences_page_nav_marks_active():
-    output = ds.render_preferences_page()
+def test_render_general_settings_page_nav_marks_active():
+    output = ds.render_general_settings_page(active_tab="appearance")
 
-    assert "<a href='/preferences' title='Preferences' class='active'>" in output
+    assert "<a href='/settings/general' title='Settings' class='active'>" in output
+    assert "data-tab-target='appearance' role='tab' aria-selected='true'" in output
 
 
 def test_render_markdown_defaults_to_real_gitlab_issue_url_prefixes(monkeypatch):
@@ -5060,6 +5073,8 @@ def test_nav_active_class_matches_current_page(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "get_daemons_status", lambda *a, **k: [])
     monkeypatch.setattr(ds, "GITLAB_CONFIG_PATH", tmp_path / "does-not-exist-gitlab.json")
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "does-not-exist-slack.json")
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
+    monkeypatch.setattr(ai_cli_config, "DEFAULT_CONFIG_PATH", tmp_path / "does-not-exist-ai-cli.json")
     monkeypatch.setattr(loop_config, "DEFAULT_CONFIG_PATH", tmp_path / "does-not-exist-projects.json")
 
     assert "<a href='/' title='Dashboard' class='active'>" in ds.render_overview_page()
@@ -5067,8 +5082,8 @@ def test_nav_active_class_matches_current_page(monkeypatch, tmp_path):
     assert "<a href='/gitlab' title='Live GitLab' class='active'>" in ds.render_gitlab_page()
     assert "<a href='/memory' title='Memory' class='active'>" in ds.render_memory_page()
     assert "<a href='/daemons' title='Daemons' class='active'>" in ds.render_daemons_page()
-    assert "<a href='/settings' title='GitLab' class='active'>" in ds.render_settings_page()
-    assert "<a href='/notifications' title='Notifications' class='active'>" in ds.render_slack_page()
+    assert "<a href='/settings' title='GitLab Settings' class='active'>" in ds.render_settings_page()
+    assert "<a href='/settings/general' title='Settings' class='active'>" in ds.render_general_settings_page()
 
 
 def test_read_gitlab_config_missing_file_returns_empty_dict(tmp_path):
@@ -5147,32 +5162,35 @@ def test_render_settings_page_masks_gitlab_token(monkeypatch, tmp_path):
     assert "https://gitlab.acme.com" in output  # URL itself is not a secret
 
 
-def test_render_slack_page_masks_webhook(monkeypatch, tmp_path):
+def test_render_general_settings_page_masks_webhook(monkeypatch, tmp_path):
     slack_path = tmp_path / "slack.json"
     slack_path.write_text(json.dumps({"webhook_url": "https://hooks.slack.com/services/T00/B00/xyzSECRET"}))
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", slack_path)
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
 
-    output = ds.render_slack_page()
+    output = ds.render_general_settings_page(active_tab="notifications")
 
     assert "xyzSECRET" not in output
     assert "https://hooks.slack.com" not in output
     assert "••••CRET" in output
 
 
-def test_render_slack_page_labels_the_main_webhook_as_default(monkeypatch, tmp_path):
+def test_render_general_settings_page_labels_the_main_webhook_as_default(monkeypatch, tmp_path):
     """Distinguishes it from the per-bundle webhook overrides on the
     GitLab page's Access bundles section - both used to just say "Webhook"."""
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "does-not-exist-slack.json")
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
 
-    output = ds.render_slack_page()
+    output = ds.render_general_settings_page(active_tab="notifications")
 
     assert "<strong>Default webhook:</strong>" in output
 
 
-def test_render_slack_page_empty_config_shows_placeholder(monkeypatch, tmp_path):
+def test_render_general_settings_page_empty_slack_config_shows_placeholder(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "does-not-exist-slack.json")
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
 
-    output = ds.render_slack_page()
+    output = ds.render_general_settings_page(active_tab="notifications")
 
     assert "(not set)" in output
 
@@ -5247,10 +5265,10 @@ def test_dashboard_server_integration_slack_route(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "slack.json")
 
     with _running_server() as port:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/notifications", timeout=10) as response:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/settings/general", timeout=10) as response:
             assert response.status == 200
             body = response.read().decode("utf-8")
-            assert "<h1>Notifications</h1>" in body
+            assert "<h1>Settings</h1>" in body
 
 
 def test_set_default_gitlab_instance_success(tmp_path):
@@ -5430,42 +5448,49 @@ def test_write_custom_instructions_allows_clearing_to_blank(tmp_path):
     assert ds.read_custom_instructions(path) == ""
 
 
-def test_render_instructions_page_shows_subtitle_and_current_text(monkeypatch, tmp_path):
+def test_render_general_settings_page_shows_instructions_subtitle_and_current_text(monkeypatch, tmp_path):
     path = tmp_path / "instructions.md"
     path.write_text("Prefer tabs over spaces.")
     monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", path)
     monkeypatch.setattr(ai_cli_config, "DEFAULT_CONFIG_PATH", tmp_path / "does-not-exist.json")
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "does-not-exist-slack.json")
 
-    output = ds.render_instructions_page()
+    output = ds.render_general_settings_page(active_tab="instructions")
 
-    assert "<h1>Instructions</h1>" in output
+    assert "<h1>Settings</h1>" in output
     assert "Include specific instructions in Claude Code's system prompt" in output
     assert "Prefer tabs over spaces." in output
     assert "<textarea" in output
 
 
-def test_render_instructions_page_subtitle_names_the_selected_ai_cli(monkeypatch, tmp_path):
+def test_render_general_settings_page_instructions_subtitle_names_the_selected_ai_cli(monkeypatch, tmp_path):
     config_path = tmp_path / "ai_cli.json"
     config_path.write_text('{"cli": "codex"}')
     monkeypatch.setattr(ai_cli_config, "DEFAULT_CONFIG_PATH", config_path)
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "does-not-exist-slack.json")
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
 
-    output = ds.render_instructions_page()
+    output = ds.render_general_settings_page(active_tab="instructions")
 
     assert "Include specific instructions in Codex CLI's system prompt" in output
 
 
-def test_render_instructions_page_textarea_is_large():
-    output = ds.render_instructions_page()
+def test_render_general_settings_page_instructions_textarea_is_large(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "does-not-exist-slack.json")
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
+
+    output = ds.render_general_settings_page(active_tab="instructions")
 
     assert "rows='24'" in output
 
 
-def test_render_instructions_page_escapes_saved_text(monkeypatch, tmp_path):
+def test_render_general_settings_page_escapes_saved_instructions_text(monkeypatch, tmp_path):
     path = tmp_path / "instructions.md"
     path.write_text("<script>alert(1)</script>")
     monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", path)
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "does-not-exist-slack.json")
 
-    output = ds.render_instructions_page()
+    output = ds.render_general_settings_page(active_tab="instructions")
 
     assert "<script>alert(1)</script>" not in output
     assert "&lt;script&gt;" in output
@@ -5476,12 +5501,12 @@ def test_instructions_route_saves_and_redirects(tmp_path, monkeypatch):
     monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", path)
 
     with _running_server() as port:
-        token = _fetch_csrf_token(port, "/instructions")
+        token = _fetch_csrf_token(port, "/settings/general")
         status, headers, _body = _post(port, "/instructions", {
             "instructions": "Always write tests first.", "csrf_token": token,
         })
         assert status == 303
-        assert headers.get("Location", "").startswith("/instructions?")
+        assert headers.get("Location", "").startswith("/settings/general?tab=instructions")
 
     assert ds.read_custom_instructions(path) == "Always write tests first."
 
@@ -5585,7 +5610,7 @@ def test_slack_route_update_webhook_success(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", slack_path)
 
     with _running_server() as port:
-        token = _fetch_csrf_token(port, "/notifications")
+        token = _fetch_csrf_token(port, "/settings/general")
         status, _headers, _body = _post(port, "/notifications/webhook", {
             "webhook_url": "https://hooks.slack.com/services/new", "csrf_token": token,
         })
@@ -5599,35 +5624,28 @@ def test_slack_route_update_webhook_blank_rejected(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", slack_path)
 
     with _running_server() as port:
-        token = _fetch_csrf_token(port, "/notifications")
+        token = _fetch_csrf_token(port, "/settings/general")
         status, headers, _body = _post(port, "/notifications/webhook", {"webhook_url": "", "csrf_token": token})
         assert status == 303
-        flash_query = _flash_from_location(headers["Location"], prefix="/notifications?")
+        flash_query = _flash_from_location(headers["Location"], prefix="/settings/general?tab=notifications&")
         assert flash_query["ok"] == ["0"]
     assert ds.read_slack_config(slack_path)["webhook_url"] == "https://hooks.slack.com/services/original"
-
-
-def test_ai_cli_nav_item_present_with_icon():
-    matching = [item for item in ds._NAV_ITEMS if item[0] == "ai_cli"]
-    assert len(matching) == 1
-    key, href, label, icon = matching[0]
-    assert href == "/ai-cli"
-    assert label == "AI CLI"
-    assert icon == "<span class='material-symbols-outlined' aria-hidden='true'>smart_toy</span>"
 
 
 def test_ai_cli_material_symbol_name_is_registered():
     assert "smart_toy" in ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
 
 
-def test_render_ai_cli_page_shows_current_selection(monkeypatch, tmp_path):
+def test_render_general_settings_page_ai_cli_tab_shows_current_selection(monkeypatch, tmp_path):
     config_path = tmp_path / "ai_cli.json"
     config_path.write_text('{"cli": "codex"}')
     monkeypatch.setattr(ai_cli_config, "DEFAULT_CONFIG_PATH", config_path)
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "does-not-exist-slack.json")
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
 
-    output = ds.render_ai_cli_page()
+    output = ds.render_general_settings_page(active_tab="ai-cli")
 
-    assert "<h1>AI CLI</h1>" in output
+    assert "<h1>Settings</h1>" in output
     # "codex" alone would be true regardless of which CLI is actually
     # selected (both option values always appear in the rendered
     # dropdown) - assert on the selected <option> marker instead, which
@@ -5635,23 +5653,27 @@ def test_render_ai_cli_page_shows_current_selection(monkeypatch, tmp_path):
     assert "<option value='codex' selected>" in output
 
 
-def test_render_ai_cli_page_defaults_to_claude_when_unset(monkeypatch, tmp_path):
+def test_render_general_settings_page_ai_cli_tab_defaults_to_claude_when_unset(monkeypatch, tmp_path):
     monkeypatch.setattr(ai_cli_config, "DEFAULT_CONFIG_PATH", tmp_path / "does-not-exist.json")
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "does-not-exist-slack.json")
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
 
-    output = ds.render_ai_cli_page()
+    output = ds.render_general_settings_page(active_tab="ai-cli")
 
     assert "claude" in output
 
 
-def test_render_ai_cli_page_flash_success(monkeypatch, tmp_path):
+def test_render_general_settings_page_ai_cli_tab_flash_success(monkeypatch, tmp_path):
     monkeypatch.setattr(ai_cli_config, "DEFAULT_CONFIG_PATH", tmp_path / "ai_cli.json")
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "does-not-exist-slack.json")
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
 
-    output = ds.render_ai_cli_page(flash="Switched to codex", flash_ok=True)
+    output = ds.render_general_settings_page(flash="Switched to codex", flash_ok=True, active_tab="ai-cli")
 
     assert "<div class='flash flash-success'>Switched to codex</div>" in output
 
 
-def test_render_ai_cli_page_closed_dropdown_trigger_shows_availability_label(monkeypatch, tmp_path):
+def test_render_general_settings_page_ai_cli_tab_closed_dropdown_trigger_shows_availability_label(monkeypatch, tmp_path):
     # The closed-dropdown trigger (_custom_select's own
     # <span class='custom-select-value'>) must carry the same
     # availability-annotated label as the option/menu-item text - it's
@@ -5662,8 +5684,10 @@ def test_render_ai_cli_page_closed_dropdown_trigger_shows_availability_label(mon
     config_path.write_text('{"cli": "codex"}')
     monkeypatch.setattr(ai_cli_config, "DEFAULT_CONFIG_PATH", config_path)
     monkeypatch.setattr(ds, "_cli_available", lambda name: True)
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "does-not-exist-slack.json")
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
 
-    output = ds.render_ai_cli_page()
+    output = ds.render_general_settings_page(active_tab="ai-cli")
 
     assert "custom-select-value'>Codex CLI (installed)</span>" in output
 
@@ -5672,10 +5696,10 @@ def test_dashboard_server_integration_ai_cli_route(monkeypatch, tmp_path):
     monkeypatch.setattr(ai_cli_config, "DEFAULT_CONFIG_PATH", tmp_path / "ai_cli.json")
 
     with _running_server() as port:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/ai-cli", timeout=10) as response:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/settings/general?tab=ai-cli", timeout=10) as response:
             assert response.status == 200
             body = response.read().decode("utf-8")
-            assert "<h1>AI CLI</h1>" in body
+            assert "<h1>Settings</h1>" in body
 
 
 def test_do_post_ai_cli_without_csrf_token_is_forbidden_and_mutates_nothing(monkeypatch, tmp_path):
@@ -5693,10 +5717,10 @@ def test_do_post_ai_cli_with_valid_csrf_token_switches_cli(monkeypatch, tmp_path
     monkeypatch.setattr(ai_cli_config, "DEFAULT_CONFIG_PATH", config_path)
 
     with _running_server() as port:
-        token = _fetch_csrf_token(port, path="/ai-cli")
+        token = _fetch_csrf_token(port, path="/settings/general")
         status, headers, _body = _post(port, "/ai-cli", {"csrf_token": token, "cli": "codex"})
         assert status == 303
-        assert headers["Location"].startswith("/ai-cli?")
+        assert headers["Location"].startswith("/settings/general?tab=ai-cli&")
         assert ai_cli_config.get_selected_cli(config_path) == "codex"
 
 

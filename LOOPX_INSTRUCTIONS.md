@@ -13,7 +13,7 @@ below (worktree-only edits, the lint/test gate before opening an MR,
 never merging, never touching an untracked project) still applies
 unchanged.
 
-If `~/.loop-engineering/instructions.md` exists and is non-empty, read it too and follow it for the rest of this run, on top of (never in place of) everything in this file — it's the user's own free-text instructions, saved via the dashboard's **Instructions** page (see `render_instructions_page` in `bin/web/dashboard_server.py`). It's fine, and expected, for this file to not exist or to be empty; that just means no additional instructions were set.
+If `~/.loop-engineering/instructions.md` exists and is non-empty, read it too and follow it for the rest of this run, on top of (never in place of) everything in this file — it's the user's own free-text instructions, saved via the dashboard's **Settings** page's Instructions tab (see `render_general_settings_page` in `bin/web/dashboard_server.py`). It's fine, and expected, for this file to not exist or to be empty; that just means no additional instructions were set.
 
 ## Configuration
 

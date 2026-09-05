@@ -2726,8 +2726,9 @@ def _log_entry_html(entry):
     return f"<div class='log-entry'><div class='log-entry-header'>{header_html}</div>{body_html}</div>"
 
 
-# Body/UI typeface choices for the Preferences page's Font picker - client-
-# only, like color mode/accent (see render_preferences_page), so every
+# Body/UI typeface choices for the Settings page's Appearance tab's Font
+# picker - client-only, like color mode/accent (see
+# render_general_settings_page), so every
 # option's actual CSS rule already has to be present in _STYLE up front
 # rather than fetched on choice: switching is an instant --font-family-stack
 # swap via the :root[data-font=...] rules built below, never a page reload
@@ -2775,7 +2776,7 @@ _FONT_FACE_VARS = "\n".join(
 _MATERIAL_SYMBOLS_ICON_NAMES = (
     "add,bolt,check_circle,chevron_left,circle,delete,description,"
     "dns,edit_note,error,expand_more,extension,folder,folder_off,forum,history,lightbulb,merge,monitoring,newspaper,"
-    "open_in_new,palette,send,settings,smart_toy,space_dashboard,terminal,topic,warning"
+    "open_in_new,palette,send,settings,smart_toy,space_dashboard,terminal,topic,tune,warning"
 )
 
 
@@ -4155,9 +4156,10 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
   .readme-quicknav {{ display: none; }}
 }}
 
-/* Preferences page: a segmented control for color mode, a row of
-   swatches for accent - both apply instantly via a page-local <script>
-   (see render_preferences_page), no page reload, no server round-trip. */
+/* Settings page's Appearance tab: a segmented control for color mode, a
+   row of swatches for accent - both apply instantly via a page-local
+   <script> (see render_general_settings_page), no page reload, no
+   server round-trip. */
 .pref-segmented {{
   display: inline-flex;
   flex-wrap: wrap;
@@ -4332,11 +4334,16 @@ _SECTION_ICON_README = "<span class='material-symbols-outlined' aria-hidden='tru
 _SECTION_ICON_PREFERENCES = "<span class='material-symbols-outlined' aria-hidden='true'>palette</span>"
 _SECTION_ICON_INSTRUCTIONS = "<span class='material-symbols-outlined' aria-hidden='true'>edit_note</span>"
 _SECTION_ICON_AI_CLI = "<span class='material-symbols-outlined' aria-hidden='true'>smart_toy</span>"
+# The combined Settings page's own nav glyph - deliberately not "settings"
+# (that's the GitLab config page's icon, see _SECTION_ICON_SETTINGS just
+# above), so the two Configuration-group entries don't look identical.
+_SECTION_ICON_GENERAL_SETTINGS = "<span class='material-symbols-outlined' aria-hidden='true'>tune</span>"
 
 # Human-readable names for ai_cli_config.VALID_CLIS, shared by the topbar's
 # always-visible AI CLI badge (_render_shell) and every page's own copy
-# that used to hardcode "Claude"/"Claude CLI" - see render_ai_cli_page for
-# the one place that still annotates these with install-availability.
+# that used to hardcode "Claude"/"Claude CLI" - see
+# render_general_settings_page's AI CLI tab for the one place that still
+# annotates these with install-availability.
 _AI_CLI_DISPLAY_NAMES = {"claude": "Claude Code", "codex": "Codex CLI"}
 
 _SECTION_ICON_ACTIVITY = "<span class='material-symbols-outlined' aria-hidden='true'>bolt</span>"
@@ -4425,15 +4432,12 @@ _NAV_ITEMS = (
     ("topic_monitor", "/topic-monitor", "Topic Monitor", _SECTION_ICON_TOPIC_MONITOR),
     ("daemons", "/daemons", "Daemons", _SECTION_ICON_DAEMONS),
     ("skills", "/skills", "Skills", _SECTION_ICON_SKILLS),
-    ("settings", "/settings", "GitLab", _SECTION_ICON_SETTINGS),
-    ("notifications", "/notifications", "Notifications", _SECTION_ICON_SLACK),
+    ("settings", "/settings", "GitLab Settings", _SECTION_ICON_SETTINGS),
+    ("general_settings", "/settings/general", "Settings", _SECTION_ICON_GENERAL_SETTINGS),
     ("activity", "/activity", "Activity", _SECTION_ICON_ACTIVITY),
     ("logs", "/logs", "Logs", _SECTION_ICON_LOGS),
     ("readme", "/readme", "README", _SECTION_ICON_README),
-    ("preferences", "/preferences", "Preferences", _SECTION_ICON_PREFERENCES),
-    ("instructions", "/instructions", "Instructions", _SECTION_ICON_INSTRUCTIONS),
     ("topic_settings", "/topic-monitor/settings", "Topic Settings", _SECTION_ICON_SETTINGS),
-    ("ai_cli", "/ai-cli", "AI CLI", _SECTION_ICON_AI_CLI),
 )
 
 
@@ -4447,7 +4451,7 @@ _NAV_GROUPS = (
     (None, ("overview",)),
     ("Monitor", ("analytics", "gitlab", "topic_monitor", "memory", "activity", "logs", "history")),
     ("System", ("daemons", "skills")),
-    ("Configuration", ("settings", "notifications", "topic_settings", "preferences", "instructions", "ai_cli")),
+    ("Configuration", ("settings", "general_settings", "topic_settings")),
     ("Docs", ("readme",)),
 )
 _NAV_GROUP_OF = {key: label for label, keys in _NAV_GROUPS if label for key in keys}
@@ -4593,8 +4597,8 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     while they watch it - render_gitlab_page, render_topic_monitor_page,
     render_activity_page, render_logs_page - pass `refresh=True,
     refresh_note=True` explicitly. Every other page (overview, history,
-    preferences, instructions, readme, memory, topic settings, skills,
-    daemons, settings, slack) is mostly static or user-edited, so a silent
+    the combined Settings page, readme, memory, topic settings, skills,
+    daemons, GitLab settings) is mostly static or user-edited, so a silent
     30s reload there would just interrupt reading/typing for no benefit.
     The /history/<name> and
     /topic-monitor/history/<name> sub-pages also rely on this default - they
@@ -4606,16 +4610,18 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     render_*_page() call site unchanged."""
     # Passes ai_cli_config.DEFAULT_CONFIG_PATH explicitly rather than
     # relying on get_selected_cli's own default, for the same reason
-    # render_ai_cli_page does - a test's monkeypatch.setattr(ai_cli_config,
-    # "DEFAULT_CONFIG_PATH", ...) needs to actually change what this reads.
+    # render_general_settings_page's AI CLI tab does - a test's
+    # monkeypatch.setattr(ai_cli_config, "DEFAULT_CONFIG_PATH", ...) needs
+    # to actually change what this reads.
     ai_cli_name = _AI_CLI_DISPLAY_NAMES[ai_cli_config.get_selected_cli(ai_cli_config.DEFAULT_CONFIG_PATH)]
     ai_cli_badge_html = (
-        f"<a class='pill pill-grey' href='/ai-cli'>{_SECTION_ICON_AI_CLI}{html.escape(ai_cli_name)}</a>"
+        f"<a class='pill pill-grey' href='/settings/general?tab=ai-cli'>{_SECTION_ICON_AI_CLI}{html.escape(ai_cli_name)}</a>"
     )
     refresh_html = "<span class='refresh-note' id='refresh-note-text'>auto-refreshes every 30s</span>" if refresh_note else ""
     refresh_schedule_script = ""
     if refresh:
-        # Auto-refresh interval (see render_preferences_page) is a
+        # Auto-refresh interval (see render_general_settings_page's
+        # Appearance tab) is a
         # per-browser preference now, not a fixed <meta http-equiv=
         # "refresh">, which could never have been made configurable -
         # the server has no way to know this browser's saved choice at
@@ -4668,7 +4674,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
   if (localStorage.getItem('loop-dashboard-sidebar') === '1') {{
     document.documentElement.classList.add('collapsed');
   }}
-  // Preferences page (see render_preferences_page): color mode stays
+  // Settings page's Appearance tab (see render_general_settings_page): color mode stays
   // absent for "Auto" - only an explicit light/dark choice ever gets
   // written here, so @media (prefers-color-scheme) in _STYLE keeps
   // driving the "Auto" case untouched. Accent and font both always get
@@ -5560,17 +5566,93 @@ _ACCENT_CHOICES = (
 )
 
 
-def render_preferences_page():
-    """Appearance preferences: color mode (light/dark/auto), accent color,
-    and font. Deliberately client-only - saved to this browser's
-    localStorage (see _render_shell's pre-paint script, which restores all
-    three as data-color-mode/data-accent/data-font on <html> before first
-    paint) rather than a server-side file, since this is a single-user
-    localhost tool and every other page already uses the same localStorage
-    pattern for the sidebar's collapsed state. No POST route, no CSRF token
-    needed - there is nothing here for the server to do."""
-    status = read_status(STATUS_PATH)
+def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifications"):
+    """The combined Settings page (served at /settings/general): four
+    app-level preferences that used to each get their own top-level nav
+    entry - Notifications (Slack webhook), AI CLI (Claude Code vs Codex),
+    Appearance (client-only, formerly the standalone Preferences page),
+    and Instructions (free-text prompt addendum) - clustered as tab
+    panels on one page instead. Uses the data-tabs/data-tab-target/
+    data-tab-panel mechanism _render_shell's script already ships (see
+    the comment on .tab-list in _STYLE) - this is the first page to
+    actually use it.
 
+    This is the GitLab config page's (/settings, "GitLab Settings" in the
+    nav) sibling, not a replacement - GitLab instances/projects/access
+    bundles stay there, since that content has nothing to do with any of
+    these four.
+
+    `active_tab` picks which panel starts visible server-side (so the
+    page works before the tab-switch JS runs at all): the initial GET
+    reads it from `?tab=`, and every POST redirect back here
+    (DashboardHandler's /notifications/webhook, /ai-cli, /instructions
+    handlers) passes the tab it just saved, so submitting a form lands
+    back on that same tab instead of resetting to the first one. An
+    unrecognized value falls back to "notifications", same as an absent
+    one."""
+    status = read_status(STATUS_PATH)
+    slack_config = read_slack_config(SLACK_CONFIG_PATH)
+    current_cli = ai_cli_config.get_selected_cli(ai_cli_config.DEFAULT_CONFIG_PATH)
+    current_text = read_custom_instructions()
+
+    flash_html = ""
+    if flash:
+        flash_class = "flash-success" if flash_ok else "flash-danger"
+        flash_html = f"<div class='flash {flash_class}'>{html.escape(str(flash))}</div>"
+
+    csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
+
+    # --- Notifications tab (formerly render_slack_page/GET /notifications) ---
+    webhook_url = slack_config.get("webhook_url", "")
+    webhook_display = _mask_secret(webhook_url) if webhook_url else "(not set)"
+    notifications_panel = f"""
+<section class="card">
+<div class="section-header">{_SECTION_ICON_SLACK}<h2>Slack</h2></div>
+<p class="section-subtitle">View and manage where this loop sends run notifications. Slack is currently the only channel.</p>
+<p><strong>Default webhook:</strong> {webhook_display}</p>
+<form method='post' action='/notifications/webhook' class='daemon-action-form single-field'>
+{csrf_input}
+<input type='password' name='webhook_url' placeholder='paste new Slack webhook URL' required>
+<button type='submit' class='btn btn-neutral'>Save</button>
+</form>
+</section>
+"""
+
+    # --- AI CLI tab (formerly render_ai_cli_page/GET /ai-cli) ---
+    availability = {
+        "claude": "installed" if _cli_available("claude") else "not found on PATH",
+        "codex": "installed" if _cli_available("codex") else "not found on PATH",
+    }
+    cli_labels = {
+        cli: f"{name} ({availability[cli]})" for cli, name in _AI_CLI_DISPLAY_NAMES.items()
+    }
+    select_html = _custom_select("cli", ai_cli_config.VALID_CLIS, current_cli)
+    # _custom_select renders the raw option values ("claude"/"codex") as
+    # their own labels; swap in the availability-annotated labels here
+    # rather than complicating that shared helper for one caller. This
+    # covers all three places that label appears: the hidden native
+    # <option>, the custom dropdown's <div> menu item, and the closed
+    # dropdown's own <span class='custom-select-value'> trigger text -
+    # skipping the trigger span would leave the availability warning
+    # invisible until the user actually opens the dropdown.
+    for cli, label in cli_labels.items():
+        select_html = select_html.replace(f">{cli}</option>", f">{label}</option>")
+        select_html = select_html.replace(f">{cli}</div>", f">{label}</div>")
+        select_html = select_html.replace(f">{cli}</span>", f">{label}</span>")
+    ai_cli_panel = f"""
+<section class="card">
+<div class="section-header">{_SECTION_ICON_AI_CLI}<h2>Selected CLI</h2></div>
+<p class="section-subtitle">Choose which AI CLI tool the GitLab issue loop and the Topic Monitor loop both use.</p>
+<p><strong>Currently:</strong> {html.escape(cli_labels[current_cli])}</p>
+<form method='post' action='/ai-cli' class='daemon-action-form single-field'>
+{csrf_input}
+{select_html}
+<button type='submit' class='btn btn-neutral'>Save</button>
+</form>
+</section>
+"""
+
+    # --- Appearance tab (formerly render_preferences_page/GET /preferences) ---
     mode_buttons = "".join(
         f"<button type='button' class='pref-segmented-option' data-color-mode-choice=\"{mode}\">{label}</button>"
         for mode, label in (("light", "Light"), ("dark", "Dark"), ("auto", "Auto"))
@@ -5599,11 +5681,8 @@ def render_preferences_page():
         for seconds, label in (("5", "5s"), ("11", "11s"), ("30", "30s"), ("60", "1 min"), ("300", "5 min"))
     )
 
-    body = f"""
-<div class="page-title">
-<h1>Preferences</h1>
-<p class="subtitle">Appearance settings for this browser - saved locally, not shared across devices.</p>
-</div>
+    appearance_panel = f"""
+<p class="section-subtitle">Appearance settings for this browser - saved locally, not shared across devices.</p>
 
 <div class="grid">
 <section class="card">
@@ -5696,48 +5775,53 @@ def render_preferences_page():
 }})();
 </script>
 """
-    return _render_shell("Preferences · Loop X Engineering", "preferences", _status_badge_markup(status), body)
 
-
-def render_instructions_page(flash=None, flash_ok=True):
-    """Lets you write your own free-text instructions, saved server-side
-    to CUSTOM_INSTRUCTIONS_PATH (~/.loop-engineering/instructions.md) via
-    the /instructions POST route below - unlike Preferences, this has to
-    actually be read by the loop itself (see LOOPX_INSTRUCTIONS.md's own
-    step reading this file), not just influence how the browser renders,
-    so it's a real server-side file rather than localStorage."""
-    status = read_status(STATUS_PATH)
-    current_text = read_custom_instructions()
-
-    flash_html = ""
-    if flash:
-        flash_class = "flash-success" if flash_ok else "flash-danger"
-        flash_html = f"<div class='flash {flash_class}'>{html.escape(str(flash))}</div>"
-
-    csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
-
-    ai_cli_name = _AI_CLI_DISPLAY_NAMES[ai_cli_config.get_selected_cli(ai_cli_config.DEFAULT_CONFIG_PATH)]
-    body = f"""
-<div class="page-title">
-<h1>Instructions</h1>
-<p class="subtitle">Include specific instructions in {html.escape(ai_cli_name)}'s system prompt whenever the loop runs.</p>
-</div>
-
-{flash_html}
-
-<div class="grid">
+    # --- Instructions tab (formerly render_instructions_page/GET /instructions) ---
+    ai_cli_name = _AI_CLI_DISPLAY_NAMES[current_cli]
+    instructions_panel = f"""
 <section class="card">
 <div class="section-header">{_SECTION_ICON_INSTRUCTIONS}<h2>Your instructions</h2></div>
-<p class="section-subtitle">Saved to <code>~/.loop-engineering/instructions.md</code> - read at the start of every run, on top of everything already in <code>LOOPX_INSTRUCTIONS.md</code>.</p>
+<p class="section-subtitle">Include specific instructions in {html.escape(ai_cli_name)}'s system prompt whenever the loop runs. Saved to <code>~/.loop-engineering/instructions.md</code> - read at the start of every run, on top of everything already in <code>LOOPX_INSTRUCTIONS.md</code>.</p>
 <form method='post' action='/instructions' class='daemon-action-form'>
 {csrf_input}
 <textarea name='instructions' class='instructions-textarea' rows='24' placeholder="e.g. Prefer descriptive commit messages. Never touch files under vendor/.">{html.escape(current_text)}</textarea>
 <button type='submit' class='btn btn-primary'>Save</button>
 </form>
 </section>
-</div>
 """
-    return _render_shell("Instructions · Loop X Engineering", "instructions", _status_badge_markup(status), body)
+
+    tabs = (
+        ("notifications", "Notifications", _SECTION_ICON_SLACK, notifications_panel),
+        ("ai-cli", "AI CLI", _SECTION_ICON_AI_CLI, ai_cli_panel),
+        ("appearance", "Appearance", _SECTION_ICON_PREFERENCES, appearance_panel),
+        ("instructions", "Instructions", _SECTION_ICON_INSTRUCTIONS, instructions_panel),
+    )
+    if active_tab not in {key for key, _label, _icon, _panel in tabs}:
+        active_tab = "notifications"
+
+    tab_buttons = "".join(
+        f"<button type='button' class='tab-button{' is-active' if key == active_tab else ''}' "
+        f"data-tab-target='{key}' role='tab' aria-selected='{'true' if key == active_tab else 'false'}'>"
+        f"{icon}{label}</button>"
+        for key, label, icon, _panel in tabs
+    )
+    tab_panels = "".join(
+        f"<div data-tab-panel='{key}'{'' if key == active_tab else ' hidden'}>{panel}</div>"
+        for key, _label, _icon, panel in tabs
+    )
+
+    body = f"""
+<div class="page-title">
+<h1>Settings</h1>
+<p class="subtitle">Notifications, AI CLI selection, appearance, and custom instructions.</p>
+</div>
+
+{flash_html}
+
+<div class="tab-list" data-tabs role="tablist">{tab_buttons}</div>
+{tab_panels}
+"""
+    return _render_shell("Settings · Loop X Engineering", "general_settings", _status_badge_markup(status), body)
 
 
 def render_readme_page():
@@ -6730,140 +6814,6 @@ def render_settings_page(flash=None, flash_ok=True):
     return _render_shell("GitLab · Loop X Engineering", "settings", _status_badge_markup(status), body)
 
 
-def render_slack_page(flash=None, flash_ok=True):
-    """Notifications page, served at /notifications (function/module-level
-    names below stay "slack" since Slack is still the only channel this
-    loop can notify through - only the user-facing nav label and route
-    are generic): view and manage ~/.slack/config.json's default webhook
-    URL - split out from the GitLab page since that page's content is
-    almost entirely GitLab configuration. Per-bundle Slack webhook
-    overrides stay on the GitLab page's Access bundles section, since a
-    bundle is fundamentally a GitLab-access construct that happens to
-    carry an optional webhook override.
-
-    Only reads (via read_slack_config) and masks the webhook
-    (_mask_secret) - the real value is never sent to the browser. Writes
-    go through DashboardHandler's /notifications/webhook POST route,
-    which calls update_slack_webhook."""
-    status = read_status(STATUS_PATH)
-    slack_config = read_slack_config(SLACK_CONFIG_PATH)
-
-    flash_html = ""
-    if flash:
-        flash_class = "flash-success" if flash_ok else "flash-danger"
-        flash_html = f"<div class='flash {flash_class}'>{html.escape(str(flash))}</div>"
-
-    csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
-
-    webhook_url = slack_config.get("webhook_url", "")
-    webhook_display = _mask_secret(webhook_url) if webhook_url else "(not set)"
-    slack_form = f"""
-<form method='post' action='/notifications/webhook' class='daemon-action-form single-field'>
-{csrf_input}
-<input type='password' name='webhook_url' placeholder='paste new Slack webhook URL' required>
-<button type='submit' class='btn btn-neutral'>Save</button>
-</form>
-"""
-
-    body = f"""
-<div class="page-title">
-<h1>Notifications</h1>
-<p class="subtitle">View and manage where this loop sends run notifications. Slack is currently the only channel.</p>
-</div>
-
-{flash_html}
-
-<div class="grid">
-<section class="card">
-<div class="section-header">{_SECTION_ICON_SLACK}<h2>Slack</h2></div>
-<p><strong>Default webhook:</strong> {webhook_display}</p>
-{slack_form}
-</section>
-</div>
-"""
-    return _render_shell("Notifications · Loop X Engineering", "notifications", _status_badge_markup(status), body)
-
-
-def render_ai_cli_page(flash=None, flash_ok=True):
-    """AI CLI page, served at /ai-cli: choose which AI CLI tool
-    (Claude Code or Codex CLI) this loop uses. Only reads
-    (ai_cli_config.get_selected_cli) and writes go through
-    DashboardHandler's /ai-cli POST route, which calls
-    ai_cli_config.set_selected_cli.
-
-    Both run-loop.sh and run-topic-monitor-loop.sh read this same
-    global setting (python3 bin/ai_cli_config.py get) - there is no
-    per-loop override. See
-    docs/superpowers/specs/2026-08-28-ai-cli-switcher-design.md for why
-    Codex's coarser --sandbox/--ask-for-approval flags make its
-    guardrails prose-enforced rather than harness-enforced, unlike
-    Claude's --allowedTools/--disallowedTools.
-
-    Passes ai_cli_config.DEFAULT_CONFIG_PATH explicitly (rather than
-    relying on get_selected_cli's own default) so a test's
-    monkeypatch.setattr(ai_cli_config, "DEFAULT_CONFIG_PATH", ...) is
-    actually honored - that module's default argument is bound once at
-    its own def time, same trap this repo's CLAUDE.md already warns
-    about for this file's own STATUS_PATH-style constants."""
-    status = read_status(STATUS_PATH)
-    current_cli = ai_cli_config.get_selected_cli(ai_cli_config.DEFAULT_CONFIG_PATH)
-
-    flash_html = ""
-    if flash:
-        flash_class = "flash-success" if flash_ok else "flash-danger"
-        flash_html = f"<div class='flash {flash_class}'>{html.escape(str(flash))}</div>"
-
-    csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
-
-    availability = {
-        "claude": "installed" if _cli_available("claude") else "not found on PATH",
-        "codex": "installed" if _cli_available("codex") else "not found on PATH",
-    }
-
-    cli_labels = {
-        cli: f"{name} ({availability[cli]})" for cli, name in _AI_CLI_DISPLAY_NAMES.items()
-    }
-    select_html = _custom_select("cli", ai_cli_config.VALID_CLIS, current_cli)
-    # _custom_select renders the raw option values ("claude"/"codex") as
-    # their own labels; swap in the availability-annotated labels here
-    # rather than complicating that shared helper for one caller. This
-    # covers all three places that label appears: the hidden native
-    # <option>, the custom dropdown's <div> menu item, and the closed
-    # dropdown's own <span class='custom-select-value'> trigger text -
-    # skipping the trigger span would leave the availability warning
-    # invisible until the user actually opens the dropdown.
-    for cli, label in cli_labels.items():
-        select_html = select_html.replace(f">{cli}</option>", f">{label}</option>")
-        select_html = select_html.replace(f">{cli}</div>", f">{label}</div>")
-        select_html = select_html.replace(f">{cli}</span>", f">{label}</span>")
-
-    cli_form = f"""
-<form method='post' action='/ai-cli' class='daemon-action-form single-field'>
-{csrf_input}
-{select_html}
-<button type='submit' class='btn btn-neutral'>Save</button>
-</form>
-"""
-
-    body = f"""
-<div class="page-title">
-<h1>AI CLI</h1>
-<p class="subtitle">Choose which AI CLI tool the GitLab issue loop and the Topic Monitor loop both use.</p>
-</div>
-
-{flash_html}
-
-<div class="grid">
-<section class="card">
-<div class="section-header">{_SECTION_ICON_AI_CLI}<h2>Selected CLI</h2></div>
-<p><strong>Currently:</strong> {html.escape(cli_labels[current_cli])}</p>
-{cli_form}
-</section>
-</div>
-"""
-    return _render_shell("AI CLI · Loop X Engineering", "ai_cli", _status_badge_markup(status), body)
-
-
 def _stat_tile_html(icon, label, value, tooltip=None):
     tooltip_attr = f" title=\"{html.escape(tooltip)}\"" if tooltip else ""
     return (
@@ -7522,17 +7472,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_html(render_readme_page())
             return
 
-        if split.path == "/preferences":
-            self._send_html(render_preferences_page())
-            return
-
-        if split.path == "/instructions":
-            query = urllib.parse.parse_qs(split.query)
-            flash = query.get("flash", [None])[0]
-            flash_ok = query.get("ok", ["1"])[0] != "0"
-            self._send_html(render_instructions_page(flash=flash, flash_ok=flash_ok))
-            return
-
         if split.path == "/skills":
             query = urllib.parse.parse_qs(split.query)
             flash = query.get("flash", [None])[0]
@@ -7547,18 +7486,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_html(render_settings_page(flash=flash, flash_ok=flash_ok))
             return
 
-        if split.path == "/notifications":
+        if split.path == "/settings/general":
             query = urllib.parse.parse_qs(split.query)
             flash = query.get("flash", [None])[0]
             flash_ok = query.get("ok", ["1"])[0] != "0"
-            self._send_html(render_slack_page(flash=flash, flash_ok=flash_ok))
-            return
-
-        if split.path == "/ai-cli":
-            query = urllib.parse.parse_qs(split.query)
-            flash = query.get("flash", [None])[0]
-            flash_ok = query.get("ok", ["1"])[0] != "0"
-            self._send_html(render_ai_cli_page(flash=flash, flash_ok=flash_ok))
+            active_tab = query.get("tab", ["notifications"])[0]
+            self._send_html(render_general_settings_page(flash=flash, flash_ok=flash_ok, active_tab=active_tab))
             return
 
         if split.path == "/analytics":
@@ -7959,7 +7892,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
             webhook_url = form.get("webhook_url", [""])[0]
             ok, message = update_slack_webhook(webhook_url, SLACK_CONFIG_PATH)
-            self._redirect_with_flash(ok, message, location="/notifications")
+            self._redirect_with_flash(ok, message, location="/settings/general?tab=notifications")
             return
 
         if self.path == "/ai-cli":
@@ -7969,7 +7902,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
             cli = form.get("cli", [""])[0]
             ok, message = ai_cli_config.set_selected_cli(cli, ai_cli_config.DEFAULT_CONFIG_PATH)
-            self._redirect_with_flash(ok, message, location="/ai-cli")
+            self._redirect_with_flash(ok, message, location="/settings/general?tab=ai-cli")
             return
 
         if self.path == "/settings/loop-config":
@@ -8021,7 +7954,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
             instructions_text = form.get("instructions", [""])[0]
             ok, message = write_custom_instructions(instructions_text)
-            self._redirect_with_flash(ok, message, location="/instructions")
+            self._redirect_with_flash(ok, message, location="/settings/general?tab=instructions")
             return
 
         if self.path == "/activity/messages":
@@ -8109,10 +8042,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
         doesn't resubmit the action. Every render_*_page()/do_GET route that
         reads `flash`/`ok` html.escape()s the flash text before display,
         since it can contain untrusted text (launchctl's stderr, or a
-        rejected-write error message)."""
+        rejected-write error message). `location` may already carry its own
+        query string (e.g. "/settings/general?tab=ai-cli", so the redirect
+        lands back on the right tab) - `flash`/`ok` are appended with `&` in
+        that case rather than a second `?`."""
         query = urllib.parse.urlencode({"flash": message, "ok": "1" if ok else "0"}, quote_via=urllib.parse.quote)
+        separator = "&" if "?" in location else "?"
         self.send_response(303)
-        self.send_header("Location", f"{location}?{query}")
+        self.send_header("Location", f"{location}{separator}{query}")
         self.send_header("Content-Length", "0")
         self.end_headers()
 
