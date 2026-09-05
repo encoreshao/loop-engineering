@@ -4517,6 +4517,7 @@ def test_get_project_memory_merges_legacy_and_task_entries(tmp_path, monkeypatch
 
 def test_render_memory_page_shows_task_memory(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(ds.learning.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
     monkeypatch.setattr(ds, "get_project_memory", lambda *a, **k: {
         "myproj": {"legacy": [], "tasks": [{"body": "Always run tests.", "issue_iid": 1, "tags": []}]},
     })
@@ -4530,6 +4531,7 @@ def test_render_memory_page_shows_task_memory(monkeypatch, tmp_path):
 
 def test_render_memory_page_shows_empty_state_with_settings_link_when_no_projects(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(ds.learning.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
     monkeypatch.setattr(ds, "get_project_memory", lambda *a, **k: {})
 
     output = ds.render_memory_page()
@@ -4541,6 +4543,7 @@ def test_render_memory_page_shows_empty_state_with_settings_link_when_no_project
 
 def test_render_memory_page_renders_markdown_and_metadata(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(ds.learning.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
     monkeypatch.setattr(ds, "get_project_memory", lambda *a, **k: {
         "myproj": {"legacy": [], "tasks": [{
             "body": "Run `bundle exec rspec` before pushing.",
@@ -4560,6 +4563,7 @@ def test_render_memory_page_renders_markdown_and_metadata(monkeypatch, tmp_path)
 
 def test_render_memory_page_shows_task_description_as_subtitle(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(ds.learning.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
     monkeypatch.setattr(ds, "get_project_memory", lambda *a, **k: {
         "myproj": {"legacy": [], "tasks": [{
             "body": "Always run tests.",
@@ -4577,6 +4581,7 @@ def test_render_memory_page_shows_task_description_as_subtitle(monkeypatch, tmp_
 
 def test_render_memory_page_links_issue_number_to_the_real_gitlab_issue(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(ds.learning.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
     monkeypatch.setattr(ds, "get_project_memory", lambda *a, **k: {
         "myproj": {"legacy": [], "tasks": [{
             "body": "Always run tests.",
@@ -4599,6 +4604,7 @@ def test_render_memory_page_links_issue_number_to_the_real_gitlab_issue(monkeypa
 
 def test_render_memory_page_shows_legacy_learnings_in_their_own_section(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(ds.learning.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
     monkeypatch.setattr(ds, "get_project_memory", lambda *a, **k: {
         "myproj": {
             "legacy": [{"lesson": "An old lesson from before the file-based format."}],
@@ -5048,6 +5054,7 @@ def test_render_daemons_page_no_flash_by_default():
 def test_nav_active_class_matches_current_page(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
     monkeypatch.setattr(ds, "HISTORY_DIR", tmp_path)
+    monkeypatch.setattr(ds.learning.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
     monkeypatch.setattr(ds, "get_live_gitlab_state", lambda *a, **k: {})
     monkeypatch.setattr(ds, "get_project_memory", lambda *a, **k: {})
     monkeypatch.setattr(ds, "get_daemons_status", lambda *a, **k: [])
@@ -8091,7 +8098,7 @@ def test_render_analytics_page_populated_event_log_shows_real_numbers(monkeypatc
     outcomes_html = output.split("<h2>Outcomes</h2>")[1].split("<h2>Quality</h2>")[0]
     assert "N/A" not in outcomes_html
 
-    cost_html = output.split("<h2>Cost</h2>")[1].split("<h2>Trend</h2>")[0]
+    cost_html = output.split("<h2>Cost</h2>")[1].split("<h2>Learning</h2>")[0]
     assert "N/A" not in cost_html
 
     # finding 1: autonomy placeholder disclosed (Outcomes tile, Health tile, Trend caption)
@@ -8179,3 +8186,101 @@ def test_render_analytics_page_sections_ordered_quality_then_risk_then_failure_t
     failure_idx = output.index("<h2>Failure Breakdown</h2>")
     cost_idx = output.index("<h2>Cost</h2>")
     assert quality_idx < risk_idx < failure_idx < cost_idx
+
+
+def test_render_analytics_page_learning_section_shows_zero_state(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+    monkeypatch.setattr(ds.learning.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+
+    output = ds.render_analytics_page(days=7)
+
+    assert "Learning" in output
+    assert "Lessons created" in output
+    assert "Failures prevented" in output
+    assert ds.learning.FAILURES_PREVENTED_REASON in output
+
+
+def test_render_analytics_page_learning_section_shows_real_numbers(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    events_dir = tmp_path / "events"
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", events_dir)
+    monkeypatch.setattr(ds.learning.events, "DEFAULT_EVENTS_DIR", events_dir)
+    events.emit("memory.created", run_id="run_1", project="kurrant", data={"lesson_id": "lesson_1", "category": "testing"}, events_dir=events_dir)
+    events.emit("issue.started", run_id="run_1", issue_run_id="run_1_kurrant_1", project="kurrant", events_dir=events_dir)
+    events.emit("memory.reused", run_id="run_1", issue_run_id="run_1_kurrant_1", project="kurrant", data={"lesson_id": "lesson_1"}, events_dir=events_dir)
+    events.emit("issue.completed", run_id="run_1", issue_run_id="run_1_kurrant_1", project="kurrant", events_dir=events_dir)
+
+    output = ds.render_analytics_page(days=7)
+
+    learning_html = output.split("<h2>Learning</h2>")[1].split("</section>")[0]
+    assert "100.0%" in learning_html  # both reuse rate and success rate are 100% with this fixture
+
+
+def test_render_analytics_page_sections_include_learning_between_cost_and_trend(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+    monkeypatch.setattr(ds.learning.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+
+    output = ds.render_analytics_page(days=7)
+
+    cost_idx = output.index("<h2>Cost</h2>")
+    learning_idx = output.index("<h2>Learning</h2>")
+    trend_idx = output.index("<h2>Trend</h2>")
+    assert cost_idx < learning_idx < trend_idx
+
+
+def test_render_memory_page_shows_category_pill_and_reuse_stats(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    events_dir = tmp_path / "events"
+    monkeypatch.setattr(ds.learning.events, "DEFAULT_EVENTS_DIR", events_dir)
+    monkeypatch.setattr(ds, "get_project_memory", lambda *a, **k: {
+        "myproj": {"legacy": [], "tasks": [{
+            "body": "Always run tests.", "issue_iid": 1, "tags": [],
+            "lesson_id": "lesson_1", "category": "testing",
+        }]},
+    })
+    monkeypatch.setattr(ds, "gitlab_issue_url_prefixes", lambda *a, **k: {})
+    events.emit("memory.created", run_id="run_1", project="myproj", data={"lesson_id": "lesson_1", "category": "testing"}, events_dir=events_dir)
+    events.emit("issue.started", run_id="run_1", issue_run_id="run_1_myproj_2", project="myproj", events_dir=events_dir)
+    events.emit("memory.reused", run_id="run_1", issue_run_id="run_1_myproj_2", project="myproj", data={"lesson_id": "lesson_1"}, events_dir=events_dir)
+    events.emit("issue.completed", run_id="run_1", issue_run_id="run_1_myproj_2", project="myproj", events_dir=events_dir)
+
+    output = ds.render_memory_page()
+
+    assert "<span class='pill pill-grey'>testing</span>" in output
+    assert "Reused 1×" in output
+    assert "1 successful, 0 failed" in output
+
+
+def test_render_memory_page_shows_not_yet_reused_for_lesson_with_no_reuses(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(ds.learning.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+    monkeypatch.setattr(ds, "get_project_memory", lambda *a, **k: {
+        "myproj": {"legacy": [], "tasks": [{
+            "body": "Always run tests.", "issue_iid": 1, "tags": [],
+            "lesson_id": "lesson_1", "category": "testing",
+        }]},
+    })
+    monkeypatch.setattr(ds, "gitlab_issue_url_prefixes", lambda *a, **k: {})
+
+    output = ds.render_memory_page()
+
+    assert "Not yet reused" in output
+
+
+def test_render_memory_page_pre_sprint_6_entry_shows_no_category_pill_or_reuse_stats(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(ds.learning.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+    monkeypatch.setattr(ds, "get_project_memory", lambda *a, **k: {
+        "myproj": {"legacy": [], "tasks": [{
+            "body": "Always run tests.", "issue_iid": 1, "tags": [],
+            "lesson_id": None, "category": None,
+        }]},
+    })
+    monkeypatch.setattr(ds, "gitlab_issue_url_prefixes", lambda *a, **k: {})
+
+    output = ds.render_memory_page()
+
+    assert "Not yet reused" not in output
+    assert "Reused" not in output

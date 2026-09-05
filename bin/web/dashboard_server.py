@@ -44,6 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import ai_cli_config
 import cost
 import health
+import learning
 import loop_config
 import memory_store
 import metrics
@@ -3707,6 +3708,7 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
 .history-entry-header form {{ margin: 0; }}
 .history-delete-btn {{ padding: 0.3rem; }}
 .history-entry-overview {{ margin: 0.3rem 0 0; color: var(--md-on-surface-variant); font-size: 0.85rem; }}
+.learning-reuse-stats {{ font-size: 0.8rem; color: var(--md-on-surface-variant); margin: 0.35rem 0 0; }}
 
 /* "last run 3h ago" beside a Topic Monitor heading: secondary information
    next to the state pill, so it reads at the weight of metadata rather
@@ -5794,6 +5796,8 @@ def render_memory_page():
     rather than linking to a guessed, possibly-wrong URL."""
     status = read_status(STATUS_PATH)
     memory = get_project_memory()
+    learning_report = learning.build_learning_report()
+    lesson_stats_by_id = {entry["lesson_id"]: entry for entry in learning_report["lessons"]}
     url_prefixes = gitlab_issue_url_prefixes()
 
     def issue_pill(alias, issue_iid):
@@ -5811,8 +5815,28 @@ def render_memory_page():
     def tag_pills(tags):
         return "".join(f"<span class='pill pill-grey'>{html.escape(tag)}</span>" for tag in tags or [])
 
+    def category_pill(category):
+        return f"<span class='pill pill-grey'>{html.escape(category)}</span>" if category else ""
+
+    def reuse_stats_html(lesson_id):
+        if not lesson_id:
+            return ""
+        stats = lesson_stats_by_id.get(lesson_id)
+        if stats is None or stats["times_reused"] == 0:
+            return "<p class='learning-reuse-stats'>Not yet reused</p>"
+        effectiveness = stats["effectiveness_rate"]
+        effectiveness_text = f"{effectiveness * 100:.0f}%" if effectiveness is not None else "pending"
+        return (
+            f"<p class='learning-reuse-stats'>Reused {stats['times_reused']}× · "
+            f"{stats['successful_reuses']} successful, {stats['failed_reuses']} failed "
+            f"(effectiveness: {effectiveness_text})</p>"
+        )
+
     def task_item(alias, entry):
-        meta_html = f"<div class='pill-row'>{issue_pill(alias, entry['issue_iid'])}{tag_pills(entry.get('tags'))}</div>"
+        meta_html = (
+            f"<div class='pill-row'>{issue_pill(alias, entry['issue_iid'])}"
+            f"{category_pill(entry.get('category'))}{tag_pills(entry.get('tags'))}</div>"
+        )
         description = entry.get("description", "")
         description_html = (
             f"<p class='history-entry-overview'>{html.escape(description)}</p>" if description else ""
@@ -5822,6 +5846,7 @@ def render_memory_page():
             f"{description_html}"
             f"<div class='markdown'>{render_markdown(entry.get('body', ''))}</div>"
             f"{meta_html}"
+            f"{reuse_stats_html(entry.get('lesson_id'))}"
             "</li>"
         )
 
@@ -7038,6 +7063,31 @@ def _cost_section_html(cost_report):
 """
 
 
+def _learning_section_html(learning_report):
+    reuse = learning_report["reuse"]
+
+    tiles = "".join([
+        _stat_tile_html("lightbulb", "Lessons created", reuse["lessons_created"]),
+        _stat_tile_html("lightbulb", "Total reuses", reuse["total_reuses"]),
+        _stat_tile_html(
+            "lightbulb", "Reuse rate",
+            f"{reuse['memory_reuse_rate'] * 100:.1f}%" if reuse["memory_reuse_rate"] is not None else "N/A",
+        ),
+        _stat_tile_html(
+            "lightbulb", "Success rate",
+            f"{reuse['memory_success_rate'] * 100:.1f}%" if reuse["memory_success_rate"] is not None else "N/A",
+        ),
+        _na_stat_tile_html("lightbulb", "Failures prevented", reuse["failures_prevented_reason"]),
+    ])
+
+    return f"""
+<section class="card">
+<div class="section-header">{_SECTION_ICON_MEMORY}<h2>Learning</h2></div>
+<div class="dash-stats-grid">{tiles}</div>
+</section>
+"""
+
+
 def _fmt_trend_value(value, unit):
     return f"${value:,.2f}" if unit == "$" else f"{value:.1f}%"
 
@@ -7217,6 +7267,7 @@ def render_analytics_page(days=7):
 
     metrics_report = metrics.build_report(since_date=since_date, until_date=until_date)
     cost_report = cost.build_cost_report(since_date=since_date, until_date=until_date)
+    learning_report = learning.build_learning_report(since_date=since_date, until_date=until_date)
     health_report = health.compute_health_score(metrics_report, cost_report)
 
     days_selector_html = "".join(
@@ -7238,6 +7289,7 @@ def render_analytics_page(days=7):
 {_risk_classification_section_html(metrics_report)}
 {_failure_breakdown_section_html(metrics_report)}
 {_cost_section_html(cost_report)}
+{_learning_section_html(learning_report)}
 {_trend_section_html(days)}
 """
     status = read_status(STATUS_PATH)
