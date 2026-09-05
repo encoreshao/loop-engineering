@@ -5819,9 +5819,9 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
 """
 
     tabs = (
+        ("appearance", "Appearance", _SECTION_ICON_PREFERENCES, appearance_panel),
         ("notifications", "Notifications", _SECTION_ICON_SLACK, notifications_panel),
         ("ai-cli", "AI CLI", _SECTION_ICON_AI_CLI, ai_cli_panel),
-        ("appearance", "Appearance", _SECTION_ICON_PREFERENCES, appearance_panel),
         ("instructions", "Instructions", _SECTION_ICON_INSTRUCTIONS, instructions_panel),
     )
     if active_tab not in {key for key, _label, _icon, _panel in tabs}:
