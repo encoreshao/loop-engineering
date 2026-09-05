@@ -3294,6 +3294,14 @@ html.collapsed .activity-composer {{ left: 64px; }}
 
 .grid {{ display: grid; grid-template-columns: 1fr; gap: 1.25rem; margin-bottom: 1.25rem; }}
 
+/* Analytics page only: its 8 sections are bare <section class="card">
+   elements (not each wrapped in its own .grid like other pages, since
+   they're always a single full-width column, never a multi-column
+   layout) - render_analytics_page wraps the whole stack in one
+   .analytics-sections container instead, so consecutive cards get the
+   same gap as everywhere else without a redundant per-section wrapper. */
+.analytics-sections {{ display: flex; flex-direction: column; gap: 1.25rem; }}
+
 /* Activity page only: a narrow column of status cards (this loop
    actually runs two independent daemons, GitLab issue review and topic
    monitoring - see .activity-card-stack below) beside a wide column of
@@ -7205,7 +7213,9 @@ def render_analytics_page(days=7):
     dicts (no new event-reading logic here) for the selected `days`
     window, computes a partial Loop Health score via bin/health.py, and
     renders 8 sections in order: Loop Health, Outcomes, Quality, Risk &
-    Classification, Failure Breakdown, Cost, Learning, Trend. Every
+    Classification, Failure Breakdown, Cost, Learning, Trend - stacked
+    inside one .analytics-sections wrapper (see _STYLE) so consecutive
+    cards get a gap between them. Every
     unavailable metric renders as "N/A" with its reason as a tooltip,
     exactly like bin/metrics.py's/bin/cost.py's/bin/learning.py's own
     CLI output - this page adds no new judgment about what's available,
@@ -7235,6 +7245,7 @@ def render_analytics_page(days=7):
 
 <div class="analytics-days-selector">{days_selector_html}</div>
 
+<div class="analytics-sections">
 {_health_section_html(health_report, metrics_report)}
 {_outcomes_section_html(metrics_report)}
 {_quality_section_html(metrics_report)}
@@ -7243,6 +7254,7 @@ def render_analytics_page(days=7):
 {_cost_section_html(cost_report)}
 {_learning_section_html(learning_report)}
 {_trend_section_html(days)}
+</div>
 """
     status = read_status(STATUS_PATH)
     return _render_shell("Analytics · Loop X Engineering", "analytics", _status_badge_markup(status), body)
