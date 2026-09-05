@@ -5519,7 +5519,7 @@ def render_gitlab_live_fragment():
         return (
             "<li class='gitlab-item'>"
             "<div class='gitlab-item-row'>"
-            f"<a class='gitlab-item-title' href='{html.escape(item.get('web_url', '#'))}'>"
+            f"<a class='gitlab-item-title' href='{html.escape(item.get('web_url', '#'))}' target='_blank' rel='noopener'>"
             f"{prefix}{html.escape(str(item.get('iid', '?')))} {html.escape(item.get('title', ''))}</a>"
             f"<span class='gitlab-item-meta'>{html.escape(assignee_names)} &middot; {html.escape(updated)}</span>"
             "</div>"
