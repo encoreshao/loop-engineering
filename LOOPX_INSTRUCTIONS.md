@@ -246,7 +246,7 @@ Some issues don't need a fix at all — a question about behavior, a request to 
    python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Finished* <<issue_url>|#<issue_iid> (<alias>)>: answered directly — see comment"
    python3 <loop_dir>/bin/events.py emit --type issue.completed --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"action\": \"answer\"}"
    ```
-5. Record a learning if there's a reusable pattern here, using the same judgment-based rule and the same `memory_store.py add` command shown in step 10 (also by absolute `<loop_dir>/bin/...` path) — skip it if this was too specific to generalize.
+5. Record a learning if there's a reusable pattern here, using the same judgment-based rule and the same `memory_store.py add` block, including its conditional `memory.created` emit, shown in step 10 (also by absolute `<loop_dir>/bin/...` path) — skip it if this was too specific to generalize.
 6. Return to the loop directory before moving to the next issue:
    ```
    cd <loop_dir>
@@ -264,7 +264,7 @@ python3 <loop_dir>/bin/track_new_comments.py mark-seen <instance> <project_id> <
 python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Finished* <<issue_url>|#<issue_iid> (<alias>)>: escalated, needs clarification — see comment"
 python3 <loop_dir>/bin/events.py emit --type issue.escalated --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"reason\": \"needs_clarification\"}"
 ```
-No worktree is created, no code is touched. Record a learning here too if the ambiguity reflects a recurring pattern (e.g. this project's issues in a certain area are consistently underspecified) rather than something specific to this one issue, using the same `memory_store.py add` command shown in step 10 (also by absolute `<loop_dir>/bin/...` path).
+No worktree is created, no code is touched. Record a learning here too if the ambiguity reflects a recurring pattern (e.g. this project's issues in a certain area are consistently underspecified) rather than something specific to this one issue, using the same `memory_store.py add` block, including its conditional `memory.created` emit, shown in step 10 (also by absolute `<loop_dir>/bin/...` path).
 
 Then return to the loop directory and move to the next issue:
 ```
@@ -284,7 +284,7 @@ Substitute `verification_failed` for `<verification_failed_or_worktree_creation_
 
 This section is reachable from three places with different working directories — step 5, if creating the worktree failed (cwd is still `<loop_dir>`); step 7, if verification failed (cwd is the worktree); and step 1 of "Answer directly", if the read-only worktree could not be created (cwd is still `<loop_dir>`). Every command above names its script by absolute path precisely so it behaves identically in all three cases; do not `cd` anywhere before running them.
 
-Do not push, do not open an MR. Record a learning here too if this failure looks like a recurring gotcha future runs should know about (e.g. "test X is flaky", "lint requires Y first") rather than a one-off fluke specific to this attempt — using the same `memory_store.py add` command shown in step 10 (also by absolute `<loop_dir>/bin/...` path).
+Do not push, do not open an MR. Record a learning here too if this failure looks like a recurring gotcha future runs should know about (e.g. "test X is flaky", "lint requires Y first") rather than a one-off fluke specific to this attempt — using the same `memory_store.py add` block, including its conditional `memory.created` emit, shown in step 10 (also by absolute `<loop_dir>/bin/...` path).
 
 Then return to the loop directory and move to the next issue:
 ```

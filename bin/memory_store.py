@@ -142,17 +142,18 @@ def add_task_memory(alias, issue_iid, lesson, tags=None, category=None, root=Non
     """Create or append to <issue_iid>'s task-memory file for this alias,
     and create/update that project's MEMORY.md index line for it. Returns
     {"path": Path, "lesson_id": str, "created": bool}. lesson_id and
-    created_at are generated ONLY the first time a lesson_id doesn't
-    already exist for this issue - either a brand-new file, or an
-    existing file whose frontmatter has no lesson_id at all (a
-    pre-Sprint-6 entry). Either way "created" is True and a fresh
-    lesson_id/created_at is assigned. On every later append where a
-    lesson_id already exists, it and created_at are preserved
-    unchanged, and category is likewise preserved (a category passed
-    on an append call is silently ignored - a lesson's category
-    doesn't drift because a follow-up note got appended). A
-    pre-Sprint-6 entry with no lesson_id stays that way forever even
-    across later appends - no backfill."""
+    created_at are generated only in two cases: a brand-new file (no
+    existing file for this issue at all), or an existing file whose
+    frontmatter doesn't parse at all (no frontmatter found - a
+    completely unstructured legacy file). Either way "created" is True
+    and a fresh lesson_id/created_at is assigned. On every later append
+    where the frontmatter parses, the existing lesson_id and created_at
+    are preserved unchanged (even if lesson_id is None), and category is
+    likewise preserved (a category passed on an append call is silently
+    ignored - a lesson's category doesn't drift because a follow-up note
+    got appended). A pre-Sprint-6 entry with parseable frontmatter but no
+    lesson_id stays that way forever even across later appends - no
+    backfill."""
     tags = list(tags or [])
     project_dir = _project_dir(alias, root)
     project_dir.mkdir(parents=True, exist_ok=True)

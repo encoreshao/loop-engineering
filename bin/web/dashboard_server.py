@@ -5816,7 +5816,7 @@ def render_memory_page():
         return "".join(f"<span class='pill pill-grey'>{html.escape(tag)}</span>" for tag in tags or [])
 
     def category_pill(category):
-        return f"<span class='pill pill-grey'>{html.escape(category)}</span>" if category else ""
+        return f"<span class='pill pill-grey'>{html.escape(str(category))}</span>" if category else ""
 
     def reuse_stats_html(lesson_id):
         if not lesson_id:
