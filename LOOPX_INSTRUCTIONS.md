@@ -23,7 +23,7 @@ All project-specific facts — which projects to track, their GitLab project IDs
 
 Throughout this file, `<loop_dir>` means the directory this `LOOPX_INSTRUCTIONS.md` lives in (the loop repo root). **Every** script invocation below is written as `python3 <loop_dir>/bin/<path-to-script>.py ...` / `bash <loop_dir>/bin/<path-to-script>.sh ...` and must be run in exactly that absolute form — never as a bare `bin/<script>` relative path.
 
-The reason: during an issue's work you `cd` into that issue's worktree (step 4), so the current directory is not `<loop_dir>` for most of the run. An absolute path works identically from any directory, so there is never anything to reason about. Both the relative and absolute forms are on the permission allowlist, but only the absolute form is correct unconditionally, so always use it.
+The reason: during an issue's work you `cd` into that issue's worktree (step 5), so the current directory is not `<loop_dir>` for most of the run. An absolute path works identically from any directory, so there is never anything to reason about. Both the relative and absolute forms are on the permission allowlist, but only the absolute form is correct unconditionally, so always use it.
 
 Look things up as you go:
 ```
@@ -94,17 +94,27 @@ python3 <loop_dir>/bin/events.py emit --type issue.started --run-id "$LOOP_RUN_I
    ```
 
 3. **Analyze.** Read the issue description, every note returned by `track_new_comments.py` (or the full issue if this is the first time it's been seen), and the project's recorded learnings from `project_memory.py get` and `memory_store.py list`, merged. Decide between three outcomes:
-   - **Ambiguous, needs a judgment call, or too large for a single scoped fix** → go to "Escalate: needs clarification" below.
-   - **Clear, but doesn't need a code change** — a question about how something behaves, a status check, a request for information you can answer by reading code or GitLab data ("can you confirm X works in production?", "what does Y do?", "is Z still happening?") → go to "Answer directly (no code change needed)" below. This is *not* an ambiguous issue: the ask is perfectly clear, it just has no diff attached to it, so do not escalate it as needing clarification.
-   - **Clear and scoped, and requires a code change** (a specific bug, a small well-defined change explicitly requested in the issue or a new comment) → continue to step 4.
+   - **Ambiguous, needs a judgment call, or too large for a single scoped fix** → go to step 4 (Classify), then continue to "Escalate: needs clarification" below.
+   - **Clear, but doesn't need a code change** — a question about how something behaves, a status check, a request for information you can answer by reading code or GitLab data ("can you confirm X works in production?", "what does Y do?", "is Z still happening?") → go to step 4 (Classify), then continue to "Answer directly (no code change needed)" below. This is *not* an ambiguous issue: the ask is perfectly clear, it just has no diff attached to it, so do not escalate it as needing clarification.
+   - **Clear and scoped, and requires a code change** (a specific bug, a small well-defined change explicitly requested in the issue or a new comment) → continue to step 4 (Classify).
 
-4. **Create the worktree.**
+4. **Classify.** Score this issue's risk deterministically, then add your own judgment, and emit both together — regardless of which outcome you picked in step 3 (fix, answer, or escalate):
+   ```
+   python3 <loop_dir>/bin/risk.py score --title "<issue title>" --description "<issue description>"
+   ```
+   Decide `type` (one of `bug`, `feature`, `question`, `documentation`, `maintenance`, `investigation`) and `complexity` (one of `XS`, `S`, `M`, `L`, `XL`) from the same reading you just did in step 3, and estimate `estimated_minutes` as a plain integer. Then emit, merging your judgment with `risk.py`'s JSON output (`score`/`level`/`matched_keywords` become `risk_score`/`risk_level`/`risk_matched_keywords`):
+   ```
+   python3 <loop_dir>/bin/events.py emit --type issue.classified --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"type\": \"<type>\", \"complexity\": \"<complexity>\", \"estimated_minutes\": <estimated_minutes>, \"risk_score\": <risk_score>, \"risk_level\": \"<risk_level>\", \"risk_matched_keywords\": <risk_matched_keywords_json_array>}"
+   ```
+   This is advisory only — it never changes which of the three step-3 outcomes you pursue, and a failed `risk.py` call or `emit` call here is best-effort exactly like every other `emit` call in this file (see "Event reporting" above): note it and continue. Then continue to whichever step-3 outcome you selected: step 5 (Create the worktree) for a fix, "Escalate: needs clarification" below for an escalation, or "Answer directly (no code change needed)" below for an answer.
+
+5. **Create the worktree.**
    ```
    bash <loop_dir>/bin/scripts/new_worktree.sh <local_path> <target_branch> <issue_iid> <worktree_root>
    ```
    `<local_path>` and `<target_branch>` come from `loop_config.py project <alias>`; `<worktree_root>` from `loop_config.py worktree-root`. This always pulls the latest `<target_branch>` from `origin` first — for a brand-new issue branch it branches directly off that fresh branch; for an issue that already has a branch/MR from an earlier run, it merges the latest `<target_branch>` into the existing branch before you touch anything. Either way, never start editing before running this — you'd otherwise be building on whatever code happened to be checked out last time, not what's actually on GitLab right now.
 
-   Once the worktree path is printed, `cd` into it and stay there for steps 5 through 8 of this issue's work, using **bare** `git` commands (`git status`, `git add`, `git commit`, `git push origin loop/issue-<issue_iid>`) — never the `git -C <path> ...` form. The permission allowlist matches on the literal command prefix: `cd` is allowed (`Bash(cd *)`) and so are `git status`/`git diff`/`git add`/`git commit`/`git push origin loop/issue-*`, but a command starting with `git -C` matches none of those prefixes and will be denied at runtime.
+   Once the worktree path is printed, `cd` into it and stay there for steps 6 through 9 of this issue's work, using **bare** `git` commands (`git status`, `git add`, `git commit`, `git push origin loop/issue-<issue_iid>`) — never the `git -C <path> ...` form. The permission allowlist matches on the literal command prefix: `cd` is allowed (`Bash(cd *)`) and so are `git status`/`git diff`/`git add`/`git commit`/`git push origin loop/issue-*`, but a command starting with `git -C` matches none of those prefixes and will be denied at runtime.
 
    That `cd` is why every one of this repo's script invocations in this file is written as `python3 <loop_dir>/bin/<script>.py ...` / `bash <loop_dir>/bin/<script>.sh ...` — a bare `bin/<script>` path would be resolved against the worktree, where it does not exist. Keep using the absolute `<loop_dir>/bin/...` form for the rest of this issue, exactly as written below.
 
@@ -117,14 +127,14 @@ python3 <loop_dir>/bin/events.py emit --type issue.started --run-id "$LOOP_RUN_I
    python3 <loop_dir>/bin/web/dashboard_server.py write-status running --current-issue "<alias> #<issue_iid>" --current-step "implementing"
    ```
 
-5. **Implement the minimal fix** inside the worktree: understand the root cause, make the smallest change that addresses it, no drive-by refactors, no unrelated files touched.
+6. **Implement the minimal fix** inside the worktree: understand the root cause, make the smallest change that addresses it, no drive-by refactors, no unrelated files touched.
 
 Report the phase change before verifying:
 ```
 python3 <loop_dir>/bin/web/dashboard_server.py write-status running --current-issue "<alias> #<issue_iid>" --current-step "verifying"
 ```
 
-6. **Verify**, from inside the worktree. Before running anything below, emit:
+7. **Verify**, from inside the worktree. Before running anything below, emit:
 
    ```
    python3 <loop_dir>/bin/events.py emit --type verification.started --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid>
@@ -143,9 +153,9 @@ python3 <loop_dir>/bin/web/dashboard_server.py write-status running --current-is
      ```
      python3 <loop_dir>/bin/events.py emit --type verification.passed --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid>
      ```
-     then continue to step 7.
+     then continue to step 8.
 
-7. **Commit the fix.** Stage only the files relevant to this issue (never `git add -A`/`git add .`, which would sweep up unrelated stray changes) and commit with a clear message:
+8. **Commit the fix.** Stage only the files relevant to this issue (never `git add -A`/`git add .`, which would sweep up unrelated stray changes) and commit with a clear message:
    ```
    git add <the specific files you changed>
    git commit -m "Fix #<issue_iid>: <short title>"
@@ -156,7 +166,7 @@ Report the phase change before opening the MR:
 python3 <loop_dir>/bin/web/dashboard_server.py write-status running --current-issue "<alias> #<issue_iid>" --current-step "opening_mr"
 ```
 
-8. **Open the merge request.**
+9. **Open the merge request.**
    First check whether one already exists for this issue's branch:
    ```
    python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_api.py list-mrs <alias> opened
@@ -169,10 +179,10 @@ python3 <loop_dir>/bin/web/dashboard_server.py write-status running --current-is
      ```
      bash <loop_dir>/bin/scripts/open_merge_request.sh <local_path> loop/issue-<issue_iid> <target_branch> "Fix #<issue_iid>: <short title>"
      ```
-     `<local_path>` is passed as the script's first *argument*, not as a directory you have to be in — `open_merge_request.sh` uses `git -C` internally against it. That `git -C` lives inside an already-approved script, so it is unaffected by the direct-command allowlist. Do not `cd` anywhere for this command: the script is named by absolute path and takes its repo as an argument, so it runs correctly from wherever the step-4 `cd` left you (the worktree). Always push the `loop/issue-<issue_iid>` branch by name.
+     `<local_path>` is passed as the script's first *argument*, not as a directory you have to be in — `open_merge_request.sh` uses `git -C` internally against it. That `git -C` lives inside an already-approved script, so it is unaffected by the direct-command allowlist. Do not `cd` anywhere for this command: the script is named by absolute path and takes its repo as an argument, so it runs correctly from wherever the step-5 `cd` left you (the worktree). Always push the `loop/issue-<issue_iid>` branch by name.
    This **opens** the MR only. Never merge it, never run `git merge` into `<target_branch>` in the primary checkout, never push to `<target_branch>` directly.
 
-9. **Annotate and notify.**
+10. **Annotate and notify.**
    ```
    python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_cache.py annotate-issue <instance> <project_id> <issue_iid> loop_last_action "mr_opened: <mr_web_url>"
    python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Finished* <<issue_url>|#<issue_iid> (<alias>)>: MR opened → <<mr_web_url>|view MR>"
@@ -180,7 +190,7 @@ python3 <loop_dir>/bin/web/dashboard_server.py write-status running --current-is
    ```
    That message carries two different links: `<issue_url>` (the GitLab **issue**, for context — the same value used in the "starting" message) and `<mr_web_url>` (the **merge request** just opened, the actual "view MR" action). They are never the same URL; do not substitute one for the other.
 
-   `<mr_web_url>` comes from the `git push` output in step 8 — GitLab prints the new merge request's URL to the push's stderr/stdout when `merge_request.create` succeeds. If you didn't capture it (e.g. you pushed to an MR that already existed), re-query it with `gitlab_api.py list-mrs <alias> opened` and take the `web_url` of the MR whose `source_branch` is `loop/issue-<issue_iid>`.
+   `<mr_web_url>` comes from the `git push` output in step 9 — GitLab prints the new merge request's URL to the push's stderr/stdout when `merge_request.create` succeeds. If you didn't capture it (e.g. you pushed to an MR that already existed), re-query it with `gitlab_api.py list-mrs <alias> opened` and take the `web_url` of the MR whose `source_branch` is `loop/issue-<issue_iid>`.
 
    Mark the notes you just analyzed as seen, so they aren't re-analyzed next run:
    ```
@@ -197,7 +207,7 @@ python3 <loop_dir>/bin/web/dashboard_server.py write-status running --current-is
    ```
    cd <loop_dir>
    ```
-   Step 4 left you inside this issue's worktree; the next issue starts its own worktree from scratch and must not inherit this one as its working directory. Every command in this file names its scripts by absolute path so this is belt-and-braces rather than load-bearing, but do it anyway so the invariant "cwd is `<loop_dir>` at the start of each issue" always holds.
+   Step 5 left you inside this issue's worktree; the next issue starts its own worktree from scratch and must not inherit this one as its working directory. Every command in this file names its scripts by absolute path so this is belt-and-braces rather than load-bearing, but do it anyway so the invariant "cwd is `<loop_dir>` at the start of each issue" always holds.
 
 ### Answer directly (no code change needed)
 
@@ -205,7 +215,7 @@ Some issues don't need a fix at all — a question about behavior, a request to 
 
 1. Investigate read-only: check `python3 <loop_dir>/bin/project_memory.py get <instance> <project_id>` and `python3 <loop_dir>/bin/memory_store.py list <alias>` for relevant prior learnings, and use `~/.encore-skills/skills/gitlab-config/scripts/gitlab_api.py`/`gitlab_cache.py` to look up anything else needed (other issues, MRs, comments).
 
-   If answering genuinely requires reading the project's own source, note that `<local_path>` is **not** readable — per the "Tool permissions policy" below, the primary checkouts are not exposed to the Read/Glob/Grep tools at all, so trying to read a file there is denied, not merely discouraged. Get a readable copy the same way step 4 does:
+   If answering genuinely requires reading the project's own source, note that `<local_path>` is **not** readable — per the "Tool permissions policy" below, the primary checkouts are not exposed to the Read/Glob/Grep tools at all, so trying to read a file there is denied, not merely discouraged. Get a readable copy the same way step 5 does:
    ```
    bash <loop_dir>/bin/scripts/new_worktree.sh <local_path> <target_branch> <issue_iid> <worktree_root>
    ```
@@ -224,12 +234,12 @@ Some issues don't need a fix at all — a question about behavior, a request to 
    python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Finished* <<issue_url>|#<issue_iid> (<alias>)>: answered directly — see comment"
    python3 <loop_dir>/bin/events.py emit --type issue.completed --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"action\": \"answer\"}"
    ```
-5. Record a learning if there's a reusable pattern here, using the same judgment-based rule and the same `memory_store.py add` command shown in step 9 (also by absolute `<loop_dir>/bin/...` path) — skip it if this was too specific to generalize.
+5. Record a learning if there's a reusable pattern here, using the same judgment-based rule and the same `memory_store.py add` command shown in step 10 (also by absolute `<loop_dir>/bin/...` path) — skip it if this was too specific to generalize.
 6. Return to the loop directory before moving to the next issue:
    ```
    cd <loop_dir>
    ```
-   This section is only ever reached from step 3, so the working directory is still `<loop_dir>` unless step 1 above created a read-only worktree and `cd`'d into it. Run the `cd` either way, exactly as in step 9, so the invariant "cwd is `<loop_dir>` at the start of each issue" always holds.
+   This section is only ever reached from step 3, so the working directory is still `<loop_dir>` unless step 1 above created a read-only worktree and `cd`'d into it. Run the `cd` either way, exactly as in step 10, so the invariant "cwd is `<loop_dir>` at the start of each issue" always holds.
 
 No code is touched, nothing is committed or pushed, and no MR is opened. Normally no worktree is created either — one is created only for the read-only case in step 1, and even then nothing in it is modified.
 
@@ -242,7 +252,7 @@ python3 <loop_dir>/bin/track_new_comments.py mark-seen <instance> <project_id> <
 python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Finished* <<issue_url>|#<issue_iid> (<alias>)>: escalated, needs clarification — see comment"
 python3 <loop_dir>/bin/events.py emit --type issue.escalated --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"reason\": \"needs_clarification\"}"
 ```
-No worktree is created, no code is touched. Record a learning here too if the ambiguity reflects a recurring pattern (e.g. this project's issues in a certain area are consistently underspecified) rather than something specific to this one issue, using the same `memory_store.py add` command shown in step 9 (also by absolute `<loop_dir>/bin/...` path).
+No worktree is created, no code is touched. Record a learning here too if the ambiguity reflects a recurring pattern (e.g. this project's issues in a certain area are consistently underspecified) rather than something specific to this one issue, using the same `memory_store.py add` command shown in step 10 (also by absolute `<loop_dir>/bin/...` path).
 
 Then return to the loop directory and move to the next issue:
 ```
@@ -258,11 +268,11 @@ python3 <loop_dir>/bin/track_new_comments.py mark-seen <instance> <project_id> <
 python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Finished* <<issue_url>|#<issue_iid> (<alias>)>: escalated, verification failed — see comment"
 python3 <loop_dir>/bin/events.py emit --type issue.escalated --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"reason\": \"<verification_failed_or_worktree_creation_failed>\"}"
 ```
-Substitute `verification_failed` for `<verification_failed_or_worktree_creation_failed>` if you arrived here from step 6's verification failure, otherwise `worktree_creation_failed` — see the note at whichever call site sent you here.
+Substitute `verification_failed` for `<verification_failed_or_worktree_creation_failed>` if you arrived here from step 7's verification failure, otherwise `worktree_creation_failed` — see the note at whichever call site sent you here.
 
-This section is reachable from three places with different working directories — step 4, if creating the worktree failed (cwd is still `<loop_dir>`); step 6, if verification failed (cwd is the worktree); and step 1 of "Answer directly", if the read-only worktree could not be created (cwd is still `<loop_dir>`). Every command above names its script by absolute path precisely so it behaves identically in all three cases; do not `cd` anywhere before running them.
+This section is reachable from three places with different working directories — step 5, if creating the worktree failed (cwd is still `<loop_dir>`); step 7, if verification failed (cwd is the worktree); and step 1 of "Answer directly", if the read-only worktree could not be created (cwd is still `<loop_dir>`). Every command above names its script by absolute path precisely so it behaves identically in all three cases; do not `cd` anywhere before running them.
 
-Do not push, do not open an MR. Record a learning here too if this failure looks like a recurring gotcha future runs should know about (e.g. "test X is flaky", "lint requires Y first") rather than a one-off fluke specific to this attempt — using the same `memory_store.py add` command shown in step 9 (also by absolute `<loop_dir>/bin/...` path).
+Do not push, do not open an MR. Record a learning here too if this failure looks like a recurring gotcha future runs should know about (e.g. "test X is flaky", "lint requires Y first") rather than a one-off fluke specific to this attempt — using the same `memory_store.py add` command shown in step 10 (also by absolute `<loop_dir>/bin/...` path).
 
 Then return to the loop directory and move to the next issue:
 ```
@@ -289,7 +299,7 @@ Not allowed: any other shell command, installing new dependencies beyond the loc
 
 Note that the projects' primary checkouts (`local_path`) are deliberately not exposed to the Read/Edit/Write tools at all — only this loop directory and the worktree root are. Editing a file in `<local_path>` is therefore impossible, not merely discouraged.
 
-Note also that the git allowlist matches on the literal command prefix, so `git -C <path> ...` is **not** permitted as a direct Bash command in any form — the allowed entries all begin `git status`/`git diff`/`git add`/`git commit`/`git push origin loop/issue-`. Reach a repo by `cd`-ing into it and running bare git, as step 4 instructs. The one place `<local_path>` is still operated on is `<loop_dir>/bin/scripts/open_merge_request.sh`, which takes it as an argument and runs `git -C` inside the script — that is allowed because the approved unit is the script invocation, not the git command it happens to build.
+Note also that the git allowlist matches on the literal command prefix, so `git -C <path> ...` is **not** permitted as a direct Bash command in any form — the allowed entries all begin `git status`/`git diff`/`git add`/`git commit`/`git push origin loop/issue-`. Reach a repo by `cd`-ing into it and running bare git, as step 5 instructs. The one place `<local_path>` is still operated on is `<loop_dir>/bin/scripts/open_merge_request.sh`, which takes it as an argument and runs `git -C` inside the script — that is allowed because the approved unit is the script invocation, not the git command it happens to build.
 
 ## Failure policy
 
