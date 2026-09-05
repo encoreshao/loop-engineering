@@ -106,7 +106,15 @@ python3 <loop_dir>/bin/events.py emit --type issue.started --run-id "$LOOP_RUN_I
    ```
    python3 <loop_dir>/bin/events.py emit --type issue.classified --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"type\": \"<type>\", \"complexity\": \"<complexity>\", \"estimated_minutes\": <estimated_minutes>, \"risk_score\": <risk_score>, \"risk_level\": \"<risk_level>\", \"risk_matched_keywords\": <risk_matched_keywords_json_array>}"
    ```
-   This is advisory only — it never changes which of the three step-3 outcomes you pursue, and a failed `risk.py` call or `emit` call here is best-effort exactly like every other `emit` call in this file (see "Event reporting" above): note it and continue. Then continue to whichever step-3 outcome you selected: step 5 (Create the worktree) for a fix, "Escalate: needs clarification" below for an escalation, or "Answer directly (no code change needed)" below for an answer.
+   This is advisory only — it never changes which of the three step-3 outcomes you pursue, and a failed `risk.py` call or `emit` call here is best-effort exactly like every other `emit` call in this file (see "Event reporting" above): note it and continue.
+
+   Also check whether any entry from this alias's `memory_store.py list` output (read once per alias, before this issue's own numbered steps — see above) actually informed your step-3 analysis. If one or more did, emit one `memory.reused` per cited lesson:
+   ```
+   python3 <loop_dir>/bin/events.py emit --type memory.reused --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"lesson_id\": \"<that lesson's lesson_id>\"}"
+   ```
+   Skip this if no existing lesson applied — most issues won't cite one, and citing a lesson that didn't actually shape your decision would corrupt lesson-effectiveness tracking, not just add noise.
+
+   Then continue to whichever step-3 outcome you selected: step 5 (Create the worktree) for a fix, "Escalate: needs clarification" below for an escalation, or "Answer directly (no code change needed)" below for an answer.
 
 5. **Create the worktree.**
    ```
@@ -197,11 +205,15 @@ python3 <loop_dir>/bin/web/dashboard_server.py write-status running --current-is
    python3 <loop_dir>/bin/track_new_comments.py mark-seen <instance> <project_id> <issue_iid>
    ```
 
-   **Record a learning, if there is one.** If this fix revealed something that would help a *future* issue on this project — not a fact specific only to this one issue, but a reusable pattern (a root-cause category, a flaky test, a command that doesn't behave as expected, a convention this codebase follows) — record it:
+   **Record a learning, if there is one.** If this fix revealed something that would help a *future* issue on this project — not a fact specific only to this one issue, but a reusable pattern (a root-cause category, a flaky test, a command that doesn't behave as expected, a convention this codebase follows) — record it, with a short freeform category of your own choosing (e.g. `testing`, `auth`, `deployment`, `gitlab-api`):
    ```
-   python3 <loop_dir>/bin/memory_store.py add <alias> <issue_iid> "<the lesson, written for a future run to act on>" "<comma,separated,tags>"
+   python3 <loop_dir>/bin/memory_store.py add <alias> <issue_iid> "<the lesson, written for a future run to act on>" "<comma,separated,tags>" "<category>"
    ```
-   Skip this when the fix was too specific to generalize — not every issue produces a reusable lesson, and recording trivial one-off details just adds noise for future runs to wade through. This writes to the file-based task memory only — `project_memory.py add` is not called anywhere in this file anymore; `project_memory.py get` (read in step 3 and per-alias above) still surfaces anything recorded before this change.
+   This prints one JSON line: `{"action": "created"|"updated", "lesson_id": "...", "path": "..."}`. If `"action"` is `"created"` (this is a brand-new lesson), emit:
+   ```
+   python3 <loop_dir>/bin/events.py emit --type memory.created --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"lesson_id\": \"<lesson_id from the JSON above>\", \"category\": \"<the category you passed>\"}"
+   ```
+   If `"action"` is `"updated"` (you appended to an issue that already had a recorded lesson), emit nothing new — an append isn't a new piece of knowledge entering the system. Skip this whole block when the fix was too specific to generalize — not every issue produces a reusable lesson, and recording trivial one-off details just adds noise for future runs to wade through. This writes to the file-based task memory only — `project_memory.py add` is not called anywhere in this file anymore; `project_memory.py get` (read in step 3 and per-alias above) still surfaces anything recorded before this change.
 
    **Finally, return to the loop directory before moving to the next issue:**
    ```
