@@ -364,6 +364,81 @@ def test_format_report_header_shows_date_range_and_project(tmp_path):
     assert "project: kurrant" in text
 
 
+def test_build_report_includes_classification_and_failure_taxonomy(tmp_path):
+    events.emit(
+        "issue.classified", run_id="run_1", issue_run_id="run_1_kurrant_1",
+        project="kurrant", issue_iid=1,
+        data={"type": "bug", "complexity": "M", "risk_level": "MEDIUM"},
+        events_dir=tmp_path,
+    )
+    events.emit(
+        "issue.escalated", run_id="run_1", issue_run_id="run_1_kurrant_2",
+        project="kurrant", issue_iid=2, data={"reason": "verification_failed"},
+        events_dir=tmp_path,
+    )
+
+    report = metrics.build_report(events_dir=tmp_path)
+
+    assert report["classification"]["classified_total"] == 1
+    assert report["classification"]["by_risk_level"] == {"MEDIUM": 1}
+    assert report["failure_taxonomy"]["by_category"] == {"verification": 1}
+
+
+def test_build_report_verification_section_includes_first_pass_rate(tmp_path):
+    events.emit(
+        "verification.started", run_id="run_1", issue_run_id="run_1_kurrant_1",
+        project="kurrant", issue_iid=1, events_dir=tmp_path,
+    )
+    events.emit(
+        "verification.passed", run_id="run_1", issue_run_id="run_1_kurrant_1",
+        project="kurrant", issue_iid=1, events_dir=tmp_path,
+    )
+
+    report = metrics.build_report(events_dir=tmp_path)
+
+    assert report["verification"]["first_pass_verification_rate"] == 1.0
+    assert report["verification"]["first_pass_verification_rate"] == report["verification"]["verification_pass_rate"]
+
+
+def test_format_report_shows_na_for_classification_and_failure_breakdown_when_empty(tmp_path):
+    report = metrics.build_report(events_dir=tmp_path)  # empty dir
+
+    text = metrics.format_report(report)
+
+    assert "no issues classified in this window" in text
+    assert "no escalations in this window" in text
+
+
+def test_format_report_shows_failure_breakdown_percentage(tmp_path):
+    events.emit(
+        "issue.escalated", run_id="run_1", issue_run_id="run_1_kurrant_1",
+        project="kurrant", issue_iid=1, data={"reason": "needs_clarification"},
+        events_dir=tmp_path,
+    )
+
+    report = metrics.build_report(events_dir=tmp_path)
+    text = metrics.format_report(report)
+
+    assert "requirement" in text
+    assert "100.0%" in text
+
+
+def test_format_report_shows_first_pass_verification_line(tmp_path):
+    events.emit(
+        "verification.started", run_id="run_1", issue_run_id="run_1_kurrant_1",
+        project="kurrant", issue_iid=1, events_dir=tmp_path,
+    )
+    events.emit(
+        "verification.passed", run_id="run_1", issue_run_id="run_1_kurrant_1",
+        project="kurrant", issue_iid=1, events_dir=tmp_path,
+    )
+
+    report = metrics.build_report(events_dir=tmp_path)
+    text = metrics.format_report(report)
+
+    assert "First-pass verification" in text
+
+
 def test_cli_bare_invocation_prints_report(tmp_path):
     events.emit("run.started", run_id="run_1", events_dir=tmp_path)
     events.emit("run.completed", run_id="run_1", events_dir=tmp_path)

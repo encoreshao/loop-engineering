@@ -311,14 +311,18 @@ def compute_quality_and_autonomy_metrics(issue_metrics, verification_metrics):
 
 def build_report(events_dir=None, since_date=None, until_date=None, project=None):
     """Reads events.iter_events(events_dir, since_date, until_date) once,
-    then assembles {"run", "issue", "verification", "quality_and_autonomy"}.
-    When project is given, "run" becomes {"not_applicable_reason": ...}
-    instead of a filtered (and therefore meaningless) run tally - a run
-    spans every project touched that run."""
+    then assembles {"run", "issue", "verification", "quality_and_autonomy",
+    "classification", "failure_taxonomy"}. When project is given, "run"
+    becomes {"not_applicable_reason": ...} instead of a filtered (and
+    therefore meaningless) run tally - a run spans every project touched
+    that run."""
     all_events = list(events.iter_events(events_dir=events_dir, since_date=since_date, until_date=until_date))
 
     issue_metrics = compute_issue_metrics(all_events, project=project)
     verification_metrics = compute_verification_metrics(all_events, project=project)
+    verification_metrics.update(compute_first_pass_verification_metrics(all_events, project=project))
+    classification_metrics = compute_classification_metrics(all_events, project=project)
+    failure_taxonomy = compute_failure_taxonomy(all_events, project=project)
     quality_and_autonomy = compute_quality_and_autonomy_metrics(issue_metrics, verification_metrics)
 
     if project is not None:
@@ -331,6 +335,8 @@ def build_report(events_dir=None, since_date=None, until_date=None, project=None
         "issue": issue_metrics,
         "verification": verification_metrics,
         "quality_and_autonomy": quality_and_autonomy,
+        "classification": classification_metrics,
+        "failure_taxonomy": failure_taxonomy,
         "scope": {"since_date": since_date, "until_date": until_date, "project": project},
     }
 
@@ -370,6 +376,10 @@ def _fmt_seconds(ms):
     return f"{ms / 1000:.1f}s" if ms is not None else "N/A"
 
 
+def _fmt_counts(counts):
+    return ", ".join(f"{key}={value}" for key, value in sorted(counts.items())) if counts else "none"
+
+
 def format_report(report):
     """Renders the dict from build_report() as plain text for the CLI."""
     scope = report["scope"]
@@ -406,8 +416,29 @@ def format_report(report):
     lines.append("Quality")
     lines.append(f"  Resolution rate         {_fmt_rate(qa['resolution_rate'])}")
     lines.append(f"  Verification pass rate  {_fmt_rate(verification['verification_pass_rate'])}")
+    lines.append(f"  First-pass verification {_fmt_rate(verification['first_pass_verification_rate'])}")
     lines.append(f"  Retry rate              N/A ({qa['retry_rate_unavailable_reason']})")
     lines.append(f"  Failure rate            N/A ({qa['failure_rate_unavailable_reason']})")
+    lines.append("")
+
+    classification = report["classification"]
+    lines.append("Classification")
+    if classification["classified_total"] == 0:
+        lines.append("  N/A (no issues classified in this window)")
+    else:
+        lines.append(f"  Classified      {classification['classified_total']}")
+        lines.append(f"  By type         {_fmt_counts(classification['by_type'])}")
+        lines.append(f"  By complexity   {_fmt_counts(classification['by_complexity'])}")
+        lines.append(f"  By risk level   {_fmt_counts(classification['by_risk_level'])}")
+    lines.append("")
+
+    failure_taxonomy = report["failure_taxonomy"]
+    lines.append("Failure breakdown")
+    if failure_taxonomy["total"] == 0:
+        lines.append("  N/A (no escalations in this window)")
+    else:
+        for category, pct in sorted(failure_taxonomy["by_category_pct"].items(), key=lambda kv: -kv[1]):
+            lines.append(f"  {category:<15} {pct * 100:.1f}%")
     lines.append("")
 
     lines.append("Autonomy")
