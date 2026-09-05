@@ -275,3 +275,12 @@ def test_cli_add_prints_updated_action_on_append(tmp_path):
 
     payload = json.loads(result.stdout)
     assert payload["action"] == "updated"
+
+
+def test_add_task_memory_without_category_roundtrips_correctly(tmp_path):
+    result = memory_store.add_task_memory("harbor", 142, "a fresh lesson", root=tmp_path)
+
+    assert result["created"] is True
+    entry = memory_store.get_task_memory("harbor", 142, root=tmp_path)
+    assert entry["category"] is None
+    assert entry["lesson_id"] == result["lesson_id"]

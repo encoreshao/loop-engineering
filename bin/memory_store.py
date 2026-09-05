@@ -70,12 +70,12 @@ def _parse_task_memory(text):
         if not line.strip():
             continue
         if line.startswith("  "):
-            key, _, value = line.strip().partition(": ")
-            fields["metadata"][key] = _parse_scalar(value)
+            key, _, value = line.strip().partition(":")
+            fields["metadata"][key] = _parse_scalar(value.strip())
         else:
-            key, _, value = line.partition(": ")
+            key, _, value = line.partition(":")
             if key != "metadata":
-                fields[key] = _parse_scalar(value)
+                fields[key] = _parse_scalar(value.strip())
     metadata = fields["metadata"]
     try:
         issue_iid = int(metadata["issue_iid"])
