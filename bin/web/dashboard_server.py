@@ -4479,7 +4479,7 @@ _NAV_GROUPS = (
     (None, ("overview",)),
     ("Monitor", ("analytics", "gitlab", "topic_monitor", "memory", "activity", "logs", "history")),
     ("System", ("daemons", "skills")),
-    ("Configuration", ("settings", "general_settings", "topic_settings")),
+    ("Configuration", ("settings", "topic_settings", "general_settings")),
     ("Docs", ("readme",)),
 )
 _NAV_GROUP_OF = {key: label for label, keys in _NAV_GROUPS if label for key in keys}
