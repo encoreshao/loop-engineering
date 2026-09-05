@@ -165,6 +165,119 @@ def compute_verification_metrics(events, project=None):
     }
 
 
+def compute_classification_metrics(events, project=None):
+    """{"classified_total", "by_type", "by_complexity", "by_risk_level"}
+    from issue.classified events' data fields, paired by issue_run_id
+    (last event for a given issue_run_id wins, if it was somehow
+    classified more than once). Each by_* dict maps the field's value
+    to a count, built only from classifications that actually carried
+    that field - a classification missing "risk_level", for example,
+    simply isn't counted in by_risk_level. Same project filtering as
+    compute_issue_metrics."""
+    latest_by_issue_run_id = {}
+    for event in events:
+        if project is not None and event.get("project") != project:
+            continue
+        if event.get("event_type") != "issue.classified":
+            continue
+        latest_by_issue_run_id[event.get("issue_run_id")] = event.get("data") or {}
+
+    by_type, by_complexity, by_risk_level = {}, {}, {}
+    for data in latest_by_issue_run_id.values():
+        if data.get("type") is not None:
+            by_type[data["type"]] = by_type.get(data["type"], 0) + 1
+        if data.get("complexity") is not None:
+            by_complexity[data["complexity"]] = by_complexity.get(data["complexity"], 0) + 1
+        if data.get("risk_level") is not None:
+            by_risk_level[data["risk_level"]] = by_risk_level.get(data["risk_level"], 0) + 1
+
+    return {
+        "classified_total": len(latest_by_issue_run_id),
+        "by_type": by_type,
+        "by_complexity": by_complexity,
+        "by_risk_level": by_risk_level,
+    }
+
+
+FAILURE_REASON_CATEGORY_MAP = {
+    "verification_failed": "verification",
+    "needs_clarification": "requirement",
+    "worktree_creation_failed": "environment",
+}
+
+
+def compute_failure_taxonomy(events, project=None):
+    """{"total", "by_category", "by_category_pct"} from issue.escalated
+    and issue.failed events' data.reason, mapped through
+    FAILURE_REASON_CATEGORY_MAP. A reason not in the map, or a missing
+    reason field, counts under "unknown" rather than raising or being
+    dropped - a future escalation path introduced without a matching
+    LOOPX_INSTRUCTIONS.md update degrades safely instead of silently
+    vanishing from the taxonomy. by_category_pct is {} (not filled with
+    0.0s) when total is 0. Same project filtering as compute_issue_metrics."""
+    by_category = {}
+    for event in events:
+        if project is not None and event.get("project") != project:
+            continue
+        if event.get("event_type") not in ("issue.escalated", "issue.failed"):
+            continue
+        reason = (event.get("data") or {}).get("reason")
+        category = FAILURE_REASON_CATEGORY_MAP.get(reason, "unknown")
+        by_category[category] = by_category.get(category, 0) + 1
+
+    total = sum(by_category.values())
+    by_category_pct = (
+        {category: count / total for category, count in by_category.items()}
+        if total else {}
+    )
+
+    return {
+        "total": total,
+        "by_category": by_category,
+        "by_category_pct": by_category_pct,
+    }
+
+
+def compute_first_pass_verification_metrics(events, project=None):
+    """{"first_pass_verification_total", "first_pass_verification_passed",
+    "first_pass_verification_rate"}. For each issue_run_id, takes the
+    EARLIEST-timestamped verification.passed/verification.failed event
+    (timestamps are ISO 8601 UTC strings with millisecond precision, so
+    plain string comparison is chronological - no need to parse them,
+    matching this event log's format everywhere else) and counts
+    whether it passed. Events without a timestamp are ignored, same as
+    every other compute_* function here. Numerically identical to
+    compute_verification_metrics's verification_pass_rate today - the
+    loop only ever produces one verification outcome per issue (see
+    RETRY_RATE_UNAVAILABLE_REASON) - but defined by timestamp order
+    rather than "ever passed"/"ever failed" set membership, so it stays
+    correct once Phase 6 (retries) produces more than one outcome per
+    issue_run_id. Same project filtering as compute_issue_metrics."""
+    earliest_outcome = {}  # issue_run_id -> (timestamp, event_type)
+    for event in events:
+        if project is not None and event.get("project") != project:
+            continue
+        et = event.get("event_type")
+        if et not in ("verification.passed", "verification.failed"):
+            continue
+        ts = event.get("timestamp")
+        if ts is None:
+            continue
+        issue_run_id = event.get("issue_run_id")
+        current = earliest_outcome.get(issue_run_id)
+        if current is None or ts < current[0]:
+            earliest_outcome[issue_run_id] = (ts, et)
+
+    total = len(earliest_outcome)
+    passed = sum(1 for _, et in earliest_outcome.values() if et == "verification.passed")
+
+    return {
+        "first_pass_verification_total": total,
+        "first_pass_verification_passed": passed,
+        "first_pass_verification_rate": (passed / total) if total else None,
+    }
+
+
 def compute_quality_and_autonomy_metrics(issue_metrics, verification_metrics):
     """{"resolution_rate", "verification_pass_rate", "retry_rate",
     "retry_rate_unavailable_reason", "failure_rate",

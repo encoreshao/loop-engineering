@@ -458,3 +458,180 @@ def test_bucketed_reports_empty_events_dir_still_returns_well_formed_reports(tmp
     for r in reports:
         assert r["issue"]["issues_processed"] == 0
         assert r["quality_and_autonomy"]["resolution_rate"] is None
+
+
+def _issue_classified(issue_run_id, project, data, ts="2026-09-04T10:00:00.000Z"):
+    return {"event_type": "issue.classified", "issue_run_id": issue_run_id, "project": project, "timestamp": ts, "data": data}
+
+
+def test_compute_classification_metrics_counts_by_type_complexity_risk_level():
+    events = [
+        _issue_classified("r1_p_1", "kurrant", {"type": "bug", "complexity": "M", "risk_level": "MEDIUM"}),
+        _issue_classified("r1_p_2", "kurrant", {"type": "bug", "complexity": "S", "risk_level": "LOW"}),
+        _issue_classified("r1_p_3", "kurrant", {"type": "feature", "complexity": "M", "risk_level": "LOW"}),
+    ]
+
+    result = metrics.compute_classification_metrics(events)
+
+    assert result["classified_total"] == 3
+    assert result["by_type"] == {"bug": 2, "feature": 1}
+    assert result["by_complexity"] == {"M": 2, "S": 1}
+    assert result["by_risk_level"] == {"MEDIUM": 1, "LOW": 2}
+
+
+def test_compute_classification_metrics_filters_by_project():
+    events = [
+        _issue_classified("r1_a_1", "alpha", {"type": "bug", "complexity": "S", "risk_level": "LOW"}),
+        _issue_classified("r1_b_1", "beta", {"type": "feature", "complexity": "L", "risk_level": "HIGH"}),
+    ]
+
+    result = metrics.compute_classification_metrics(events, project="alpha")
+
+    assert result["classified_total"] == 1
+    assert result["by_type"] == {"bug": 1}
+
+
+def test_compute_classification_metrics_duplicate_classification_keeps_latest_only():
+    events = [
+        _issue_classified("r1_p_1", "kurrant", {"type": "bug", "complexity": "S", "risk_level": "LOW"}),
+        _issue_classified("r1_p_1", "kurrant", {"type": "feature", "complexity": "L", "risk_level": "HIGH"}),
+    ]
+
+    result = metrics.compute_classification_metrics(events)
+
+    assert result["classified_total"] == 1
+    assert result["by_type"] == {"feature": 1}
+
+
+def test_compute_classification_metrics_empty_events_returns_zero():
+    result = metrics.compute_classification_metrics([])
+
+    assert result["classified_total"] == 0
+    assert result["by_type"] == {}
+    assert result["by_complexity"] == {}
+    assert result["by_risk_level"] == {}
+
+
+def _issue_escalated_reason(issue_run_id, project, ts, reason):
+    return {
+        "event_type": "issue.escalated", "issue_run_id": issue_run_id, "project": project,
+        "timestamp": ts, "data": {"reason": reason},
+    }
+
+
+def _issue_failed_reason(issue_run_id, project, ts, reason=None):
+    data = {"reason": reason} if reason is not None else {}
+    return {
+        "event_type": "issue.failed", "issue_run_id": issue_run_id, "project": project,
+        "timestamp": ts, "data": data,
+    }
+
+
+def test_compute_failure_taxonomy_maps_known_reasons_to_categories():
+    events = [
+        _issue_escalated_reason("r1_p_1", "kurrant", "2026-09-04T10:00:00.000Z", "verification_failed"),
+        _issue_escalated_reason("r1_p_2", "kurrant", "2026-09-04T10:00:00.000Z", "needs_clarification"),
+        _issue_escalated_reason("r1_p_3", "kurrant", "2026-09-04T10:00:00.000Z", "worktree_creation_failed"),
+    ]
+
+    result = metrics.compute_failure_taxonomy(events)
+
+    assert result["total"] == 3
+    assert result["by_category"] == {"verification": 1, "requirement": 1, "environment": 1}
+    assert abs(result["by_category_pct"]["verification"] - (1 / 3)) < 1e-9
+
+
+def test_compute_failure_taxonomy_unmapped_reason_becomes_unknown():
+    events = [_issue_escalated_reason("r1_p_1", "kurrant", "2026-09-04T10:00:00.000Z", "something_new")]
+
+    result = metrics.compute_failure_taxonomy(events)
+
+    assert result["by_category"] == {"unknown": 1}
+
+
+def test_compute_failure_taxonomy_missing_reason_becomes_unknown():
+    events = [_issue_failed_reason("r1_p_1", "kurrant", "2026-09-04T10:00:00.000Z")]  # no reason field
+
+    result = metrics.compute_failure_taxonomy(events)
+
+    assert result["by_category"] == {"unknown": 1}
+
+
+def test_compute_failure_taxonomy_filters_by_project():
+    events = [
+        _issue_escalated_reason("r1_a_1", "alpha", "2026-09-04T10:00:00.000Z", "verification_failed"),
+        _issue_escalated_reason("r1_b_1", "beta", "2026-09-04T10:00:00.000Z", "needs_clarification"),
+    ]
+
+    result = metrics.compute_failure_taxonomy(events, project="alpha")
+
+    assert result["total"] == 1
+    assert result["by_category"] == {"verification": 1}
+
+
+def test_compute_failure_taxonomy_zero_escalations_returns_empty_pct_not_error():
+    result = metrics.compute_failure_taxonomy([])
+
+    assert result["total"] == 0
+    assert result["by_category"] == {}
+    assert result["by_category_pct"] == {}
+
+
+def test_compute_first_pass_verification_metrics_matches_verification_pass_rate_today():
+    events = [
+        _verification_started("r1_p_1", "kurrant", "2026-09-04T10:00:00.000Z"),
+        _verification_passed("r1_p_1", "kurrant", "2026-09-04T10:00:30.000Z"),
+        _verification_started("r1_p_2", "kurrant", "2026-09-04T11:00:00.000Z"),
+        _verification_failed("r1_p_2", "kurrant", "2026-09-04T11:00:10.000Z"),
+    ]
+
+    result = metrics.compute_first_pass_verification_metrics(events)
+
+    assert result["first_pass_verification_total"] == 2
+    assert result["first_pass_verification_passed"] == 1
+    assert result["first_pass_verification_rate"] == 0.5
+
+
+def test_compute_first_pass_verification_metrics_picks_earliest_outcome_not_latest():
+    # Simulates a future retry: the first attempt failed, a later one passed.
+    # First-pass must count this issue as a FAILED first attempt, not a
+    # passed one - proving this isn't just "did it ever pass."
+    events = [
+        _verification_failed("r1_p_1", "kurrant", "2026-09-04T10:00:00.000Z"),
+        _verification_passed("r1_p_1", "kurrant", "2026-09-04T10:05:00.000Z"),
+    ]
+
+    result = metrics.compute_first_pass_verification_metrics(events)
+
+    assert result["first_pass_verification_total"] == 1
+    assert result["first_pass_verification_passed"] == 0
+    assert result["first_pass_verification_rate"] == 0.0
+
+
+def test_compute_first_pass_verification_metrics_filters_by_project():
+    events = [
+        _verification_passed("r1_a_1", "alpha", "2026-09-04T10:00:00.000Z"),
+        _verification_failed("r1_b_1", "beta", "2026-09-04T10:00:00.000Z"),
+    ]
+
+    result = metrics.compute_first_pass_verification_metrics(events, project="alpha")
+
+    assert result["first_pass_verification_total"] == 1
+    assert result["first_pass_verification_rate"] == 1.0
+
+
+def test_compute_first_pass_verification_metrics_zero_denominator_returns_none():
+    result = metrics.compute_first_pass_verification_metrics([])
+
+    assert result["first_pass_verification_total"] == 0
+    assert result["first_pass_verification_rate"] is None
+
+
+def test_compute_first_pass_verification_metrics_missing_timestamp_ignored():
+    events = [
+        {"event_type": "verification.passed", "issue_run_id": "r1_p_1", "project": "kurrant"},  # no timestamp
+    ]
+
+    result = metrics.compute_first_pass_verification_metrics(events)
+
+    assert result["first_pass_verification_total"] == 0
