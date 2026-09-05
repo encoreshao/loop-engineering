@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -85,13 +86,19 @@ def _parse_task_memory(text):
         "description": fields.get("description", ""),
         "issue_iid": issue_iid,
         "tags": metadata.get("tags") or [],
+        "lesson_id": metadata.get("lesson_id") or None,
+        "category": metadata.get("category") or None,
+        "created_at": metadata.get("created_at") or None,
         "modified": metadata.get("modified", ""),
         "body": body.strip("\n"),
     }
 
 
-def _render_task_memory(name, description, issue_iid, tags, modified, body):
+def _render_task_memory(name, description, issue_iid, tags, modified, body, lesson_id, created_at, category):
     tags_literal = "[" + ", ".join(tags) + "]" if tags else "[]"
+    lesson_id_str = lesson_id if lesson_id is not None else ""
+    created_at_str = created_at if created_at is not None else ""
+    category_str = category or ""
     header = (
         "---\n"
         f"name: {name}\n"
@@ -99,7 +106,10 @@ def _render_task_memory(name, description, issue_iid, tags, modified, body):
         "metadata:\n"
         "  type: project\n"
         f"  issue_iid: {issue_iid}\n"
+        f"  lesson_id: {lesson_id_str}\n"
+        f"  category: {category_str}\n"
         f"  tags: {tags_literal}\n"
+        f"  created_at: {created_at_str}\n"
         f"  modified: {modified}\n"
         "---\n"
     )
@@ -128,10 +138,21 @@ def _rewrite_index_line(alias, filename, description, issue_iid, root=None):
     index_path.write_text("".join(lines))
 
 
-def add_task_memory(alias, issue_iid, lesson, tags=None, root=None):
+def add_task_memory(alias, issue_iid, lesson, tags=None, category=None, root=None):
     """Create or append to <issue_iid>'s task-memory file for this alias,
     and create/update that project's MEMORY.md index line for it. Returns
-    the file path written."""
+    {"path": Path, "lesson_id": str, "created": bool}. lesson_id and
+    created_at are generated ONLY the first time a lesson_id doesn't
+    already exist for this issue - either a brand-new file, or an
+    existing file whose frontmatter has no lesson_id at all (a
+    pre-Sprint-6 entry). Either way "created" is True and a fresh
+    lesson_id/created_at is assigned. On every later append where a
+    lesson_id already exists, it and created_at are preserved
+    unchanged, and category is likewise preserved (a category passed
+    on an append call is silently ignored - a lesson's category
+    doesn't drift because a follow-up note got appended). A
+    pre-Sprint-6 entry with no lesson_id stays that way forever even
+    across later appends - no backfill."""
     tags = list(tags or [])
     project_dir = _project_dir(alias, root)
     project_dir.mkdir(parents=True, exist_ok=True)
@@ -139,24 +160,34 @@ def add_task_memory(alias, issue_iid, lesson, tags=None, root=None):
     today = now[:10]
     description = _summary(lesson)
     existing_path = _issue_file(alias, issue_iid, root)
+    created = False
     if existing_path is None:
         slug = _slugify(lesson)
         path = project_dir / f"{issue_iid}-{slug}.md"
         name = f"{issue_iid}-{slug}"
         body = f"Recorded {today}: {lesson.strip()}"
+        lesson_id = f"lesson_{uuid.uuid4().hex}"
+        created_at = now
+        created = True
     else:
         path = existing_path
         parsed = _parse_task_memory(path.read_text())
         if parsed is None:
             name = path.stem
             body = path.read_text().rstrip("\n") + f"\n\nRecorded {today}: {lesson.strip()}"
+            lesson_id = f"lesson_{uuid.uuid4().hex}"
+            created_at = now
+            created = True
         else:
             name = parsed["name"]
             tags = sorted(set(parsed["tags"]) | set(tags))
             body = parsed["body"] + f"\n\nRecorded {today}: {lesson.strip()}"
-    path.write_text(_render_task_memory(name, description, issue_iid, tags, now, body))
+            lesson_id = parsed["lesson_id"]
+            created_at = parsed["created_at"]
+            category = parsed["category"]
+    path.write_text(_render_task_memory(name, description, issue_iid, tags, now, body, lesson_id, created_at, category))
     _rewrite_index_line(alias, path.name, description, issue_iid, root)
-    return path
+    return {"path": path, "lesson_id": lesson_id, "created": created}
 
 
 def get_task_memory(alias, issue_iid, root=None):
@@ -197,7 +228,7 @@ def read_index(alias, root=None):
 def main():
     if len(sys.argv) < 2:
         print(
-            "Usage: memory_store.py add <alias> <issue_iid> <lesson> [tags_comma_separated]\n"
+            "Usage: memory_store.py add <alias> <issue_iid> <lesson> [tags_comma_separated] [category]\n"
             "       memory_store.py get <alias> <issue_iid>\n"
             "       memory_store.py list <alias>",
             file=sys.stderr,
@@ -207,8 +238,13 @@ def main():
     if command == "add":
         alias, issue_iid, lesson = sys.argv[2], int(sys.argv[3]), sys.argv[4]
         tags = sys.argv[5].split(",") if len(sys.argv) > 5 and sys.argv[5] else None
-        add_task_memory(alias, issue_iid, lesson, tags)
-        print("OK")
+        category = sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] else None
+        result = add_task_memory(alias, issue_iid, lesson, tags, category)
+        print(json.dumps({
+            "action": "created" if result["created"] else "updated",
+            "lesson_id": result["lesson_id"],
+            "path": str(result["path"]),
+        }))
     elif command == "get":
         alias, issue_iid = sys.argv[2], int(sys.argv[3])
         print(json.dumps(get_task_memory(alias, issue_iid), indent=2))

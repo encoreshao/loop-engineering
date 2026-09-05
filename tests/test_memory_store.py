@@ -1,8 +1,19 @@
+import json
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin"))
 import memory_store  # noqa: E402
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _run_cli(args, env=None):
+    return subprocess.run(
+        [sys.executable, str(REPO_ROOT / "bin" / "memory_store.py"), *args],
+        capture_output=True, text=True, env=env,
+    )
 
 
 def test_add_task_memory_creates_index_and_task_file(tmp_path):
@@ -164,3 +175,103 @@ def test_slugify_truncates_and_never_ends_with_a_hyphen():
     slug = memory_store._slugify(long_text, max_len=10)
     assert len(slug) <= 10
     assert not slug.endswith("-")
+
+
+def test_add_task_memory_generates_lesson_id_and_created_at_on_first_creation(tmp_path):
+    result = memory_store.add_task_memory("harbor", 142, "a fresh lesson", category="testing", root=tmp_path)
+
+    assert result["created"] is True
+    assert result["lesson_id"].startswith("lesson_")
+    entry = memory_store.get_task_memory("harbor", 142, root=tmp_path)
+    assert entry["lesson_id"] == result["lesson_id"]
+    assert entry["category"] == "testing"
+    assert entry["created_at"] is not None
+
+
+def test_add_task_memory_preserves_lesson_id_and_created_at_across_append(tmp_path):
+    first = memory_store.add_task_memory("harbor", 142, "first lesson", category="testing", root=tmp_path)
+    second = memory_store.add_task_memory("harbor", 142, "second lesson", category="something-else", root=tmp_path)
+
+    assert second["created"] is False
+    assert second["lesson_id"] == first["lesson_id"]
+    entry = memory_store.get_task_memory("harbor", 142, root=tmp_path)
+    assert entry["lesson_id"] == first["lesson_id"]
+    assert entry["created_at"] == memory_store.get_task_memory("harbor", 142, root=tmp_path)["created_at"]
+    # category is immutable once set - the "something-else" passed on append is ignored
+    assert entry["category"] == "testing"
+
+
+def test_add_task_memory_treats_frontmatter_less_file_as_created_and_assigns_fresh_identity(tmp_path):
+    project_dir = tmp_path / "harbor"
+    project_dir.mkdir(parents=True)
+    existing_path = project_dir / "142-broken.md"
+    existing_path.write_text("Hand-written notes with no frontmatter at all.\n")
+
+    result = memory_store.add_task_memory("harbor", 142, "a fresh lesson", root=tmp_path)
+
+    assert result["created"] is True
+    assert result["lesson_id"].startswith("lesson_")
+
+
+def test_get_task_memory_pre_sprint_6_entry_has_none_lesson_fields(tmp_path):
+    project_dir = tmp_path / "harbor"
+    project_dir.mkdir(parents=True)
+    (project_dir / "142-old.md").write_text(
+        "---\n"
+        "name: 142-old\n"
+        "description: an old entry\n"
+        "metadata:\n"
+        "  issue_iid: 142\n"
+        "  tags: []\n"
+        "  modified: 2026-09-02T00:00:00Z\n"
+        "---\n"
+        "\nold body\n"
+    )
+
+    entry = memory_store.get_task_memory("harbor", 142, root=tmp_path)
+
+    assert entry["lesson_id"] is None
+    assert entry["category"] is None
+    assert entry["created_at"] is None
+
+
+def test_add_task_memory_appending_to_pre_sprint_6_entry_does_not_backfill_lesson_id(tmp_path):
+    project_dir = tmp_path / "harbor"
+    project_dir.mkdir(parents=True)
+    (project_dir / "142-old.md").write_text(
+        "---\n"
+        "name: 142-old\n"
+        "description: an old entry\n"
+        "metadata:\n"
+        "  issue_iid: 142\n"
+        "  tags: []\n"
+        "  modified: 2026-09-02T00:00:00Z\n"
+        "---\n"
+        "\nold body\n"
+    )
+
+    result = memory_store.add_task_memory("harbor", 142, "a follow-up note", root=tmp_path)
+
+    assert result["created"] is False
+    assert result["lesson_id"] is None
+    entry = memory_store.get_task_memory("harbor", 142, root=tmp_path)
+    assert entry["lesson_id"] is None
+
+
+def test_cli_add_prints_created_action_and_lesson_id(tmp_path):
+    result = _run_cli(["add", "harbor", "142", "a lesson", "flaky-test", "testing"], env={**__import__("os").environ, "LOOP_ENGINEERING_HOME": str(tmp_path)})
+
+    payload = json.loads(result.stdout)
+    assert payload["action"] == "created"
+    assert payload["lesson_id"].startswith("lesson_")
+    assert "path" in payload
+
+
+def test_cli_add_prints_updated_action_on_append(tmp_path):
+    env = {**__import__("os").environ, "LOOP_ENGINEERING_HOME": str(tmp_path)}
+    _run_cli(["add", "harbor", "142", "first lesson", "", "testing"], env=env)
+
+    result = _run_cli(["add", "harbor", "142", "second lesson"], env=env)
+
+    payload = json.loads(result.stdout)
+    assert payload["action"] == "updated"
