@@ -3407,12 +3407,16 @@ html.collapsed .activity-composer {{ left: 64px; }}
 }}
 
 /* Generic tabbed-card styling for the data-tabs/data-tab-target/
-   data-tab-panel script in _render_shell - no page currently uses it
-   (the Activity page's GitLab Monitor / Topic Monitor tabs were
-   replaced by two always-visible stacked cards, see
-   .activity-card-stack), but the mechanism stays available for a
-   future page that genuinely needs only one panel visible at a time. */
-.tab-list {{ display: flex; gap: 0.25rem; margin: -0.25rem 0 1rem; border-bottom: 1px solid var(--md-outline-variant); }}
+   data-tab-panel script in _render_shell - used by the Settings page
+   (render_general_settings_page). The Activity page's GitLab Monitor /
+   Topic Monitor tabs took a different route (two always-visible stacked
+   cards, see .activity-card-stack) since neither needed hiding, but this
+   mechanism stays available for any page that genuinely needs only one
+   panel visible at a time. Generous horizontal padding (1.1rem) and
+   list gap (0.5rem) - the first real use of this control surfaced how
+   cramped the original placeholder values (0.25rem padding/gap) looked
+   once actual multi-word labels ("Notifications", "AI CLI") sat in it. */
+.tab-list {{ display: flex; gap: 0.5rem; margin: -0.25rem 0 1rem; border-bottom: 1px solid var(--md-outline-variant); }}
 .tab-button {{
   display: inline-flex;
   align-items: center;
@@ -3421,7 +3425,7 @@ html.collapsed .activity-composer {{ left: 64px; }}
   border: none;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-  padding: 0.6rem 0.25rem;
+  padding: 0.75rem 1.1rem;
   font-family: var(--font-family-stack);
   font-size: 0.85rem;
   font-weight: 500;
