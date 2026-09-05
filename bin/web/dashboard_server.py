@@ -6999,10 +6999,13 @@ def _failure_breakdown_section_html(metrics_report):
     if failure_taxonomy["total"] == 0:
         tiles = _na_stat_tile_html("error", "Failure breakdown", "no escalations in this window")
     else:
-        tiles = "".join(
-            _stat_tile_html("error", category.capitalize(), f"{pct * 100:.1f}%")
-            for category, pct in sorted(failure_taxonomy["by_category_pct"].items(), key=lambda kv: -kv[1])
-        )
+        tiles = "".join([
+            _stat_tile_html("error", "Escalations", failure_taxonomy["total"]),
+            *(
+                _stat_tile_html("error", category.capitalize(), f"{pct * 100:.1f}%")
+                for category, pct in sorted(failure_taxonomy["by_category_pct"].items(), key=lambda kv: -kv[1])
+            ),
+        ])
 
     return f"""
 <section class="card">

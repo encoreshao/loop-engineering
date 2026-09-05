@@ -8155,6 +8155,7 @@ def test_render_analytics_page_failure_breakdown_section_shows_percentage(monkey
 
     assert "Requirement" in output
     assert "100.0%" in output
+    assert "Escalations" in output
 
 
 def test_render_analytics_page_quality_section_shows_first_pass_verification_tile(monkeypatch, tmp_path):

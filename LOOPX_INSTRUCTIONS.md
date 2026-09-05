@@ -239,7 +239,7 @@ Some issues don't need a fix at all — a question about behavior, a request to 
    ```
    cd <loop_dir>
    ```
-   This section is only ever reached from step 3, so the working directory is still `<loop_dir>` unless step 1 above created a read-only worktree and `cd`'d into it. Run the `cd` either way, exactly as in step 10, so the invariant "cwd is `<loop_dir>` at the start of each issue" always holds.
+   This section is reached via step 4 (Classify)'s routing sentence, following step 3's judgment call that this issue needs no code change, so the working directory is still `<loop_dir>` unless step 1 above created a read-only worktree and `cd`'d into it. Run the `cd` either way, exactly as in step 10, so the invariant "cwd is `<loop_dir>` at the start of each issue" always holds.
 
 No code is touched, nothing is committed or pushed, and no MR is opened. Normally no worktree is created either — one is created only for the read-only case in step 1, and even then nothing in it is modified.
 
