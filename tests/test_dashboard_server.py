@@ -3590,7 +3590,7 @@ def test_gitlab_history_tags_quiet_day_when_nothing_happened():
     assert ds.gitlab_history_tags(content) == ["Quiet day"]
 
 
-def test_gitlab_loop_stats_aggregates_totals_and_seven_day_strip(tmp_path):
+def test_gitlab_loop_stats_aggregates_totals_and_seven_day_strip(tmp_path, monkeypatch):
     history_dir = tmp_path / "history"
     history_dir.mkdir()
     today = datetime.now(timezone.utc).date()
@@ -3607,6 +3607,14 @@ def test_gitlab_loop_stats_aggregates_totals_and_seven_day_strip(tmp_path):
         "## MRs opened\nNone.\n\n## Escalations\nNone.\n\n## Answered directly\n- answered one\n"
     )
 
+    # "escalations" comes from the structured event log now (same source
+    # Analytics uses), not from parsing the "## Escalations" section above
+    # - that markdown still only drives the per-day strip's outcome below.
+    events_dir = tmp_path / "events"
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", events_dir)
+    events.emit("issue.started", run_id="run_1", issue_run_id="run_1_i1", events_dir=events_dir)
+    events.emit("issue.escalated", run_id="run_1", issue_run_id="run_1_i1", events_dir=events_dir)
+
     stats = ds._gitlab_loop_stats(history_dir)
 
     assert stats["runs"] == 3
@@ -3620,20 +3628,23 @@ def test_gitlab_loop_stats_aggregates_totals_and_seven_day_strip(tmp_path):
     assert stats["strip"][0]["outcome"] is None  # 6 days ago - nothing logged
 
 
-def test_gitlab_loop_stats_escalation_outranks_mr_same_day(tmp_path):
+def test_gitlab_loop_stats_escalation_outranks_mr_same_day(tmp_path, monkeypatch):
     history_dir = tmp_path / "history"
     history_dir.mkdir()
     today = datetime.now(timezone.utc).date()
     (history_dir / f"{today.isoformat()}.md").write_text(
         "## MRs opened\n- fixed thing\n\n## Escalations\n- needs a human\n\n## Answered directly\nNone.\n"
     )
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", tmp_path / "does-not-exist-events")
 
     stats = ds._gitlab_loop_stats(history_dir)
 
     assert stats["strip"][-1]["outcome"] == "escalation"
 
 
-def test_gitlab_loop_stats_empty_history_dir_returns_zero_totals_and_empty_strip(tmp_path):
+def test_gitlab_loop_stats_empty_history_dir_returns_zero_totals_and_empty_strip(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", tmp_path / "does-not-exist-events")
+
     stats = ds._gitlab_loop_stats(tmp_path / "does-not-exist")
 
     assert stats["runs"] == 0
@@ -3642,6 +3653,25 @@ def test_gitlab_loop_stats_empty_history_dir_returns_zero_totals_and_empty_strip
     assert stats["answered"] == 0
     assert len(stats["strip"]) == 7
     assert all(day["outcome"] is None for day in stats["strip"])
+
+
+def test_gitlab_loop_stats_escalations_reads_all_time_event_log_not_just_the_strips_window(tmp_path, monkeypatch):
+    """The escalations total is deliberately all-time (unlike Analytics'
+    windowed issues_escalated), so an escalation logged well outside the
+    7-day strip must still count."""
+    events_dir = tmp_path / "events"
+    monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", events_dir)
+    old_event = {
+        "schema_version": 1, "event_id": "evt_old", "timestamp": "2020-01-01T00:00:00.000Z",
+        "event_type": "issue.escalated", "run_id": "run_old", "issue_run_id": "run_old_i1",
+        "project": None, "issue_iid": None, "data": {},
+    }
+    events_dir.mkdir(parents=True)
+    (events_dir / "2020-01-01.jsonl").write_text(json.dumps(old_event) + "\n")
+
+    stats = ds._gitlab_loop_stats(tmp_path / "does-not-exist-history")
+
+    assert stats["escalations"] == 1
 
 
 def test_topic_history_tags_includes_topic_name_from_filename():

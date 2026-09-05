@@ -856,7 +856,7 @@ def gitlab_history_tags(content):
 def _gitlab_loop_stats(history_dir=None):
     """Aggregate the GitLab loop's outputs/history/<YYYY-MM-DD>.md entries
     for the Dashboard page's stats section: total runs logged, and
-    all-time MRs-opened/escalations/answered-directly counts (reusing
+    all-time MRs-opened/answered-directly counts (reusing
     _history_section_count, so these totals always agree with the tags
     shown on the Run History page). Also returns a `strip` of the most
     recent 7 calendar days, oldest first, each {"date": <ISO date>,
@@ -864,12 +864,27 @@ def _gitlab_loop_stats(history_dir=None):
     was logged that day. A day with both an escalation and an MR is
     labelled "escalation", since that's the one that needs attention.
     Filenames encode their own date (see LOOPX_INSTRUCTIONS.md), so the
-    date comes straight from the name rather than file mtime."""
+    date comes straight from the name rather than file mtime.
+
+    "escalations" is the one exception: it's the same all-time
+    issues_escalated count the Analytics page computes from the
+    structured event log (bin/metrics.py's build_report, reading
+    bin/events.py's issue.escalated events), not parsed from the
+    markdown review files like the other totals. Both pages used to
+    show an "escalations" number, but computed two different ways from
+    two different sources (this one a heuristic bullet-count over
+    AI-written prose, Analytics' a count of structured events) - they
+    could disagree. Reading from the same event log here means the two
+    pages report the same underlying fact, just over different windows
+    (this one all-time, Analytics' its selected 7/30/90-day range). The
+    per-day strip below still classifies each day from the markdown
+    parse, since "mr"/"quiet" have no event-log equivalent to switch to
+    either."""
     if history_dir is None:
         history_dir = HISTORY_DIR
     names = list_run_history(history_dir)
 
-    totals = {"runs": len(names), "mrs_opened": 0, "escalations": 0, "answered": 0}
+    totals = {"runs": len(names), "mrs_opened": 0, "answered": 0}
     outcome_by_date = {}
     for name in names:
         content = read_history_file(name, history_dir) or ""
@@ -877,7 +892,6 @@ def _gitlab_loop_stats(history_dir=None):
         escalations = _history_section_count(content, "Escalations")
         answered = _history_section_count(content, "Answered directly")
         totals["mrs_opened"] += mrs
-        totals["escalations"] += escalations
         totals["answered"] += answered
 
         date_str = name[: -len(".md")]
@@ -887,6 +901,8 @@ def _gitlab_loop_stats(history_dir=None):
             outcome_by_date[date_str] = "mr"
         else:
             outcome_by_date[date_str] = "quiet"
+
+    totals["escalations"] = metrics.build_report()["issue"]["issues_escalated"]
 
     today = datetime.now(timezone.utc).date()
     strip = []
