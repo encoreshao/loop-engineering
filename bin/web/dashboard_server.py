@@ -7249,13 +7249,15 @@ def _trend_section_html(days):
 
 def render_analytics_page(days=7):
     """The loop's performance-at-a-glance page - see
-    docs/superpowers/specs/2026-09-05-analytics-dashboard-design.md.
-    Reads bin/metrics.py's and bin/cost.py's own report dicts (no new
-    event-reading logic here) for the selected `days` window, computes a
-    partial Loop Health score via bin/health.py, and renders 4 sections
-    (a 5th, Trend, is added by a later task): Loop Health, Outcomes,
-    Quality, Cost. Every unavailable metric renders as "N/A" with its
-    reason as a tooltip, exactly like bin/metrics.py's/bin/cost.py's own
+    docs/superpowers/specs/2026-09-05-analytics-dashboard-design.md (and
+    the later Sprint 5/6 specs for the sections they each added). Reads
+    bin/metrics.py's, bin/cost.py's, and bin/learning.py's own report
+    dicts (no new event-reading logic here) for the selected `days`
+    window, computes a partial Loop Health score via bin/health.py, and
+    renders 8 sections in order: Loop Health, Outcomes, Quality, Risk &
+    Classification, Failure Breakdown, Cost, Learning, Trend. Every
+    unavailable metric renders as "N/A" with its reason as a tooltip,
+    exactly like bin/metrics.py's/bin/cost.py's/bin/learning.py's own
     CLI output - this page adds no new judgment about what's available,
     it just presents what those modules already compute."""
     if days not in (7, 30, 90):
