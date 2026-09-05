@@ -5826,8 +5826,10 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
 
 {flash_html}
 
-<div class="tab-list" data-tabs role="tablist">{tab_buttons}</div>
+<div data-tabs>
+<div class="tab-list" role="tablist">{tab_buttons}</div>
 {tab_panels}
+</div>
 """
     return _render_shell("Settings · Loop X Engineering", "general_settings", _status_badge_markup(status), body)
 

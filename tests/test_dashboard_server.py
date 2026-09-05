@@ -3799,6 +3799,32 @@ def test_render_general_settings_page_nav_marks_active():
     assert "data-tab-target='appearance' role='tab' aria-selected='true'" in output
 
 
+def test_render_general_settings_page_tab_buttons_and_panels_share_one_data_tabs_group():
+    """_render_shell's generic tab switcher does
+    `button.closest('[data-tabs]').querySelectorAll('[data-tab-panel]')`
+    to find the panel to un-hide - so the [data-tab-target] buttons and
+    the [data-tab-panel] sections must live under the SAME [data-tabs]
+    ancestor, not just have data-tabs on the button strip alone (that
+    was a real bug here: clicking a tab highlighted the button but never
+    revealed its panel, since the panels were siblings of the button
+    strip's own [data-tabs] div, not descendants of it)."""
+    output = ds.render_general_settings_page(active_tab="notifications")
+
+    tabs_start = output.index("<div data-tabs>")
+    depth = 0
+    pos = tabs_start
+    for match in re.finditer(r"<(/?)div\b[^>]*>", output[tabs_start:]):
+        is_close = match.group(1) == "/"
+        depth += -1 if is_close else 1
+        if depth == 0:
+            pos = tabs_start + match.end()
+            break
+    tabs_group = output[tabs_start:pos]
+
+    assert tabs_group.count("data-tab-target=") == 4
+    assert tabs_group.count("data-tab-panel=") == 4
+
+
 def test_render_markdown_defaults_to_real_gitlab_issue_url_prefixes(monkeypatch):
     monkeypatch.setattr(
         ds, "gitlab_issue_url_prefixes",
