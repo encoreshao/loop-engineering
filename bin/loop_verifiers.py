@@ -103,3 +103,26 @@ class DiffVerifier(Verifier):
                 "allowed_paths": self.allowed_paths,
             },
         )
+
+
+def build_verifiers(specs, cwd=None):
+    """Build real Verifier instances from raw LoopDefinition.verifiers
+    spec dicts - see docs/superpowers/specs/2026-09-07-loop-cli-design.md.
+    Fails loud (ValueError) on an unknown type or a spec missing its
+    required key, rather than silently skipping a misconfigured
+    verifier."""
+    verifiers = []
+    for spec in specs:
+        name = spec["name"]
+        spec_type = spec.get("type")
+        if spec_type == "command":
+            if "command" not in spec:
+                raise ValueError(f"verifier {name!r}: type 'command' requires a 'command' key")
+            verifiers.append(CommandVerifier(name=name, command=spec["command"], cwd=cwd))
+        elif spec_type == "git_diff":
+            if "allowed_paths" not in spec:
+                raise ValueError(f"verifier {name!r}: type 'git_diff' requires an 'allowed_paths' key")
+            verifiers.append(DiffVerifier(name=name, allowed_paths=spec["allowed_paths"], cwd=cwd))
+        else:
+            raise ValueError(f"verifier {name!r}: unknown verifier type {spec_type!r}")
+    return verifiers

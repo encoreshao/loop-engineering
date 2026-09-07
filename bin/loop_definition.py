@@ -75,6 +75,7 @@ class LoopDefinition:
     stop_conditions: StopConditions = field(default_factory=StopConditions)
     human_gates: list = field(default_factory=list)
     retry: RetryConfig = field(default_factory=RetryConfig)
+    verifiers: list = field(default_factory=list)
 
     @staticmethod
     def from_dict(data):
@@ -120,6 +121,7 @@ class LoopDefinition:
                 enabled=retry_data.get("enabled", _RETRY_DEFAULTS["enabled"]),
                 max_attempts=retry_data.get("max_attempts", _RETRY_DEFAULTS["max_attempts"]),
             ),
+            verifiers=data.get("verifiers", []),
         )
 
     @staticmethod

@@ -110,6 +110,34 @@ def test_defaults_apply_when_optional_sections_omitted():
     assert d.verification.required == []
 
 
+def test_verifiers_field_defaults_to_empty_list():
+    minimal = {
+        "name": "minimal-loop",
+        "version": 1,
+        "trigger": {"type": "manual"},
+        "goal": {"type": "issue_resolution"},
+    }
+
+    d = LoopDefinition.from_dict(minimal)
+
+    assert d.verifiers == []
+
+
+def test_verifiers_field_round_trips_raw_specs():
+    data = dict(EXAMPLE)
+    data["verifiers"] = [
+        {"name": "tests", "type": "command", "command": "pytest"},
+        {"name": "diff", "type": "git_diff", "allowed_paths": ["src/"]},
+    ]
+
+    d = LoopDefinition.from_dict(data)
+
+    assert d.verifiers == [
+        {"name": "tests", "type": "command", "command": "pytest"},
+        {"name": "diff", "type": "git_diff", "allowed_paths": ["src/"]},
+    ]
+
+
 def test_from_yaml_reads_real_file(tmp_path):
     yaml_path = tmp_path / "loop.yaml"
     yaml_path.write_text(yaml.safe_dump(EXAMPLE))

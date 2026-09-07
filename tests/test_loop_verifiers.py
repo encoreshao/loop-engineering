@@ -2,8 +2,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin"))
-from loop_verifiers import CommandVerifier, DiffVerifier, VerificationResult
+from loop_verifiers import CommandVerifier, DiffVerifier, VerificationResult, build_verifiers
 
 
 def _run_git(repo, *args):
@@ -126,3 +128,50 @@ def test_diff_verifier_empty_allowed_paths_fails_closed_on_any_change(tmp_path):
 
     assert result.passed is False
     assert result.evidence["disallowed_files"] == ["src/app.py"]
+
+
+def test_build_verifiers_builds_command_verifier():
+    verifiers = build_verifiers([{"name": "tests", "type": "command", "command": "true"}])
+
+    assert len(verifiers) == 1
+    assert isinstance(verifiers[0], CommandVerifier)
+    assert verifiers[0].name == "tests"
+    assert verifiers[0].command == "true"
+
+
+def test_build_verifiers_builds_diff_verifier(tmp_path):
+    verifiers = build_verifiers(
+        [{"name": "diff", "type": "git_diff", "allowed_paths": ["src/"]}], cwd=tmp_path
+    )
+
+    assert len(verifiers) == 1
+    assert isinstance(verifiers[0], DiffVerifier)
+    assert verifiers[0].name == "diff"
+    assert verifiers[0].allowed_paths == ["src/"]
+    assert verifiers[0].cwd == tmp_path
+
+
+def test_build_verifiers_builds_multiple_in_order():
+    verifiers = build_verifiers(
+        [
+            {"name": "tests", "type": "command", "command": "true"},
+            {"name": "diff", "type": "git_diff", "allowed_paths": ["src/"]},
+        ]
+    )
+
+    assert [v.name for v in verifiers] == ["tests", "diff"]
+
+
+def test_build_verifiers_raises_on_unknown_type():
+    with pytest.raises(ValueError, match="unknown verifier type"):
+        build_verifiers([{"name": "mystery", "type": "http"}])
+
+
+def test_build_verifiers_raises_when_command_missing_for_command_type():
+    with pytest.raises(ValueError, match="command"):
+        build_verifiers([{"name": "tests", "type": "command"}])
+
+
+def test_build_verifiers_raises_when_allowed_paths_missing_for_git_diff_type():
+    with pytest.raises(ValueError, match="allowed_paths"):
+        build_verifiers([{"name": "diff", "type": "git_diff"}])
