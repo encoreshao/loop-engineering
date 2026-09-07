@@ -5503,11 +5503,14 @@ def render_loop_runs_page():
 </div>
 """)
 
+    summary = loop_serialize.summarize_results(results_dir=LOOP_RUNS_DIR)
     body = f"""
 <div class="page-title">
 <h1>Loop Runs</h1>
 <p class="subtitle">Every recorded LoopRuntime run, most recent first.</p>
 </div>
+
+{_loop_runs_overview_html(summary)}
 
 <div class="grid">
 <section class="card">
@@ -5517,6 +5520,44 @@ def render_loop_runs_page():
 </div>
 """
     return _render_shell("Loop Runs · Loop X Engineering", "loop_runs", _status_badge_markup(status), body)
+
+
+def _loop_runs_overview_html(summary):
+    """The plan's section 23 "Loop Overview" stat row - only the figures
+    actually computable from a persisted LoopResult (total runs, success
+    rate, escalation rate, average cost), reusing the same
+    .dash-stat-tile tiles _dashboard_stats_html already renders on the
+    main Dashboard page. No average-duration figure: LoopResult carries
+    no start/finish timestamp, so this says so explicitly rather than
+    fabricating a number (matches bin/health.py's honest-degradation
+    pattern)."""
+
+    def _pct(rate):
+        return f"{rate * 100:.0f}%" if rate is not None else "—"
+
+    def _cost(value):
+        return f"${value:.2f}" if value is not None else "—"
+
+    tiles = (
+        ("history", "Total Runs", summary["total_runs"]),
+        ("check_circle", "Success Rate", _pct(summary["success_rate"])),
+        ("warning", "Escalation Rate", _pct(summary["escalation_rate"])),
+        ("bolt", "Average Cost", _cost(summary["average_cost_usd"])),
+    )
+    tiles_html = "".join(
+        "<div class='dash-stat-tile'>"
+        f"<span class='material-symbols-outlined dash-stat-icon' aria-hidden='true'>{icon}</span>"
+        f"<span class='dash-stat-value'>{value}</span>"
+        f"<span class='dash-stat-label'>{html.escape(label)}</span>"
+        "</div>"
+        for icon, label, value in tiles
+    )
+    return f"""
+<section class="card">
+<div class="dash-stats-grid">{tiles_html}</div>
+<p class="subtitle">Average duration: not tracked yet - LoopResult has no start/finish timestamp.</p>
+</section>
+"""
 
 
 def render_loop_run_detail_page(run_id):

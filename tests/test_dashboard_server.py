@@ -1127,6 +1127,21 @@ def test_dashboard_server_integration_loop_runs_list_route(tmp_path, monkeypatch
             assert "/loop-runs/run_dash_1" in body
 
 
+def test_dashboard_server_integration_loop_runs_overview_stats(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", tmp_path)
+    loop_serialize.write_result(_sample_loop_result(run_id="run_dash_1", final_state="completed"), results_dir=tmp_path)
+    loop_serialize.write_result(_sample_loop_result(run_id="run_dash_2", final_state="escalated"), results_dir=tmp_path)
+
+    with _running_server() as port:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/loop-runs", timeout=10) as response:
+            body = response.read().decode("utf-8")
+            assert "Total Runs" in body
+            assert ">2<" in body
+            assert "Success Rate" in body
+            assert "50" in body
+            assert "not tracked yet" in body.lower()
+
+
 def test_dashboard_server_integration_loop_run_detail_route(tmp_path, monkeypatch):
     monkeypatch.setattr(ds, "LOOP_RUNS_DIR", tmp_path)
     loop_serialize.write_result(_sample_loop_result(run_id="run_dash_2"), results_dir=tmp_path)

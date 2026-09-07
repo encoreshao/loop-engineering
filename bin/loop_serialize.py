@@ -58,3 +58,41 @@ def find_latest_result(results_dir=None):
     if not results:
         return None
     return max(results, key=lambda p: p.stat().st_mtime)
+
+
+def summarize_results(results_dir=None):
+    """{"total_runs", "success_rate", "escalation_rate",
+    "average_cost_usd"} across every persisted run - the plan's "Loop
+    Overview" (section 23). No average-duration figure - LoopResult
+    carries no start/finish timestamp yet, and this deliberately reports
+    only what's actually computable rather than guessing (matches
+    bin/health.py's honest-degradation pattern). Rates/average are None
+    (not 0) when there are no runs to divide by."""
+    paths = list_results(results_dir=results_dir)
+    total_runs = len(paths)
+    if total_runs == 0:
+        return {
+            "total_runs": 0,
+            "success_rate": None,
+            "escalation_rate": None,
+            "average_cost_usd": None,
+        }
+
+    completed = 0
+    escalated = 0
+    total_cost_usd = 0.0
+    for path in paths:
+        data = read_result(path)
+        if data["final_state"] == "completed":
+            completed += 1
+        if data["final_state"] == "escalated":
+            escalated += 1
+        if data["iterations"]:
+            total_cost_usd += data["iterations"][-1].get("budget", {}).get("cost", {}).get("used_usd") or 0
+
+    return {
+        "total_runs": total_runs,
+        "success_rate": completed / total_runs,
+        "escalation_rate": escalated / total_runs,
+        "average_cost_usd": total_cost_usd / total_runs,
+    }
