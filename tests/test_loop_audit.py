@@ -67,6 +67,19 @@ def test_verification_fails_when_no_verifiers_required():
     assert _check(report, "verification").status == CheckStatus.FAIL
 
 
+def test_verification_passes_with_no_verifiers_when_all_actions_are_read_only():
+    data = dict(_COMPLIANT)
+    data["actions"] = ["inspect_issue", "inspect_repository"]
+    data["verification"] = {"required": []}
+    data["verifiers"] = []
+    data["human_gates"] = []
+    definition = LoopDefinition.from_dict(data)
+
+    report = audit_definition(definition)
+
+    assert _check(report, "verification").status == CheckStatus.PASS
+
+
 def test_stop_conditions_fails_when_max_iterations_not_positive():
     data = dict(_COMPLIANT)
     data["stop_conditions"] = {**_COMPLIANT["stop_conditions"], "max_iterations": 0}

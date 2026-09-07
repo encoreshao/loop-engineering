@@ -8,56 +8,21 @@ import time
 import uuid
 from pathlib import Path
 
-import yaml
-
 from loop_audit import CheckStatus, audit_definition
 from loop_definition import LoopDefinition
 from loop_runtime import LoopRuntime
-from loop_serialize import DEFAULT_RESULTS_DIR, find_latest_result, list_results, read_result, write_result
+from loop_serialize import find_latest_result, list_results, read_result, write_result
 from loop_state import LoopState
 from loop_verifiers import build_verifiers
 
-_TEMPLATES = {
-    "generic": {
-        "name": "my-loop",
-        "version": 1,
-        "trigger": {"type": "manual"},
-        "goal": {"type": "self_check"},
-        "actions": [],
-        "verification": {"required": []},
-        "verifiers": [],
-        "stop_conditions": {
-            "max_iterations": 3,
-            "max_runtime_minutes": 30,
-            "max_cost_usd": 5,
-            "no_progress_iterations": 2,
-        },
-        "human_gates": [],
-        "retry": {"enabled": True, "max_attempts": 2},
-    },
-    "gitlab-issue": {
-        "name": "gitlab-issue-fixer",
-        "version": 1,
-        "trigger": {"type": "schedule", "schedule": "0 10 * * 1-5"},
-        "goal": {"type": "issue_resolution"},
-        "agent": {"provider": "claude", "model": "default"},
-        "context": {"sources": ["issue", "repository", "project_memory", "task_memory"]},
-        "actions": ["inspect_issue", "inspect_repository", "modify_code", "run_tests", "create_merge_request"],
-        "verification": {"required": ["tests", "lint", "diff_scope"]},
-        "verifiers": [
-            {"name": "tests", "type": "command", "command": "pytest"},
-            {"name": "diff_scope", "type": "git_diff", "allowed_paths": ["src/", "tests/"]},
-        ],
-        "stop_conditions": {
-            "max_iterations": 3,
-            "max_runtime_minutes": 30,
-            "max_cost_usd": 5,
-            "no_progress_iterations": 2,
-        },
-        "human_gates": ["merge", "production_deploy"],
-        "retry": {"enabled": True, "max_attempts": 2},
-    },
-}
+REPO_ROOT = Path(__file__).resolve().parent.parent
+TEMPLATES_DIR = REPO_ROOT / "templates"
+
+
+def _available_templates():
+    if not TEMPLATES_DIR.exists():
+        return {}
+    return {p.parent.name: p for p in sorted(TEMPLATES_DIR.glob("*/loop.yaml"))}
 
 
 def _parse_flag(argv, name, default=None):
@@ -74,8 +39,9 @@ def _cmd_init(argv):
     target_dir = Path(_parse_flag(argv, "--dir", "."))
     force = "--force" in argv
 
-    if template_name not in _TEMPLATES:
-        print(f"init: unknown template {template_name!r} (choices: {', '.join(_TEMPLATES)})", file=sys.stderr)
+    templates = _available_templates()
+    if template_name not in templates:
+        print(f"init: unknown template {template_name!r} (choices: {', '.join(sorted(templates))})", file=sys.stderr)
         return 1
 
     loop_dir = target_dir / ".loop"
@@ -85,7 +51,7 @@ def _cmd_init(argv):
         return 1
 
     loop_dir.mkdir(parents=True, exist_ok=True)
-    loop_yaml_path.write_text(yaml.safe_dump(_TEMPLATES[template_name]))
+    loop_yaml_path.write_text(templates[template_name].read_text())
     print(f"Created {loop_yaml_path}")
     return 0
 

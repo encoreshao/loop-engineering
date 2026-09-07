@@ -2,10 +2,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI = REPO_ROOT / "bin" / "loop_cli.py"
+TEMPLATES_DIR = REPO_ROOT / "templates"
+_TEMPLATE_NAMES = sorted(p.parent.name for p in TEMPLATES_DIR.glob("*/loop.yaml"))
 
 
 def _run(*args):
@@ -70,6 +73,28 @@ def test_init_gitlab_issue_template(tmp_path):
     assert result.returncode == 0
     data = yaml.safe_load((tmp_path / ".loop" / "loop.yaml").read_text())
     assert data["goal"]["type"] == "issue_resolution"
+
+
+def test_init_unknown_template_lists_choices(tmp_path):
+    result = _run("init", "--dir", str(tmp_path), "--template", "does-not-exist")
+
+    assert result.returncode != 0
+    assert "generic" in result.stderr
+
+
+@pytest.mark.parametrize("template_name", _TEMPLATE_NAMES)
+def test_every_template_inits_validates_and_audits_cleanly(tmp_path, template_name):
+    init_result = _run("init", "--dir", str(tmp_path), "--template", template_name)
+    assert init_result.returncode == 0
+
+    loop_yaml = tmp_path / ".loop" / "loop.yaml"
+
+    validate_result = _run("validate", str(loop_yaml))
+    assert validate_result.returncode == 0, validate_result.stdout + validate_result.stderr
+
+    audit_result = _run("audit", str(loop_yaml))
+    assert audit_result.returncode == 0, audit_result.stdout + audit_result.stderr
+    assert "FAIL" not in audit_result.stdout
 
 
 def test_validate_valid_definition(tmp_path):

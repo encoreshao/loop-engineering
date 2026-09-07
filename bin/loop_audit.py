@@ -12,6 +12,12 @@ from pathlib import Path
 from loop_definition import LoopDefinition
 from loop_policy import PolicyEngine
 
+# Actions that actually change repository content - the plan's "machine-
+# checkable done" principle (4.1) is about code changes specifically, not
+# any non-read-only action (posting a comment or creating an MR doesn't
+# need a code verifier either).
+_CODE_MUTATING_ACTIONS = {"modify_code", "modify_worktree"}
+
 
 class CheckStatus(str, Enum):
     PASS = "PASS"
@@ -86,6 +92,13 @@ def audit_definition(definition, policy_engine=None):
                 CheckStatus.PASS,
                 f"{len(definition.verification.required)} verifier(s) required",
             )
+        )
+    elif not any(a in _CODE_MUTATING_ACTIONS for a in definition.actions):
+        # No code-mutating action declared - nothing to verify. Reading,
+        # posting a comment, or opening an MR (whose diff is checked by
+        # a separate `git_diff` verifier if configured) don't need one.
+        checks.append(
+            AuditCheck("verification", CheckStatus.PASS, "no code-mutating actions declared - nothing to verify")
         )
     else:
         checks.append(
