@@ -46,6 +46,7 @@ import cost
 import health
 import learning
 import loop_config
+import loop_serialize
 import memory_store
 import metrics
 import project_memory
@@ -54,6 +55,7 @@ import topic_config
 LOOP_DIR = Path(__file__).resolve().parent.parent.parent
 STATUS_PATH = LOOP_DIR / "outputs" / "status.json"
 HISTORY_DIR = LOOP_DIR / "outputs" / "history"
+LOOP_RUNS_DIR = LOOP_DIR / "outputs" / "loop-runs"
 # The one place every `claude` CLI invocation across this project writes
 # its raw output - run-loop.sh and run-topic-monitor-loop.sh each already
 # have their own per-day outputs/history/*.log (unchanged, still used by
@@ -2791,7 +2793,7 @@ _FONT_FACE_VARS = "\n".join(
 # to this list before shipping a new icon constant that uses it.
 _MATERIAL_SYMBOLS_ICON_NAMES = (
     "add,bolt,check_circle,chevron_left,circle,delete,description,"
-    "dns,edit_note,error,expand_more,extension,folder,folder_off,forum,history,lightbulb,merge,monitoring,newspaper,"
+    "dns,edit_note,error,expand_more,extension,folder,folder_off,forum,history,lightbulb,loop,merge,monitoring,newspaper,"
     "open_in_new,palette,send,settings,smart_toy,space_dashboard,terminal,topic,tune,warning"
 )
 
@@ -4309,6 +4311,7 @@ _MESSAGE_BRAND_ICON = (
 _SECTION_ICON_OVERVIEW = "<span class='material-symbols-outlined' aria-hidden='true'>space_dashboard</span>"
 
 _SECTION_ICON_HISTORY = "<span class='material-symbols-outlined' aria-hidden='true'>history</span>"
+_SECTION_ICON_LOOP_RUNS = "<span class='material-symbols-outlined' aria-hidden='true'>loop</span>"
 
 _SECTION_ICON_ANALYTICS = "<span class='material-symbols-outlined' aria-hidden='true'>monitoring</span>"
 _SECTION_ICON_RISK = "<span class='material-symbols-outlined' aria-hidden='true'>warning</span>"
@@ -4455,6 +4458,7 @@ _NAV_ITEMS = (
     ("overview", "/", "Dashboard", _SECTION_ICON_OVERVIEW),
     ("analytics", "/analytics", "Analytics", _SECTION_ICON_ANALYTICS),
     ("history", "/history", "Run History", _SECTION_ICON_HISTORY),
+    ("loop_runs", "/loop-runs", "Loop Runs", _SECTION_ICON_LOOP_RUNS),
     ("gitlab", "/gitlab", "Live GitLab", _SECTION_ICON_GITLAB),
     ("memory", "/memory", "Memory", _SECTION_ICON_MEMORY),
     ("topic_monitor", "/topic-monitor", "Topic Monitor", _SECTION_ICON_TOPIC_MONITOR),
@@ -4477,7 +4481,7 @@ _NAV_GROUPS = (
     # deps); Configuration = settings/meta pages; Docs = reference
     # material, deliberately last since it's the least-visited group.
     (None, ("overview",)),
-    ("Monitor", ("analytics", "gitlab", "topic_monitor", "memory", "activity", "logs", "history")),
+    ("Monitor", ("analytics", "gitlab", "topic_monitor", "memory", "activity", "logs", "history", "loop_runs")),
     ("System", ("daemons", "skills")),
     ("Configuration", ("settings", "topic_settings", "general_settings")),
     ("Docs", ("readme",)),
@@ -5449,6 +5453,122 @@ def render_history_page():
 </div>
 """
     return _render_shell("Run History · Loop X Engineering", "history", _status_badge_markup(status), body)
+
+
+def _loop_run_state_pill_class(final_state):
+    """Map a LoopResult's final_state string to a pill CSS class - no
+    amber/warning pill exists in this stylesheet, so STOPPED (budget
+    exceeded) falls back to grey rather than inventing a new color."""
+    if final_state == "completed":
+        return "pill-green"
+    if final_state in ("failed", "escalated"):
+        return "pill-red"
+    return "pill-grey"
+
+
+def render_loop_runs_page():
+    """Loop Runs page: every persisted LoopRuntime run
+    (outputs/loop-runs/<run_id>/result.json, written by `loop_cli.py
+    run`), most recent first - see
+    docs/superpowers/specs/2026-09-07-dashboard-loop-runs-page-design.md.
+    Read-only: these runs come from a separate `loop run` process, there
+    is nothing here to trigger or delete (yet)."""
+    status = read_status(STATUS_PATH)
+    paths = list(reversed(loop_serialize.list_results(results_dir=LOOP_RUNS_DIR)))
+
+    if not paths:
+        body = """
+<div class="page-title">
+<h1>Loop Runs</h1>
+<p class="subtitle">Every recorded LoopRuntime run, most recent first.</p>
+</div>
+<div class="grid"><section class="card">
+<p>No runs yet - run <code>bin/loop_cli.py run &lt;loop.yaml&gt;</code> to produce one.</p>
+</section></div>
+"""
+        return _render_shell("Loop Runs · Loop X Engineering", "loop_runs", _status_badge_markup(status), body)
+
+    rows = []
+    for path in paths:
+        data = loop_serialize.read_result(path)
+        pill_class = _loop_run_state_pill_class(data["final_state"])
+        run_href = urllib.parse.quote(data["run_id"])
+        rows.append(f"""
+<div class='history-entry'>
+<div class='history-entry-header'>
+<a href='/loop-runs/{run_href}'><strong>{html.escape(data['definition_name'])}</strong></a>
+<div class='pill-row'><span class='pill {pill_class}'>{html.escape(data['final_state'])}</span></div>
+</div>
+<p class='history-entry-overview'>run_id: {html.escape(data['run_id'])} &middot; {len(data['iterations'])} iteration(s) &middot; stop_reason: {html.escape(data['stop_reason'])}</p>
+</div>
+""")
+
+    body = f"""
+<div class="page-title">
+<h1>Loop Runs</h1>
+<p class="subtitle">Every recorded LoopRuntime run, most recent first.</p>
+</div>
+
+<div class="grid">
+<section class="card">
+<div class="section-header">{_SECTION_ICON_LOOP_RUNS}<h2>Runs</h2></div>
+{"".join(rows)}
+</section>
+</div>
+"""
+    return _render_shell("Loop Runs · Loop X Engineering", "loop_runs", _status_badge_markup(status), body)
+
+
+def render_loop_run_detail_page(run_id):
+    """One run's iteration-by-iteration detail - the same data
+    `loop_cli.py inspect`/`replay` print as plain text, in HTML. Returns
+    None if no result.json matches run_id (caller sends 404, matching
+    /history/<name>'s own not-found behavior)."""
+    data = None
+    for path in loop_serialize.list_results(results_dir=LOOP_RUNS_DIR):
+        candidate = loop_serialize.read_result(path)
+        if candidate["run_id"] == run_id:
+            data = candidate
+            break
+    if data is None:
+        return None
+
+    status = read_status(STATUS_PATH)
+    pill_class = _loop_run_state_pill_class(data["final_state"])
+
+    iteration_blocks = []
+    for iteration in data["iterations"]:
+        verifier_items = "".join(
+            f"<li>{'✓' if v['passed'] else '✗'} {html.escape(v['name'])}</li>"
+            for v in iteration["verification_results"]
+        ) or "<li>(no verifiers configured)</li>"
+        iteration_blocks.append(f"""
+<section class="card">
+<h3>Iteration {iteration['iteration']}: {html.escape(iteration['state'])}</h3>
+<ul>{verifier_items}</ul>
+</section>
+""")
+
+    body = f"""
+<div class="page-title">
+<h1>{html.escape(data['definition_name'])}</h1>
+<p class="subtitle">run_id: {html.escape(data['run_id'])}</p>
+</div>
+
+<div class="grid">
+<section class="card">
+<div class='pill-row'><span class='pill {pill_class}'>{html.escape(data['final_state'])}</span></div>
+<p>Stop reason: {html.escape(data['stop_reason'])}</p>
+</section>
+</div>
+
+<div class="grid">
+{"".join(iteration_blocks)}
+</div>
+"""
+    return _render_shell(
+        f"{data['definition_name']} · Loop X Engineering", "loop_runs", _status_badge_markup(status), body
+    )
 
 
 def render_logs_page():
@@ -7456,6 +7576,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
         if split.path == "/history":
             self._send_html(render_history_page())
+            return
+
+        if split.path == "/loop-runs":
+            self._send_html(render_loop_runs_page())
+            return
+
+        if split.path.startswith("/loop-runs/"):
+            run_id = split.path[len("/loop-runs/"):]
+            page = render_loop_run_detail_page(run_id)
+            if page is None:
+                self._not_found()
+                return
+            self._send_html(page)
             return
 
         if split.path == "/logs":
