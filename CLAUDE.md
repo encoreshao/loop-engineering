@@ -22,8 +22,10 @@ script itself (it's relative-path-depth-sensitive — see
 `bin/web/dashboard_server.py`'s `LOOP_DIR` and its explicit `sys.path`
 insert for `loop_config`/`project_memory`, and `bin/scripts/setup.sh`'s
 `LOOP_DIR`), every hardcoded path to it in `LOOPX_INSTRUCTIONS.md`,
-`run-loop.sh` (including its `--allowedTools` glob — a glob's `*` doesn't
-cross a `/`, so each directory needs its own pattern), `README.md`, and any
+`run-loop.sh`, `bin/gitlab_loop_runner.py` (including its `_allowed_tools()`
+glob — a glob's `*` doesn't cross a `/`, so each directory needs its own
+pattern; this list lived in `run-loop.sh` as `ALLOWED_TOOLS` until the
+per-issue runner moved it into Python), `README.md`, and any
 installed `launchd/*.plist`'s absolute `Program`/`ProgramArguments` path
 (both the source file here and the live copy in
 `~/Library/LaunchAgents/`, which needs a real `launchctl unload`+`load`,

@@ -13,6 +13,24 @@ below (worktree-only edits, the lint/test gate before opening an MR,
 never merging, never touching an untracked project) still applies
 unchanged.
 
+## The scheduled batch run: two prompt modes, not one session
+
+A *scheduled* run no longer happens in a single agent session. `bin/gitlab_loop_runner.py` does Step 1's discovery itself, in Python, and then starts a separate agent session per issue plus one final wrap-up session — each with its own prompt from `bin/scripts/build_run_prompt.sh`. Which mode you are in is stated in your own prompt; if your prompt says neither of the following, you are in one of the whole-run modes described above and this section does not apply.
+
+**`--batch-issue <alias> <issue_iid>` — one issue inside a batch.** Skip Step 1 entirely; the task list is just the one issue named in your prompt. Do Step 2's per-issue procedure for exactly that issue (including every `events.py emit` call it specifies — the wrap-up session below has nothing else to reconstruct the run from). Then **stop**: do *not* do the "End of run" section at all — no `outputs/daily-review.md`, no `outputs/history/<date>.md`, no `PROGRESS.md` update, no end-of-run Slack digest. The batch has N of these sessions, and "End of run" must happen exactly once per run, so it is handled separately by the mode below.
+
+**`--batch-end-of-run` — the batch's single wrap-up.** Skip Step 1 *and* Step 2 entirely; every issue in this run was already processed by its own prior `--batch-issue` session. Your only job is the "End of run" section, for the whole batch. Since this is a fresh session with no memory of those prior sessions, first reconstruct what happened by reading `<loop_dir>/outputs/events/<today's UTC date, YYYY-MM-DD>.jsonl` and keeping only entries whose `run_id` equals `$LOOP_RUN_ID` (already exported into your environment). A missing file simply means no issues were processed. Per entry, `project` is the project alias and `issue_iid` the issue; the event types that matter are:
+
+- `issue.started` — this issue was checked.
+- `issue.completed` with `data.action == "fix"` — fixed, with the merge request at `data.mr_url`.
+- `issue.completed` with `data.action == "answer"` — answered directly by GitLab comment, no code change.
+- `issue.escalated` with `data.reason == "needs_clarification"` — escalated for clarification.
+- `issue.escalated` with `data.reason == "verification_failed"` or `"worktree_creation_failed"` — escalated because verification could not pass.
+
+Build daily-review.md's seven sections from those events using the same judgment you'd apply live. An issue with an `issue.started` for this `run_id` but no `issue.completed`/`issue.escalated` crashed part-way through: it still counts as checked, and belongs under Escalations as needing human follow-up — say so plainly in the Summary rather than silently dropping it. Then do exactly steps 1–4 of "End of run" from that reconstruction. This session runs **unconditionally**, including on a morning with zero assigned issues (no matching events at all) — that is what keeps "a quiet morning is still reported" true.
+
+The `<alias> <issue_iid>` (no flag) dashboard mode described above is unaffected: it is a run of exactly one issue, so the "End of run" it does itself *is* that run's whole report.
+
 If `~/.loop-engineering/instructions.md` exists and is non-empty, read it too and follow it for the rest of this run, on top of (never in place of) everything in this file — it's the user's own free-text instructions, saved via the dashboard's **Settings** page's Instructions tab (see `render_general_settings_page` in `bin/web/dashboard_server.py`). It's fine, and expected, for this file to not exist or to be empty; that just means no additional instructions were set.
 
 ## Configuration
@@ -293,12 +311,12 @@ cd <loop_dir>
 
 ## Tool permissions policy
 
-This section is prose. The list actually enforced at runtime is the `ALLOWED_TOOLS` and `DISALLOWED_TOOLS` variables in `run-loop.sh`, which are passed to `claude -p` as `--allowedTools`/`--disallowedTools`; whenever either this prose or those variables change, update both together so the documented policy and the enforced policy cannot drift apart.
+This section is prose. The list actually enforced at runtime is `bin/gitlab_loop_runner.py`'s `_allowed_tools()` function and its `_DISALLOWED_TOOLS` constant, which it passes to `claude -p` as `--allowedTools`/`--disallowedTools` (they lived in `run-loop.sh` as shell variables until the per-issue runner moved them into Python); whenever either this prose or those two change, update both together so the documented policy and the enforced policy cannot drift apart.
 
 **A note on AI CLI choice:** the allow/deny rules described below are
 enforced by the harness only when this loop runs under Claude Code
 (the default). If the dashboard's AI CLI page has Codex CLI selected
-instead, `run-loop.sh` invokes `codex exec --sandbox workspace-write -c
+instead, `bin/gitlab_loop_runner.py` invokes `codex exec --sandbox workspace-write -c
 approval_policy=never -c sandbox_workspace_write.writable_roots=[...] -c
 sandbox_workspace_write.network_access=true`, which has no equivalent to
 Claude's per-git-subcommand/per-glob allow list - the rules below become policy
@@ -320,7 +338,7 @@ Note also that the git allowlist matches on the literal command prefix, so `git 
 
 ## End of run
 
-This section always runs, even if Step 1 found zero assigned issues — a quiet morning is still reported, not silently skipped.
+This section always runs, even if Step 1 found zero assigned issues — a quiet morning is still reported, not silently skipped. The one exception is `--batch-issue` mode, which skips this section entirely; the run's single `--batch-end-of-run` session is what makes "always" true there (see "The scheduled batch run: two prompt modes, not one session").
 
 All paths here are written absolutely for the same reason as the script paths: this section runs after the last issue's per-issue work, so the working directory may still be a leftover worktree.
 
@@ -335,9 +353,11 @@ All paths here are written absolutely for the same reason as the script paths: t
 
 ## Verification checklist (before ending the run)
 
+The first three bullets are the "End of run" artifacts, so they apply only to the modes that actually produce them: the whole-run mode (no flag, Step 1 onwards), the dashboard's `<alias> <issue_iid>` single-issue mode, and `--batch-end-of-run`. **A `--batch-issue` session is exempt from those three** — it must not create, update, or even touch any of them, because the run's separate `--batch-end-of-run` session owns them (see "The scheduled batch run: two prompt modes, not one session"). Their absence is expected in that mode, never a failed verification. Everything from "No merge request was merged" down applies to every mode.
+
 - `<loop_dir>/outputs/daily-review.md` exists and has all seven required sections.
 - `<loop_dir>/outputs/history/<today>.md` exists.
 - `<loop_dir>/PROGRESS.md` was updated.
 - No merge request was merged.
 - No file outside an issue's own worktree, `PROGRESS.md`, or `outputs/` was modified.
-- Every issue in today's task list was either fixed-and-MR'd, answered directly, escalated for clarification, or escalated for verification failure — none were silently skipped.
+- Every issue this session was responsible for was either fixed-and-MR'd, answered directly, escalated for clarification, or escalated for verification failure — none were silently skipped. That means today's whole task list in the whole-run mode, and in `--batch-end-of-run` the whole run as reconstructed from the event log (an `issue.started` with no `issue.completed`/`issue.escalated` is the crashed-part-way case, which belongs under Escalations, not dropped); in `--batch-issue` and the dashboard single-issue mode it means the one issue named in your prompt.

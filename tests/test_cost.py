@@ -359,10 +359,16 @@ def test_cli_report_days_flag(tmp_path):
 
 
 def test_usage_json_to_events_emit_round_trip_via_real_subprocesses(tmp_path):
-    # The actual seam run-loop.sh relies on: `cost.py usage-json`'s stdout is
-    # captured into a shell variable and handed straight to `events.py emit
-    # --data` as a separate process - not the two Python functions called
-    # directly in the same process, as every other test in this file does.
+    # The shell seam these two CLI subcommands exist for: `cost.py
+    # usage-json`'s stdout captured into a shell variable and handed
+    # straight to `events.py emit --data` as a separate process - not the
+    # two Python functions called directly in the same process, as every
+    # other test in this file does. NOTE: run-loop.sh no longer uses this
+    # seam - bin/gitlab_loop_runner.py calls cost.extract_claude_usage()
+    # in-process now (Python calling Python) and emits run.completed
+    # itself. This test keeps the CLI contract covered for any other/future
+    # shell caller; whether the subcommands should still exist at all is a
+    # separate question, deliberately not decided here.
     cli_output_path = tmp_path / "cli-output.json"
     cli_output_path.write_text(json.dumps(REAL_CLAUDE_JSON))
 

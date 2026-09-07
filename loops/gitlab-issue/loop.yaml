@@ -1,0 +1,75 @@
+# The REAL definition the scheduled GitLab issue loop runs through
+# (bin/gitlab_loop_runner.py) - distinct from templates/gitlab-issue/loop.yaml,
+# which stays a generic loop-init/audit reference (its pytest/git_diff
+# verifiers don't match any real project's actual test_cmd/lint_cmd from
+# projects.json). See
+# docs/superpowers/specs/2026-09-07-gitlab-loop-runtime-wiring-design.md.
+name: gitlab-issue-loop
+version: 1
+
+trigger:
+  type: schedule
+  schedule: "0 10 * * 1-5"
+
+goal:
+  type: issue_resolution
+
+agent:
+  provider: claude
+  model: default
+
+context:
+  sources:
+    - issue
+    - repository
+    - project_memory
+    - task_memory
+
+actions:
+  - inspect_issue
+  - inspect_repository
+  - modify_code
+  - run_tests
+  - create_merge_request
+
+verification:
+  required: []
+
+# Deliberately empty: the agent still verifies its own work exactly as
+# today (it runs each project's own real test_cmd/lint_cmd itself, per
+# LOOPX_INSTRUCTIONS.md) - LoopRuntime tracks/bounds this call, it does
+# not yet re-verify it externally. See the design doc's "known, accepted
+# limitation" section.
+verifiers: []
+
+stop_conditions:
+  max_iterations: 1
+  # Bounds each issue independently, nested inside run-loop.sh's outer
+  # 21600s (6h) whole-batch sanity timeout - which is sized to leave room
+  # for a double-digit issue count at this budget plus the end-of-run
+  # wrap-up call, and must be raised alongside this value if this ever
+  # grows. 30 matches this repo's own LoopDefinition/
+  # BudgetController default and templates/gitlab-issue/loop.yaml's value,
+  # chosen for that established basis pending real observed run-time data
+  # (a project's own bundle install + rspec suite is the dominant cost and
+  # has never been measured here).
+  max_runtime_minutes: 30
+  # Neither of these is enforced mid-call: with max_iterations 1 the
+  # BudgetController is only consulted before the single agent call (when
+  # nothing has been spent) and after it, and no-progress detection needs
+  # at least two iterations to compare. The per-issue subprocess timeout
+  # derived from max_runtime_minutes above is the only real, enforced
+  # bound today - same honesty as the `verifiers: []` note above.
+  max_cost_usd: 3
+  no_progress_iterations: 2
+
+human_gates:
+  - merge
+  - production_deploy
+
+# Retry is meaningless with no external verifier to disagree with the
+# agent's own self-report - explicitly disabled rather than left at the
+# library default of enabled/2 attempts.
+retry:
+  enabled: false
+  max_attempts: 1
