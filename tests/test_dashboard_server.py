@@ -25,6 +25,7 @@ import dashboard_server as ds  # noqa: E402
 import ai_cli_config  # noqa: E402
 import events  # noqa: E402
 import loop_config  # noqa: E402
+import loop_serialize  # noqa: E402
 import topic_config  # noqa: E402
 
 # Captured at import time, before any test monkeypatches ds.LAUNCHD_DIR, so
@@ -1075,6 +1076,94 @@ def test_dashboard_server_integration_history_list_route():
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/history", timeout=10) as response:
             assert response.status == 200
             assert "Run History" in response.read().decode("utf-8")
+
+
+def _sample_loop_result(run_id="run_dash_1", final_state="completed"):
+    import loop_budget
+    import loop_result
+    import loop_state
+    import loop_verifiers
+
+    verification = loop_verifiers.VerificationResult(
+        name="tests", passed=final_state == "completed", exit_code=0, duration_ms=5, output="", evidence={}
+    )
+    iteration = loop_result.IterationResult(
+        iteration=1,
+        state=getattr(loop_state.LoopState, final_state.upper()),
+        verification_results=[verification],
+        budget={"overall": loop_budget.BudgetStatus.OK},
+        progressed=True,
+    )
+    return loop_result.LoopResult(
+        loop_id="loop_dash_1",
+        run_id=run_id,
+        definition_name="dash-test-loop",
+        final_state=getattr(loop_state.LoopState, final_state.upper()),
+        iterations=[iteration],
+        stop_reason=final_state,
+    )
+
+
+def test_dashboard_server_integration_loop_runs_list_route_empty_state(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", tmp_path)
+
+    with _running_server() as port:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/loop-runs", timeout=10) as response:
+            assert response.status == 200
+            body = response.read().decode("utf-8")
+            assert "Loop Runs" in body
+            assert "no runs yet" in body.lower()
+
+
+def test_dashboard_server_integration_loop_runs_list_route(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", tmp_path)
+    loop_serialize.write_result(_sample_loop_result(run_id="run_dash_1"), results_dir=tmp_path)
+
+    with _running_server() as port:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/loop-runs", timeout=10) as response:
+            assert response.status == 200
+            body = response.read().decode("utf-8")
+            assert "dash-test-loop" in body
+            assert "/loop-runs/run_dash_1" in body
+
+
+def test_dashboard_server_integration_loop_runs_overview_stats(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", tmp_path)
+    loop_serialize.write_result(_sample_loop_result(run_id="run_dash_1", final_state="completed"), results_dir=tmp_path)
+    loop_serialize.write_result(_sample_loop_result(run_id="run_dash_2", final_state="escalated"), results_dir=tmp_path)
+
+    with _running_server() as port:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/loop-runs", timeout=10) as response:
+            body = response.read().decode("utf-8")
+            assert "Total Runs" in body
+            assert ">2<" in body
+            assert "Success Rate" in body
+            assert "50" in body
+            assert "not tracked yet" in body.lower()
+
+
+def test_dashboard_server_integration_loop_run_detail_route(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", tmp_path)
+    loop_serialize.write_result(_sample_loop_result(run_id="run_dash_2"), results_dir=tmp_path)
+
+    with _running_server() as port:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/loop-runs/run_dash_2", timeout=10) as response:
+            assert response.status == 200
+            body = response.read().decode("utf-8")
+            assert "run_dash_2" in body
+            assert "tests" in body
+            assert "class='sidebar-nav'" in body
+
+
+def test_dashboard_server_integration_loop_run_detail_route_unknown_run_id(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", tmp_path)
+
+    with _running_server() as port:
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/loop-runs/does-not-exist", timeout=10)
+            assert False, "expected HTTPError for an unknown run_id"
+        except urllib.error.HTTPError as e:
+            assert e.code == 404
 
 
 def test_dashboard_server_integration_daemons_route():
@@ -2509,6 +2598,7 @@ def test_nav_items_each_carry_a_material_symbols_icon():
         "overview": "space_dashboard",
         "analytics": "monitoring",
         "history": "history",
+        "loop_runs": "loop",
         "memory": "lightbulb",
         "daemons": "dns",
         "skills": "extension",
