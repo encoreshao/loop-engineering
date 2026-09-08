@@ -3,7 +3,8 @@
 Manual sys.argv subcommand dispatch (matching bin/events.py's style, not
 argparse). `run` invokes a real agent via `--prompt`/`--prompt-file`; with
 neither flag given, its agent_fn falls back to the original no-op
-(L0/observe, plan section 32)."""
+(L0/observe, plan section 32). `replay` also re-invokes a real agent, using
+the prompt and definition path recorded by the original `run`."""
 import sys
 import time
 import uuid
@@ -19,6 +20,15 @@ from loop_verifiers import build_verifiers
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = REPO_ROOT / "templates"
+
+# Floor guardrail for the CLI's own run/replay invocations - same deny list
+# as bin/gitlab_loop_runner.py's _DISALLOWED_TOOLS. Defense in depth: even if
+# a loop definition ever supplied its own (looser) allow list, these can
+# never run.
+_DEFAULT_DISALLOWED_TOOLS = (
+    "Bash(git merge*) Bash(git push --force*) Bash(git push -f*) Bash(git checkout*) "
+    "Bash(git reset*) Bash(git clean*) Read(**/.env*) Read(**/*.key) Read(**/id_rsa*)"
+)
 
 
 def _available_templates():
@@ -109,7 +119,14 @@ def _cmd_run(argv):
     cwd = _parse_flag(argv, "--cwd", str(definition_path.resolve().parent))
     results_dir = _parse_flag(argv, "--results-dir")
     prompt_file = _parse_flag(argv, "--prompt-file")
-    prompt = Path(prompt_file).read_text() if prompt_file else _parse_flag(argv, "--prompt")
+    if prompt_file:
+        try:
+            prompt = Path(prompt_file).read_text()
+        except OSError as exc:
+            print(f"run: could not read --prompt-file: {exc}", file=sys.stderr)
+            return 1
+    else:
+        prompt = _parse_flag(argv, "--prompt")
 
     definition = LoopDefinition.from_yaml(definition_path)
     verifiers = build_verifiers(definition.verifiers, cwd=cwd)
@@ -123,9 +140,11 @@ def _cmd_run(argv):
 
         def agent_fn(context):
             agent_result = agent.run(
-                prompt, context, cwd=cwd, timeout_seconds=definition.stop_conditions.max_runtime_minutes * 60
+                prompt, context, cwd=cwd, timeout_seconds=definition.stop_conditions.max_runtime_minutes * 60,
+                disallowed_tools=_DEFAULT_DISALLOWED_TOOLS,
             )
             if agent_result.status != "success":
+                print(f"agent invocation {agent_result.status}: {agent_result.output[-800:]}", file=sys.stderr)
                 raise RuntimeError(agent_result.output[-800:])
             return {"cost_usd": agent_result.estimated_cost_usd}
 
@@ -138,7 +157,7 @@ def _cmd_run(argv):
         return 1
 
     result.prompt = prompt
-    result.definition_path = str(definition_path)
+    result.definition_path = str(definition_path.resolve())
 
     path = write_result(result, results_dir=results_dir)
     print(f"run_id: {result.run_id}")
@@ -203,7 +222,7 @@ def _cmd_replay(argv):
         print(f"replay: no result found for run_id {run_id!r}", file=sys.stderr)
         return 1
 
-    if not stored.get("prompt") or not stored.get("definition_path"):
+    if stored.get("prompt") is None or stored.get("definition_path") is None:
         print("replay: no prompt recorded for this run — showing inspect output instead")
         _print_run_detail(stored)
         return 0
@@ -215,8 +234,12 @@ def _cmd_replay(argv):
     prompt = stored["prompt"]
 
     def agent_fn(context):
-        agent_result = agent.run(prompt, context, cwd=cwd, timeout_seconds=definition.stop_conditions.max_runtime_minutes * 60)
+        agent_result = agent.run(
+            prompt, context, cwd=cwd, timeout_seconds=definition.stop_conditions.max_runtime_minutes * 60,
+            disallowed_tools=_DEFAULT_DISALLOWED_TOOLS,
+        )
         if agent_result.status != "success":
+            print(f"agent invocation {agent_result.status}: {agent_result.output[-800:]}", file=sys.stderr)
             raise RuntimeError(agent_result.output[-800:])
         return {"cost_usd": agent_result.estimated_cost_usd}
 

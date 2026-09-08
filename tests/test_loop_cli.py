@@ -259,6 +259,40 @@ def test_run_with_prompt_invokes_a_real_agent_and_persists_it(tmp_path):
     assert data["definition_path"] == str(path)
 
 
+def test_run_with_prompt_text_directly_invokes_a_real_agent_and_persists_it(tmp_path):
+    import json
+    import os
+
+    path = _write_definition(tmp_path / "loop.yaml")
+    results_dir = tmp_path / "results"
+
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir()
+    fake_claude = bin_dir / "claude"
+    fake_claude.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "print(json.dumps({'result': 'done', 'total_cost_usd': 0.05, 'usage': {}, 'modelUsage': {}}))\n"
+    )
+    fake_claude.chmod(fake_claude.stat().st_mode | 0o111)
+    loop_home = tmp_path / "loop-home"
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "LOOP_ENGINEERING_HOME": str(loop_home)}
+
+    result = subprocess.run(
+        [sys.executable, str(CLI), "run", str(path), "--results-dir", str(results_dir),
+         "--prompt", "fix the thing directly"],
+        capture_output=True, text=True, env=env,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "completed" in result.stdout.lower()
+    written = list(results_dir.glob("*/result.json"))
+    assert len(written) == 1
+    data = json.loads(written[0].read_text())
+    assert data["prompt"] == "fix the thing directly"
+    assert data["definition_path"] == str(path.resolve())
+
+
 def test_run_with_prompt_reports_failure_when_agent_fails(tmp_path):
     import os
 
@@ -325,6 +359,42 @@ def test_replay_reinvokes_the_agent_and_writes_a_new_run(tmp_path):
     assert len(written) == 2  # the original run + replay's new run
     replay_run_ids = {p.parent.name for p in written} - {run_id}
     assert len(replay_run_ids) == 1
+
+
+def test_replay_reinvokes_agent_when_recorded_prompt_was_an_empty_string(tmp_path):
+    import os
+
+    path = _write_definition(tmp_path / "loop.yaml")
+    results_dir = tmp_path / "results"
+
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir()
+    fake_claude = bin_dir / "claude"
+    fake_claude.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "print(json.dumps({'result': 'done', 'total_cost_usd': 0.05, 'usage': {}, 'modelUsage': {}}))\n"
+    )
+    fake_claude.chmod(fake_claude.stat().st_mode | 0o111)
+    loop_home = tmp_path / "loop-home"
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "LOOP_ENGINEERING_HOME": str(loop_home)}
+
+    run_result = subprocess.run(
+        [sys.executable, str(CLI), "run", str(path), "--results-dir", str(results_dir),
+         "--prompt", ""],
+        capture_output=True, text=True, env=env,
+    )
+    run_id = [line for line in run_result.stdout.splitlines() if "run_id" in line.lower()][0].split()[-1]
+
+    replay_result = subprocess.run(
+        [sys.executable, str(CLI), "replay", run_id, "--results-dir", str(results_dir)],
+        capture_output=True, text=True, env=env,
+    )
+
+    assert replay_result.returncode == 0, replay_result.stdout + replay_result.stderr
+    assert "no prompt recorded" not in replay_result.stdout.lower()
+    written = sorted(results_dir.glob("*/result.json"))
+    assert len(written) == 2
 
 
 def test_replay_falls_back_to_inspect_when_no_prompt_was_recorded(tmp_path):
