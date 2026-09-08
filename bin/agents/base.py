@@ -54,6 +54,8 @@ def get_agent(provider=None):
     if provider not in _VALID_PROVIDERS:
         raise ValueError(f"Unknown agent provider: {provider!r}")
 
-    from agents.claude import ClaudeAgent
+    if provider == "claude":
+        from agents.claude import ClaudeAgent
+        return ClaudeAgent()
     from agents.codex import CodexAgent
-    return {"claude": ClaudeAgent, "codex": CodexAgent}[provider]()
+    return CodexAgent()
