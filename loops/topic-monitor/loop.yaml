@@ -1,0 +1,60 @@
+# The REAL definition the scheduled topic monitor loop runs through
+# (bin/topic_monitor_runner.py). Unlike loops/gitlab-issue/loop.yaml,
+# `verifiers: []` here is NOT a known limitation - there is no
+# code-mutating action in `actions` below, so bin/loop_audit.py's
+# existing "no code-mutating actions declared - nothing to verify"
+# branch applies and this passes audit cleanly. See
+# docs/superpowers/specs/2026-09-07-topic-monitor-runtime-wiring-design.md.
+name: topic-monitor-loop
+version: 1
+
+trigger:
+  type: schedule
+  schedule: "0 10 * * *"
+
+goal:
+  type: topic_monitoring
+
+agent:
+  provider: claude
+  model: default
+
+context:
+  sources:
+    - topic_brief
+    - seen_items
+
+actions:
+  - research_topic
+  - write_briefing
+
+verification:
+  required: []
+
+verifiers: []
+
+stop_conditions:
+  max_iterations: 1
+  max_runtime_minutes: 30
+  # Neither of these is enforced mid-call, and max_cost_usd cannot be
+  # enforced at all here: this loop invokes the CLI with
+  # --output-format text, so invoke_topic_agent has never had a cost
+  # figure to report (it returns cost_usd: None unconditionally) and the
+  # spend the BudgetController sees is always 0. With max_iterations 1 the
+  # controller is only consulted before the single agent call and after
+  # it, and no-progress detection needs at least two iterations to
+  # compare. The per-topic subprocess timeout derived from
+  # max_runtime_minutes above is the only real, enforced bound today -
+  # same honesty as loops/gitlab-issue/loop.yaml's own note on these two
+  # fields.
+  max_cost_usd: 3
+  no_progress_iterations: 2
+
+human_gates: []
+
+# Retry is meaningless with no external verifier to disagree with the
+# agent's own self-report - explicitly disabled rather than left at the
+# library default of enabled/2 attempts.
+retry:
+  enabled: false
+  max_attempts: 1

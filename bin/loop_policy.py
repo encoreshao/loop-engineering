@@ -24,6 +24,8 @@ ACTION_RISK_LEVELS = {
     "modify_worktree": RiskLevel.L1_LOCAL_MUTATION,
     "modify_code": RiskLevel.L1_LOCAL_MUTATION,
     "run_tests": RiskLevel.L1_LOCAL_MUTATION,
+    "research_topic": RiskLevel.L1_LOCAL_MUTATION,
+    "write_briefing": RiskLevel.L1_LOCAL_MUTATION,
     "create_merge_request": RiskLevel.L2_EXTERNAL_CHANGE,
     "create_mr": RiskLevel.L2_EXTERNAL_CHANGE,
     "post_public_comment": RiskLevel.L2_EXTERNAL_CHANGE,

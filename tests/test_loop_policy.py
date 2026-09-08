@@ -84,3 +84,10 @@ def test_validate_definition_does_not_flag_ungated_l2_action():
     violations = engine.validate_definition(definition)
 
     assert violations == []
+
+
+def test_topic_monitor_actions_are_classified_as_local_mutation():
+    from loop_policy import ACTION_RISK_LEVELS, RiskLevel
+
+    assert ACTION_RISK_LEVELS["research_topic"] == RiskLevel.L1_LOCAL_MUTATION
+    assert ACTION_RISK_LEVELS["write_briefing"] == RiskLevel.L1_LOCAL_MUTATION
