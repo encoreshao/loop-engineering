@@ -20,10 +20,7 @@ class CodexAgent(Agent):
         if add_dirs:
             writable_roots = json.dumps([str(d) for d in add_dirs], separators=(",", ":"))
             cmd += ["-c", f"sandbox_workspace_write.writable_roots={writable_roots}"]
-            cmd += ["-c", "approval_policy=never"]
-        else:
-            cmd += ["-c", "approval_policy=never"]
-        cmd += ["-c", "sandbox_workspace_write.network_access=true", prompt]
+        cmd += ["-c", "approval_policy=never", "-c", "sandbox_workspace_write.network_access=true", prompt]
 
         start = time.monotonic()
         try:
