@@ -71,6 +71,51 @@ def test_claude_agent_reports_failed_status_on_nonzero_exit(tmp_path, monkeypatc
     assert "boom" in result.output
 
 
+def test_claude_agent_reports_failed_status_on_non_json_stdout(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir()
+    _write_fake_claude(bin_dir, raw_output="warning: something happened\n")
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+
+    result = ClaudeAgent().run(
+        "do the thing", {}, cwd=tmp_path, timeout_seconds=30, output_format="json",
+    )
+
+    assert result.status == "failed"
+    assert result.exit_code == 0
+    assert "warning: something happened" in result.output
+
+
+def test_claude_agent_reports_failed_status_on_non_dict_json_stdout(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir()
+    _write_fake_claude(bin_dir, raw_output="123")
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+
+    result = ClaudeAgent().run(
+        "do the thing", {}, cwd=tmp_path, timeout_seconds=30, output_format="json",
+    )
+
+    assert result.status == "failed"
+    assert result.exit_code == 0
+
+
+def test_claude_agent_times_out_and_reports_timeout_status(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir()
+    script_path = bin_dir / "claude"
+    script_path.write_text("#!/usr/bin/env python3\nimport time\ntime.sleep(2)\n")
+    script_path.chmod(script_path.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+
+    result = ClaudeAgent().run(
+        "do the thing", {}, cwd=tmp_path, timeout_seconds=1, output_format="text",
+    )
+
+    assert result.status == "timeout"
+    assert "1" in result.output
+
+
 def test_claude_agent_passes_add_dirs_and_tool_flags(tmp_path, monkeypatch):
     bin_dir = tmp_path / "fakebin"
     bin_dir.mkdir()

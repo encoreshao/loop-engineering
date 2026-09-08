@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import cost as cost_module
-from agents.base import Agent, AgentResult, classify_subprocess_error
+from agents.base import Agent, AgentResult, failure_result
 
 
 class ClaudeAgent(Agent):
@@ -30,19 +30,22 @@ class ClaudeAgent(Agent):
                 cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout_seconds, check=True,
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-            status, _reason = classify_subprocess_error(exc, timeout_seconds)
-            detail = exc.stderr or exc.output or ""
-            if isinstance(detail, bytes):
-                detail = detail.decode("utf-8", "replace")
-            return AgentResult(
-                status=status, output=detail, exit_code=getattr(exc, "returncode", None),
-                duration_ms=int((time.monotonic() - start) * 1000),
-                input_tokens=None, output_tokens=None, estimated_cost_usd=None,
-            )
+            return failure_result(exc, timeout_seconds, int((time.monotonic() - start) * 1000))
         duration_ms = int((time.monotonic() - start) * 1000)
 
         if output_format == "json":
-            parsed = json.loads(proc.stdout) if proc.stdout else None
+            try:
+                parsed = json.loads(proc.stdout) if proc.stdout else None
+            except json.JSONDecodeError:
+                return AgentResult(
+                    status="failed", output=proc.stdout[-800:], exit_code=0, duration_ms=duration_ms,
+                    input_tokens=None, output_tokens=None, estimated_cost_usd=None,
+                )
+            if parsed is not None and not isinstance(parsed, dict):
+                return AgentResult(
+                    status="failed", output=proc.stdout[-800:], exit_code=0, duration_ms=duration_ms,
+                    input_tokens=None, output_tokens=None, estimated_cost_usd=None,
+                )
             output = cost_module.extract_result_text(parsed) if parsed else "(no result text in CLI output)"
             usage = cost_module.extract_claude_usage(parsed) if parsed else None
             input_tokens = usage["input_tokens"] if usage else None

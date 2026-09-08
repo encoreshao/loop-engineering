@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from agents.base import Agent, AgentResult, classify_subprocess_error
+from agents.base import Agent, AgentResult, failure_result
 
 
 class CodexAgent(Agent):
@@ -28,15 +28,7 @@ class CodexAgent(Agent):
                 cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout_seconds, check=True,
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-            status, _reason = classify_subprocess_error(exc, timeout_seconds)
-            detail = exc.stderr or exc.output or ""
-            if isinstance(detail, bytes):
-                detail = detail.decode("utf-8", "replace")
-            return AgentResult(
-                status=status, output=detail, exit_code=getattr(exc, "returncode", None),
-                duration_ms=int((time.monotonic() - start) * 1000),
-                input_tokens=None, output_tokens=None, estimated_cost_usd=None,
-            )
+            return failure_result(exc, timeout_seconds, int((time.monotonic() - start) * 1000))
 
         return AgentResult(
             status="success", output=proc.stdout, exit_code=0,

@@ -60,6 +60,19 @@ def test_get_agent_honors_explicit_provider():
     assert type(agent).__name__ == "ClaudeAgent"
 
 
+def test_get_agent_default_sentinel_resolves_same_as_no_argument(monkeypatch):
+    import agents.base as agents_base
+
+    calls = []
+    monkeypatch.setattr(agents_base.ai_cli_config, "get_selected_cli", lambda: calls.append(1) or "codex")
+
+    agent_none = get_agent()
+    agent_default = get_agent(provider="default")
+
+    assert type(agent_none).__name__ == type(agent_default).__name__ == "CodexAgent"
+    assert len(calls) == 2
+
+
 def test_get_agent_rejects_unknown_provider():
     try:
         get_agent(provider="not-a-real-cli")

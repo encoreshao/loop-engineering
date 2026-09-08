@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import ai_cli_config
 
-_VALID_PROVIDERS = ("claude", "codex")
+_VALID_PROVIDERS = ai_cli_config.VALID_CLIS
 
 
 @dataclass
@@ -46,6 +46,23 @@ def classify_subprocess_error(exc, timeout_seconds):
     if isinstance(exc, subprocess.TimeoutExpired):
         return "timeout", f"timed out after {timeout_seconds}s"
     return "failed", f"exited {exc.returncode}"
+
+
+def failure_result(exc, timeout_seconds, duration_ms):
+    """Build the AgentResult for a caught subprocess failure/timeout,
+    folding classify_subprocess_error's human-readable reason into
+    `output` alongside any captured stderr/stdout - otherwise a timeout
+    (which usually has no stderr) would report only classify_subprocess_error's
+    now-discarded reason and nothing else."""
+    status, reason = classify_subprocess_error(exc, timeout_seconds)
+    detail = exc.stderr or exc.output or ""
+    if isinstance(detail, bytes):
+        detail = detail.decode("utf-8", "replace")
+    output = f"{reason}\n{detail}" if detail else reason
+    return AgentResult(
+        status=status, output=output, exit_code=getattr(exc, "returncode", None),
+        duration_ms=duration_ms, input_tokens=None, output_tokens=None, estimated_cost_usd=None,
+    )
 
 
 def get_agent(provider=None):
