@@ -24,3 +24,5 @@ class LoopResult:
     final_state: object  # LoopState
     iterations: list
     stop_reason: str
+    prompt: str | None = None
+    definition_path: str | None = None
