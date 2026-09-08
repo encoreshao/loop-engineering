@@ -284,3 +284,57 @@ def test_run_with_prompt_reports_failure_when_agent_fails(tmp_path):
     )
 
     assert result.returncode == 1
+
+
+def test_replay_reinvokes_the_agent_and_writes_a_new_run(tmp_path):
+    import os
+
+    path = _write_definition(tmp_path / "loop.yaml")
+    prompt_file = tmp_path / "prompt.txt"
+    prompt_file.write_text("fix the thing")
+    results_dir = tmp_path / "results"
+
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir()
+    fake_claude = bin_dir / "claude"
+    fake_claude.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "print(json.dumps({'result': 'done', 'total_cost_usd': 0.05, 'usage': {}, 'modelUsage': {}}))\n"
+    )
+    fake_claude.chmod(fake_claude.stat().st_mode | 0o111)
+    loop_home = tmp_path / "loop-home"  # empty, unset LOOP_ENGINEERING_HOME - ai_cli_config.get_selected_cli()
+    # must resolve deterministically to "claude" (its safe-fallback default), never the real
+    # machine's ~/.loop-engineering/ai_cli.json, per CLAUDE.md's sandboxed-testing rule.
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "LOOP_ENGINEERING_HOME": str(loop_home)}
+
+    run_result = subprocess.run(
+        [sys.executable, str(CLI), "run", str(path), "--results-dir", str(results_dir),
+         "--prompt-file", str(prompt_file)],
+        capture_output=True, text=True, env=env,
+    )
+    run_id = [line for line in run_result.stdout.splitlines() if "run_id" in line.lower()][0].split()[-1]
+
+    replay_result = subprocess.run(
+        [sys.executable, str(CLI), "replay", run_id, "--results-dir", str(results_dir)],
+        capture_output=True, text=True, env=env,
+    )
+
+    assert replay_result.returncode == 0, replay_result.stdout + replay_result.stderr
+    written = sorted(results_dir.glob("*/result.json"))
+    assert len(written) == 2  # the original run + replay's new run
+    replay_run_ids = {p.parent.name for p in written} - {run_id}
+    assert len(replay_run_ids) == 1
+
+
+def test_replay_falls_back_to_inspect_when_no_prompt_was_recorded(tmp_path):
+    path = _write_definition(tmp_path / "loop.yaml")
+    results_dir = tmp_path / "results"
+    run_result = _run("run", str(path), "--results-dir", str(results_dir))
+    run_id = [line for line in run_result.stdout.splitlines() if "run_id" in line.lower()][0].split()[-1]
+
+    result = _run("replay", run_id, "--results-dir", str(results_dir))
+
+    assert result.returncode == 0
+    assert "no prompt recorded" in result.stdout.lower()
+    assert "tests" in result.stdout

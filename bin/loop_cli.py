@@ -185,9 +185,61 @@ def _cmd_inspect(argv):
 
 
 def _cmd_replay(argv):
-    # Same read+print as inspect - genuine re-execution needs a real
-    # agent adapter, which doesn't exist yet (see the design spec).
-    return _cmd_inspect(argv)
+    if not argv:
+        print("Usage: loop_cli.py replay <run_id> [--results-dir PATH]", file=sys.stderr)
+        return 2
+
+    run_id = argv[0]
+    results_dir = _parse_flag(argv, "--results-dir")
+
+    stored = None
+    for path in list_results(results_dir=results_dir):
+        data = read_result(path)
+        if data["run_id"] == run_id:
+            stored = data
+            break
+
+    if stored is None:
+        print(f"replay: no result found for run_id {run_id!r}", file=sys.stderr)
+        return 1
+
+    if not stored.get("prompt") or not stored.get("definition_path"):
+        print("replay: no prompt recorded for this run — showing inspect output instead")
+        _print_run_detail(stored)
+        return 0
+
+    definition = LoopDefinition.from_yaml(stored["definition_path"])
+    cwd = str(Path(stored["definition_path"]).resolve().parent)
+    verifiers = build_verifiers(definition.verifiers, cwd=cwd)
+    agent = get_agent(definition.agent.provider)
+    prompt = stored["prompt"]
+
+    def agent_fn(context):
+        agent_result = agent.run(prompt, context, cwd=cwd, timeout_seconds=definition.stop_conditions.max_runtime_minutes * 60)
+        if agent_result.status != "success":
+            raise RuntimeError(agent_result.output[-800:])
+        return {"cost_usd": agent_result.estimated_cost_usd}
+
+    new_run_id = f"run_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    runtime = LoopRuntime(agent_fn=agent_fn, verifiers=verifiers)
+
+    try:
+        result = runtime.start(definition, run_id=new_run_id)
+    except ValueError as exc:
+        print(f"replay: policy violation, refusing to start: {exc}", file=sys.stderr)
+        return 1
+
+    result.prompt = prompt
+    result.definition_path = stored["definition_path"]
+
+    path = write_result(result, results_dir=results_dir)
+    print(f"replayed run_id: {run_id}")
+    print(f"new run_id: {result.run_id}")
+    print(f"final_state: {result.final_state.value}")
+    print(f"stop_reason: {result.stop_reason}")
+    print(f"Result written to {path}")
+
+    return 0 if result.final_state == LoopState.COMPLETED else 1
 
 
 def _print_run_detail(data):
