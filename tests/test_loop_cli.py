@@ -219,3 +219,68 @@ def test_replay_reads_the_same_run_as_inspect(tmp_path):
 
     assert result.returncode == 0
     assert "tests" in result.stdout
+
+
+def test_run_with_prompt_invokes_a_real_agent_and_persists_it(tmp_path):
+    import json
+    import os
+
+    path = _write_definition(tmp_path / "loop.yaml")
+    prompt_file = tmp_path / "prompt.txt"
+    prompt_file.write_text("fix the thing")
+    results_dir = tmp_path / "results"
+
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir()
+    fake_claude = bin_dir / "claude"
+    fake_claude.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "print(json.dumps({'result': 'done', 'total_cost_usd': 0.05, 'usage': {}, 'modelUsage': {}}))\n"
+    )
+    fake_claude.chmod(fake_claude.stat().st_mode | 0o111)
+    loop_home = tmp_path / "loop-home"  # empty, unset LOOP_ENGINEERING_HOME - ai_cli_config.get_selected_cli()
+    # must resolve deterministically to "claude" (its safe-fallback default), never the real
+    # machine's ~/.loop-engineering/ai_cli.json, per CLAUDE.md's sandboxed-testing rule.
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "LOOP_ENGINEERING_HOME": str(loop_home)}
+
+    result = subprocess.run(
+        [sys.executable, str(CLI), "run", str(path), "--results-dir", str(results_dir),
+         "--prompt-file", str(prompt_file)],
+        capture_output=True, text=True, env=env,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "completed" in result.stdout.lower()
+    written = list(results_dir.glob("*/result.json"))
+    assert len(written) == 1
+    data = json.loads(written[0].read_text())
+    assert data["prompt"] == "fix the thing"
+    assert data["definition_path"] == str(path)
+
+
+def test_run_with_prompt_reports_failure_when_agent_fails(tmp_path):
+    import os
+
+    path = _write_definition(tmp_path / "loop.yaml")
+    prompt_file = tmp_path / "prompt.txt"
+    prompt_file.write_text("fix the thing")
+    results_dir = tmp_path / "results"
+
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir()
+    fake_claude = bin_dir / "claude"
+    fake_claude.write_text("#!/usr/bin/env python3\nimport sys\nprint('boom')\nsys.exit(1)\n")
+    fake_claude.chmod(fake_claude.stat().st_mode | 0o111)
+    loop_home = tmp_path / "loop-home"  # empty, unset LOOP_ENGINEERING_HOME - ai_cli_config.get_selected_cli()
+    # must resolve deterministically to "claude" (its safe-fallback default), never the real
+    # machine's ~/.loop-engineering/ai_cli.json, per CLAUDE.md's sandboxed-testing rule.
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "LOOP_ENGINEERING_HOME": str(loop_home)}
+
+    result = subprocess.run(
+        [sys.executable, str(CLI), "run", str(path), "--results-dir", str(results_dir),
+         "--prompt-file", str(prompt_file)],
+        capture_output=True, text=True, env=env,
+    )
+
+    assert result.returncode == 1

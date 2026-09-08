@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """`loop` CLI - see docs/superpowers/specs/2026-09-07-loop-cli-design.md.
 Manual sys.argv subcommand dispatch (matching bin/events.py's style, not
-argparse). `run`'s agent_fn is a deliberate no-op (L0/observe, plan
-section 32) - there is no real agent adapter yet (plan section 9)."""
+argparse). `run` invokes a real agent via `--prompt`/`--prompt-file`; with
+neither flag given, its agent_fn falls back to the original no-op
+(L0/observe, plan section 32)."""
 import sys
 import time
 import uuid
 from pathlib import Path
 
+from agents.base import get_agent
 from loop_audit import CheckStatus, audit_definition
 from loop_definition import LoopDefinition
 from loop_runtime import LoopRuntime
@@ -96,24 +98,47 @@ def _cmd_audit(argv):
 
 def _cmd_run(argv):
     if not argv:
-        print("Usage: loop_cli.py run <path/to/loop.yaml> [--cwd PATH] [--results-dir PATH]", file=sys.stderr)
+        print(
+            "Usage: loop_cli.py run <path/to/loop.yaml> [--cwd PATH] [--results-dir PATH] "
+            "[--prompt TEXT | --prompt-file PATH]",
+            file=sys.stderr,
+        )
         return 2
 
     definition_path = Path(argv[0])
     cwd = _parse_flag(argv, "--cwd", str(definition_path.resolve().parent))
     results_dir = _parse_flag(argv, "--results-dir")
+    prompt_file = _parse_flag(argv, "--prompt-file")
+    prompt = Path(prompt_file).read_text() if prompt_file else _parse_flag(argv, "--prompt")
 
     definition = LoopDefinition.from_yaml(definition_path)
     verifiers = build_verifiers(definition.verifiers, cwd=cwd)
 
     run_id = f"run_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-    runtime = LoopRuntime(agent_fn=lambda context: {"changed": False}, verifiers=verifiers)
+
+    if prompt is None:
+        agent_fn = lambda context: {"changed": False}  # noqa: E731 - L0/observe, unchanged default
+    else:
+        agent = get_agent(definition.agent.provider)
+
+        def agent_fn(context):
+            agent_result = agent.run(
+                prompt, context, cwd=cwd, timeout_seconds=definition.stop_conditions.max_runtime_minutes * 60
+            )
+            if agent_result.status != "success":
+                raise RuntimeError(agent_result.output[-800:])
+            return {"cost_usd": agent_result.estimated_cost_usd}
+
+    runtime = LoopRuntime(agent_fn=agent_fn, verifiers=verifiers)
 
     try:
         result = runtime.start(definition, run_id=run_id)
     except ValueError as exc:
         print(f"run: policy violation, refusing to start: {exc}", file=sys.stderr)
         return 1
+
+    result.prompt = prompt
+    result.definition_path = str(definition_path)
 
     path = write_result(result, results_dir=results_dir)
     print(f"run_id: {result.run_id}")
