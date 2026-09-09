@@ -62,3 +62,71 @@ def test_scripted_verifier_raises_when_called_beyond_its_script():
 
     with pytest.raises(ScriptExhausted):
         verifier.verify(context={})
+
+
+import yaml
+
+from loop_eval import EvalCase, load_case, load_cases
+
+
+_MINIMAL_CASE = {
+    "name": "minimal",
+    "description": "A minimal case for loader tests.",
+    "definition": {
+        "name": "eval-minimal",
+        "version": 1,
+        "trigger": {"type": "manual"},
+        "goal": {"type": "fix"},
+    },
+    "script": {
+        "agent": [{"changed": True, "cost_usd": 0.0}],
+        "verifiers": {"tests": [True]},
+    },
+    "expect": {"final_state": "completed", "stop_reason": "completed"},
+}
+
+
+def test_load_case_builds_an_eval_case(tmp_path):
+    path = tmp_path / "minimal.yaml"
+    path.write_text(yaml.safe_dump(_MINIMAL_CASE))
+
+    case = load_case(path)
+
+    assert isinstance(case, EvalCase)
+    assert case.name == "minimal"
+    assert case.definition.name == "eval-minimal"
+    assert case.agent_script == [{"changed": True, "cost_usd": 0.0}]
+    assert case.verifier_scripts == {"tests": [True]}
+    assert case.expect == {"final_state": "completed", "stop_reason": "completed"}
+
+
+def test_load_case_defaults_missing_script_sections_to_empty(tmp_path):
+    data = dict(_MINIMAL_CASE)
+    data["script"] = {}
+    path = tmp_path / "no-script.yaml"
+    path.write_text(yaml.safe_dump(data))
+
+    case = load_case(path)
+
+    assert case.agent_script == []
+    assert case.verifier_scripts == {}
+
+
+@pytest.mark.parametrize("missing_key", ["name", "description", "definition", "script", "expect"])
+def test_load_case_raises_on_missing_required_field(tmp_path, missing_key):
+    data = dict(_MINIMAL_CASE)
+    del data[missing_key]
+    path = tmp_path / "broken.yaml"
+    path.write_text(yaml.safe_dump(data))
+
+    with pytest.raises(ValueError, match=missing_key):
+        load_case(path)
+
+
+def test_load_cases_reads_every_yaml_file_sorted_by_name(tmp_path):
+    (tmp_path / "b.yaml").write_text(yaml.safe_dump({**_MINIMAL_CASE, "name": "b"}))
+    (tmp_path / "a.yaml").write_text(yaml.safe_dump({**_MINIMAL_CASE, "name": "a"}))
+
+    cases = load_cases(tmp_path)
+
+    assert [case.name for case in cases] == ["a", "b"]
