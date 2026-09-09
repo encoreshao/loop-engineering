@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Evaluation dataset harness - see
+docs/superpowers/specs/2026-09-09-loop-eval-harness-design.md. Drives the
+real, unmodified LoopRuntime with a ScriptedAgent and ScriptedVerifiers so
+a passing case is evidence about the runtime's stop/verify/escalate/cost
+behavior, not about this harness's own logic."""
+from dataclasses import dataclass
+
+from loop_verifiers import VerificationResult, Verifier
+
+
+class ScriptExhausted(RuntimeError):
+    pass
+
+
+class ScriptedAgent:
+    """A callable agent_fn: pops the next scripted {changed, cost_usd}
+    dict per call, in order."""
+
+    def __init__(self, script):
+        self._script = list(script)
+        self._calls = 0
+
+    def __call__(self, context):
+        if self._calls >= len(self._script):
+            raise ScriptExhausted(
+                f"ScriptedAgent has no entry for call {self._calls + 1} "
+                f"- only {len(self._script)} scripted"
+            )
+        entry = self._script[self._calls]
+        self._calls += 1
+        return {"changed": entry.get("changed", True), "cost_usd": entry.get("cost_usd")}
+
+
+class ScriptedVerifier(Verifier):
+    """A Verifier ABC implementation: pops the next scripted bool per
+    call, in order, for one named verifier."""
+
+    def __init__(self, name, script):
+        self.name = name
+        self._script = list(script)
+        self._calls = 0
+
+    def verify(self, context):
+        if self._calls >= len(self._script):
+            raise ScriptExhausted(
+                f"ScriptedVerifier {self.name!r} has no entry for call "
+                f"{self._calls + 1} - only {len(self._script)} scripted"
+            )
+        passed = self._script[self._calls]
+        self._calls += 1
+        return VerificationResult(
+            name=self.name,
+            passed=passed,
+            exit_code=0 if passed else 1,
+            duration_ms=0,
+            output="",
+            evidence={},
+        )
