@@ -13,6 +13,7 @@ from pathlib import Path
 from agents.base import get_agent
 from loop_audit import CheckStatus, audit_definition
 from loop_definition import LoopDefinition
+from loop_result import LoopResult
 from loop_runtime import LoopRuntime
 from loop_serialize import find_latest_result, list_results, read_result, summarize_run_costs, write_result
 from loop_state import LoopState
@@ -148,7 +149,19 @@ def _cmd_run(argv):
                 raise RuntimeError(agent_result.output[-800:])
             return {"cost_usd": agent_result.estimated_cost_usd}
 
-    runtime = LoopRuntime(agent_fn=agent_fn, verifiers=verifiers)
+    def _write_progress(run_id, loop_id, definition_name, iterations):
+        partial = LoopResult(
+            loop_id=loop_id,
+            run_id=run_id,
+            definition_name=definition_name,
+            final_state="running",
+            iterations=iterations,
+            stop_reason="running",
+            status="running",
+        )
+        write_result(partial, results_dir=results_dir)
+
+    runtime = LoopRuntime(agent_fn=agent_fn, verifiers=verifiers, on_iteration=_write_progress)
 
     try:
         result = runtime.start(definition, run_id=run_id)
@@ -158,6 +171,7 @@ def _cmd_run(argv):
 
     result.prompt = prompt
     result.definition_path = str(definition_path.resolve())
+    result.status = "finished"
 
     path = write_result(result, results_dir=results_dir)
     print(f"run_id: {result.run_id}")

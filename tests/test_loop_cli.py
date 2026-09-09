@@ -408,3 +408,59 @@ def test_replay_falls_back_to_inspect_when_no_prompt_was_recorded(tmp_path):
     assert result.returncode == 0
     assert "no prompt recorded" in result.stdout.lower()
     assert "tests" in result.stdout
+
+
+def test_run_writes_running_status_visible_mid_run_then_finished(tmp_path):
+    import json
+    import os
+    import time as _time
+
+    path = _write_definition(
+        tmp_path / "loop.yaml",
+        verifiers=[{"name": "tests", "type": "command", "command": "false"}],
+        stop_conditions={
+            "max_iterations": 5, "max_runtime_minutes": 5, "max_cost_usd": 5, "no_progress_iterations": 5,
+        },
+        retry={"enabled": True, "max_attempts": 2},
+    )
+    results_dir = tmp_path / "results"
+
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir()
+    fake_claude = bin_dir / "claude"
+    fake_claude.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, time\n"
+        "time.sleep(1.2)\n"
+        "print(json.dumps({'result': 'done', 'total_cost_usd': 0.05, 'usage': {}, 'modelUsage': {}}))\n"
+    )
+    fake_claude.chmod(fake_claude.stat().st_mode | 0o111)
+    loop_home = tmp_path / "loop-home"
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "LOOP_ENGINEERING_HOME": str(loop_home)}
+
+    proc = subprocess.Popen(
+        [sys.executable, str(CLI), "run", str(path), "--results-dir", str(results_dir),
+         "--prompt", "try to fix it"],
+        env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        deadline = _time.monotonic() + 10
+        seen_running = False
+        while _time.monotonic() < deadline:
+            written = list(results_dir.glob("*/result.json"))
+            if written:
+                data = json.loads(written[0].read_text())
+                if data.get("status") == "running":
+                    seen_running = True
+                    break
+            _time.sleep(0.05)
+        assert seen_running, "never observed an in-progress (status=running) result.json"
+    finally:
+        stdout, stderr = proc.communicate(timeout=15)
+
+    written = list(results_dir.glob("*/result.json"))
+    assert len(written) == 1
+    data = json.loads(written[0].read_text())
+    assert data["status"] == "finished", stdout + stderr
+    assert data["final_state"] == "escalated"
+    assert len(data["iterations"]) == 2
