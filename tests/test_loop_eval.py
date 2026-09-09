@@ -255,3 +255,21 @@ def test_run_case_reports_a_mismatch_without_raising(tmp_path):
     assert outcome.passed is False
     assert "escalated" in outcome.detail
     assert "completed" in outcome.detail
+
+
+def test_run_case_lets_non_policy_exceptions_propagate(tmp_path):
+    # Under-script the verifier, not the agent: LoopRuntime wraps its single
+    # agent_fn call in a bare `except Exception`, so an agent-side
+    # ScriptExhausted is swallowed into a normal agent_failed/FAILED
+    # IterationResult rather than propagating - it can never reach run_case.
+    # Verifier.verify() calls are not wrapped that way, so an empty
+    # verifier script is what actually exercises this invariant.
+    case = _case(
+        "under-scripted", {},
+        agent_script=[{"changed": True, "cost_usd": 0.05}],
+        verifier_scripts={"tests": []},
+        expect={"final_state": "completed", "stop_reason": "completed"},
+    )
+
+    with pytest.raises(ScriptExhausted):
+        run_case(case, events_dir=tmp_path)

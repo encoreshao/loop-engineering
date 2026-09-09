@@ -120,6 +120,9 @@ def run_case(case, events_dir):
         events_dir=events_dir,
     )
 
+    # Only PolicyViolationError is a real eval outcome (policy denial); any
+    # other exception - e.g. ScriptExhausted - means the case file itself is
+    # broken, not that the case failed, so it must propagate uncaught.
     try:
         result = runtime.start(case.definition, run_id=f"eval-{case.name}")
     except PolicyViolationError:
