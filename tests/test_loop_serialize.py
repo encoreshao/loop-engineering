@@ -153,3 +153,30 @@ def test_summarize_run_costs_sums_and_averages(tmp_path):
     assert summary["total_runs"] == 2
     assert summary["total_cost_usd"] == 4.0
     assert summary["cost_per_run_usd"] == 2.0
+
+
+def test_write_result_is_atomic_no_reader_ever_sees_a_corrupt_file(tmp_path):
+    import threading
+
+    result = _sample_result(run_id="run_atomic")
+    errors = []
+    stop = threading.Event()
+    result_path = tmp_path / "run_atomic" / "result.json"
+
+    def reader():
+        while not stop.is_set():
+            if result_path.exists():
+                try:
+                    json.loads(result_path.read_text())
+                except json.JSONDecodeError as exc:
+                    errors.append(exc)
+
+    reader_thread = threading.Thread(target=reader)
+    reader_thread.start()
+    for _ in range(200):
+        write_result(result, results_dir=tmp_path)
+    stop.set()
+    reader_thread.join(timeout=5)
+
+    assert errors == []
+    assert not (tmp_path / "run_atomic" / "result.json.tmp").exists()

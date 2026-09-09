@@ -6,6 +6,7 @@ to have something real to read: <results_dir>/<run_id>/result.json, one
 file per run, plain JSON (no reconstruction back into dataclasses -
 every CLI consumer only ever reads plain fields back out)."""
 import json
+import os
 from dataclasses import asdict, is_dataclass
 from enum import Enum
 from pathlib import Path
@@ -30,13 +31,20 @@ def to_json_dict(loop_result):
 
 
 def write_result(loop_result, results_dir=None):
+    """Writes via a temp file + os.replace (atomic on POSIX) rather than
+    a direct path.write_text - this is now called roughly once per
+    iteration (see LoopRuntime.on_iteration), not just once per run, so
+    a concurrent reader (`loop status` while `loop run` is still
+    executing) must never be able to observe a partially-written file."""
     if results_dir is None:
         results_dir = DEFAULT_RESULTS_DIR
     results_dir = Path(results_dir)
     run_dir = results_dir / loop_result.run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     path = run_dir / "result.json"
-    path.write_text(json.dumps(to_json_dict(loop_result), indent=2))
+    tmp_path = run_dir / "result.json.tmp"
+    tmp_path.write_text(json.dumps(to_json_dict(loop_result), indent=2))
+    os.replace(tmp_path, path)
     return path
 
 
