@@ -8595,3 +8595,7 @@ def test_render_memory_page_pre_sprint_6_entry_shows_no_category_pill_or_reuse_s
 
     assert "Not yet reused" not in output
     assert "Reused" not in output
+
+
+def test_loop_run_state_pill_class_running_is_blue():
+    assert ds._loop_run_state_pill_class("running") == "pill-blue"

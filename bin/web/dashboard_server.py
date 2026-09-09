@@ -5467,9 +5467,14 @@ def render_history_page():
 def _loop_run_state_pill_class(final_state):
     """Map a LoopResult's final_state string to a pill CSS class - no
     amber/warning pill exists in this stylesheet, so STOPPED (budget
-    exceeded) falls back to grey rather than inventing a new color."""
+    exceeded) falls back to grey rather than inventing a new color.
+    "running" (a still-in-progress run - see LoopRuntime.on_iteration)
+    gets its own blue, matching the GitLab/Topic Monitor loops' own
+    running-state color (_status_badge)."""
     if final_state == "completed":
         return "pill-green"
+    if final_state == "running":
+        return "pill-blue"
     if final_state in ("failed", "escalated"):
         return "pill-red"
     return "pill-grey"
