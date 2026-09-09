@@ -273,3 +273,19 @@ def test_run_case_lets_non_policy_exceptions_propagate(tmp_path):
 
     with pytest.raises(ScriptExhausted):
         run_case(case, events_dir=tmp_path)
+
+
+from loop_eval import run_all
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+REAL_CASES_DIR = REPO_ROOT / "evals" / "cases"
+
+
+def test_run_all_every_shipped_case_passes():
+    outcomes = run_all(REAL_CASES_DIR)
+
+    failures = [o for o in outcomes if not o.passed]
+    assert failures == [], f"eval cases failed: {[(f.case_name, f.detail) for f in failures]}"
+    assert {o.case_name for o in outcomes} == {
+        "success", "retry", "no-progress", "budget", "unsafe-action", "ambiguous-task",
+    }

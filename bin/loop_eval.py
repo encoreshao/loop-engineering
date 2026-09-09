@@ -6,6 +6,7 @@ a passing case is evidence about the runtime's stop/verify/escalate/cost
 behavior, not about this harness's own logic."""
 from dataclasses import dataclass
 from pathlib import Path
+import tempfile
 
 import yaml
 
@@ -138,3 +139,9 @@ def run_case(case, events_dir):
     detail = "" if passed else f"expected {case.expect}, got {actual}"
 
     return EvalOutcome(case_name=case.name, passed=passed, expected=case.expect, actual=actual, detail=detail)
+
+
+def run_all(cases_dir):
+    cases = load_cases(cases_dir)
+    with tempfile.TemporaryDirectory() as events_dir:
+        return [run_case(case, events_dir=events_dir) for case in cases]
