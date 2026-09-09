@@ -32,6 +32,21 @@ _DEFAULT_DISALLOWED_TOOLS = (
 )
 
 
+def _make_progress_writer(results_dir):
+    def _write_progress(run_id, loop_id, definition_name, iterations):
+        partial = LoopResult(
+            loop_id=loop_id,
+            run_id=run_id,
+            definition_name=definition_name,
+            final_state="running",
+            iterations=iterations,
+            stop_reason="running",
+            status="running",
+        )
+        write_result(partial, results_dir=results_dir)
+    return _write_progress
+
+
 def _available_templates():
     if not TEMPLATES_DIR.exists():
         return {}
@@ -149,22 +164,14 @@ def _cmd_run(argv):
                 raise RuntimeError(agent_result.output[-800:])
             return {"cost_usd": agent_result.estimated_cost_usd}
 
-    def _write_progress(run_id, loop_id, definition_name, iterations):
-        partial = LoopResult(
-            loop_id=loop_id,
-            run_id=run_id,
-            definition_name=definition_name,
-            final_state="running",
-            iterations=iterations,
-            stop_reason="running",
-            status="running",
-        )
-        write_result(partial, results_dir=results_dir)
+    loop_id = f"loop_{uuid.uuid4().hex}"
+    on_iteration = _make_progress_writer(results_dir)
+    on_iteration(run_id, loop_id, definition.name, [])  # initial running snapshot, before any iteration completes
 
-    runtime = LoopRuntime(agent_fn=agent_fn, verifiers=verifiers, on_iteration=_write_progress)
+    runtime = LoopRuntime(agent_fn=agent_fn, verifiers=verifiers, on_iteration=on_iteration)
 
     try:
-        result = runtime.start(definition, run_id=run_id)
+        result = runtime.start(definition, run_id=run_id, loop_id=loop_id)
     except ValueError as exc:
         print(f"run: policy violation, refusing to start: {exc}", file=sys.stderr)
         return 1
@@ -206,7 +213,7 @@ def _cmd_status(argv):
         used = iterations_budget.get("used")
         limit = iterations_budget.get("limit")
         if used is not None:
-            if limit is not None:
+            if limit:
                 print(f"Iteration: {used}/{limit}")
                 pct = min(used / limit, 1.0)
                 filled = int(pct * 10)
@@ -286,10 +293,14 @@ def _cmd_replay(argv):
         return {"cost_usd": agent_result.estimated_cost_usd}
 
     new_run_id = f"run_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-    runtime = LoopRuntime(agent_fn=agent_fn, verifiers=verifiers)
+    new_loop_id = f"loop_{uuid.uuid4().hex}"
+    on_iteration = _make_progress_writer(results_dir)
+    on_iteration(new_run_id, new_loop_id, definition.name, [])  # initial running snapshot
+
+    runtime = LoopRuntime(agent_fn=agent_fn, verifiers=verifiers, on_iteration=on_iteration)
 
     try:
-        result = runtime.start(definition, run_id=new_run_id)
+        result = runtime.start(definition, run_id=new_run_id, loop_id=new_loop_id)
     except ValueError as exc:
         print(f"replay: policy violation, refusing to start: {exc}", file=sys.stderr)
         return 1

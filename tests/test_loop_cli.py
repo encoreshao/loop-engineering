@@ -446,15 +446,19 @@ def test_run_writes_running_status_visible_mid_run_then_finished(tmp_path):
     try:
         deadline = _time.monotonic() + 10
         seen_running = False
+        running_snapshot = None
         while _time.monotonic() < deadline:
             written = list(results_dir.glob("*/result.json"))
             if written:
                 data = json.loads(written[0].read_text())
                 if data.get("status") == "running":
                     seen_running = True
+                    running_snapshot = data
                     break
             _time.sleep(0.05)
         assert seen_running, "never observed an in-progress (status=running) result.json"
+        assert running_snapshot["final_state"] == "running"
+        assert running_snapshot["stop_reason"] == "running"
     finally:
         stdout, stderr = proc.communicate(timeout=15)
 
@@ -464,6 +468,53 @@ def test_run_writes_running_status_visible_mid_run_then_finished(tmp_path):
     assert data["status"] == "finished", stdout + stderr
     assert data["final_state"] == "escalated"
     assert len(data["iterations"]) == 2
+
+
+def test_run_shows_running_status_immediately_even_for_a_single_iteration_run(tmp_path):
+    import json
+    import os
+    import time as _time
+
+    path = _write_definition(tmp_path / "loop.yaml")  # default: single passing iteration, no retry needed
+    results_dir = tmp_path / "results"
+
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir()
+    fake_claude = bin_dir / "claude"
+    fake_claude.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, time\n"
+        "time.sleep(1.0)\n"
+        "print(json.dumps({'result': 'done', 'total_cost_usd': 0.05, 'usage': {}, 'modelUsage': {}}))\n"
+    )
+    fake_claude.chmod(fake_claude.stat().st_mode | 0o111)
+    loop_home = tmp_path / "loop-home"
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "LOOP_ENGINEERING_HOME": str(loop_home)}
+
+    proc = subprocess.Popen(
+        [sys.executable, str(CLI), "run", str(path), "--results-dir", str(results_dir),
+         "--prompt", "fix it"],
+        env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        deadline = _time.monotonic() + 5
+        seen_running_with_zero_iterations = False
+        while _time.monotonic() < deadline:
+            written = list(results_dir.glob("*/result.json"))
+            if written:
+                data = json.loads(written[0].read_text())
+                if data.get("status") == "running" and data.get("iterations") == []:
+                    seen_running_with_zero_iterations = True
+                    break
+            _time.sleep(0.02)
+        assert seen_running_with_zero_iterations, "never observed the initial 0-iteration running snapshot"
+    finally:
+        proc.communicate(timeout=10)
+
+    written = list(results_dir.glob("*/result.json"))
+    data = json.loads(written[0].read_text())
+    assert data["status"] == "finished"
+    assert data["final_state"] == "completed"
 
 
 def test_status_shows_running_run_with_iteration_cost_and_budget_bar(tmp_path):
@@ -503,6 +554,45 @@ def test_status_shows_running_run_with_iteration_cost_and_budget_bar(tmp_path):
     assert "Iteration: 2/3" in result.stdout
     assert "Cost: $0.73" in result.stdout
     assert "██████░░░░ 67%" in result.stdout
+
+
+def test_status_running_run_with_zero_iteration_limit_does_not_crash(tmp_path):
+    import json
+
+    results_dir = tmp_path / "results"
+    run_dir = results_dir / "run_running_zero_limit"
+    run_dir.mkdir(parents=True)
+    (run_dir / "result.json").write_text(json.dumps({
+        "loop_id": "loop_1",
+        "run_id": "run_running_zero_limit",
+        "definition_name": "zero-limit-loop",
+        "final_state": "running",
+        "stop_reason": "running",
+        "status": "running",
+        "iterations": [
+            {
+                "iteration": 0,
+                "state": "evaluating",
+                "verification_results": [],
+                "budget": {
+                    "iterations": {"status": "warning", "used": 0, "limit": 0},
+                    "runtime": {"status": "ok", "used_seconds": 1.0, "limit_seconds": 900},
+                    "cost": {"status": "ok", "used_usd": 0.0, "limit_usd": 5},
+                    "overall": "warning",
+                },
+                "progressed": False,
+            }
+        ],
+    }))
+
+    result = _run("status", "--results-dir", str(results_dir))
+
+    assert result.returncode == 0
+    assert "Traceback" not in result.stdout
+    assert "Traceback" not in result.stderr
+    assert "Iteration: 0" in result.stdout
+    assert "/0" not in result.stdout
+    assert "Budget:" not in result.stdout
 
 
 def test_status_finished_run_output_has_no_running_branch(tmp_path):
