@@ -10,6 +10,7 @@ from loop_serialize import (
     list_results,
     read_result,
     summarize_results,
+    summarize_run_costs,
     to_json_dict,
     write_result,
 )
@@ -131,3 +132,24 @@ def test_summarize_results_computes_rates_and_average_cost(tmp_path):
     assert summary["success_rate"] == 0.5
     assert summary["escalation_rate"] == 0.25
     assert summary["average_cost_usd"] == 1.5
+
+
+def test_summarize_run_costs_empty_dir(tmp_path):
+    summary = summarize_run_costs(results_dir=tmp_path)
+
+    assert summary == {
+        "total_runs": 0,
+        "total_cost_usd": 0.0,
+        "cost_per_run_usd": None,
+    }
+
+
+def test_summarize_run_costs_sums_and_averages(tmp_path):
+    write_result(_sample_result(run_id="run_a", cost_usd=1.0), results_dir=tmp_path)
+    write_result(_sample_result(run_id="run_b", cost_usd=3.0), results_dir=tmp_path)
+
+    summary = summarize_run_costs(results_dir=tmp_path)
+
+    assert summary["total_runs"] == 2
+    assert summary["total_cost_usd"] == 4.0
+    assert summary["cost_per_run_usd"] == 2.0

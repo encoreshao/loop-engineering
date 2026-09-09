@@ -14,7 +14,7 @@ from agents.base import get_agent
 from loop_audit import CheckStatus, audit_definition
 from loop_definition import LoopDefinition
 from loop_runtime import LoopRuntime
-from loop_serialize import find_latest_result, list_results, read_result, write_result
+from loop_serialize import find_latest_result, list_results, read_result, summarize_run_costs, write_result
 from loop_state import LoopState
 from loop_verifiers import build_verifiers
 
@@ -277,20 +277,14 @@ def _print_run_detail(data):
 
 def _cmd_cost(argv):
     results_dir = _parse_flag(argv, "--results-dir")
-    results = list_results(results_dir=results_dir)
-
-    total_cost = 0.0
-    for path in results:
-        data = read_result(path)
-        if data["iterations"]:
-            total_cost += data["iterations"][-1]["budget"].get("cost", {}).get("used_usd") or 0
+    summary = summarize_run_costs(results_dir=results_dir)
 
     print("Loop Cost Report")
     print()
-    print(f"Runs                  {len(results)}")
-    print(f"Estimated Cost       ${total_cost:.2f}")
-    if results:
-        print(f"Cost / Run           ${total_cost / len(results):.2f}")
+    print(f"Runs                  {summary['total_runs']}")
+    print(f"Estimated Cost       ${summary['total_cost_usd']:.2f}")
+    if summary["cost_per_run_usd"] is not None:
+        print(f"Cost / Run           ${summary['cost_per_run_usd']:.2f}")
     return 0
 
 

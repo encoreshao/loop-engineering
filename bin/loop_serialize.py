@@ -96,3 +96,24 @@ def summarize_results(results_dir=None):
         "escalation_rate": escalated / total_runs,
         "average_cost_usd": total_cost_usd / total_runs,
     }
+
+
+def summarize_run_costs(results_dir=None):
+    """{"total_runs", "total_cost_usd", "cost_per_run_usd"} - the same
+    numbers `loop_cli.py cost` prints, shared here so the CLI and the
+    dashboard's Cost page compute them one way. cost_per_run_usd is None
+    (not 0) when there are no runs to divide by, matching
+    summarize_results's honest-degradation convention."""
+    paths = list_results(results_dir=results_dir)
+    total_runs = len(paths)
+    total_cost_usd = 0.0
+    for path in paths:
+        data = read_result(path)
+        if data["iterations"]:
+            total_cost_usd += data["iterations"][-1].get("budget", {}).get("cost", {}).get("used_usd") or 0
+
+    return {
+        "total_runs": total_runs,
+        "total_cost_usd": total_cost_usd,
+        "cost_per_run_usd": total_cost_usd / total_runs if total_runs else None,
+    }

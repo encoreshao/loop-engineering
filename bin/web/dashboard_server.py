@@ -45,7 +45,9 @@ import ai_cli_config
 import cost
 import health
 import learning
+import loop_audit
 import loop_config
+import loop_definition
 import loop_serialize
 import memory_store
 import metrics
@@ -56,6 +58,7 @@ LOOP_DIR = Path(__file__).resolve().parent.parent.parent
 STATUS_PATH = LOOP_DIR / "outputs" / "status.json"
 HISTORY_DIR = LOOP_DIR / "outputs" / "history"
 LOOP_RUNS_DIR = LOOP_DIR / "outputs" / "loop-runs"
+LOOPS_DIR = LOOP_DIR / "loops"
 # The one place every `claude` CLI invocation across this project writes
 # its raw output - run-loop.sh and run-topic-monitor-loop.sh each already
 # have their own per-day outputs/history/*.log (unchanged, still used by
@@ -2792,9 +2795,9 @@ _FONT_FACE_VARS = "\n".join(
 # name that isn't listed here renders as tofu/missing glyph. Add a new name
 # to this list before shipping a new icon constant that uses it.
 _MATERIAL_SYMBOLS_ICON_NAMES = (
-    "add,bolt,check_circle,chevron_left,circle,delete,description,"
-    "dns,edit_note,error,expand_more,extension,folder,folder_off,forum,history,lightbulb,loop,merge,monitoring,newspaper,"
-    "open_in_new,palette,send,settings,smart_toy,space_dashboard,terminal,topic,tune,warning"
+    "account_balance_wallet,add,bolt,check_circle,chevron_left,circle,delete,description,"
+    "dns,edit_note,error,expand_more,extension,fact_check,folder,folder_off,forum,history,lightbulb,loop,merge,monitoring,newspaper,"
+    "open_in_new,palette,payments,send,settings,smart_toy,space_dashboard,terminal,topic,tune,warning"
 )
 
 
@@ -4314,6 +4317,9 @@ _SECTION_ICON_HISTORY = "<span class='material-symbols-outlined' aria-hidden='tr
 _SECTION_ICON_LOOP_RUNS = "<span class='material-symbols-outlined' aria-hidden='true'>loop</span>"
 
 _SECTION_ICON_ANALYTICS = "<span class='material-symbols-outlined' aria-hidden='true'>monitoring</span>"
+_SECTION_ICON_COST = "<span class='material-symbols-outlined' aria-hidden='true'>payments</span>"
+_SECTION_ICON_AUDIT = "<span class='material-symbols-outlined' aria-hidden='true'>fact_check</span>"
+_SECTION_ICON_BUDGET = "<span class='material-symbols-outlined' aria-hidden='true'>account_balance_wallet</span>"
 _SECTION_ICON_RISK = "<span class='material-symbols-outlined' aria-hidden='true'>warning</span>"
 _SECTION_ICON_FAILURE = "<span class='material-symbols-outlined' aria-hidden='true'>error</span>"
 
@@ -4459,6 +4465,9 @@ _NAV_ITEMS = (
     ("analytics", "/analytics", "Analytics", _SECTION_ICON_ANALYTICS),
     ("history", "/history", "Run History", _SECTION_ICON_HISTORY),
     ("loop_runs", "/loop-runs", "Loop Runs", _SECTION_ICON_LOOP_RUNS),
+    ("cost", "/cost", "Cost", _SECTION_ICON_COST),
+    ("audit", "/audit", "Audit", _SECTION_ICON_AUDIT),
+    ("budget", "/budget", "Budget", _SECTION_ICON_BUDGET),
     ("gitlab", "/gitlab", "Live GitLab", _SECTION_ICON_GITLAB),
     ("memory", "/memory", "Memory", _SECTION_ICON_MEMORY),
     ("topic_monitor", "/topic-monitor", "Topic Monitor", _SECTION_ICON_TOPIC_MONITOR),
@@ -4481,7 +4490,7 @@ _NAV_GROUPS = (
     # deps); Configuration = settings/meta pages; Docs = reference
     # material, deliberately last since it's the least-visited group.
     (None, ("overview",)),
-    ("Monitor", ("analytics", "gitlab", "topic_monitor", "memory", "activity", "logs", "history", "loop_runs")),
+    ("Monitor", ("analytics", "gitlab", "topic_monitor", "memory", "activity", "logs", "history", "loop_runs", "cost", "audit", "budget")),
     ("System", ("daemons", "skills")),
     ("Configuration", ("settings", "topic_settings", "general_settings")),
     ("Docs", ("readme",)),
@@ -5466,6 +5475,19 @@ def _loop_run_state_pill_class(final_state):
     return "pill-grey"
 
 
+def _three_state_pill_class(status_value):
+    """Map a CheckStatus/BudgetStatus value (PASS/OK, WARN/WARNING,
+    FAIL/EXCEEDED) to a pill CSS class - same no-amber convention as
+    _loop_run_state_pill_class: WARN/WARNING falls back to grey rather
+    than inventing a new color."""
+    normalized = str(status_value).lower()
+    if normalized in ("pass", "ok"):
+        return "pill-green"
+    if normalized in ("fail", "exceeded"):
+        return "pill-red"
+    return "pill-grey"
+
+
 def render_loop_runs_page():
     """Loop Runs page: every persisted LoopRuntime run
     (outputs/loop-runs/<run_id>/result.json, written by `loop_cli.py
@@ -5610,6 +5632,150 @@ def render_loop_run_detail_page(run_id):
     return _render_shell(
         f"{data['definition_name']} · Loop X Engineering", "loop_runs", _status_badge_markup(status), body
     )
+
+
+def render_audit_page(loops_dir=None):
+    """Audit page - runs loop_audit.audit_definition over every
+    loops/*/loop.yaml (the live loop definitions this repo actually
+    runs, not templates/), the same check-and-score logic
+    `loop_cli.py audit`/`doctor` already print - no new judgment here,
+    just HTML for an existing AuditReport."""
+    if loops_dir is None:
+        loops_dir = LOOPS_DIR
+    loops_dir = Path(loops_dir)
+
+    status = read_status(STATUS_PATH)
+    paths = sorted(loops_dir.glob("*/loop.yaml")) if loops_dir.exists() else []
+
+    if not paths:
+        body = """
+<div class="page-title">
+<h1>Audit</h1>
+<p class="subtitle">Loop Ready Score for every loop definition under loops/.</p>
+</div>
+<div class="grid"><section class="card">
+<p>No loop definitions found under loops/.</p>
+</section></div>
+"""
+        return _render_shell("Audit · Loop X Engineering", "audit", _status_badge_markup(status), body)
+
+    cards = []
+    for path in paths:
+        definition = loop_definition.LoopDefinition.from_yaml(path)
+        report = loop_audit.audit_definition(definition)
+
+        check_items = "".join(
+            f"<li><span class='pill {_three_state_pill_class(check.status.value)}'>"
+            f"{html.escape(check.status.value)}</span> <strong>{html.escape(check.name)}</strong> "
+            f"&mdash; {html.escape(check.detail)}</li>"
+            for check in report.checks
+        )
+        score_text = f"{report.score:.0f} / 100" if report.score is not None else "N/A"
+        partial_note = (
+            f"<p class='subtitle'>Partial - missing: {html.escape(', '.join(report.missing_components))}</p>"
+            if report.is_partial else ""
+        )
+        cards.append(f"""
+<section class="card">
+<div class="section-header">{_SECTION_ICON_AUDIT}<h2>{html.escape(definition.name)}</h2></div>
+<p>Loop Ready Score: <strong>{score_text}</strong></p>
+{partial_note}
+<ul>{check_items}</ul>
+</section>
+""")
+
+    body = f"""
+<div class="page-title">
+<h1>Audit</h1>
+<p class="subtitle">Loop Ready Score for every loop definition under loops/.</p>
+</div>
+
+<div class="grid">
+{"".join(cards)}
+</div>
+"""
+    return _render_shell("Audit · Loop X Engineering", "audit", _status_badge_markup(status), body)
+
+
+def _budget_dimension_tile_html(icon, label, dimension):
+    if not dimension:
+        return ""
+    used = dimension.get("used", dimension.get("used_seconds", dimension.get("used_usd")))
+    limit = dimension.get("limit", dimension.get("limit_seconds", dimension.get("limit_usd")))
+    pill_class = _three_state_pill_class(dimension.get("status", ""))
+    value = f"{used} / {limit}" if limit is not None else f"{used} / — (no limit configured)"
+    return (
+        "<div class='dash-stat-tile'>"
+        f"<span class='material-symbols-outlined dash-stat-icon' aria-hidden='true'>{icon}</span>"
+        f"<span class='dash-stat-value'>{html.escape(str(value))}</span>"
+        f"<span class='dash-stat-label'>{html.escape(label)}</span>"
+        f"<span class='pill {pill_class}'>{html.escape(str(dimension.get('status', '')))}</span>"
+        "</div>"
+    )
+
+
+def render_budget_page():
+    """Budget page - shows every persisted LoopRuntime run's last-known
+    budget status: loop_budget.BudgetController.check's own output,
+    already computed and stored per iteration in
+    outputs/loop-runs/<run_id>/result.json (same source the Loop Runs
+    page reads). No new computation, just new rendering."""
+    status = read_status(STATUS_PATH)
+    paths = list(reversed(loop_serialize.list_results(results_dir=LOOP_RUNS_DIR)))
+
+    runs_with_budget = []
+    for path in paths:
+        data = loop_serialize.read_result(path)
+        if not data["iterations"]:
+            continue
+        budget = data["iterations"][-1].get("budget") or {}
+        if not budget:
+            continue
+        runs_with_budget.append((data, budget))
+
+    if not runs_with_budget:
+        body = """
+<div class="page-title">
+<h1>Budget</h1>
+<p class="subtitle">Budget usage for every recorded LoopRuntime run, most recent first.</p>
+</div>
+<div class="grid"><section class="card">
+<p>No runs yet - run <code>bin/loop_cli.py run &lt;loop.yaml&gt;</code> to produce one.</p>
+</section></div>
+"""
+        return _render_shell("Budget · Loop X Engineering", "budget", _status_badge_markup(status), body)
+
+    rows = []
+    for data, budget in runs_with_budget:
+        run_href = urllib.parse.quote(data["run_id"])
+        overall_pill = _three_state_pill_class(budget.get("overall", ""))
+        tiles = "".join([
+            _budget_dimension_tile_html("loop", "Iterations", budget.get("iterations")),
+            _budget_dimension_tile_html("history", "Runtime (s)", budget.get("runtime")),
+            _budget_dimension_tile_html("payments", "Cost ($)", budget.get("cost")),
+        ])
+        rows.append(f"""
+<section class="card">
+<div class="history-entry-header">
+<a href='/loop-runs/{run_href}'><strong>{html.escape(data['definition_name'])}</strong></a>
+<div class='pill-row'><span class='pill {overall_pill}'>{html.escape(str(budget.get('overall', '')))}</span></div>
+</div>
+<p class='history-entry-overview'>run_id: {html.escape(data['run_id'])}</p>
+<div class="dash-stats-grid">{tiles}</div>
+</section>
+""")
+
+    body = f"""
+<div class="page-title">
+<h1>Budget</h1>
+<p class="subtitle">Budget usage for every recorded LoopRuntime run, most recent first.</p>
+</div>
+
+<div class="grid">
+{"".join(rows)}
+</div>
+"""
+    return _render_shell("Budget · Loop X Engineering", "budget", _status_badge_markup(status), body)
 
 
 def render_logs_page():
@@ -7392,17 +7558,20 @@ def render_analytics_page(days=7):
     """The loop's performance-at-a-glance page - see
     docs/superpowers/specs/2026-09-05-analytics-dashboard-design.md (and
     the later Sprint 5/6 specs for the sections they each added). Reads
-    bin/metrics.py's, bin/cost.py's, and bin/learning.py's own report
-    dicts (no new event-reading logic here) for the selected `days`
-    window, computes a partial Loop Health score via bin/health.py, and
-    renders 8 sections in order: Loop Health, Outcomes, Quality, Risk &
-    Classification, Failure Breakdown, Cost, Learning, Trend - stacked
-    inside one .analytics-sections wrapper (see _STYLE) so consecutive
-    cards get a gap between them. Every
-    unavailable metric renders as "N/A" with its reason as a tooltip,
-    exactly like bin/metrics.py's/bin/cost.py's/bin/learning.py's own
-    CLI output - this page adds no new judgment about what's available,
-    it just presents what those modules already compute."""
+    bin/metrics.py's and bin/learning.py's own report dicts (no new
+    event-reading logic here) for the selected `days` window, computes a
+    partial Loop Health score via bin/health.py, and renders 6 sections
+    in order: Loop Health, Outcomes, Quality, Risk & Classification,
+    Failure Breakdown, Learning, Trend - stacked inside one
+    .analytics-sections wrapper (see _STYLE) so consecutive cards get a
+    gap between them. Cost has its own dedicated /cost page (see
+    render_cost_page) - bin/cost.py's report is still computed here
+    because bin/health.py's score needs it, it just isn't rendered as a
+    section on this page anymore. Every unavailable metric renders as
+    "N/A" with its reason as a tooltip, exactly like
+    bin/metrics.py's/bin/learning.py's own CLI output - this page adds
+    no new judgment about what's available, it just presents what those
+    modules already compute."""
     if days not in (7, 30, 90):
         days = 7
 
@@ -7434,13 +7603,76 @@ def render_analytics_page(days=7):
 {_quality_section_html(metrics_report)}
 {_risk_classification_section_html(metrics_report)}
 {_failure_breakdown_section_html(metrics_report)}
-{_cost_section_html(cost_report)}
 {_learning_section_html(learning_report)}
 {_trend_section_html(days)}
 </div>
 """
     status = read_status(STATUS_PATH)
     return _render_shell("Analytics · Loop X Engineering", "analytics", _status_badge_markup(status), body)
+
+
+def _loop_runtime_cost_section_html(cost_summary):
+    """The plan's section 31 `loop cost` numbers (Runs / Estimated Cost /
+    Cost per Run) computed by loop_serialize.summarize_run_costs, the
+    same helper `loop_cli.py cost` uses - this is a distinct cost
+    dimension from bin/cost.py's per-GitLab-issue figures above it on
+    this page: one is the generic LoopRuntime's persisted runs, the
+    other is the GitLab issue loop's own event log."""
+    cost_per_run = (
+        f"${cost_summary['cost_per_run_usd']:,.2f}" if cost_summary["cost_per_run_usd"] is not None else "N/A"
+    )
+    tiles = "".join([
+        _stat_tile_html("loop", "Runs", cost_summary["total_runs"]),
+        _stat_tile_html("payments", "Estimated cost", f"${cost_summary['total_cost_usd']:,.2f}"),
+        _stat_tile_html("payments", "Cost / run", cost_per_run),
+    ])
+
+    return f"""
+<section class="card">
+<div class="section-header">{_SECTION_ICON_COST}<h2>Loop Runtime Cost</h2></div>
+<div class="dash-stats-grid">{tiles}</div>
+</section>
+"""
+
+
+def render_cost_page(days=7):
+    """Cost page - see docs/superpowers/specs/2026-09-05-analytics-dashboard-design.md
+    for the original Cost section this was split out of (Analytics kept
+    every other section). Two cards: the GitLab issue loop's own cost
+    (bin/cost.py, windowed by `days` like Analytics still is), and the
+    generic LoopRuntime's persisted-run cost (loop_serialize, no time
+    window - it reads whatever is under LOOP_RUNS_DIR, same as the Loop
+    Runs page)."""
+    if days not in (7, 30, 90):
+        days = 7
+
+    until = datetime.now(timezone.utc).date()
+    since = until - timedelta(days=days - 1)
+    since_date, until_date = since.isoformat(), until.isoformat()
+
+    cost_report = cost.build_cost_report(since_date=since_date, until_date=until_date)
+    cost_summary = loop_serialize.summarize_run_costs(results_dir=LOOP_RUNS_DIR)
+
+    days_selector_html = "".join(
+        f"<a href='/cost?days={n}' class=\"{'active' if n == days else ''}\">{n}d</a>"
+        for n in (7, 30, 90)
+    )
+
+    body = f"""
+<div class="page-title">
+<h1>Cost</h1>
+<p class="subtitle">What the loop is spending, from both cost sources it tracks.</p>
+</div>
+
+<div class="analytics-days-selector">{days_selector_html}</div>
+
+<div class="analytics-sections">
+{_cost_section_html(cost_report)}
+{_loop_runtime_cost_section_html(cost_summary)}
+</div>
+"""
+    status = read_status(STATUS_PATH)
+    return _render_shell("Cost · Loop X Engineering", "cost", _status_badge_markup(status), body)
 
 
 def render_activity_page(flash=None, flash_ok=True):
@@ -7630,6 +7862,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._not_found()
                 return
             self._send_html(page)
+            return
+
+        if split.path == "/cost":
+            query = urllib.parse.parse_qs(split.query)
+            days_raw = query.get("days", ["7"])[0]
+            try:
+                days = int(days_raw)
+            except ValueError:
+                days = 7
+            self._send_html(render_cost_page(days=days))
+            return
+
+        if split.path == "/audit":
+            self._send_html(render_audit_page())
+            return
+
+        if split.path == "/budget":
+            self._send_html(render_budget_page())
             return
 
         if split.path == "/logs":

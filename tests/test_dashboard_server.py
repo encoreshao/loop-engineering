@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin" / "web"))
@@ -2599,6 +2600,9 @@ def test_nav_items_each_carry_a_material_symbols_icon():
         "analytics": "monitoring",
         "history": "history",
         "loop_runs": "loop",
+        "cost": "payments",
+        "audit": "fact_check",
+        "budget": "account_balance_wallet",
         "memory": "lightbulb",
         "daemons": "dns",
         "skills": "extension",
@@ -8261,15 +8265,10 @@ def test_render_analytics_page_populated_event_log_shows_real_numbers(monkeypatc
 
     # real issue counts (2 processed, 1 completed, 1 escalated) - not "N/A"
     assert "50.0%" in output  # resolution rate AND autonomy rate: 1 completed / 2 processed
-    assert "$12.00" in output  # total AI cost
-    assert "$6.00" in output  # cost per issue: 12.0 / 2 processed (same priced run_id)
     assert "50/100" in output  # health score: every known component computes to 50 with this fixture
 
     outcomes_html = output.split("<h2>Outcomes</h2>")[1].split("<h2>Quality</h2>")[0]
     assert "N/A" not in outcomes_html
-
-    cost_html = output.split("<h2>Cost</h2>")[1].split("<h2>Learning</h2>")[0]
-    assert "N/A" not in cost_html
 
     # finding 1: autonomy placeholder disclosed (Outcomes tile, Health tile, Trend caption)
     assert output.count("placeholder: currently identical to resolution rate") >= 2
@@ -8345,17 +8344,20 @@ def test_render_analytics_page_quality_section_shows_first_pass_verification_til
     assert "First-pass verification" in quality_html
 
 
-def test_render_analytics_page_sections_ordered_quality_then_risk_then_failure_then_cost(monkeypatch, tmp_path):
+def test_render_analytics_page_sections_ordered_quality_then_risk_then_failure_then_learning_then_trend(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
     monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
 
     output = ds.render_analytics_page(days=7)
 
+    assert "<h2>Cost</h2>" not in output  # moved to its own /cost page
+
     quality_idx = output.index("<h2>Quality</h2>")
     risk_idx = output.index("Classification</h2>")
     failure_idx = output.index("<h2>Failure Breakdown</h2>")
-    cost_idx = output.index("<h2>Cost</h2>")
-    assert quality_idx < risk_idx < failure_idx < cost_idx
+    learning_idx = output.index("<h2>Learning</h2>")
+    trend_idx = output.index("<h2>Trend</h2>")
+    assert quality_idx < risk_idx < failure_idx < learning_idx < trend_idx
 
 
 def test_render_analytics_page_learning_section_shows_zero_state(monkeypatch, tmp_path):
@@ -8387,17 +8389,156 @@ def test_render_analytics_page_learning_section_shows_real_numbers(monkeypatch, 
     assert "100.0%" in learning_html  # both reuse rate and success rate are 100% with this fixture
 
 
-def test_render_analytics_page_sections_include_learning_between_cost_and_trend(monkeypatch, tmp_path):
+def test_render_cost_page_empty_state(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds.cost.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", tmp_path / "loop-runs")
+
+    output = ds.render_cost_page(days=7)
+
+    assert "<h1>Cost</h1>" in output
+    assert "AI cost" in output
+    assert "Loop Runtime Cost" in output
+    assert "$0.00" in output
+
+
+def test_render_cost_page_shows_issue_cost_and_runtime_cost(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    events_dir = tmp_path / "events"
+    monkeypatch.setattr(ds.cost.events, "DEFAULT_EVENTS_DIR", events_dir)
+    run_id = "run_cost_1"
+    events.emit("issue.started", run_id=run_id, issue_run_id="run_cost_1_i1", events_dir=events_dir)
+    events.emit("issue.completed", run_id=run_id, issue_run_id="run_cost_1_i1", events_dir=events_dir)
+    events.emit(
+        "run.completed", run_id=run_id, events_dir=events_dir,
+        data={"cost_usd": 12.0, "input_tokens": 1000, "output_tokens": 500, "cache_read_tokens": 0, "cache_write_tokens": 0},
+    )
+
+    loop_runs_dir = tmp_path / "loop-runs"
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", loop_runs_dir)
+    loop_serialize.write_result(_sample_loop_result(run_id="run_dash_cost"), results_dir=loop_runs_dir)
+
+    output = ds.render_cost_page(days=7)
+
+    assert "$12.00" in output  # total AI cost (GitLab issue loop)
+    runtime_html = output.split("Loop Runtime Cost</h2>")[1].split("</section>")[0]
+    assert "1" in runtime_html  # one persisted LoopRuntime run
+
+
+def test_render_analytics_page_no_longer_links_cost_but_dashboard_nav_does(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
     monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
-    monkeypatch.setattr(ds.learning.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
 
     output = ds.render_analytics_page(days=7)
 
-    cost_idx = output.index("<h2>Cost</h2>")
-    learning_idx = output.index("<h2>Learning</h2>")
-    trend_idx = output.index("<h2>Trend</h2>")
-    assert cost_idx < learning_idx < trend_idx
+    assert "<h2>Cost</h2>" not in output
+    assert "href='/cost'" in output  # nav sidebar still links to the new page
+
+
+def _write_loop_definition_yaml(path, **overrides):
+    data = {
+        "name": "dash-audit-loop",
+        "version": 1,
+        "trigger": {"type": "manual"},
+        "goal": {"type": "self_check"},
+        "actions": ["run_tests"],
+        "verification": {"required": ["tests"]},
+        "verifiers": [{"name": "tests", "type": "command", "command": "true"}],
+        "stop_conditions": {
+            "max_iterations": 1,
+            "max_runtime_minutes": 5,
+            "max_cost_usd": 1,
+            "no_progress_iterations": 1,
+        },
+        "retry": {"enabled": False, "max_attempts": 1},
+        "human_gates": [],
+    }
+    data.update(overrides)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(data))
+    return path
+
+
+def test_render_audit_page_empty_state(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds, "LOOPS_DIR", tmp_path / "loops")
+
+    output = ds.render_audit_page()
+
+    assert "<h1>Audit</h1>" in output
+    assert "no loop definitions found" in output.lower()
+
+
+def test_render_audit_page_shows_score_and_checks_for_each_loop(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    loops_dir = tmp_path / "loops"
+    _write_loop_definition_yaml(loops_dir / "dash-audit-loop" / "loop.yaml")
+    monkeypatch.setattr(ds, "LOOPS_DIR", loops_dir)
+
+    output = ds.render_audit_page()
+
+    assert "dash-audit-loop" in output
+    assert "/ 100" in output
+    assert "goal" in output
+
+
+def _sample_loop_result_with_budget(run_id, budget):
+    import loop_result
+    import loop_state
+    import loop_verifiers
+
+    verification = loop_verifiers.VerificationResult(
+        name="tests", passed=True, exit_code=0, duration_ms=5, output="", evidence={}
+    )
+    iteration = loop_result.IterationResult(
+        iteration=1,
+        state=loop_state.LoopState.COMPLETED,
+        verification_results=[verification],
+        budget=budget,
+        progressed=True,
+    )
+    return loop_result.LoopResult(
+        loop_id="loop_dash_budget",
+        run_id=run_id,
+        definition_name="dash-budget-loop",
+        final_state=loop_state.LoopState.COMPLETED,
+        iterations=[iteration],
+        stop_reason="completed",
+    )
+
+
+def test_render_budget_page_empty_state(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", tmp_path / "loop-runs")
+
+    output = ds.render_budget_page()
+
+    assert "<h1>Budget</h1>" in output
+    assert "no runs yet" in output.lower()
+
+
+def test_render_budget_page_shows_dimensions_and_status_for_each_run(monkeypatch, tmp_path):
+    import loop_budget
+
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    loop_runs_dir = tmp_path / "loop-runs"
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", loop_runs_dir)
+    budget = {
+        "iterations": {"status": loop_budget.BudgetStatus.WARNING, "used": 4, "limit": 5},
+        "runtime": {"status": loop_budget.BudgetStatus.OK, "used_seconds": 120, "limit_seconds": 1800},
+        "cost": {"status": loop_budget.BudgetStatus.OK, "used_usd": 0.73, "limit_usd": 5},
+        "overall": loop_budget.BudgetStatus.WARNING,
+    }
+    loop_serialize.write_result(
+        _sample_loop_result_with_budget("run_budget_1", budget), results_dir=loop_runs_dir
+    )
+
+    output = ds.render_budget_page()
+
+    assert "dash-budget-loop" in output
+    assert "/loop-runs/run_budget_1" in output
+    assert "4" in output and "5" in output  # iterations used/limit
+    assert "0.73" in output  # cost used
 
 
 def test_render_memory_page_shows_category_pill_and_reuse_stats(monkeypatch, tmp_path):
