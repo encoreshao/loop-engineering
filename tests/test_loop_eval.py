@@ -130,3 +130,128 @@ def test_load_cases_reads_every_yaml_file_sorted_by_name(tmp_path):
     cases = load_cases(tmp_path)
 
     assert [case.name for case in cases] == ["a", "b"]
+
+
+from loop_eval import EvalOutcome, run_case
+from loop_definition import LoopDefinition
+
+
+def _case(name, definition_overrides, agent_script, verifier_scripts, expect):
+    definition_data = {
+        "name": f"eval-{name}",
+        "version": 1,
+        "trigger": {"type": "manual"},
+        "goal": {"type": "fix"},
+    }
+    definition_data.update(definition_overrides)
+    return EvalCase(
+        name=name,
+        description=f"test case: {name}",
+        definition=LoopDefinition.from_dict(definition_data),
+        agent_script=agent_script,
+        verifier_scripts=verifier_scripts,
+        expect=expect,
+    )
+
+
+def test_run_case_success(tmp_path):
+    case = _case(
+        "success", {},
+        agent_script=[{"changed": True, "cost_usd": 0.05}],
+        verifier_scripts={"tests": [True]},
+        expect={"final_state": "completed", "stop_reason": "completed", "iterations": 1},
+    )
+
+    outcome = run_case(case, events_dir=tmp_path)
+
+    assert isinstance(outcome, EvalOutcome)
+    assert outcome.passed is True
+    assert outcome.actual["final_state"] == "completed"
+    assert outcome.actual["stop_reason"] == "completed"
+    assert outcome.actual["iterations"] == 1
+
+
+def test_run_case_retry_then_succeed(tmp_path):
+    case = _case(
+        "retry", {},
+        agent_script=[{"changed": True, "cost_usd": 0.05}, {"changed": True, "cost_usd": 0.05}],
+        verifier_scripts={"tests": [False, True]},
+        expect={"final_state": "completed", "stop_reason": "completed", "iterations": 2},
+    )
+
+    outcome = run_case(case, events_dir=tmp_path)
+
+    assert outcome.passed is True
+
+
+def test_run_case_no_progress_escalates(tmp_path):
+    case = _case(
+        "no-progress", {},
+        agent_script=[{"changed": True, "cost_usd": 0.05}, {"changed": True, "cost_usd": 0.05}],
+        verifier_scripts={"tests": [False, False]},
+        expect={"final_state": "escalated", "stop_reason": "no_progress", "iterations": 2},
+    )
+
+    outcome = run_case(case, events_dir=tmp_path)
+
+    assert outcome.passed is True
+
+
+def test_run_case_budget_exceeded(tmp_path):
+    case = _case(
+        "budget", {"stop_conditions": {"max_cost_usd": 0.15}},
+        agent_script=[{"changed": True, "cost_usd": 0.20}],
+        verifier_scripts={"tests": [False]},
+        # 2, not 1: LoopRuntime appends the iteration-1 retry-continuation
+        # IterationResult, THEN a second STOPPED IterationResult when
+        # iteration 2's pre-check catches the now-exceeded budget - the
+        # agent/verifier are each only called once, but two IterationResults
+        # land in the result either way.
+        expect={"final_state": "stopped", "stop_reason": "budget_exceeded", "iterations": 2},
+    )
+
+    outcome = run_case(case, events_dir=tmp_path)
+
+    assert outcome.passed is True
+
+
+def test_run_case_unsafe_action_is_policy_denied(tmp_path):
+    case = _case(
+        "unsafe-action", {"actions": ["merge"]},
+        agent_script=[],
+        verifier_scripts={},
+        expect={"final_state": "blocked", "stop_reason": "policy_denied"},
+    )
+
+    outcome = run_case(case, events_dir=tmp_path)
+
+    assert outcome.passed is True
+    assert outcome.actual == {"final_state": "blocked", "stop_reason": "policy_denied"}
+
+
+def test_run_case_ambiguous_task_vacuously_completes(tmp_path):
+    case = _case(
+        "ambiguous-task", {},
+        agent_script=[{"changed": True, "cost_usd": 0.0}],
+        verifier_scripts={},
+        expect={"final_state": "completed", "stop_reason": "completed", "iterations": 1},
+    )
+
+    outcome = run_case(case, events_dir=tmp_path)
+
+    assert outcome.passed is True
+
+
+def test_run_case_reports_a_mismatch_without_raising(tmp_path):
+    case = _case(
+        "wrong-expectation", {},
+        agent_script=[{"changed": True, "cost_usd": 0.05}],
+        verifier_scripts={"tests": [True]},
+        expect={"final_state": "escalated", "stop_reason": "no_progress"},
+    )
+
+    outcome = run_case(case, events_dir=tmp_path)
+
+    assert outcome.passed is False
+    assert "escalated" in outcome.detail
+    assert "completed" in outcome.detail

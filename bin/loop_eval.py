@@ -10,6 +10,8 @@ from pathlib import Path
 import yaml
 
 from loop_definition import LoopDefinition
+from loop_policy import PolicyViolationError
+from loop_runtime import LoopRuntime
 from loop_verifiers import VerificationResult, Verifier
 
 
@@ -97,3 +99,39 @@ def load_case(path):
 
 def load_cases(cases_dir):
     return [load_case(p) for p in sorted(Path(cases_dir).glob("*.yaml"))]
+
+
+@dataclass
+class EvalOutcome:
+    case_name: str
+    passed: bool
+    expected: dict
+    actual: dict
+    detail: str = ""
+
+
+def run_case(case, events_dir):
+    verifiers = [
+        ScriptedVerifier(name, script) for name, script in case.verifier_scripts.items()
+    ]
+    runtime = LoopRuntime(
+        agent_fn=ScriptedAgent(case.agent_script),
+        verifiers=verifiers,
+        events_dir=events_dir,
+    )
+
+    try:
+        result = runtime.start(case.definition, run_id=f"eval-{case.name}")
+    except PolicyViolationError:
+        actual = {"final_state": "blocked", "stop_reason": "policy_denied"}
+    else:
+        actual = {
+            "final_state": result.final_state.value,
+            "stop_reason": result.stop_reason,
+            "iterations": len(result.iterations),
+        }
+
+    passed = all(actual.get(key) == value for key, value in case.expect.items())
+    detail = "" if passed else f"expected {case.expect}, got {actual}"
+
+    return EvalOutcome(case_name=case.name, passed=passed, expected=case.expect, actual=actual, detail=detail)
