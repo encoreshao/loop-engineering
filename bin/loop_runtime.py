@@ -24,7 +24,8 @@ def _can_retry(retry_config, iteration_number):
 
 class LoopRuntime:
     def __init__(
-        self, agent_fn, verifiers, progress_detector=None, policy_engine=None, events_module=None, events_dir=None
+        self, agent_fn, verifiers, progress_detector=None, policy_engine=None, events_module=None,
+        events_dir=None, on_iteration=None,
     ):
         self.agent_fn = agent_fn
         self.verifiers = verifiers
@@ -32,10 +33,19 @@ class LoopRuntime:
         self.policy_engine = policy_engine if policy_engine is not None else PolicyEngine()
         self.events_module = events_module if events_module is not None else _default_events_module
         self.events_dir = events_dir
+        self.on_iteration = on_iteration
 
     def _emit(self, event_type, run_id, data=None):
         try:
             self.events_module.emit(event_type, run_id, data=data, events_dir=self.events_dir)
+        except Exception:
+            pass
+
+    def _notify_iteration(self, run_id, loop_id, definition_name, iterations):
+        if self.on_iteration is None:
+            return
+        try:
+            self.on_iteration(run_id, loop_id, definition_name, list(iterations))
         except Exception:
             pass
 
@@ -89,6 +99,7 @@ class LoopRuntime:
                         progressed=False,
                     )
                 )
+                self._notify_iteration(run_id, loop_id, definition.name, iterations)
                 final_state = LoopState.STOPPED
                 stop_reason = "budget_exceeded"
                 break
@@ -140,6 +151,7 @@ class LoopRuntime:
                     progressed=False,
                 )
                 iterations.append(iteration_result)
+                self._notify_iteration(run_id, loop_id, definition.name, iterations)
                 self._emit("iteration.completed", run_id, data={"iteration": iteration_number, "state": "failed"})
                 final_state = LoopState.FAILED
                 stop_reason = "agent_failed"
@@ -155,6 +167,7 @@ class LoopRuntime:
                     progressed=True,
                 )
                 iterations.append(iteration_result)
+                self._notify_iteration(run_id, loop_id, definition.name, iterations)
                 self._emit("iteration.completed", run_id, data={"iteration": iteration_number, "state": "completed"})
                 final_state = LoopState.COMPLETED
                 stop_reason = "completed"
@@ -176,6 +189,7 @@ class LoopRuntime:
                 state = transition(state, LoopState.ESCALATED)
                 iteration_result.state = LoopState.ESCALATED
                 iterations.append(iteration_result)
+                self._notify_iteration(run_id, loop_id, definition.name, iterations)
                 self._emit(
                     "iteration.completed",
                     run_id,
@@ -187,6 +201,7 @@ class LoopRuntime:
 
             if _can_retry(definition.retry, iteration_number):
                 iterations.append(iteration_result)
+                self._notify_iteration(run_id, loop_id, definition.name, iterations)
                 self._emit("iteration.completed", run_id, data={"iteration": iteration_number, "state": "retry"})
                 previous = iteration_result
                 iteration_number += 1
@@ -195,6 +210,7 @@ class LoopRuntime:
             state = transition(state, LoopState.ESCALATED)
             iteration_result.state = LoopState.ESCALATED
             iterations.append(iteration_result)
+            self._notify_iteration(run_id, loop_id, definition.name, iterations)
             self._emit(
                 "iteration.completed",
                 run_id,

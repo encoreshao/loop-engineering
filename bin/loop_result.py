@@ -26,3 +26,4 @@ class LoopResult:
     stop_reason: str
     prompt: str | None = None
     definition_path: str | None = None
+    status: str = "finished"  # "finished" (terminal) or "running" (in-progress snapshot)

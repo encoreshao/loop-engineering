@@ -184,3 +184,64 @@ def test_events_are_emitted_to_injected_events_dir(tmp_path):
     assert "loop.started" in event_types
     assert "loop.completed" in event_types
     assert all(e["run_id"] == "run_test_6" for e in lines)
+
+
+def test_on_iteration_fires_once_per_completed_iteration():
+    definition = _definition(max_iterations=5)
+    verifier = FakeVerifier([_passing_result()])
+    calls = []
+
+    def record(run_id, loop_id, definition_name, iterations):
+        calls.append((run_id, loop_id, definition_name, len(iterations)))
+
+    runtime = LoopRuntime(
+        agent_fn=lambda context: {"changed": True}, verifiers=[verifier], on_iteration=record,
+    )
+
+    result = runtime.start(definition, run_id="run_test_on_iteration")
+
+    assert len(calls) == 1  # one successful iteration -> one call
+    run_id, loop_id, definition_name, iteration_count = calls[0]
+    assert run_id == "run_test_on_iteration"
+    assert loop_id == result.loop_id
+    assert definition_name == "test-loop"
+    assert iteration_count == 1
+
+
+def test_on_iteration_receives_a_snapshot_not_the_live_list():
+    definition = _definition(max_iterations=5)
+    verifier = FakeVerifier([_passing_result()])
+    snapshots = []
+    runtime = LoopRuntime(
+        agent_fn=lambda context: {"changed": True}, verifiers=[verifier],
+        on_iteration=lambda run_id, loop_id, definition_name, iterations: snapshots.append(iterations),
+    )
+
+    result = runtime.start(definition, run_id="run_test_snapshot")
+
+    assert snapshots[0] is not result.iterations
+    assert snapshots[0] == result.iterations
+
+
+def test_no_on_iteration_callback_is_a_safe_default():
+    definition = _definition(max_iterations=5)
+    verifier = FakeVerifier([_passing_result()])
+    runtime = LoopRuntime(agent_fn=lambda context: {"changed": True}, verifiers=[verifier])
+
+    result = runtime.start(definition, run_id="run_test_no_callback")
+
+    assert result.final_state == LoopState.COMPLETED
+
+
+def test_on_iteration_exception_is_swallowed():
+    definition = _definition(max_iterations=5)
+    verifier = FakeVerifier([_passing_result()])
+
+    def boom(run_id, loop_id, definition_name, iterations):
+        raise RuntimeError("boom")
+
+    runtime = LoopRuntime(agent_fn=lambda context: {"changed": True}, verifiers=[verifier], on_iteration=boom)
+
+    result = runtime.start(definition, run_id="run_test_boom")
+
+    assert result.final_state == LoopState.COMPLETED

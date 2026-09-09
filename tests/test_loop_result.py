@@ -68,3 +68,28 @@ def test_loop_result_accepts_prompt_and_definition_path():
 
     assert result.prompt == "fix the bug"
     assert result.definition_path == "/tmp/loop.yaml"
+
+
+def test_loop_result_status_defaults_to_finished():
+    iteration = IterationResult(
+        iteration=1, state=LoopState.COMPLETED, verification_results=[], budget={}, progressed=True
+    )
+    result = LoopResult(
+        loop_id="loop_1", run_id="run_1", definition_name="gitlab-issue-fixer",
+        final_state=LoopState.COMPLETED, iterations=[iteration], stop_reason="completed",
+    )
+
+    assert result.status == "finished"
+
+
+def test_loop_result_accepts_status():
+    iteration = IterationResult(
+        iteration=1, state=LoopState.COMPLETED, verification_results=[], budget={}, progressed=True
+    )
+    result = LoopResult(
+        loop_id="loop_1", run_id="run_1", definition_name="gitlab-issue-fixer",
+        final_state="running", iterations=[iteration], stop_reason="running",
+        status="running",
+    )
+
+    assert result.status == "running"
