@@ -193,6 +193,34 @@ def _cmd_status(argv):
     data = read_result(latest)
     print(data["definition_name"])
     print()
+
+    if data.get("status") == "running":
+        last_iteration = data["iterations"][-1] if data["iterations"] else {}
+        budget = last_iteration.get("budget", {})
+        iterations_budget = budget.get("iterations", {})
+        cost_budget = budget.get("cost", {})
+
+        print("Status: RUNNING")
+        print(f"Run: {data['run_id']}")
+
+        used = iterations_budget.get("used")
+        limit = iterations_budget.get("limit")
+        if used is not None:
+            if limit is not None:
+                print(f"Iteration: {used}/{limit}")
+                pct = min(used / limit, 1.0)
+                filled = int(pct * 10)
+                bar = "█" * filled + "░" * (10 - filled)
+                print(f"Budget: {bar} {pct * 100:.0f}%")
+            else:
+                print(f"Iteration: {used}")
+
+        cost_used = cost_budget.get("used_usd")
+        if cost_used is not None:
+            print(f"Cost: ${cost_used:.2f}")
+
+        return 0
+
     print(f"Status: {data['final_state'].upper()}")
     print(f"Run: {data['run_id']}")
     print(f"Iterations: {len(data['iterations'])}")

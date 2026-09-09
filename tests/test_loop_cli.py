@@ -464,3 +464,54 @@ def test_run_writes_running_status_visible_mid_run_then_finished(tmp_path):
     assert data["status"] == "finished", stdout + stderr
     assert data["final_state"] == "escalated"
     assert len(data["iterations"]) == 2
+
+
+def test_status_shows_running_run_with_iteration_cost_and_budget_bar(tmp_path):
+    import json
+
+    results_dir = tmp_path / "results"
+    run_dir = results_dir / "run_running_1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "result.json").write_text(json.dumps({
+        "loop_id": "loop_1",
+        "run_id": "run_running_1",
+        "definition_name": "live-status-loop",
+        "final_state": "running",
+        "stop_reason": "running",
+        "status": "running",
+        "iterations": [
+            {
+                "iteration": 2,
+                "state": "evaluating",
+                "verification_results": [],
+                "budget": {
+                    "iterations": {"status": "warning", "used": 2, "limit": 3},
+                    "runtime": {"status": "ok", "used_seconds": 12.0, "limit_seconds": 900},
+                    "cost": {"status": "ok", "used_usd": 0.73, "limit_usd": 5},
+                    "overall": "warning",
+                },
+                "progressed": True,
+            }
+        ],
+    }))
+
+    result = _run("status", "--results-dir", str(results_dir))
+
+    assert result.returncode == 0
+    assert "live-status-loop" in result.stdout
+    assert "Status: RUNNING" in result.stdout
+    assert "Iteration: 2/3" in result.stdout
+    assert "Cost: $0.73" in result.stdout
+    assert "██████░░░░ 67%" in result.stdout
+
+
+def test_status_finished_run_output_has_no_running_branch(tmp_path):
+    path = _write_definition(tmp_path / "loop.yaml")
+    results_dir = tmp_path / "results"
+    _run("run", str(path), "--results-dir", str(results_dir))
+
+    result = _run("status", "--results-dir", str(results_dir))
+
+    assert result.returncode == 0
+    assert "Status: RUNNING" not in result.stdout
+    assert "cli-test-loop" in result.stdout
