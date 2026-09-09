@@ -605,3 +605,40 @@ def test_status_finished_run_output_has_no_running_branch(tmp_path):
     assert result.returncode == 0
     assert "Status: RUNNING" not in result.stdout
     assert "cli-test-loop" in result.stdout
+
+
+def test_eval_reports_all_cases_pass_by_default():
+    result = _run("eval")
+
+    assert result.returncode == 0
+    assert "6/6 cases passed" in result.stdout
+    assert "FAIL" not in result.stdout
+
+
+def test_eval_accepts_an_explicit_cases_dir_and_reports_a_failure(tmp_path):
+    case_path = tmp_path / "wrong.yaml"
+    case_path.write_text(yaml.safe_dump({
+        "name": "wrong",
+        "description": "deliberately wrong expectation",
+        "definition": {
+            "name": "eval-wrong",
+            "version": 1,
+            "trigger": {"type": "manual"},
+            "goal": {"type": "fix"},
+        },
+        "script": {"agent": [{"changed": True, "cost_usd": 0.0}], "verifiers": {"tests": [True]}},
+        "expect": {"final_state": "escalated", "stop_reason": "no_progress"},
+    }))
+
+    result = _run("eval", str(tmp_path))
+
+    assert result.returncode == 1
+    assert "FAIL  wrong" in result.stdout
+    assert "0/1 cases passed" in result.stdout
+
+
+def test_eval_reports_missing_cases_dir():
+    result = _run("eval", "/no/such/eval/cases/dir")
+
+    assert result.returncode == 2
+    assert "no such directory" in result.stderr

@@ -13,6 +13,7 @@ from pathlib import Path
 from agents.base import get_agent
 from loop_audit import CheckStatus, audit_definition
 from loop_definition import LoopDefinition
+from loop_eval import run_all
 from loop_result import LoopResult
 from loop_runtime import LoopRuntime
 from loop_serialize import find_latest_result, list_results, read_result, summarize_run_costs, write_result
@@ -21,6 +22,7 @@ from loop_verifiers import build_verifiers
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = REPO_ROOT / "templates"
+DEFAULT_EVAL_CASES_DIR = REPO_ROOT / "evals" / "cases"
 
 # Floor guardrail for the CLI's own run/replay invocations - same deny list
 # as bin/gitlab_loop_runner.py's _DISALLOWED_TOOLS. Defense in depth: even if
@@ -360,6 +362,26 @@ def _cmd_doctor(argv):
     return 0
 
 
+def _cmd_eval(argv):
+    cases_dir = Path(argv[0]) if argv else DEFAULT_EVAL_CASES_DIR
+    if not cases_dir.exists():
+        print(f"eval: no such directory {cases_dir}", file=sys.stderr)
+        return 2
+
+    outcomes = run_all(cases_dir)
+    for outcome in outcomes:
+        status = "PASS" if outcome.passed else "FAIL"
+        print(f"{status}  {outcome.case_name}")
+        if not outcome.passed:
+            print(f"      {outcome.detail}")
+
+    passed_count = sum(1 for o in outcomes if o.passed)
+    print()
+    print(f"{passed_count}/{len(outcomes)} cases passed")
+
+    return 0 if passed_count == len(outcomes) else 1
+
+
 _COMMANDS = {
     "init": _cmd_init,
     "validate": _cmd_validate,
@@ -369,6 +391,7 @@ _COMMANDS = {
     "inspect": _cmd_inspect,
     "cost": _cmd_cost,
     "doctor": _cmd_doctor,
+    "eval": _cmd_eval,
     "replay": _cmd_replay,
 }
 
