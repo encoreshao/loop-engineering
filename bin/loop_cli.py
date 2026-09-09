@@ -364,11 +364,15 @@ def _cmd_doctor(argv):
 
 def _cmd_eval(argv):
     cases_dir = Path(argv[0]) if argv else DEFAULT_EVAL_CASES_DIR
-    if not cases_dir.exists():
+    if not cases_dir.is_dir():
         print(f"eval: no such directory {cases_dir}", file=sys.stderr)
         return 2
 
     outcomes = run_all(cases_dir)
+    if not outcomes:
+        print(f"eval: no case files found in {cases_dir}", file=sys.stderr)
+        return 2
+
     for outcome in outcomes:
         status = "PASS" if outcome.passed else "FAIL"
         print(f"{status}  {outcome.case_name}")

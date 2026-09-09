@@ -642,3 +642,23 @@ def test_eval_reports_missing_cases_dir():
 
     assert result.returncode == 2
     assert "no such directory" in result.stderr
+
+
+def test_eval_rejects_a_path_that_is_a_file_not_a_directory(tmp_path):
+    not_a_dir = tmp_path / "not-a-directory.txt"
+    not_a_dir.write_text("hello")
+
+    result = _run("eval", str(not_a_dir))
+
+    assert result.returncode == 2
+    assert "no such directory" in result.stderr
+
+
+def test_eval_reports_an_error_for_an_empty_cases_dir(tmp_path):
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+
+    result = _run("eval", str(empty_dir))
+
+    assert result.returncode == 2
+    assert "no case files found" in result.stderr
