@@ -63,6 +63,11 @@ class RetryConfig:
 
 
 @dataclass
+class PermissionsConfig:
+    credentials_read: bool = False
+
+
+@dataclass
 class LoopDefinition:
     name: str
     version: int
@@ -76,6 +81,8 @@ class LoopDefinition:
     human_gates: list = field(default_factory=list)
     retry: RetryConfig = field(default_factory=RetryConfig)
     verifiers: list = field(default_factory=list)
+    permissions: PermissionsConfig = field(default_factory=PermissionsConfig)
+    observability_enabled: bool = True
 
     @staticmethod
     def from_dict(data):
@@ -96,6 +103,7 @@ class LoopDefinition:
         verification_data = data.get("verification", {})
         stop_conditions_data = data.get("stop_conditions", {})
         retry_data = data.get("retry", {})
+        permissions_data = data.get("permissions", {})
 
         return LoopDefinition(
             name=data["name"],
@@ -122,6 +130,10 @@ class LoopDefinition:
                 max_attempts=retry_data.get("max_attempts", _RETRY_DEFAULTS["max_attempts"]),
             ),
             verifiers=data.get("verifiers", []),
+            permissions=PermissionsConfig(
+                credentials_read=permissions_data.get("credentials_read", False),
+            ),
+            observability_enabled=data.get("observability_enabled", True),
         )
 
     @staticmethod

@@ -138,6 +138,54 @@ def test_verifiers_field_round_trips_raw_specs():
     ]
 
 
+def test_permissions_credentials_read_round_trips_true():
+    data = dict(EXAMPLE)
+    data["permissions"] = {"credentials_read": True}
+
+    d = LoopDefinition.from_dict(data)
+
+    assert d.permissions.credentials_read is True
+
+
+def test_permissions_credentials_read_round_trips_false():
+    data = dict(EXAMPLE)
+    data["permissions"] = {"credentials_read": False}
+
+    d = LoopDefinition.from_dict(data)
+
+    assert d.permissions.credentials_read is False
+
+
+def test_permissions_defaults_to_credentials_read_false_when_absent():
+    d = LoopDefinition.from_dict(EXAMPLE)
+
+    assert d.permissions.credentials_read is False
+
+
+def test_observability_enabled_round_trips_true():
+    data = dict(EXAMPLE)
+    data["observability_enabled"] = True
+
+    d = LoopDefinition.from_dict(data)
+
+    assert d.observability_enabled is True
+
+
+def test_observability_enabled_round_trips_false():
+    data = dict(EXAMPLE)
+    data["observability_enabled"] = False
+
+    d = LoopDefinition.from_dict(data)
+
+    assert d.observability_enabled is False
+
+
+def test_observability_enabled_defaults_to_true_when_absent():
+    d = LoopDefinition.from_dict(EXAMPLE)
+
+    assert d.observability_enabled is True
+
+
 def test_from_yaml_reads_real_file(tmp_path):
     yaml_path = tmp_path / "loop.yaml"
     yaml_path.write_text(yaml.safe_dump(EXAMPLE))
