@@ -1143,6 +1143,21 @@ def test_dashboard_server_integration_loop_runs_overview_stats(tmp_path, monkeyp
             assert "not tracked yet" in body.lower()
 
 
+def test_render_loop_runs_page_wraps_overview_card_in_grid_for_gap(tmp_path, monkeypatch):
+    """The overview stats card and the Runs list card are two separate
+    top-level sections - only .grid divs carry the page's card-to-card
+    gap (see .analytics-sections's own comment for why a bare <section
+    class="card"> outside a .grid gets no spacing from its neighbor), so
+    the overview card must be wrapped in its own <div class="grid"> too,
+    not left as a bare sibling section."""
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", tmp_path)
+    loop_serialize.write_result(_sample_loop_result(run_id="run_dash_gap"), results_dir=tmp_path)
+
+    output = ds.render_loop_runs_page()
+
+    assert output.count('<div class="grid">') >= 2
+
+
 def test_dashboard_server_integration_loop_run_detail_route(tmp_path, monkeypatch):
     monkeypatch.setattr(ds, "LOOP_RUNS_DIR", tmp_path)
     loop_serialize.write_result(_sample_loop_result(run_id="run_dash_2"), results_dir=tmp_path)
@@ -2893,13 +2908,14 @@ def test_collapsed_sidebar_top_stacks_brand_and_toggle_instead_of_squeezing_them
         assert label in sidebar
     # The GitLab settings page lives in the Configuration group, which
     # comes after System in _NAV_GROUPS, regardless of _NAV_ITEMS's own
-    # ordering. Order here follows _NAV_GROUPS (Monitor:
-    # gitlab/memory/activity/history, then System: daemons/skills), not
-    # _NAV_ITEMS's own tuple order.
+    # ordering. Order here follows _NAV_GROUPS (Live: activity/gitlab/
+    # topic_monitor/logs, then History: loop_runs/history, then Insights:
+    # analytics/memory/cost/audit/budget, then System: daemons/skills),
+    # not _NAV_ITEMS's own tuple order.
     assert (
-        sidebar.index("Dashboard") < sidebar.index("Live GitLab")
-        < sidebar.index("Memory") < sidebar.index("Activity")
-        < sidebar.index("Run History") < sidebar.index("Daemons") < sidebar.index("title='GitLab Settings'")
+        sidebar.index("Dashboard") < sidebar.index("Activity")
+        < sidebar.index("Live GitLab") < sidebar.index("Run History")
+        < sidebar.index("Memory") < sidebar.index("Daemons") < sidebar.index("title='GitLab Settings'")
     )
 
 
@@ -2911,7 +2927,7 @@ def test_sidebar_html_groups_settings_and_general_settings_under_configuration()
     assert "title='GitLab Settings'" in config_block
     assert "title='Settings'" in config_block
     assert "Topic Settings" in config_block
-    # Activity is a Monitor-group page, not Configuration - it must appear
+    # Activity is a Live-group page, not Configuration - it must appear
     # before the Configuration label, not inside its block.
     assert sidebar.index("title='Activity'") < config_index
 
@@ -2924,13 +2940,21 @@ def test_sidebar_html_marks_active_page():
 
 def test_sidebar_html_groups_main_nav_items_with_labels():
     """Dashboard stands alone (no label - it's the landing page, not part
-    of a group); the rest cluster under Monitor/System/Configuration/Docs
-    labels, with Docs deliberately last (least-visited group)."""
+    of a group); the rest cluster under Live/History/Insights/System/
+    Configuration/Docs labels, with Docs deliberately last (least-visited
+    group). Live/History/Insights replaced the old single "Monitor" group
+    (it held 11 items, too many to scan): Live is the 4 pages that
+    actually auto-refresh (activity/gitlab/topic_monitor/logs - see
+    test_render_history_page_does_not_auto_refresh's own docstring),
+    History is archived run records (loop_runs/history), Insights is
+    computed reports/scores/knowledge (analytics/memory/cost/audit/
+    budget)."""
     sidebar = ds._sidebar_html("overview")
 
     overview_index = sidebar.index("title='Dashboard'")
-    monitor_index = sidebar.index("sidebar-group-label'>Monitor<")
-    history_index = sidebar.index("title='Run History'")
+    live_index = sidebar.index("sidebar-group-label'>Live<")
+    history_label_index = sidebar.index("sidebar-group-label'>History<")
+    insights_index = sidebar.index("sidebar-group-label'>Insights<")
     system_index = sidebar.index("sidebar-group-label'>System<")
     daemons_index = sidebar.index("title='Daemons'")
     docs_index = sidebar.index("sidebar-group-label'>Docs<")
@@ -2939,30 +2963,51 @@ def test_sidebar_html_groups_main_nav_items_with_labels():
     settings_index = sidebar.index("title='GitLab Settings'")
 
     # Dashboard comes before any group label - it isn't inside one
-    assert overview_index < monitor_index
-    for label in ("Monitor", "System", "Docs", "Configuration"):
+    assert overview_index < live_index
+    for label in ("Live", "History", "Insights", "System", "Docs", "Configuration"):
         assert f"sidebar-group-label'>{label}<" in sidebar
 
-    assert monitor_index < history_index < system_index
+    assert live_index < history_label_index < insights_index < system_index
     assert system_index < daemons_index < config_index
     assert config_index < settings_index < docs_index < readme_index
 
-    gitlab_index = sidebar.index("title='Live GitLab'")
-    memory_index = sidebar.index("title='Memory'")
     activity_index = sidebar.index("title='Activity'")
-    # Within Monitor, Run History is last (gitlab/memory/activity/history)
-    assert monitor_index < gitlab_index < memory_index < activity_index < history_index
+    gitlab_index = sidebar.index("title='Live GitLab'")
+    topic_monitor_index = sidebar.index("title='Topic Monitor'")
+    logs_index = sidebar.index("title='Logs'")
+    loop_runs_index = sidebar.index("title='Loop Runs'")
+    run_history_index = sidebar.index("title='Run History'")
+    analytics_index = sidebar.index("title='Analytics'")
+    memory_index = sidebar.index("title='Memory'")
+    cost_index = sidebar.index("title='Cost'")
+    audit_index = sidebar.index("title='Audit'")
+    budget_index = sidebar.index("title='Budget'")
+
+    # Within Live: activity, live gitlab, topic monitor, logs
+    assert live_index < activity_index < gitlab_index < topic_monitor_index < logs_index < history_label_index
+    # Within History: loop runs (newer/structured), then run history (legacy)
+    assert history_label_index < loop_runs_index < run_history_index < insights_index
+    # Within Insights: analytics, memory, then the cost/audit/budget trio
+    assert insights_index < analytics_index < memory_index < cost_index < audit_index < budget_index < system_index
 
     for key in (
-        "history", "gitlab", "memory", "activity", "daemons", "skills", "readme",
-        "settings", "general_settings", "topic_settings",
+        "history", "gitlab", "memory", "activity", "loop_runs", "logs", "topic_monitor",
+        "analytics", "cost", "audit", "budget",
+        "daemons", "skills", "readme", "settings", "general_settings", "topic_settings",
     ):
         assert ds._NAV_GROUP_OF[key]
 
-    assert ds._NAV_GROUP_OF["history"] == "Monitor"
-    assert ds._NAV_GROUP_OF["gitlab"] == "Monitor"
-    assert ds._NAV_GROUP_OF["memory"] == "Monitor"
-    assert ds._NAV_GROUP_OF["activity"] == "Monitor"
+    assert ds._NAV_GROUP_OF["activity"] == "Live"
+    assert ds._NAV_GROUP_OF["gitlab"] == "Live"
+    assert ds._NAV_GROUP_OF["topic_monitor"] == "Live"
+    assert ds._NAV_GROUP_OF["logs"] == "Live"
+    assert ds._NAV_GROUP_OF["loop_runs"] == "History"
+    assert ds._NAV_GROUP_OF["history"] == "History"
+    assert ds._NAV_GROUP_OF["analytics"] == "Insights"
+    assert ds._NAV_GROUP_OF["memory"] == "Insights"
+    assert ds._NAV_GROUP_OF["cost"] == "Insights"
+    assert ds._NAV_GROUP_OF["audit"] == "Insights"
+    assert ds._NAV_GROUP_OF["budget"] == "Insights"
     assert ds._NAV_GROUP_OF["daemons"] == "System"
     assert ds._NAV_GROUP_OF["skills"] == "System"
     assert ds._NAV_GROUP_OF["readme"] == "Docs"
@@ -4368,10 +4413,10 @@ def test_render_logs_page_renders_each_entry_as_its_own_block(tmp_path, monkeypa
     assert "gitlab-loop" in output and "chat-assistant" in output
 
 
-def test_logs_nav_item_present_in_monitor_group_after_activity(tmp_path):
+def test_logs_nav_item_present_in_live_group_after_activity(tmp_path):
     sidebar = ds._sidebar_html("overview")
 
-    assert ds._NAV_GROUP_OF["logs"] == "Monitor"
+    assert ds._NAV_GROUP_OF["logs"] == "Live"
     assert sidebar.index("title='Activity'") < sidebar.index("title='Logs'") < sidebar.index("title='Run History'")
 
 
@@ -5840,6 +5885,60 @@ def test_render_general_settings_page_ai_cli_tab_closed_dropdown_trigger_shows_a
     output = ds.render_general_settings_page(active_tab="ai-cli")
 
     assert "custom-select-value'>Codex CLI (installed)</span>" in output
+
+
+def test_cli_available_caches_result_to_avoid_repeated_shell_spawn():
+    """_cli_available shells out to a real interactive login zsh (~2s+ per
+    call - see its own docstring) - render_general_settings_page calls it
+    twice on every /settings/general load, which is what made that page
+    take ~4s per request. A repeat call within the TTL must reuse the
+    cached result instead of spawning zsh again."""
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, returncode=0, stdout="/usr/bin/claude\n", stderr="")
+
+    cache = {}
+
+    first = ds._cli_available("claude", run=fake_run, cache=cache, now=1000.0)
+    second = ds._cli_available("claude", run=fake_run, cache=cache, now=1001.0)
+
+    assert first is True
+    assert second is True
+    assert len(calls) == 1
+
+
+def test_cli_available_re_checks_after_ttl_expires():
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, returncode=0, stdout="/usr/bin/claude\n", stderr="")
+
+    cache = {}
+
+    ds._cli_available("claude", run=fake_run, cache=cache, now=1000.0)
+    ds._cli_available("claude", run=fake_run, cache=cache, now=1000.0 + ds._CLI_AVAILABILITY_TTL_SECONDS + 1)
+
+    assert len(calls) == 2
+
+
+def test_cli_available_caches_not_found_result_too():
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="")
+
+    cache = {}
+
+    first = ds._cli_available("codex", run=fake_run, cache=cache, now=1000.0)
+    second = ds._cli_available("codex", run=fake_run, cache=cache, now=1001.0)
+
+    assert first is False
+    assert second is False
+    assert len(calls) == 1
 
 
 def test_dashboard_server_integration_ai_cli_route(monkeypatch, tmp_path):
@@ -8480,6 +8579,21 @@ def test_render_audit_page_shows_score_and_checks_for_each_loop(monkeypatch, tmp
     assert "dash-audit-loop" in output
     assert "/ 100" in output
     assert "goal" in output
+
+
+def test_render_audit_page_check_list_uses_plain_class_for_item_gap(monkeypatch, tmp_path):
+    """The per-loop checklist is a dense list of pill+text rows - it must
+    use the same `ul.plain` (list-style:none, gap between rows) treatment
+    every other tagged-item list in this app uses, not a bare <ul> with no
+    spacing between rows."""
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    loops_dir = tmp_path / "loops"
+    _write_loop_definition_yaml(loops_dir / "dash-audit-loop" / "loop.yaml")
+    monkeypatch.setattr(ds, "LOOPS_DIR", loops_dir)
+
+    output = ds.render_audit_page()
+
+    assert "<ul class='plain'>" in output or '<ul class="plain">' in output
 
 
 def _sample_loop_result_with_budget(run_id, budget):

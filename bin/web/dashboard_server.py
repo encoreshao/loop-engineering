@@ -28,6 +28,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.parse
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -1663,7 +1664,11 @@ def _custom_select(name, options, selected, empty_label=None, onchange=None):
     )
 
 
-def _cli_available(name):
+_CLI_AVAILABILITY_CACHE = {}
+_CLI_AVAILABILITY_TTL_SECONDS = 300
+
+
+def _cli_available(name, run=None, cache=None, now=None):
     """Whether the `name` CLI binary (claude/codex) resolves on PATH,
     checked via a real login shell rather than shutil.which. This
     dashboard runs as the com.hermes.loop-engineering-dashboard launchd
@@ -1672,15 +1677,38 @@ def _cli_available(name):
     against that minimal PATH would report both CLIs "not found" even
     when they're installed and working fine for the loop scripts, which
     resolve them the same way this does (see run-loop.sh's comment on
-    delegating to `zsh -i -l` for why)."""
+    delegating to `zsh -i -l` for why).
+
+    That real login shell is genuinely slow to spawn (a full -i -l zsh
+    startup, not a bare `command -v`) - render_general_settings_page calls
+    this twice on every /settings/general request, which is what made
+    that one page take ~4s to load while every other page is near-instant.
+    The result is cached in-process for `_CLI_AVAILABILITY_TTL_SECONDS`:
+    CLI install status essentially never changes while the daemon is
+    running, so a fresh check on first load (or after the TTL) is enough -
+    no need to pay this cost on every single request."""
+    if run is None:
+        run = subprocess.run
+    if cache is None:
+        cache = _CLI_AVAILABILITY_CACHE
+    if now is None:
+        now = time.monotonic()
+
+    cached = cache.get(name)
+    if cached is not None and now - cached[0] < _CLI_AVAILABILITY_TTL_SECONDS:
+        return cached[1]
+
     try:
-        result = subprocess.run(
+        result = run(
             ["zsh", "-i", "-l", "-c", f"command -v {name}"],
             capture_output=True, timeout=5, text=True,
         )
-        return result.returncode == 0 and bool(result.stdout.strip())
+        available = result.returncode == 0 and bool(result.stdout.strip())
     except (subprocess.SubprocessError, OSError):
-        return False
+        available = False
+
+    cache[name] = (now, available)
+    return available
 
 
 def _mask_secret(secret):
@@ -4462,35 +4490,46 @@ def _status_badge(state):
 
 _NAV_ITEMS = (
     ("overview", "/", "Dashboard", _SECTION_ICON_OVERVIEW),
-    ("analytics", "/analytics", "Analytics", _SECTION_ICON_ANALYTICS),
-    ("history", "/history", "Run History", _SECTION_ICON_HISTORY),
+    ("activity", "/activity", "Activity", _SECTION_ICON_ACTIVITY),
+    ("gitlab", "/gitlab", "Live GitLab", _SECTION_ICON_GITLAB),
+    ("topic_monitor", "/topic-monitor", "Topic Monitor", _SECTION_ICON_TOPIC_MONITOR),
+    ("logs", "/logs", "Logs", _SECTION_ICON_LOGS),
     ("loop_runs", "/loop-runs", "Loop Runs", _SECTION_ICON_LOOP_RUNS),
+    ("history", "/history", "Run History", _SECTION_ICON_HISTORY),
+    ("analytics", "/analytics", "Analytics", _SECTION_ICON_ANALYTICS),
+    ("memory", "/memory", "Memory", _SECTION_ICON_MEMORY),
     ("cost", "/cost", "Cost", _SECTION_ICON_COST),
     ("audit", "/audit", "Audit", _SECTION_ICON_AUDIT),
     ("budget", "/budget", "Budget", _SECTION_ICON_BUDGET),
-    ("gitlab", "/gitlab", "Live GitLab", _SECTION_ICON_GITLAB),
-    ("memory", "/memory", "Memory", _SECTION_ICON_MEMORY),
-    ("topic_monitor", "/topic-monitor", "Topic Monitor", _SECTION_ICON_TOPIC_MONITOR),
     ("daemons", "/daemons", "Daemons", _SECTION_ICON_DAEMONS),
     ("skills", "/skills", "Skills", _SECTION_ICON_SKILLS),
     ("settings", "/settings", "GitLab Settings", _SECTION_ICON_SETTINGS),
     ("general_settings", "/settings/general", "Settings", _SECTION_ICON_GENERAL_SETTINGS),
-    ("activity", "/activity", "Activity", _SECTION_ICON_ACTIVITY),
-    ("logs", "/logs", "Logs", _SECTION_ICON_LOGS),
-    ("readme", "/readme", "README", _SECTION_ICON_README),
     ("topic_settings", "/topic-monitor/settings", "Topic Settings", _SECTION_ICON_SETTINGS),
+    ("readme", "/readme", "README", _SECTION_ICON_README),
 )
 
 
 _NAV_GROUPS = (
     # (label or None, keys...) - None means "ungrouped, no label" (just
     # Dashboard: the landing page, not really part of any category).
-    # Monitor = watching what the loop is doing/has done; System = the
-    # infrastructure underneath it (launchd daemons, external skill
-    # deps); Configuration = settings/meta pages; Docs = reference
-    # material, deliberately last since it's the least-visited group.
+    # Live/History/Insights replaced a single 11-item "Monitor" group that
+    # had grown too long to scan at a glance:
+    #   Live = the 4 pages that actually auto-refresh with live state
+    #     (activity/gitlab/topic_monitor/logs - see
+    #     test_render_history_page_does_not_auto_refresh's own docstring
+    #     for why Run History is deliberately NOT one of these)
+    #   History = archived records of past runs (loop_runs/history)
+    #   Insights = computed reports, scores, and accumulated knowledge
+    #     (analytics/memory/cost/audit/budget)
+    # System = the infrastructure underneath the loop (launchd daemons,
+    # external skill deps); Configuration = settings/meta pages; Docs =
+    # reference material, deliberately last since it's the least-visited
+    # group.
     (None, ("overview",)),
-    ("Monitor", ("analytics", "gitlab", "topic_monitor", "memory", "activity", "logs", "history", "loop_runs", "cost", "audit", "budget")),
+    ("Live", ("activity", "gitlab", "topic_monitor", "logs")),
+    ("History", ("loop_runs", "history")),
+    ("Insights", ("analytics", "memory", "cost", "audit", "budget")),
     ("System", ("daemons", "skills")),
     ("Configuration", ("settings", "topic_settings", "general_settings")),
     ("Docs", ("readme",)),
@@ -5580,10 +5619,12 @@ def _loop_runs_overview_html(summary):
         for icon, label, value in tiles
     )
     return f"""
+<div class="grid">
 <section class="card">
 <div class="dash-stats-grid">{tiles_html}</div>
 <p class="subtitle">Average duration: not tracked yet - LoopResult has no start/finish timestamp.</p>
 </section>
+</div>
 """
 
 
@@ -5685,7 +5726,7 @@ def render_audit_page(loops_dir=None):
 <div class="section-header">{_SECTION_ICON_AUDIT}<h2>{html.escape(definition.name)}</h2></div>
 <p>Loop Ready Score: <strong>{score_text}</strong></p>
 {partial_note}
-<ul>{check_items}</ul>
+<ul class='plain'>{check_items}</ul>
 </section>
 """)
 
