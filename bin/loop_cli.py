@@ -356,7 +356,10 @@ def _cmd_doctor(argv):
 
     print(f"Loop Health: {report.score}/100")
     print()
-    issues = [c for c in report.checks if c.status != CheckStatus.PASS]
+    issues = sorted(
+        (c for c in report.checks if c.status != CheckStatus.PASS),
+        key=lambda c: c.status != CheckStatus.FAIL,
+    )
     if not issues:
         print("No issues found.")
     else:

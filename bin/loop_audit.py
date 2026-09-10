@@ -21,6 +21,9 @@ from loop_policy import PolicyEngine
 # need a code verifier either).
 _CODE_MUTATING_ACTIONS = {"modify_code", "modify_worktree"}
 
+# The two persistent memory tiers plan section 20 names.
+_MEMORY_SOURCES = ("project_memory", "task_memory")
+
 
 class CheckStatus(str, Enum):
     PASS = "PASS"
@@ -184,7 +187,7 @@ def audit_definition(definition, policy_engine=None):
             )
         )
 
-    if any(source in ("project_memory", "task_memory") for source in definition.context.sources):
+    if any(source in _MEMORY_SOURCES for source in definition.context.sources):
         checks.append(AuditCheck("memory_strategy", CheckStatus.PASS, "persistent memory source declared"))
     else:
         checks.append(

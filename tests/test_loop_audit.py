@@ -250,4 +250,21 @@ def test_cli_output_omits_partial_suffix_when_nothing_missing(tmp_path):
     )
 
     assert result.returncode == 0
+    # is_partial is unconditionally False now, not dependent on _COMPLIANT's content.
     assert "partial" not in result.stdout.lower()
+
+
+def test_cli_fails_on_yaml_declaring_credentials_read(tmp_path):
+    data = dict(_COMPLIANT)
+    data["permissions"] = {"credentials_read": True}
+    yaml_path = tmp_path / "loop.yaml"
+    yaml_path.write_text(yaml.safe_dump(data))
+
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "bin" / "loop_audit.py"), str(yaml_path)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "credential_boundary" in result.stdout

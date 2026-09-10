@@ -124,13 +124,11 @@ def test_audit_delegates_and_reports_score(tmp_path):
 
 
 def test_audit_output_omits_partial_suffix_when_nothing_missing(tmp_path):
-    path = _write_definition(
-        tmp_path / "loop.yaml",
-        context={"sources": ["issue", "project_memory"]},
-    )
+    path = _write_definition(tmp_path / "loop.yaml")
 
     result = _run("audit", str(path))
 
+    # is_partial is unconditionally False now, not dependent on the definition's content.
     assert "partial" not in result.stdout.lower()
 
 
@@ -218,6 +216,23 @@ def test_doctor_reports_health(tmp_path):
 
     assert result.returncode == 0
     assert "Loop Health" in result.stdout
+
+
+def test_doctor_surfaces_fail_ahead_of_earlier_warns(tmp_path):
+    # Base _write_definition already produces 3 WARNs (retry, context_strategy,
+    # memory_strategy) appended before credential_boundary - declaring
+    # credentials_read=True adds a FAIL after them. Without sorting FAILs
+    # first, the top-3 truncation would show only the WARNs and hide the FAIL.
+    path = _write_definition(
+        tmp_path / "loop.yaml",
+        permissions={"credentials_read": True},
+    )
+
+    result = _run("doctor", str(path))
+
+    assert result.returncode == 0
+    top_three = result.stdout.splitlines()[-3:]
+    assert any("credential_boundary" in line and "FAIL" in line for line in top_three)
 
 
 def test_replay_reads_the_same_run_as_inspect(tmp_path):
