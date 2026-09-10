@@ -2845,13 +2845,13 @@ _STYLE = f"""
   --md-primary-container: #043B95;
   --md-on-primary-container: #CDE0FE;
 
-  --md-surface-dim: #0E0F11;
-  --md-surface: #121416;
-  --md-surface-container-lowest: #090A0B;
-  --md-surface-container-low: #17191C;
-  --md-surface-container: #1C1E22;
-  --md-surface-container-high: #272A30;
-  --md-surface-container-highest: #32373E;
+  --md-surface-dim: #1D1D1F;
+  --md-surface: #232529;
+  --md-surface-container-lowest: #17181B;
+  --md-surface-container-low: #2A2D32;
+  --md-surface-container: #2F3237;
+  --md-surface-container-high: #383C43;
+  --md-surface-container-highest: #454A52;
   --md-on-surface: #E3E5E8;
   --md-on-surface-variant: #C7CBD1;
   --md-outline: #8F97A3;
@@ -6904,17 +6904,14 @@ def render_daemons_page(flash=None, flash_ok=True):
     return _render_shell("Daemons · Loop X Engineering", "daemons", _status_badge_markup(status), body)
 
 
-def render_settings_page(flash=None, flash_ok=True):
-    """The GitLab page (nav key stays "settings" - only its visible label
-    changed - to avoid clashing with the existing "gitlab" nav key/route,
-    which is the unrelated Live GitLab issues/MRs page): view and manage
-    ~/.gitlab/config.json (instances, project aliases, default instance,
-    access bundles) and ~/.loop-engineering/projects.json (which projects
-    this loop tracks, their local checkout/build commands, and the loop's
-    own default settings). Slack's own webhook config lives on the
-    separate /notifications page now - this function only reads
-    ~/.slack/config.json for the access bundles' webhook overrides, which
-    stay here since a bundle is fundamentally a GitLab-access construct.
+def render_settings_fragment():
+    """The actual GitLab/tracked-projects settings content: instances,
+    project aliases, access bundles, and this loop's own tracked-projects
+    config. Split out of render_settings_page (same split as
+    render_gitlab_live_fragment/render_gitlab_page) so the page shell
+    paints instantly and the config reads/table rendering happen only
+    when the browser fetches /settings/fragment - see render_settings_page's
+    data-lazy-load placeholder.
 
     This function only ever reads (via read_gitlab_config/read_slack_config/
     read_loop_projects_config) and masks every secret it renders
@@ -6923,21 +6920,12 @@ def render_settings_page(flash=None, flash_ok=True):
     which call the upsert_gitlab_instance/delete_gitlab_instance/
     upsert_gitlab_project/delete_gitlab_project/set_default_gitlab_instance/
     upsert_tracked_project/delete_tracked_project/update_loop_project_settings
-    helpers.
-
-    `flash`/`flash_ok` carry a POST-redirect-GET result from any of those
-    POST routes, same convention as render_daemons_page."""
-    status = read_status(STATUS_PATH)
+    helpers."""
     gitlab_config = read_gitlab_config(GITLAB_CONFIG_PATH)
     slack_config = read_slack_config(SLACK_CONFIG_PATH)
     loop_projects_config = read_loop_projects_config()
     bundles = gitlab_config.get("bundles", {})
     bundle_webhooks = slack_config.get("bundle_webhooks", {})
-
-    flash_html = ""
-    if flash:
-        flash_class = "flash-success" if flash_ok else "flash-danger"
-        flash_html = f"<div class='flash {flash_class}'>{html.escape(str(flash))}</div>"
 
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
 
@@ -7171,14 +7159,7 @@ def render_settings_page(flash=None, flash_ok=True):
 </form>
 """
 
-    body = f"""
-<div class="page-title">
-<h1>GitLab</h1>
-<p class="subtitle">View and manage the GitLab configuration and tracked projects this loop depends on.</p>
-</div>
-
-{flash_html}
-
+    return f"""
 <div class="grid">
 <section class="card">
 <div class="section-header">{_SECTION_ICON_SETTINGS}<h2>GitLab</h2></div>
@@ -7212,6 +7193,40 @@ def render_settings_page(flash=None, flash_ok=True):
 {tracked_projects_html}
 {add_tracked_project_form}
 </section>
+</div>
+"""
+
+
+def render_settings_page(flash=None, flash_ok=True):
+    """The GitLab page shell (nav key stays "settings" - only its visible
+    label changed - to avoid clashing with the existing "gitlab" nav
+    key/route, which is the unrelated Live GitLab issues/MRs page).
+    Renders instantly - the actual config content (render_settings_fragment)
+    is fetched by the browser from /settings/fragment after the page
+    paints, replacing the data-lazy-load placeholder below, same pattern
+    as render_gitlab_page/render_gitlab_live_fragment.
+
+    `flash`/`flash_ok` carry a POST-redirect-GET result from any of the
+    /settings/* POST routes, same convention as render_daemons_page - shown
+    immediately rather than behind the lazy-load fetch since it only
+    depends on the redirect's query string, not any config read."""
+    status = read_status(STATUS_PATH)
+
+    flash_html = ""
+    if flash:
+        flash_class = "flash-success" if flash_ok else "flash-danger"
+        flash_html = f"<div class='flash {flash_class}'>{html.escape(str(flash))}</div>"
+
+    body = f"""
+<div class="page-title">
+<h1>GitLab</h1>
+<p class="subtitle">View and manage the GitLab configuration and tracked projects this loop depends on.</p>
+</div>
+
+{flash_html}
+
+<div data-lazy-load='/settings/fragment'>
+<div class="lazy-loading"><div class="md-spinner"></div><p class="loading-text">Loading settings<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span></p></div>
 </div>
 """
     return _render_shell("GitLab · Loop X Engineering", "settings", _status_badge_markup(status), body)
@@ -7988,6 +8003,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             flash = query.get("flash", [None])[0]
             flash_ok = query.get("ok", ["1"])[0] != "0"
             self._send_html(render_settings_page(flash=flash, flash_ok=flash_ok))
+            return
+
+        if split.path == "/settings/fragment":
+            self._send_html(render_settings_fragment())
             return
 
         if split.path == "/settings/general":

@@ -854,8 +854,8 @@ def test_render_skills_page_hides_setup_button_while_installing(monkeypatch, tmp
 
 def test_material_design_3_palette_values():
     assert "--md-primary: #9CC0FC;" in ds._STYLE
-    assert "--md-surface: #121416;" in ds._STYLE
-    assert "--md-surface-dim: #0E0F11;" in ds._STYLE
+    assert "--md-surface: #232529;" in ds._STYLE
+    assert "--md-surface-dim: #1D1D1F;" in ds._STYLE
     assert "--md-on-surface: #E3E5E8;" in ds._STYLE
     assert "--color-bg" not in ds._STYLE, "old color-bg token must be fully replaced"
     assert "--color-surface:" not in ds._STYLE, "old color-surface token must be fully replaced"
@@ -2852,7 +2852,7 @@ def test_settings_add_and_delete_buttons_carry_icons(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "GITLAB_CONFIG_PATH", gitlab_path)
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "slack.json")
 
-    output = ds.render_settings_page()
+    output = ds.render_settings_fragment()
 
     assert "<span class='material-symbols-outlined' aria-hidden='true'>add</span> Add instance" in output
     assert "<span class='material-symbols-outlined' aria-hidden='true'>add</span> Add project" in output
@@ -2865,7 +2865,7 @@ def test_settings_page_icon_buttons_are_aria_hidden(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "GITLAB_CONFIG_PATH", gitlab_path)
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "slack.json")
 
-    output = ds.render_settings_page()
+    output = ds.render_settings_fragment()
 
     assert "<span class='material-symbols-outlined' aria-hidden='true'>add</span> Add instance" in output
     assert "<span class='material-symbols-outlined' aria-hidden='true'>add</span> Add project" in output
@@ -5350,7 +5350,7 @@ def test_render_settings_page_masks_gitlab_token(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "slack.json")
     monkeypatch.setattr(loop_config, "DEFAULT_CONFIG_PATH", tmp_path / "does-not-exist-projects.json")
 
-    output = ds.render_settings_page()
+    output = ds.render_settings_fragment()
 
     assert "glpat-supersecret1234" not in output
     assert "••••1234" in output
@@ -5404,7 +5404,7 @@ def test_render_settings_page_shows_default_badge(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "slack.json")
     monkeypatch.setattr(loop_config, "DEFAULT_CONFIG_PATH", tmp_path / "does-not-exist-projects.json")
 
-    output = ds.render_settings_page()
+    output = ds.render_settings_fragment()
 
     acme_row = output.split("<td>acme")[1].split("</tr>")[0]
     other_row = output.split("<td>other")[1].split("</tr>")[0]
@@ -5417,7 +5417,7 @@ def test_render_settings_page_empty_config_shows_placeholders(monkeypatch, tmp_p
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "does-not-exist-slack.json")
     monkeypatch.setattr(loop_config, "DEFAULT_CONFIG_PATH", tmp_path / "does-not-exist-projects.json")
 
-    output = ds.render_settings_page()
+    output = ds.render_settings_fragment()
 
     assert "(no GitLab instances configured)" in output
     assert "(no project aliases configured)" in output
@@ -5736,7 +5736,7 @@ def test_settings_route_set_default_success(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "slack.json")
 
     with _running_server() as port:
-        token = _fetch_csrf_token(port, "/settings")
+        token = _fetch_csrf_token(port, "/settings/fragment")
         status, headers, _body = _post(port, "/settings/gitlab/default", {"instance": "b", "csrf_token": token})
         assert status == 303
         flash_query = _flash_from_location(headers["Location"], prefix="/settings?")
@@ -5751,7 +5751,7 @@ def test_settings_route_add_instance_success(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "slack.json")
 
     with _running_server() as port:
-        token = _fetch_csrf_token(port, "/settings")
+        token = _fetch_csrf_token(port, "/settings/fragment")
         status, _headers, _body = _post(port, "/settings/gitlab/instances", {
             "alias": "acme", "url": "https://gitlab.acme.com", "token": "newtok", "csrf_token": token,
         })
@@ -5766,7 +5766,7 @@ def test_settings_route_delete_instance_success(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "slack.json")
 
     with _running_server() as port:
-        token = _fetch_csrf_token(port, "/settings")
+        token = _fetch_csrf_token(port, "/settings/fragment")
         status, _headers, _body = _post(port, "/settings/gitlab/instances/b/delete", {"csrf_token": token})
         assert status == 303
     assert "b" not in ds.read_gitlab_config(gitlab_path)["instances"]
@@ -5779,7 +5779,7 @@ def test_settings_route_add_project_success(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "slack.json")
 
     with _running_server() as port:
-        token = _fetch_csrf_token(port, "/settings")
+        token = _fetch_csrf_token(port, "/settings/fragment")
         status, _headers, _body = _post(port, "/settings/gitlab/projects", {
             "alias": "myproj", "project_id": "ns/myproj", "instance": "a", "csrf_token": token,
         })
@@ -5794,7 +5794,7 @@ def test_settings_route_delete_project_success(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "slack.json")
 
     with _running_server() as port:
-        token = _fetch_csrf_token(port, "/settings")
+        token = _fetch_csrf_token(port, "/settings/fragment")
         status, _headers, _body = _post(port, "/settings/gitlab/projects/myproj/delete", {"csrf_token": token})
         assert status == 303
     assert "myproj" not in ds.read_gitlab_config(gitlab_path)["projects"]
@@ -5996,7 +5996,7 @@ def test_settings_route_delete_instance_with_space_in_alias(monkeypatch, tmp_pat
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "slack.json")
 
     with _running_server() as port:
-        token = _fetch_csrf_token(port, "/settings")
+        token = _fetch_csrf_token(port, "/settings/fragment")
         # Simulate what a browser actually sends: the alias percent-encoded in the URL path.
         status, _headers, _body = _post(port, "/settings/gitlab/instances/my%20inst/delete", {"csrf_token": token})
         assert status == 303
@@ -7343,7 +7343,7 @@ def test_render_settings_page_shows_access_bundles_section(monkeypatch, tmp_path
     monkeypatch.setattr(ds, "GITLAB_CONFIG_PATH", gitlab_path)
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", slack_path)
 
-    output = ds.render_settings_page()
+    output = ds.render_settings_fragment()
 
     assert "Access bundles" in output
     assert "vertex-limited" in output
@@ -7368,7 +7368,7 @@ def test_render_settings_page_access_bundle_inputs_have_distinct_placeholders(mo
     monkeypatch.setattr(ds, "GITLAB_CONFIG_PATH", gitlab_path)
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "does-not-exist-slack.json")
 
-    output = ds.render_settings_page()
+    output = ds.render_settings_fragment()
 
     add_bundle_form = output.split("action='/settings/access-bundles'")[-1].split("</form>")[0]
     assert "placeholder='GitLab access token'" in add_bundle_form
@@ -7383,7 +7383,7 @@ def test_render_settings_page_no_bundles_shows_placeholder(monkeypatch, tmp_path
     monkeypatch.setattr(ds, "GITLAB_CONFIG_PATH", tmp_path / "does-not-exist.json")
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "does-not-exist-slack.json")
 
-    output = ds.render_settings_page()
+    output = ds.render_settings_fragment()
 
     assert "(no access bundles configured)" in output
 
@@ -7396,7 +7396,7 @@ def test_settings_route_add_access_bundle_success(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", slack_path)
 
     with _running_server() as port:
-        token = _fetch_csrf_token(port, "/settings")
+        token = _fetch_csrf_token(port, "/settings/fragment")
         status, _headers, _body = _post(port, "/settings/access-bundles", {
             "name": "vertex-limited", "instance": "acme", "token": "bundle-tok",
             "webhook_url": "https://hooks.slack.com/services/VERTEX", "csrf_token": token,
@@ -7414,7 +7414,7 @@ def test_settings_route_delete_access_bundle_success(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "slack.json")
 
     with _running_server() as port:
-        token = _fetch_csrf_token(port, "/settings")
+        token = _fetch_csrf_token(port, "/settings/fragment")
         status, _headers, _body = _post(port, "/settings/access-bundles/vertex-limited/delete", {"csrf_token": token})
         assert status == 303
 
@@ -7428,7 +7428,7 @@ def test_settings_route_clear_bundle_webhook_success(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", slack_path)
 
     with _running_server() as port:
-        token = _fetch_csrf_token(port, "/settings")
+        token = _fetch_csrf_token(port, "/settings/fragment")
         status, _headers, _body = _post(port, "/settings/access-bundles/vertex-limited/clear-webhook", {"csrf_token": token})
         assert status == 303
 
@@ -7446,7 +7446,7 @@ def test_settings_route_update_project_with_bundle(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "slack.json")
 
     with _running_server() as port:
-        token = _fetch_csrf_token(port, "/settings")
+        token = _fetch_csrf_token(port, "/settings/fragment")
         status, _headers, _body = _post(port, "/settings/gitlab/projects", {
             "alias": "vertex", "project_id": "acme/vertex-app/vertex-app.web", "instance": "acme",
             "bundle": "vertex-limited", "csrf_token": token,
