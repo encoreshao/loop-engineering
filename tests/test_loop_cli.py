@@ -123,6 +123,17 @@ def test_audit_delegates_and_reports_score(tmp_path):
     assert "Loop Ready Score" in result.stdout
 
 
+def test_audit_output_omits_partial_suffix_when_nothing_missing(tmp_path):
+    path = _write_definition(
+        tmp_path / "loop.yaml",
+        context={"sources": ["issue", "project_memory"]},
+    )
+
+    result = _run("audit", str(path))
+
+    assert "partial" not in result.stdout.lower()
+
+
 def test_run_completes_and_persists_result(tmp_path):
     path = _write_definition(tmp_path / "loop.yaml")
     results_dir = tmp_path / "results"

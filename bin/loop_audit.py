@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""`loop audit` - see docs/superpowers/specs/2026-09-07-loop-audit-design.md.
-Honest-degradation pattern matching bin/health.py: scores only the checks
-backed by a real LoopDefinition field or module (PolicyEngine), and says
-so via is_partial/missing_components/missing_reason rather than
-hardcoding a PASS for checks with no real signal behind them yet."""
+"""`loop audit` - see docs/superpowers/specs/2026-09-07-loop-audit-design.md
+and docs/superpowers/specs/2026-09-10-loop-audit-part-2-design.md.
+Honest-degradation pattern matching bin/health.py: scores only checks
+backed by a real LoopDefinition field or module (PolicyEngine).
+AuditReport keeps is_partial/missing_components/missing_reason even
+though every check now has real backing (they report the empty/False
+"nothing missing" state) - same contract shape as compute_health_score,
+kept for whatever check gets added next without backing yet."""
 import sys
 from dataclasses import dataclass
 from enum import Enum
@@ -40,14 +43,11 @@ _CHECK_WEIGHTS = {
     "budget": 10,
     "no_progress_detection": 10,
     "human_gates": 15,
+    "context_strategy": 5,
+    "memory_strategy": 5,
+    "credential_boundary": 5,
+    "observability": 5,
 }
-
-_ALWAYS_MISSING = ("credential_boundary", "context_strategy", "memory_strategy", "observability")
-_ALWAYS_MISSING_REASON = (
-    "credential_boundary/context_strategy/memory_strategy/observability have no "
-    "corresponding LoopDefinition field yet - a real check needs a signal this "
-    "schema doesn't carry, not a hardcoded PASS"
-)
 
 
 @dataclass
@@ -167,6 +167,56 @@ def audit_definition(definition, policy_engine=None):
         detail = "; ".join(f"{v.action} ({v.risk_level.value})" for v in violations)
         checks.append(AuditCheck("human_gates", CheckStatus.FAIL, detail))
 
+    if definition.context.sources:
+        checks.append(
+            AuditCheck(
+                "context_strategy",
+                CheckStatus.PASS,
+                f"{len(definition.context.sources)} context source(s) declared",
+            )
+        )
+    else:
+        checks.append(
+            AuditCheck(
+                "context_strategy",
+                CheckStatus.WARN,
+                "no context sources declared - the agent may receive unbounded context",
+            )
+        )
+
+    if any(source in ("project_memory", "task_memory") for source in definition.context.sources):
+        checks.append(AuditCheck("memory_strategy", CheckStatus.PASS, "persistent memory source declared"))
+    else:
+        checks.append(
+            AuditCheck(
+                "memory_strategy",
+                CheckStatus.WARN,
+                "no persistent memory source declared - loop starts stateless each run",
+            )
+        )
+
+    if definition.permissions.credentials_read:
+        checks.append(
+            AuditCheck(
+                "credential_boundary",
+                CheckStatus.FAIL,
+                "permissions.credentials_read=True - agent must never read credentials",
+            )
+        )
+    else:
+        checks.append(AuditCheck("credential_boundary", CheckStatus.PASS, "permissions.credentials_read=False"))
+
+    if definition.observability_enabled:
+        checks.append(AuditCheck("observability", CheckStatus.PASS, "observability_enabled=True"))
+    else:
+        checks.append(
+            AuditCheck(
+                "observability",
+                CheckStatus.FAIL,
+                "observability_enabled=False - runs will not produce structured events",
+            )
+        )
+
     weight_sum = sum(_CHECK_WEIGHTS[c.name] for c in checks)
     earned = sum(_CHECK_WEIGHTS[c.name] * _OUTCOME_WEIGHT[c.status] for c in checks)
     score = round(100 * earned / weight_sum, 1) if weight_sum else None
@@ -174,9 +224,9 @@ def audit_definition(definition, policy_engine=None):
     return AuditReport(
         checks=checks,
         score=score,
-        is_partial=True,
-        missing_components=list(_ALWAYS_MISSING),
-        missing_reason=_ALWAYS_MISSING_REASON,
+        is_partial=False,
+        missing_components=[],
+        missing_reason="",
     )
 
 
@@ -192,7 +242,10 @@ def main():
         print(f"{check.status.value:<4}  {check.name:<22} {check.detail}")
 
     print()
-    print(f"Loop Ready Score: {report.score} / 100 (partial - missing: {', '.join(report.missing_components)})")
+    if report.is_partial:
+        print(f"Loop Ready Score: {report.score} / 100 (partial - missing: {', '.join(report.missing_components)})")
+    else:
+        print(f"Loop Ready Score: {report.score} / 100")
 
     return 1 if any(c.status == CheckStatus.FAIL for c in report.checks) else 0
 

@@ -119,7 +119,10 @@ def _cmd_audit(argv):
     for check in report.checks:
         print(f"{check.status.value:<4}  {check.name:<22} {check.detail}")
     print()
-    print(f"Loop Ready Score: {report.score} / 100 (partial - missing: {', '.join(report.missing_components)})")
+    if report.is_partial:
+        print(f"Loop Ready Score: {report.score} / 100 (partial - missing: {', '.join(report.missing_components)})")
+    else:
+        print(f"Loop Ready Score: {report.score} / 100")
 
     return 1 if any(c.status == CheckStatus.FAIL for c in report.checks) else 0
 

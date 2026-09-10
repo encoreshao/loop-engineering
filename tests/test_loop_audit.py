@@ -16,6 +16,7 @@ _COMPLIANT = {
     "version": 1,
     "trigger": {"type": "schedule", "schedule": "0 10 * * 1-5"},
     "goal": {"type": "issue_resolution"},
+    "context": {"sources": ["issue", "repository", "project_memory", "task_memory"]},
     "actions": ["inspect_issue", "modify_code", "merge"],
     "verification": {"required": ["tests", "lint"]},
     "stop_conditions": {
@@ -42,19 +43,14 @@ def test_fully_compliant_definition_scores_100():
     assert all(c.status == CheckStatus.PASS for c in report.checks)
 
 
-def test_missing_components_always_reported():
+def test_report_is_not_partial_once_all_checks_pass():
     definition = LoopDefinition.from_dict(_COMPLIANT)
 
     report = audit_definition(definition)
 
-    assert report.is_partial is True
-    assert set(report.missing_components) == {
-        "credential_boundary",
-        "context_strategy",
-        "memory_strategy",
-        "observability",
-    }
-    assert report.missing_reason
+    assert report.is_partial is False
+    assert report.missing_components == []
+    assert report.missing_reason == ""
 
 
 def test_verification_fails_when_no_verifiers_required():
@@ -141,6 +137,78 @@ def test_human_gates_fails_when_l3_action_ungated():
     assert "merge" in check.detail
 
 
+def test_context_strategy_warns_when_no_sources_declared():
+    data = dict(_COMPLIANT)
+    data["context"] = {"sources": []}
+    definition = LoopDefinition.from_dict(data)
+
+    report = audit_definition(definition)
+
+    assert _check(report, "context_strategy").status == CheckStatus.WARN
+
+
+def test_context_strategy_passes_when_sources_declared():
+    definition = LoopDefinition.from_dict(_COMPLIANT)
+
+    report = audit_definition(definition)
+
+    assert _check(report, "context_strategy").status == CheckStatus.PASS
+
+
+def test_memory_strategy_warns_when_no_memory_source_declared():
+    data = dict(_COMPLIANT)
+    data["context"] = {"sources": ["issue", "repository"]}
+    definition = LoopDefinition.from_dict(data)
+
+    report = audit_definition(definition)
+
+    assert _check(report, "memory_strategy").status == CheckStatus.WARN
+
+
+def test_memory_strategy_passes_with_project_memory_source():
+    definition = LoopDefinition.from_dict(_COMPLIANT)
+
+    report = audit_definition(definition)
+
+    assert _check(report, "memory_strategy").status == CheckStatus.PASS
+
+
+def test_credential_boundary_passes_by_default():
+    definition = LoopDefinition.from_dict(_COMPLIANT)
+
+    report = audit_definition(definition)
+
+    assert _check(report, "credential_boundary").status == CheckStatus.PASS
+
+
+def test_credential_boundary_fails_when_credentials_read_true():
+    data = dict(_COMPLIANT)
+    data["permissions"] = {"credentials_read": True}
+    definition = LoopDefinition.from_dict(data)
+
+    report = audit_definition(definition)
+
+    assert _check(report, "credential_boundary").status == CheckStatus.FAIL
+
+
+def test_observability_passes_by_default():
+    definition = LoopDefinition.from_dict(_COMPLIANT)
+
+    report = audit_definition(definition)
+
+    assert _check(report, "observability").status == CheckStatus.PASS
+
+
+def test_observability_fails_when_disabled():
+    data = dict(_COMPLIANT)
+    data["observability_enabled"] = False
+    definition = LoopDefinition.from_dict(data)
+
+    report = audit_definition(definition)
+
+    assert _check(report, "observability").status == CheckStatus.FAIL
+
+
 def test_cli_exits_zero_for_compliant_definition(tmp_path):
     yaml_path = tmp_path / "loop.yaml"
     yaml_path.write_text(yaml.safe_dump(_COMPLIANT))
@@ -169,3 +237,17 @@ def test_cli_exits_nonzero_for_violating_definition(tmp_path):
 
     assert result.returncode == 1
     assert "FAIL" in result.stdout
+
+
+def test_cli_output_omits_partial_suffix_when_nothing_missing(tmp_path):
+    yaml_path = tmp_path / "loop.yaml"
+    yaml_path.write_text(yaml.safe_dump(_COMPLIANT))
+
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "bin" / "loop_audit.py"), str(yaml_path)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "partial" not in result.stdout.lower()
