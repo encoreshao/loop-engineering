@@ -208,9 +208,9 @@ if [ "$SKIP_NGINX" -eq 1 ]; then
 else
   echo "${C_BLUE}==> Setting up the local nginx reverse proxy...${C_RESET}"
   if "$DIR/bin/scripts/setup-nginx.sh" --port "$PORT"; then
-    DASHBOARD_URL="http://loop.local/"
+    DASHBOARD_URL="http://loop.x/"
   else
-    echo "${C_YELLOW}    Warning: nginx setup failed - the dashboard is still reachable at http://127.0.0.1:$PORT, just not at http://loop.local/. Re-run 'bin/scripts/setup-nginx.sh' by hand once Homebrew/sudo are sorted.${C_RESET}" >&2
+    echo "${C_YELLOW}    Warning: nginx setup failed - the dashboard is still reachable at http://127.0.0.1:$PORT, just not at http://loop.x/. Re-run 'bin/scripts/setup-nginx.sh' by hand once Homebrew/sudo are sorted.${C_RESET}" >&2
   fi
 fi
 

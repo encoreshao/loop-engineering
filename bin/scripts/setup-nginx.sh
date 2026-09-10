@@ -3,7 +3,7 @@ set -euo pipefail
 
 # One-command local nginx reverse proxy in front of the dashboard, so it's
 # reachable at a friendly hostname on the standard port 80 instead of
-# remembering http://127.0.0.1:8420 - e.g. http://loop.local/. Idempotent:
+# remembering http://127.0.0.1:8420 - e.g. http://loop.x/. Idempotent:
 # safe to re-run any time (writing /etc/hosts and starting the nginx
 # service are both skipped once already done).
 #
@@ -23,7 +23,7 @@ else
   C_BLUE=""; C_GREEN=""; C_YELLOW=""; C_RED=""; C_RESET=""
 fi
 
-DOMAIN="loop.local"
+DOMAIN="loop.x"
 PORT="8420"
 SERVERS_DIR=""
 HOSTS_FILE="/etc/hosts"

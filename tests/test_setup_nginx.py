@@ -45,10 +45,10 @@ def fake_sudo_env(bin_dir):
 def test_setup_nginx_writes_server_conf_with_domain_and_port(tmp_path):
     servers_dir = tmp_path / "servers"
 
-    run_setup_nginx("--servers-dir", str(servers_dir), "--domain", "loop.local", "--port", "8420")
+    run_setup_nginx("--servers-dir", str(servers_dir), "--domain", "loop.x", "--port", "8420")
 
-    conf = (servers_dir / "loop.local.conf").read_text()
-    assert "server_name  loop.local;" in conf
+    conf = (servers_dir / "loop.x.conf").read_text()
+    assert "server_name  loop.x;" in conf
     assert "proxy_pass         http://127.0.0.1:8420;" in conf
     assert "listen       80;" in conf
 
@@ -67,9 +67,9 @@ def test_setup_nginx_is_idempotent(tmp_path):
     servers_dir = tmp_path / "servers"
 
     run_setup_nginx("--servers-dir", str(servers_dir))
-    first = (servers_dir / "loop.local.conf").read_text()
+    first = (servers_dir / "loop.x.conf").read_text()
     run_setup_nginx("--servers-dir", str(servers_dir))
-    second = (servers_dir / "loop.local.conf").read_text()
+    second = (servers_dir / "loop.x.conf").read_text()
 
     assert first == second
     assert len(list(servers_dir.iterdir())) == 1
@@ -97,13 +97,13 @@ def test_setup_nginx_primes_sudo_once_before_hosts_edit(tmp_path):
 
     calls = log_path.read_text().strip().splitlines()
     assert calls[0] == "-v"
-    assert "loop.local" in hosts_file.read_text()
+    assert "loop.x" in hosts_file.read_text()
     assert result.returncode == 0
 
 
 def test_setup_nginx_does_not_invoke_sudo_when_nothing_needs_it(tmp_path):
     hosts_file = tmp_path / "hosts"
-    hosts_file.write_text("127.0.0.1\tloop.local\n")
+    hosts_file.write_text("127.0.0.1\tloop.x\n")
     bin_dir = tmp_path / "fakebin"
     log_path = tmp_path / "sudo.log"
     make_fake_sudo(bin_dir, log_path)

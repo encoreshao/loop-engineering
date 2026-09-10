@@ -210,22 +210,28 @@ A localhost-only, dependency-free (stdlib Python, no JS framework) web UI, serve
 | Page              | Shows                                                                                                                                                                           |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Overview**      | Current/last run status, a live progress indicator, and the Run now button                                                                                                      |
-| **Run History**   | Every past run's review report, newest first                                                                                                                                    |
+| **Activity**      | A message thread with the loop, plus its own live progress indicator. Paste a GitLab issue link here to have the loop work on that one issue immediately, regardless of who it's assigned to.                                                                                                    |
 | **Live GitLab**   | Your currently assigned issues and open MRs, fetched live                                                                                                                       |
-| **Learnings**     | Cross-run lessons recorded per project                                                                                                                                          |
 | **Topic Monitor** | Status and saved briefings for every configured topic                                                                                                                           |
+| **Logs**          | The tail of `logs/loop-engineering.log` - every `claude` CLI invocation's output, across the GitLab loop, the topic monitor loop, and this dashboard's own chat assistant       |
+| **Loop Runs**     | Every run recorded under `outputs/loop-runs/` (one per issue or topic processed), most recent first — read-only                                                                |
+| **Run History**   | Every past run's review report, newest first                                                                                                                                    |
+| **Analytics**     | The loop's performance over a selectable day window: a Loop Health score, outcomes, quality, risk & classification, failure breakdown, and learning trends                     |
+| **Memory**        | Cross-run lessons recorded per project, one markdown file per GitLab issue, plus anything recorded before this format existed (shown under "Legacy learnings")                 |
+| **Cost**          | AI usage cost — the GitLab issue loop's own windowed cost, and total cost across every run under `outputs/loop-runs/`                                                           |
+| **Audit**         | A score and pass/fail checks for each loop definition                                                                                                                           |
+| **Budget**        | Each recorded run's last-known budget status                                                                                                                                    |
 | **Daemons**       | Load state, an editable schedule, and enable/disable for every `launchd` agent                                                                                                  |
 | **Skills**        | Every external skill this loop depends on, and whether it's actually installed                                                                                                  |
 | **GitLab Settings** | Manage `~/.gitlab/config.json` (instances, project aliases, access bundles) and `~/.loop-engineering/projects.json` (tracked projects, loop settings) without hand-editing JSON |
-| **Activity**      | A message thread with the loop, plus its own live progress indicator. Paste a GitLab issue link here to have the loop work on that one issue immediately, regardless of who it's assigned to.                                                                                                    |
-| **Logs**          | The tail of `logs/loop-engineering.log` - every `claude` CLI invocation's output, across the GitLab loop, the topic monitor loop, and this dashboard's own chat assistant       |
-| **README**        | This file, rendered in-app with a jump-to-section quicknav                                                                                                                      |
+| **Topic Settings** | Add, edit, and delete monitored topics — split out of Topic Monitor so configuration doesn't clutter that page's live status view                                             |
 | **Settings**      | Notifications (manage `~/.slack/config.json`'s default webhook), AI CLI (choose Claude Code or Codex CLI, with a live installed/not-found check for each), Appearance (color mode, accent theme, auto-refresh interval — saved to this browser's `localStorage`), and Instructions (your own free-text instructions, read by the loop at the start of every run) — clustered as tabs on one page |
+| **README**        | This file, rendered in-app with a jump-to-section quicknav                                                                                                                      |
 
 
 **Optional: a friendly hostname via nginx**
 
-By default the dashboard is only reachable at `http://127.0.0.1:<port>` (see above for how `<port>` is chosen). `bin/scripts/setup-nginx.sh` sets up a local nginx reverse proxy so it's reachable at `http://loop.local/` (port 80) instead — installs nginx via Homebrew if needed, writes the proxy config, adds `loop.local` to `/etc/hosts`, and starts nginx as a system service. `install.sh` already passes it the installed port automatically; idempotent, safe to re-run standalone too:
+By default the dashboard is only reachable at `http://127.0.0.1:<port>` (see above for how `<port>` is chosen). `bin/scripts/setup-nginx.sh` sets up a local nginx reverse proxy so it's reachable at `http://loop.x/` (port 80) instead — installs nginx via Homebrew if needed, writes the proxy config, adds `loop.x` to `/etc/hosts`, and starts nginx as a system service. `install.sh` already passes it the installed port automatically; idempotent, safe to re-run standalone too:
 
 ```bash
 bin/scripts/setup-nginx.sh
@@ -233,7 +239,7 @@ bin/scripts/setup-nginx.sh
 curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/setup-nginx.sh | bash
 ```
 
-Writing `/etc/hosts` and starting the nginx service both need `sudo` — macOS will prompt for your password at those two steps. Pass `--domain`/`--port` to use something other than `loop.local`/`8420`.
+Writing `/etc/hosts` and starting the nginx service both need `sudo` — macOS will prompt for your password at those two steps. Pass `--domain`/`--port` to use something other than `loop.x`/`8420`.
 
 ## Scripts reference
 
@@ -251,7 +257,10 @@ Expand for the full list
 | `bin/track_new_comments.py`         | Detects which notes on a cached issue are new since the loop last looked                                                                                                                                                             |
 | `bin/project_memory.py`             | Reads (legacy) durable per-project lessons learned, stored inline in the GitLab cache                                                                                                                                                |
 | `bin/memory_store.py`               | Reads/records durable per-issue task memory as markdown files (one per issue, plus a per-project MEMORY.md index)                                                                                                                    |
+| `bin/ai_cli_config.py`              | Reads/writes `~/.loop-engineering/ai_cli.json` — which AI CLI (`claude` or `codex`) `run-loop.sh` and `run-topic-monitor-loop.sh` invoke                                                                                             |
 | `run-topic-monitor-loop.sh`         | Entry point for one scheduled or manual topic-monitor run                                                                                                                                                                            |
+| `bin/topic_monitor_runner.py`       | The per-topic orchestrator `run-topic-monitor-loop.sh` delegates to: runs each configured topic through its own `LoopRuntime` (one `LoopResult` per topic under `outputs/loop-runs/`), owns the `claude -p`/`codex exec` invocation and its safety boundary — same role for the topic monitor loop as `bin/gitlab_loop_runner.py` plays for the GitLab loop |
+| `bin/scripts/build_topic_prompt.sh` | Builds the prompt string for one configured topic, same role as `build_run_prompt.sh` above; kept as a documented manual escape hatch even though `topic_monitor_runner.py` no longer calls it                                       |
 | `bin/topic_config.py`               | Reads `~/.loop-engineering/topics.json`                                                                                                                                                                                              |
 | `bin/topic_seen.py`                 | Rolling 7-day dedup window per topic, so briefings don't repeat the same story two days running                                                                                                                                      |
 | `bin/slack_notify.py`               | Posts a message to the configured Slack incoming webhook                                                                                                                                                                             |
@@ -259,7 +268,7 @@ Expand for the full list
 | `bin/scripts/open_merge_request.sh` | Pushes an issue branch and opens its MR — refuses anything not named `loop/issue-*`                                                                                                                                                  |
 | `bin/scripts/install.sh`            | Online installer — clones (or updates) this repo, then runs `setup.sh`; `--upgrade` for an existing install, refreshing every currently-loaded launchd agent (dashboard restarted, GitLab loop/topic monitor just re-registered) so they pick up the new code; safe to pipe from `curl`                                          |
 | `bin/scripts/setup.sh`              | One-command install: the `gitlab-config` skill + the `projects.json`/`topics.json` scaffolds                                                                                                                                         |
-| `bin/scripts/setup-nginx.sh`        | Optional local nginx reverse proxy (`http://loop.local/` → the dashboard)                                                                                                                                                            |
+| `bin/scripts/setup-nginx.sh`        | Optional local nginx reverse proxy (`http://loop.x/` → the dashboard)                                                                                                                                                            |
 | `bin/scripts/uninstall.sh`          | Reverses `setup.sh`/`setup-nginx.sh`/`install.sh`; safe to pipe from `curl`                                                                                                                                                          |
 
 

@@ -8117,7 +8117,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         buffering when this dashboard is reached through
         bin/scripts/setup-nginx.sh's proxy (which has no proxy_buffering
         off of its own) - without it, a reply viewed through
-        http://loop.local/ would arrive in one late burst instead of
+        http://loop.x/ would arrive in one late burst instead of
         streaming, even though it streams correctly hitting
         127.0.0.1:8420 directly."""
         self.send_response(200)

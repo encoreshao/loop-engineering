@@ -308,7 +308,7 @@ def test_install_reports_loop_local_when_nginx_succeeds(tmp_path):
         env=env_with_fake_launchctl(fake_bin),
     )
 
-    assert "http://loop.local" in result.stdout
+    assert "http://loop.x" in result.stdout
     assert "http://127.0.0.1:84250" not in result.stdout
 
 
@@ -326,7 +326,7 @@ def test_install_reports_direct_url_when_nginx_skipped(tmp_path):
     )
 
     assert "http://127.0.0.1:84250" in result.stdout
-    assert "http://loop.local" not in result.stdout
+    assert "http://loop.x" not in result.stdout
 
 
 def test_install_reports_direct_url_when_nginx_fails(tmp_path):
@@ -343,7 +343,7 @@ def test_install_reports_direct_url_when_nginx_fails(tmp_path):
     )
 
     assert "http://127.0.0.1:84250" in result.stdout
-    assert "http://loop.local" not in result.stdout
+    assert "http://loop.x" not in result.stdout
 
 
 def test_install_picks_random_port_in_range_when_not_given(tmp_path):

@@ -54,7 +54,7 @@ KNOWN_LAUNCHD_AGENT_NAMES=(
   "com.hermes.loop-engineering-topic-monitor.plist"
 )
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
-NGINX_DOMAIN="loop.local"
+NGINX_DOMAIN="loop.x"
 NGINX_SERVERS_DIR=""
 HOSTS_FILE="/etc/hosts"
 PROJECT_DIR="$HOME/.loop-engineering"

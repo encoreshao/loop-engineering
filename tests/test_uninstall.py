@@ -106,7 +106,7 @@ def test_uninstall_reports_when_daemon_was_not_installed(tmp_path):
 def test_uninstall_removes_nginx_conf(tmp_path):
     servers_dir = tmp_path / "servers"
     servers_dir.mkdir()
-    (servers_dir / "loop.local.conf").write_text("server {}\n")
+    (servers_dir / "loop.x.conf").write_text("server {}\n")
     launchd_dir = tmp_path / "launchd"
     launchd_dir.mkdir()
 
@@ -117,13 +117,13 @@ def test_uninstall_removes_nginx_conf(tmp_path):
         "--project-dir", str(tmp_path / "no-such-project-dir"),
     )
 
-    assert not (servers_dir / "loop.local.conf").exists()
+    assert not (servers_dir / "loop.x.conf").exists()
 
 
 def test_uninstall_skip_nginx_leaves_conf_in_place(tmp_path):
     servers_dir = tmp_path / "servers"
     servers_dir.mkdir()
-    (servers_dir / "loop.local.conf").write_text("server {}\n")
+    (servers_dir / "loop.x.conf").write_text("server {}\n")
     launchd_dir = tmp_path / "launchd"
     launchd_dir.mkdir()
 
@@ -135,7 +135,7 @@ def test_uninstall_skip_nginx_leaves_conf_in_place(tmp_path):
         "--skip-nginx",
     )
 
-    assert (servers_dir / "loop.local.conf").exists()
+    assert (servers_dir / "loop.x.conf").exists()
 
 
 def test_uninstall_uses_custom_domain_for_nginx_conf(tmp_path):
@@ -252,7 +252,7 @@ def test_uninstall_via_stdin_does_not_hit_unbound_bash_source(tmp_path):
 
 def test_uninstall_primes_sudo_once_before_hosts_cleanup(tmp_path):
     hosts_file = tmp_path / "hosts"
-    hosts_file.write_text("127.0.0.1\tloop.local\n127.0.0.1\tlocalhost\n")
+    hosts_file.write_text("127.0.0.1\tloop.x\n127.0.0.1\tlocalhost\n")
     bin_dir = tmp_path / "fakebin"
     log_path = tmp_path / "sudo.log"
     make_fake_sudo(bin_dir, log_path)
@@ -271,7 +271,7 @@ def test_uninstall_primes_sudo_once_before_hosts_cleanup(tmp_path):
 
     calls = log_path.read_text().strip().splitlines()
     assert calls[0] == "-v"
-    assert "loop.local" not in hosts_file.read_text()
+    assert "loop.x" not in hosts_file.read_text()
     assert "localhost" in hosts_file.read_text()
     assert result.returncode == 0
 

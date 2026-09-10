@@ -7994,7 +7994,7 @@ def test_stream_chat_reply_emits_keepalive_comment_during_an_idle_reply(monkeypa
     _stream_chat_reply never actually wrote one - a reply whose first
     token takes longer than nginx's default proxy_read_timeout (60s, see
     bin/scripts/setup-nginx.sh) to arrive would have its stream silently
-    killed on the http://loop.local/ path. _CHAT_STREAM_IDLE_TIMEOUT_SECONDS
+    killed on the http://loop.x/ path. _CHAT_STREAM_IDLE_TIMEOUT_SECONDS
     is shrunk here so this test doesn't have to wait out a real ~15s idle
     period; the job is only finished after the client has had a chance to
     observe at least one keepalive tick."""
