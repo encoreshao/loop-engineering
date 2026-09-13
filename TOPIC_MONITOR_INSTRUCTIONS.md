@@ -63,9 +63,22 @@ For each topic name:
    python3 <loop_dir>/bin/topic_seen.py add <name> "<url>" "<title>"
    ```
 
-7. **Notify Slack.** One message containing the briefing's content directly (the dashboard is localhost-only, so never link to it):
+7. **Notify Slack.** One message containing the full briefing, not a condensed one-liner — every notable item from today's briefing file, each with its own description and source link — formatted in **Slack's mrkdwn**, not GitHub-flavored Markdown (Slack does not render `#` headings or `[text](url)` links; use `*bold*`, `_italic_`, a leading `• ` per bullet, and `<url|link text>` for links). The dashboard is localhost-only, so never link to it.
+
+   Layout:
+   - Line 1: `*<label> briefing (<YYYY-MM-DD>)*`
+   - Blank line, then one `• ` bullet per notable item: `• *<item title>*: <one-or-two sentence description> — <<url>|source>`
+   - If nothing new turned up, the message is just the header line followed by `_Nothing notable since the last run._`
+
+   Example invocation (use a `$(cat <<'SLACKMSG' ... SLACKMSG)` heredoc so newlines and quotes survive):
    ```
-   python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*<label> briefing (<YYYY-MM-DD>):* <condensed summary>"
+   python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "$(cat <<'SLACKMSG'
+   *<label> briefing (<YYYY-MM-DD>)*
+
+   • *<item 1 title>*: <description> — <<url1>|source>
+   • *<item 2 title>*: <description> — <<url2>|source>
+   SLACKMSG
+   )"
    ```
    `<bundle_flag>` is the empty string if this topic's `slack_bundle` is `null`, or ` --bundle=<slack_bundle>` (including the leading space) otherwise — same convention `LOOPX_INSTRUCTIONS.md` uses for GitLab loop notifications.
 
