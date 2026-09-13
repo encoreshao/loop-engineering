@@ -29,28 +29,46 @@ class Verifier(ABC):
 
 
 class CommandVerifier(Verifier):
-    def __init__(self, name, command, cwd=None):
+    def __init__(self, name, command, cwd=None, timeout_seconds=None):
         self.name = name
         self.command = command
         self.cwd = cwd
+        self.timeout_seconds = timeout_seconds
 
     def verify(self, context) -> VerificationResult:
         start = time.monotonic()
-        completed = subprocess.run(
-            shlex.split(self.command),
-            cwd=str(self.cwd) if self.cwd else None,
-            capture_output=True,
-            text=True,
-        )
-        duration_ms = int((time.monotonic() - start) * 1000)
+        evidence = {"command": self.command, "cwd": str(self.cwd) if self.cwd else None}
+        if self.timeout_seconds is not None:
+            evidence["timeout_seconds"] = self.timeout_seconds
 
+        try:
+            completed = subprocess.run(
+                shlex.split(self.command),
+                cwd=str(self.cwd) if self.cwd else None,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            duration_ms = int((time.monotonic() - start) * 1000)
+            evidence["timed_out"] = True
+            return VerificationResult(
+                name=self.name,
+                passed=False,
+                exit_code=None,
+                duration_ms=duration_ms,
+                output=(exc.stdout or "") + (exc.stderr or ""),
+                evidence=evidence,
+            )
+
+        duration_ms = int((time.monotonic() - start) * 1000)
         return VerificationResult(
             name=self.name,
             passed=completed.returncode == 0,
             exit_code=completed.returncode,
             duration_ms=duration_ms,
             output=completed.stdout + completed.stderr,
-            evidence={"command": self.command, "cwd": str(self.cwd) if self.cwd else None},
+            evidence=evidence,
         )
 
 

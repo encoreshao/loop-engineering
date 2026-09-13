@@ -74,6 +74,25 @@ def test_cwd_is_used_and_recorded_in_evidence(tmp_path):
     assert result.evidence["cwd"] == str(tmp_path)
 
 
+def test_command_exceeding_timeout_seconds_reports_failed_not_raised():
+    verifier = CommandVerifier(name="slow", command="sleep 2", timeout_seconds=0.2)
+
+    result = verifier.verify({})
+
+    assert result.passed is False
+    assert result.exit_code is None
+    assert result.evidence["timed_out"] is True
+
+
+def test_evidence_includes_timeout_seconds_when_configured():
+    verifier = CommandVerifier(name="ok", command="true", timeout_seconds=5)
+
+    result = verifier.verify({})
+
+    assert result.passed is True
+    assert result.evidence["timeout_seconds"] == 5
+
+
 def test_diff_verifier_passes_when_no_changes(tmp_path):
     repo = _make_repo(tmp_path)
     verifier = DiffVerifier(name="diff", allowed_paths=["src/"], cwd=repo)
