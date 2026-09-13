@@ -18,15 +18,23 @@ from loop_state import LoopState
 from loop_verifiers import VerificationResult
 
 
-def _sample_result(run_id="run_1", loop_id="loop_1", final_state=LoopState.COMPLETED, cost_usd=0.0):
+def _sample_result(
+    run_id="run_1", loop_id="loop_1", final_state=LoopState.COMPLETED, cost_usd=0.0,
+    duration_seconds=0.0, verified=True,
+):
     verification = VerificationResult(
-        name="tests", passed=True, exit_code=0, duration_ms=12, output="ok", evidence={"command": "true"}
+        name="tests", passed=verified, exit_code=0 if verified else 1, duration_ms=12, output="ok",
+        evidence={"command": "true"},
     )
     iteration = IterationResult(
         iteration=1,
         state=final_state,
         verification_results=[verification],
-        budget={"overall": BudgetStatus.OK, "cost": {"used_usd": cost_usd}},
+        budget={
+            "overall": BudgetStatus.OK,
+            "cost": {"used_usd": cost_usd},
+            "runtime": {"used_seconds": duration_seconds},
+        },
         progressed=True,
     )
     return LoopResult(
@@ -117,7 +125,73 @@ def test_summarize_results_empty_dir(tmp_path):
         "success_rate": None,
         "escalation_rate": None,
         "average_cost_usd": None,
+        "efficiency_score": None,
     }
+
+
+def test_summarize_results_efficiency_score_is_none_without_cost_or_duration_data(tmp_path):
+    write_result(_sample_result(run_id="run_a", cost_usd=1.0), results_dir=tmp_path)
+
+    summary = summarize_results(results_dir=tmp_path)
+
+    assert summary["efficiency_score"] is None
+
+
+def test_summarize_results_computes_efficiency_score(tmp_path):
+    write_result(
+        _sample_result(
+            run_id="run_a", final_state=LoopState.COMPLETED, cost_usd=1.0, duration_seconds=3600.0, verified=True,
+        ),
+        results_dir=tmp_path,
+    )
+    write_result(
+        _sample_result(
+            run_id="run_b", final_state=LoopState.FAILED, cost_usd=1.0, duration_seconds=3600.0, verified=False,
+        ),
+        results_dir=tmp_path,
+    )
+
+    summary = summarize_results(results_dir=tmp_path)
+
+    # 1 verified-successful run out of 2; total_cost=2.0, total_duration_hours=2.0, total_iterations=2
+    assert summary["efficiency_score"] == 1 / (2.0 * 2.0 * 2)
+
+
+def test_summarize_results_efficiency_score_is_zero_when_no_run_is_verified_successful(tmp_path):
+    write_result(
+        _sample_result(
+            run_id="run_a", final_state=LoopState.COMPLETED, cost_usd=1.0, duration_seconds=3600.0, verified=False,
+        ),
+        results_dir=tmp_path,
+    )
+
+    summary = summarize_results(results_dir=tmp_path)
+
+    assert summary["efficiency_score"] == 0.0
+
+
+def test_summarize_results_treats_completed_run_with_no_verifiers_as_verified(tmp_path):
+    result = LoopResult(
+        loop_id="loop_1",
+        run_id="run_a",
+        definition_name="test-loop",
+        final_state=LoopState.COMPLETED,
+        iterations=[
+            IterationResult(
+                iteration=1,
+                state=LoopState.COMPLETED,
+                verification_results=[],
+                budget={"cost": {"used_usd": 1.0}, "runtime": {"used_seconds": 3600.0}},
+                progressed=True,
+            )
+        ],
+        stop_reason="completed",
+    )
+    write_result(result, results_dir=tmp_path)
+
+    summary = summarize_results(results_dir=tmp_path)
+
+    assert summary["efficiency_score"] == 1 / (1.0 * 1.0 * 1)
 
 
 def test_summarize_results_computes_rates_and_average_cost(tmp_path):

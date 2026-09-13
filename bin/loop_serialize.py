@@ -68,14 +68,33 @@ def find_latest_result(results_dir=None):
     return max(results, key=lambda p: p.stat().st_mtime)
 
 
+def _is_verified_successful(data):
+    """A run counts toward the Loop Efficiency Score's numerator when it
+    completed AND every verifier that ran passed - a run with no
+    verifiers configured counts as verified (matches loop_audit.py's
+    "no code-mutating actions -> nothing to verify" convention), since
+    plan section 4.2 requires deterministic verification, not merely
+    the agent's own say-so, but a loop with nothing to verify hasn't
+    failed that requirement."""
+    if data["final_state"] != "completed" or not data["iterations"]:
+        return False
+    verification_results = data["iterations"][-1].get("verification_results") or []
+    return all(v.get("passed") for v in verification_results)
+
+
 def summarize_results(results_dir=None):
     """{"total_runs", "success_rate", "escalation_rate",
-    "average_cost_usd"} across every persisted run - the plan's "Loop
-    Overview" (section 23). No average-duration figure - LoopResult
+    "average_cost_usd", "efficiency_score"} across every persisted run -
+    the plan's "Loop Overview" (section 23) plus the experimental Loop
+    Efficiency Score (section 17): verified-successful runs / (total
+    cost_usd * total duration_hours * total iterations), summed across
+    ALL runs (not just successful ones) so a failed run's resource use
+    still drags the score down. No average-duration figure - LoopResult
     carries no start/finish timestamp yet, and this deliberately reports
     only what's actually computable rather than guessing (matches
-    bin/health.py's honest-degradation pattern). Rates/average are None
-    (not 0) when there are no runs to divide by."""
+    bin/health.py's honest-degradation pattern). Rates/average/score are
+    None (not 0) when there are no runs, or no cost/duration/iteration
+    data, to divide by."""
     paths = list_results(results_dir=results_dir)
     total_runs = len(paths)
     if total_runs == 0:
@@ -84,11 +103,15 @@ def summarize_results(results_dir=None):
             "success_rate": None,
             "escalation_rate": None,
             "average_cost_usd": None,
+            "efficiency_score": None,
         }
 
     completed = 0
     escalated = 0
     total_cost_usd = 0.0
+    total_duration_seconds = 0.0
+    total_iterations = 0
+    verified_successful = 0
     for path in paths:
         data = read_result(path)
         if data["final_state"] == "completed":
@@ -96,13 +119,25 @@ def summarize_results(results_dir=None):
         if data["final_state"] == "escalated":
             escalated += 1
         if data["iterations"]:
-            total_cost_usd += data["iterations"][-1].get("budget", {}).get("cost", {}).get("used_usd") or 0
+            budget = data["iterations"][-1].get("budget", {})
+            total_cost_usd += budget.get("cost", {}).get("used_usd") or 0
+            total_duration_seconds += budget.get("runtime", {}).get("used_seconds") or 0
+        total_iterations += len(data["iterations"])
+        if _is_verified_successful(data):
+            verified_successful += 1
+
+    total_duration_hours = total_duration_seconds / 3600
+    if total_cost_usd and total_duration_hours and total_iterations:
+        efficiency_score = verified_successful / (total_cost_usd * total_duration_hours * total_iterations)
+    else:
+        efficiency_score = None
 
     return {
         "total_runs": total_runs,
         "success_rate": completed / total_runs,
         "escalation_rate": escalated / total_runs,
         "average_cost_usd": total_cost_usd / total_runs,
+        "efficiency_score": efficiency_score,
     }
 
 

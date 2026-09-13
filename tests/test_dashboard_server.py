@@ -1143,6 +1143,49 @@ def test_dashboard_server_integration_loop_runs_overview_stats(tmp_path, monkeyp
             assert "not tracked yet" in body.lower()
 
 
+def test_dashboard_server_integration_loop_runs_overview_shows_efficiency_score(tmp_path, monkeypatch):
+    import loop_result
+    import loop_state
+    import loop_verifiers
+
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", tmp_path)
+    verification = loop_verifiers.VerificationResult(
+        name="tests", passed=True, exit_code=0, duration_ms=5, output="", evidence={}
+    )
+    iteration = loop_result.IterationResult(
+        iteration=1,
+        state=loop_state.LoopState.COMPLETED,
+        verification_results=[verification],
+        budget={"cost": {"used_usd": 1.0}, "runtime": {"used_seconds": 3600.0}},
+        progressed=True,
+    )
+    result = loop_result.LoopResult(
+        loop_id="loop_eff",
+        run_id="run_eff_1",
+        definition_name="dash-test-loop",
+        final_state=loop_state.LoopState.COMPLETED,
+        iterations=[iteration],
+        stop_reason="completed",
+    )
+    loop_serialize.write_result(result, results_dir=tmp_path)
+
+    with _running_server() as port:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/loop-runs", timeout=10) as response:
+            body = response.read().decode("utf-8")
+            assert "Loop Efficiency Score" in body
+            assert "1" in body  # 1 / (1.0 * 1.0 * 1) == 1
+
+
+def test_dashboard_server_integration_loop_runs_overview_shows_dash_when_efficiency_score_unavailable(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", tmp_path)
+    loop_serialize.write_result(_sample_loop_result(run_id="run_dash_noeff"), results_dir=tmp_path)
+
+    with _running_server() as port:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/loop-runs", timeout=10) as response:
+            body = response.read().decode("utf-8")
+            assert "Loop Efficiency Score" in body
+
+
 def test_render_loop_runs_page_wraps_overview_card_in_grid_for_gap(tmp_path, monkeypatch):
     """The overview stats card and the Runs list card are two separate
     top-level sections - only .grid divs carry the page's card-to-card

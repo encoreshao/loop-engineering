@@ -2826,7 +2826,7 @@ _FONT_FACE_VARS = "\n".join(
 _MATERIAL_SYMBOLS_ICON_NAMES = (
     "account_balance_wallet,add,bolt,check_circle,chevron_left,circle,delete,description,"
     "dns,edit_note,error,expand_more,extension,fact_check,folder,folder_off,forum,history,lightbulb,loop,merge,monitoring,newspaper,"
-    "open_in_new,palette,payments,send,settings,smart_toy,space_dashboard,terminal,topic,tune,warning"
+    "open_in_new,palette,payments,send,settings,smart_toy,space_dashboard,speed,terminal,topic,tune,warning"
 )
 
 
@@ -5592,12 +5592,12 @@ def render_loop_runs_page():
 def _loop_runs_overview_html(summary):
     """The plan's section 23 "Loop Overview" stat row - only the figures
     actually computable from a persisted LoopResult (total runs, success
-    rate, escalation rate, average cost), reusing the same
-    .dash-stat-tile tiles _dashboard_stats_html already renders on the
-    main Dashboard page. No average-duration figure: LoopResult carries
-    no start/finish timestamp, so this says so explicitly rather than
-    fabricating a number (matches bin/health.py's honest-degradation
-    pattern)."""
+    rate, escalation rate, average cost, the experimental Loop
+    Efficiency Score from section 17), reusing the same .dash-stat-tile
+    tiles _dashboard_stats_html already renders on the main Dashboard
+    page. No average-duration figure: LoopResult carries no start/finish
+    timestamp, so this says so explicitly rather than fabricating a
+    number (matches bin/health.py's honest-degradation pattern)."""
 
     def _pct(rate):
         return f"{rate * 100:.0f}%" if rate is not None else "—"
@@ -5605,11 +5605,21 @@ def _loop_runs_overview_html(summary):
     def _cost(value):
         return f"${value:.2f}" if value is not None else "—"
 
+    def _score(value):
+        # .4g rather than a fixed decimal count: this experimental score's
+        # magnitude varies wildly with a loop's own cost/duration/iteration
+        # scale (plan section 17 explicitly says not to treat it as a
+        # single absolute KPI), so a fixed .2f would either round tiny
+        # scores to 0.00 or truncate large ones - .4g keeps 4 significant
+        # digits either way.
+        return f"{value:.4g}" if value is not None else "—"
+
     tiles = (
         ("history", "Total Runs", summary["total_runs"]),
         ("check_circle", "Success Rate", _pct(summary["success_rate"])),
         ("warning", "Escalation Rate", _pct(summary["escalation_rate"])),
         ("bolt", "Average Cost", _cost(summary["average_cost_usd"])),
+        ("speed", "Loop Efficiency Score", _score(summary["efficiency_score"])),
     )
     tiles_html = "".join(
         "<div class='dash-stat-tile'>"
