@@ -49,6 +49,7 @@ import learning
 import loop_audit
 import loop_config
 import loop_definition
+import loop_budget
 import loop_serialize
 import memory_store
 import metrics
@@ -5760,12 +5761,61 @@ def _budget_dimension_tile_html(icon, label, dimension):
     )
 
 
+def _budget_rollup_row_html(key_label, row):
+    counts = row["status_counts"]
+    count_pills = "".join(
+        f"<span class='pill {_three_state_pill_class(status)}'>{status} {count}</span>"
+        for status, count in (
+            ("ok", counts.get("ok", 0)),
+            ("warning", counts.get("warning", 0)),
+            ("exceeded", counts.get("exceeded", 0)),
+        )
+        if count
+    )
+    return (
+        "<tr>"
+        f"<td>{html.escape(str(key_label))}</td>"
+        f"<td>{row['runs']}</td>"
+        f"<td>${row['cost_used_usd']:.2f}</td>"
+        f"<td class='pill-row'>{count_pills}</td>"
+        "</tr>"
+    )
+
+
+def _budget_rollup_section_html(title, rows, key_field, key_header):
+    """One Budget-page rollup table (By loop/day/week/month) - see
+    loop_budget.summarize_by_loop/summarize_by_time. Renders a "no data
+    yet" placeholder rather than an empty table when every persisted run
+    has an unparseable run_id (loop_budget.run_timestamp returns None),
+    which can still leave the page's main per-run list non-empty."""
+    if not rows:
+        return f"""
+<section class="card">
+<div class="section-header"><h2>{html.escape(title)}</h2></div>
+<p>No data yet for this breakdown.</p>
+</section>
+"""
+    table_rows = "".join(_budget_rollup_row_html(row[key_field], row) for row in rows)
+    return f"""
+<section class="card">
+<div class="section-header"><h2>{html.escape(title)}</h2></div>
+<div class='table-wrap'><table class='daemons'>
+<thead><tr><th>{html.escape(key_header)}</th><th>Runs</th><th>Cost</th><th>Status</th></tr></thead>
+<tbody>{table_rows}</tbody>
+</table></div>
+</section>
+"""
+
+
 def render_budget_page():
     """Budget page - shows every persisted LoopRuntime run's last-known
     budget status: loop_budget.BudgetController.check's own output,
     already computed and stored per iteration in
     outputs/loop-runs/<run_id>/result.json (same source the Loop Runs
-    page reads). No new computation, just new rendering."""
+    page reads). No new computation for the per-run list, just new
+    rendering; the By loop/day/week/month rollups above it are new
+    aggregation via loop_budget.summarize_by_loop/summarize_by_time
+    (V2 tech plan section 23)."""
     status = read_status(STATUS_PATH)
     paths = list(reversed(loop_serialize.list_results(results_dir=LOOP_RUNS_DIR)))
 
@@ -5791,6 +5841,27 @@ def render_budget_page():
 """
         return _render_shell("Budget · Loop X Engineering", "budget", _status_badge_markup(status), body)
 
+    rollup_sections = "".join([
+        _budget_rollup_section_html(
+            "By loop", loop_budget.summarize_by_loop(results_dir=LOOP_RUNS_DIR), "definition_name", "Loop",
+        ),
+        _budget_rollup_section_html(
+            "By day",
+            loop_budget.summarize_by_time(results_dir=LOOP_RUNS_DIR, granularity="day", limit=14),
+            "bucket", "Day",
+        ),
+        _budget_rollup_section_html(
+            "By week",
+            loop_budget.summarize_by_time(results_dir=LOOP_RUNS_DIR, granularity="week", limit=8),
+            "bucket", "Week",
+        ),
+        _budget_rollup_section_html(
+            "By month",
+            loop_budget.summarize_by_time(results_dir=LOOP_RUNS_DIR, granularity="month", limit=6),
+            "bucket", "Month",
+        ),
+    ])
+
     rows = []
     for data, budget in runs_with_budget:
         run_href = urllib.parse.quote(data["run_id"])
@@ -5815,6 +5886,14 @@ def render_budget_page():
 <div class="page-title">
 <h1>Budget</h1>
 <p class="subtitle">Budget usage for every recorded LoopRuntime run, most recent first.</p>
+</div>
+
+<div class="grid">
+{rollup_sections}
+</div>
+
+<div class="page-title">
+<h2>Runs</h2>
 </div>
 
 <div class="grid">

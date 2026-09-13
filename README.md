@@ -220,7 +220,7 @@ A localhost-only, dependency-free (stdlib Python, no JS framework) web UI, serve
 | **Memory**        | Cross-run lessons recorded per project, one markdown file per GitLab issue, plus anything recorded before this format existed (shown under "Legacy learnings")                 |
 | **Cost**          | AI usage cost — the GitLab issue loop's own windowed cost, and total cost across every run under `outputs/loop-runs/`                                                           |
 | **Audit**         | A score and pass/fail checks for each loop definition                                                                                                                           |
-| **Budget**        | Each recorded run's last-known budget status                                                                                                                                    |
+| **Budget**        | Each recorded run's last-known budget status, plus rollups by loop definition and by day/week/month                                                                            |
 | **Daemons**       | Load state, an editable schedule, and enable/disable for every `launchd` agent                                                                                                  |
 | **Skills**        | Every external skill this loop depends on, and whether it's actually installed                                                                                                  |
 | **GitLab Settings** | Manage `~/.gitlab/config.json` (instances, project aliases, access bundles) and `~/.loop-engineering/projects.json` (tracked projects, loop settings) without hand-editing JSON |

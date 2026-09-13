@@ -8596,7 +8596,7 @@ def test_render_audit_page_check_list_uses_plain_class_for_item_gap(monkeypatch,
     assert "<ul class='plain'>" in output or '<ul class="plain">' in output
 
 
-def _sample_loop_result_with_budget(run_id, budget):
+def _sample_loop_result_with_budget(run_id, budget, definition_name="dash-budget-loop"):
     import loop_result
     import loop_state
     import loop_verifiers
@@ -8614,7 +8614,7 @@ def _sample_loop_result_with_budget(run_id, budget):
     return loop_result.LoopResult(
         loop_id="loop_dash_budget",
         run_id=run_id,
-        definition_name="dash-budget-loop",
+        definition_name=definition_name,
         final_state=loop_state.LoopState.COMPLETED,
         iterations=[iteration],
         stop_reason="completed",
@@ -8653,6 +8653,65 @@ def test_render_budget_page_shows_dimensions_and_status_for_each_run(monkeypatch
     assert "/loop-runs/run_budget_1" in output
     assert "4" in output and "5" in output  # iterations used/limit
     assert "0.73" in output  # cost used
+
+
+def test_render_budget_page_shows_by_loop_and_time_rollups(monkeypatch, tmp_path):
+    import loop_budget
+
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    loop_runs_dir = tmp_path / "loop-runs"
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", loop_runs_dir)
+    budget = {
+        "iterations": {"status": loop_budget.BudgetStatus.OK, "used": 1, "limit": 5},
+        "runtime": {"status": loop_budget.BudgetStatus.OK, "used_seconds": 10, "limit_seconds": 1800},
+        "cost": {"status": loop_budget.BudgetStatus.OK, "used_usd": 1.25, "limit_usd": 5},
+        "overall": loop_budget.BudgetStatus.OK,
+    }
+    loop_serialize.write_result(
+        _sample_loop_result_with_budget("run_20260901_100000_a", budget, definition_name="gitlab-issue-loop"),
+        results_dir=loop_runs_dir,
+    )
+    loop_serialize.write_result(
+        _sample_loop_result_with_budget("run_20260902_100000_b", budget, definition_name="topic-monitor-loop"),
+        results_dir=loop_runs_dir,
+    )
+
+    output = ds.render_budget_page()
+
+    assert "By loop" in output
+    assert "By day" in output
+    assert "By week" in output
+    assert "By month" in output
+    assert "gitlab-issue-loop" in output
+    assert "topic-monitor-loop" in output
+    assert "2026-09-01" in output
+    assert "2026-09-02" in output
+    assert "2026-09" in output  # month bucket
+
+
+def test_render_budget_page_omits_rollup_rows_for_unparseable_run_ids(monkeypatch, tmp_path):
+    import loop_budget
+
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    loop_runs_dir = tmp_path / "loop-runs"
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", loop_runs_dir)
+    budget = {
+        "iterations": {"status": loop_budget.BudgetStatus.OK, "used": 1, "limit": 5},
+        "runtime": {"status": loop_budget.BudgetStatus.OK, "used_seconds": 10, "limit_seconds": 1800},
+        "cost": {"status": loop_budget.BudgetStatus.OK, "used_usd": 0.5, "limit_usd": 5},
+        "overall": loop_budget.BudgetStatus.OK,
+    }
+    loop_serialize.write_result(
+        _sample_loop_result_with_budget("run_budget_1", budget), results_dir=loop_runs_dir
+    )
+
+    output = ds.render_budget_page()
+
+    # The per-run card still renders (existing behavior), but the run_id
+    # doesn't match the run_<YYYYMMDD>_<HHMMSS>_ shape loop_budget.run_timestamp
+    # requires, so it contributes to no rollup section.
+    assert "/loop-runs/run_budget_1" in output
+    assert "No data yet" in output
 
 
 def test_render_memory_page_shows_category_pill_and_reuse_stats(monkeypatch, tmp_path):
