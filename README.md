@@ -1,5 +1,6 @@
 # Loop X Engineering
 
+![CI](https://github.com/encoreshao/loop-engineering/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/github/license/encoreshao/loop-engineering)
 ![Python](https://img.shields.io/badge/python-3.12%2B-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
