@@ -301,6 +301,7 @@ Every script under `bin/` (Python or shell, whichever folder it lives in) has a 
 
 | Doc                                                                    | What it's for                                                                                          |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [`docs/architecture.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/architecture.md)                         | The V2 runtime architecture: `LoopDefinition`/`LoopState`/`LoopRuntime`, verification/budget/policy, observability, and the CLI — the map, not either loop's own spec |
 | [`TASK.md`](https://github.com/encoreshao/loop-engineering/blob/main/TASK.md)                                                   | Index of every scheduled task this repo runs, each pointing at its own spec under `docs/tasks/`        |
 | [`docs/tasks/gitlab-issue-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/gitlab-issue-loop.md)   | The GitLab issue loop's human-facing spec: goal, scope, safety boundaries                              |
 | [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md) | The topic monitor loop's human-facing spec: goal, scope, safety boundaries                             |
