@@ -49,11 +49,11 @@ def slack_calls(monkeypatch):
 def _no_real_project_config(monkeypatch, tmp_path):
     """Safe default for the loop_config lookups _external_verify_issue
     makes (added in gitlab-issue-external-verification): a project with
-    no test_cmd/lint_cmd and a worktree root nothing will ever have a
-    matching directory under makes _external_verify_issue a guaranteed
-    no-op unless a test explicitly overrides these two - same shape of
-    safety net as _no_real_ai_cli/slack_calls above, for the same reason
-    (CLAUDE.md's development-mode rule: never reach real
+    no test_cmd/lint_cmd and a worktree root that will never have a
+    matching directory created under it, so `_external_verify_issue` is a
+    guaranteed no-op unless a test explicitly overrides these two - same
+    shape of safety net as _no_real_ai_cli/slack_calls above, for the same
+    reason (CLAUDE.md's development-mode rule: never reach real
     ~/.loop-engineering from a test)."""
     monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {"local_path": f"/nonexistent/{alias}"})
     monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(tmp_path / "nonexistent-worktree-root"))
@@ -407,13 +407,13 @@ def test_external_verify_issue_returns_empty_when_project_has_no_commands_config
     assert glr._external_verify_issue("harbor", 1, timeout_seconds=5) == []
 
 
-def test_external_verify_issue_never_raises_on_unexpected_error(monkeypatch):
+def test_external_verify_issue_never_raises_on_unexpected_error(tmp_path, monkeypatch):
     def _boom(alias):
         raise RuntimeError("config exploded")
 
     monkeypatch.setattr(glr.loop_config, "get_project", _boom)
 
-    assert glr._external_verify_issue("harbor", 1, timeout_seconds=5) == []
+    assert glr._external_verify_issue("harbor", 1, timeout_seconds=5, repo_root=tmp_path) == []
 
 
 def test_run_one_issue_derives_its_timeout_from_max_runtime_minutes(tmp_path):
@@ -479,6 +479,49 @@ def test_run_one_issue_appends_nothing_when_no_worktree_exists(tmp_path, monkeyp
     )
 
     assert result.iterations[-1].verification_results == []
+
+
+def test_run_one_issue_emits_verification_external_skipped_when_no_worktree_exists(tmp_path, monkeypatch):
+    """The whole point of this observe-only phase is to gather real signal
+    about whether the mechanism works - an operator must be able to tell
+    "ran cleanly, nothing to verify" apart from "silently broken for
+    weeks". Reuses test_run_one_issue_appends_nothing_when_no_worktree_
+    exists's setup (the _no_real_project_config autouse fixture's worktree
+    root never has a matching directory created under it)."""
+    from loop_definition import LoopDefinition
+    import events as events_module
+
+    definition = LoopDefinition.from_yaml(DEFINITION_PATH)
+    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {"local_path": "/x/harbor", "test_cmd": "true"})
+
+    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
+        return {"changed": True, "cost_usd": 0.0}
+
+    events_dir = tmp_path / "events"
+    glr._run_one_issue(
+        "run_x", "harbor", 1, definition, tmp_path / "loop-runs", REPO_ROOT,
+        agent_invoker=fake_invoke, events_dir=events_dir,
+    )
+
+    recorded = list(events_module.iter_events(events_dir=events_dir))
+    skipped = [e for e in recorded if e["event_type"] == "verification.external_skipped"]
+    assert len(skipped) == 1
+    assert skipped[0]["project"] == "harbor"
+    assert skipped[0]["issue_iid"] == 1
+
+
+def test_external_verify_issue_truncates_long_output_for_storage(tmp_path, monkeypatch):
+    worktree_root = tmp_path / "worktrees"
+    (worktree_root / "repo-issue-42").mkdir(parents=True)
+    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {
+        "local_path": "/some/repo", "test_cmd": "python3 -c \"print('x' * 2000)\"",
+    })
+    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(worktree_root))
+
+    results = glr._external_verify_issue("harbor", 42, timeout_seconds=5)
+
+    assert len(results) == 1
+    assert len(results[0].output) <= 800
 
 
 def test_run_one_issue_emits_verification_external_completed_events(tmp_path, monkeypatch):

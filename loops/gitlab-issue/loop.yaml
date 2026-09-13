@@ -66,7 +66,12 @@ stop_conditions:
   # nothing has been spent) and after it, and no-progress detection needs
   # at least two iterations to compare. The per-issue subprocess timeout
   # derived from max_runtime_minutes above is the only real, enforced
-  # bound today - same honesty as the `verifiers: []` note above.
+  # bound today - same honesty as the `verifiers: []` note above. This
+  # same value now also bounds each of up to two external-verification
+  # subprocess calls per issue (test_cmd, lint_cmd - see
+  # bin/gitlab_loop_runner.py's _external_verify_issue), run sequentially
+  # after the agent call, so the real worst-case per-issue ceiling is up
+  # to 3x this value, not 1x.
   max_cost_usd: 3
   no_progress_iterations: 2
 

@@ -377,7 +377,17 @@ def _external_verify_issue(alias, issue_iid, timeout_seconds, repo_root=None):
             verifier = CommandVerifier(
                 name=f"external_{kind}", command=command, cwd=worktree_path, timeout_seconds=timeout_seconds,
             )
-            results.append(verifier.verify({}))
+            verification_result = verifier.verify({})
+            # Truncate for storage only, not for the check itself: passed/
+            # exit_code are unaffected. Before this plan, verification_
+            # results was always [] for this loop, so CommandVerifier's own
+            # unbounded output never mattered; now every issue's result.json
+            # can carry up to two full test-suite outputs, which would grow
+            # outputs/loop-runs/ unbounded and slow every dashboard page that
+            # json.load()s it. Scoped to this call site rather than
+            # CommandVerifier itself, which is shared by templates/evals too.
+            verification_result.output = verification_result.output[-_STDERR_EXCERPT_CHARS:]
+            results.append(verification_result)
         return results
     except Exception as exc:  # noqa: BLE001 - see docstring: must never crash a real batch run
         _append_unified_log(
@@ -394,7 +404,8 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
     CLAUDE.md's dependency-injection rule - a def-time default would bind
     the function object at import and make
     `monkeypatch.setattr(glr, "invoke_issue_agent", ...)` silently
-    ineffective. Also runs _external_verify_issue after the agent call
+    ineffective. Also runs _external_verify_issue after `runtime.start()`
+    returns (which may invoke the agent multiple times across retries)
     (observe-only - see that function's own docstring)."""
     if agent_invoker is None:
         agent_invoker = invoke_issue_agent
@@ -425,13 +436,24 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
 
     if result.iterations:
         external_results = _external_verify_issue(alias, issue_iid, timeout_seconds, repo_root=repo_root)
-        result.iterations[-1].verification_results.extend(external_results)
-        for external_result in external_results:
+        if external_results:
+            result.iterations[-1].verification_results.extend(external_results)
+            for external_result in external_results:
+                _emit_best_effort(
+                    "verification.external_completed", run_id=run_id, issue_run_id=issue_run_id,
+                    project=alias, issue_iid=issue_iid,
+                    data={"verifier": external_result.name, "passed": external_result.passed},
+                    events_dir=events_dir,
+                )
+        else:
+            # Distinguishes "ran cleanly, nothing to verify" from "has been
+            # silently broken for weeks" - see the final-review finding this
+            # addresses: previously every empty-result exit from
+            # _external_verify_issue (no worktree, no commands configured,
+            # or an unexpected exception) was outwardly indistinguishable.
             _emit_best_effort(
-                "verification.external_completed", run_id=run_id, issue_run_id=issue_run_id,
-                project=alias, issue_iid=issue_iid,
-                data={"verifier": external_result.name, "passed": external_result.passed},
-                events_dir=events_dir,
+                "verification.external_skipped", run_id=run_id, issue_run_id=issue_run_id,
+                project=alias, issue_iid=issue_iid, events_dir=events_dir,
             )
 
     write_result(result, results_dir=results_dir)

@@ -93,17 +93,22 @@ python3 bin/events.py emit --type run.started --run-id "$RUN_ID" \
 #
 # The outer timeout is 21600s (6 hours) and is NOT the primary safety
 # mechanism any more. The real, enforced per-step bounds now live in
-# gitlab_loop_runner.py: 1800s per issue (loops/gitlab-issue/loop.yaml's
-# max_runtime_minutes: 30) plus 1800s for the end-of-run wrap-up call.
-# This one is only a secondary sanity net against a pathological hang at
-# the process/script level (a wedged login zsh, an unkillable child).
-# It has to be generous for a reason: it used to be 3600s, which two slow
-# issues alone (2 x 1800s) could exhaust - and when this timeout trips,
-# gitlab_loop_runner.py is killed before its unconditional
-# `--batch-end-of-run` wrap-up call, silently losing the day's
-# digest/daily-review entirely. 6 hours leaves room for a busy day (a
-# double-digit issue count, each taking its full per-issue budget) to
-# still reach the wrap-up.
+# gitlab_loop_runner.py: up to 5400s per issue (loops/gitlab-issue/
+# loop.yaml's max_runtime_minutes: 30, i.e. 1800s, now reused as the
+# ceiling for the agent call AND for each of up to two sequential
+# external-verification subprocess calls per issue - test_cmd, lint_cmd -
+# so the real worst case is 3 x 1800s, not 1x) plus 1800s for the
+# end-of-run wrap-up call. This one is only a secondary sanity net against
+# a pathological hang at the process/script level (a wedged login zsh, an
+# unkillable child). It has to be generous for a reason: it used to be
+# 3600s, which two slow issues alone (2 x 1800s) could exhaust - and when
+# this timeout trips, gitlab_loop_runner.py is killed before its
+# unconditional `--batch-end-of-run` wrap-up call, silently losing the
+# day's digest/daily-review entirely. 6 hours leaves room for a busy day
+# (a double-digit issue count, each taking its full per-issue budget) to
+# still reach the wrap-up - though the per-issue ceiling tripling to
+# 5400s means this 21600s figure may itself need revisiting; that's a
+# separate operational decision, not changed here.
 python3 bin/web/dashboard_server.py write-status running
 
 RUNNER_ARGS=("$RUN_ID" "$@")
