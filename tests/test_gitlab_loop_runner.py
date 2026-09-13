@@ -45,6 +45,20 @@ def slack_calls(monkeypatch):
     return calls
 
 
+@pytest.fixture(autouse=True)
+def _no_real_project_config(monkeypatch, tmp_path):
+    """Safe default for the loop_config lookups _external_verify_issue
+    makes (added in gitlab-issue-external-verification): a project with
+    no test_cmd/lint_cmd and a worktree root nothing will ever have a
+    matching directory under makes _external_verify_issue a guaranteed
+    no-op unless a test explicitly overrides these two - same shape of
+    safety net as _no_real_ai_cli/slack_calls above, for the same reason
+    (CLAUDE.md's development-mode rule: never reach real
+    ~/.loop-engineering from a test)."""
+    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {"local_path": f"/nonexistent/{alias}"})
+    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(tmp_path / "nonexistent-worktree-root"))
+
+
 def test_the_modules_safety_net_stubs_both_the_ai_cli_and_slack(slack_calls):
     """Guards the safety net itself. `_notify_slack_best_effort` calls
     slack_notify.post_message in-process, which reads the real
@@ -345,6 +359,61 @@ def test_run_single_issue_still_uses_the_dashboard_invoker(tmp_path, monkeypatch
 
     assert result.final_state.value == "completed"
     assert calls == [("issue", "harbor", 7, 1800)]
+
+
+def test_external_verify_issue_returns_empty_when_no_worktree_exists(tmp_path, monkeypatch):
+    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {
+        "local_path": "/some/repo", "test_cmd": "true", "lint_cmd": "true",
+    })
+    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(tmp_path / "worktrees"))
+
+    assert glr._external_verify_issue("harbor", 42, timeout_seconds=5) == []
+
+
+def test_external_verify_issue_runs_test_and_lint_when_worktree_exists(tmp_path, monkeypatch):
+    worktree_root = tmp_path / "worktrees"
+    (worktree_root / "repo-issue-42").mkdir(parents=True)
+    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {
+        "local_path": "/some/repo", "test_cmd": "true", "lint_cmd": "false",
+    })
+    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(worktree_root))
+
+    results = glr._external_verify_issue("harbor", 42, timeout_seconds=5)
+
+    assert [r.name for r in results] == ["external_test", "external_lint"]
+    assert results[0].passed is True
+    assert results[1].passed is False
+
+
+def test_external_verify_issue_skips_commands_the_project_does_not_configure(tmp_path, monkeypatch):
+    worktree_root = tmp_path / "worktrees"
+    (worktree_root / "repo-issue-9").mkdir(parents=True)
+    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {
+        "local_path": "/some/repo", "test_cmd": "true",
+    })
+    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(worktree_root))
+
+    results = glr._external_verify_issue("harbor", 9, timeout_seconds=5)
+
+    assert [r.name for r in results] == ["external_test"]
+
+
+def test_external_verify_issue_returns_empty_when_project_has_no_commands_configured(tmp_path, monkeypatch):
+    worktree_root = tmp_path / "worktrees"
+    (worktree_root / "repo-issue-1").mkdir(parents=True)
+    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {"local_path": "/some/repo"})
+    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(worktree_root))
+
+    assert glr._external_verify_issue("harbor", 1, timeout_seconds=5) == []
+
+
+def test_external_verify_issue_never_raises_on_unexpected_error(monkeypatch):
+    def _boom(alias):
+        raise RuntimeError("config exploded")
+
+    monkeypatch.setattr(glr.loop_config, "get_project", _boom)
+
+    assert glr._external_verify_issue("harbor", 1, timeout_seconds=5) == []
 
 
 def test_run_one_issue_derives_its_timeout_from_max_runtime_minutes(tmp_path):

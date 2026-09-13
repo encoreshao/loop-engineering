@@ -36,7 +36,7 @@ from loop_definition import LoopDefinition
 from loop_runtime import LoopRuntime
 from loop_serialize import write_result
 from loop_state import LoopState
-from loop_verifiers import build_verifiers
+from loop_verifiers import CommandVerifier, build_verifiers
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DEFINITION_PATH = REPO_ROOT / "loops" / "gitlab-issue" / "loop.yaml"
@@ -345,6 +345,46 @@ def invoke_batch_end_of_run_agent(repo_root=None, timeout_seconds=900, unified_l
         prompt, repo_root=repo_root, timeout_seconds=timeout_seconds,
         unified_log_path=unified_log_path,
     )
+
+
+def _external_verify_issue(alias, issue_iid, timeout_seconds, repo_root=None):
+    """Independently re-run `alias`'s real test_cmd/lint_cmd (from
+    ~/.loop-engineering/projects.json) against the worktree this issue's
+    agent call actually used, if it made one - see
+    docs/superpowers/specs/2026-09-13-gitlab-issue-external-verification-design.md.
+    Observe-only: the caller folds these into the persisted LoopResult's
+    verification_results for visibility (Loop Runs/Budget/Audit,
+    loop_serialize's "verified successful" count), but never uses them to
+    change final_state/stop_reason - that stays exactly what LoopRuntime
+    already decided from the agent's own report.
+
+    Returns [] (not an error) when there's no worktree - an issue the
+    agent answered without a code change has nothing to externally
+    verify. Never raises: any unexpected failure (a misconfigured
+    project, an unreadable projects.json) is caught, logged, and treated
+    as "no results" - this must never be what crashes a real batch run."""
+    try:
+        project = loop_config.get_project(alias)
+        worktree_root = loop_config.get_worktree_root()
+        worktree_path = Path(worktree_root) / f"{Path(project['local_path']).name}-issue-{issue_iid}"
+        if not worktree_path.is_dir():
+            return []
+
+        results = []
+        for kind, command in (("test", project.get("test_cmd")), ("lint", project.get("lint_cmd"))):
+            if not command:
+                continue
+            verifier = CommandVerifier(
+                name=f"external_{kind}", command=command, cwd=worktree_path, timeout_seconds=timeout_seconds,
+            )
+            results.append(verifier.verify({}))
+        return results
+    except Exception as exc:  # noqa: BLE001 - see docstring: must never crash a real batch run
+        _append_unified_log(
+            f"external verification for {alias} #{issue_iid} failed: {type(exc).__name__}: {exc}",
+            repo_root=repo_root,
+        )
+        return []
 
 
 def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
