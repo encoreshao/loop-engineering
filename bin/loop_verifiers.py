@@ -12,6 +12,18 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 
+def _decode_or_empty(value):
+    """subprocess.TimeoutExpired's .stdout/.stderr are bytes even when
+    subprocess.run(..., text=True) was used - text-mode decoding only
+    applies to the completed-process path, not the partial-output-on-
+    timeout exception path. Decode defensively so CommandVerifier.verify()
+    never hands back a bytes `output` (which json.dumps can't serialize -
+    see write_result)."""
+    if not value:
+        return ""
+    return value.decode("utf-8", "replace") if isinstance(value, bytes) else value
+
+
 @dataclass
 class VerificationResult:
     name: str
@@ -57,7 +69,7 @@ class CommandVerifier(Verifier):
                 passed=False,
                 exit_code=None,
                 duration_ms=duration_ms,
-                output=(exc.stdout or "") + (exc.stderr or ""),
+                output=_decode_or_empty(exc.stdout) + _decode_or_empty(exc.stderr),
                 evidence=evidence,
             )
 

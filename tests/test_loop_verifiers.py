@@ -84,6 +84,19 @@ def test_command_exceeding_timeout_seconds_reports_failed_not_raised():
     assert result.evidence["timed_out"] is True
 
 
+def test_command_exceeding_timeout_with_output_on_both_streams_reports_failed_not_raised():
+    verifier = CommandVerifier(
+        name="slow", command="bash -c 'echo out; echo err >&2; sleep 2'", timeout_seconds=0.2,
+    )
+
+    result = verifier.verify({})
+
+    assert result.passed is False
+    assert isinstance(result.output, str)
+    assert "out" in result.output
+    assert "err" in result.output
+
+
 def test_evidence_includes_timeout_seconds_when_configured():
     verifier = CommandVerifier(name="ok", command="true", timeout_seconds=5)
 
