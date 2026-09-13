@@ -434,6 +434,80 @@ def test_run_one_issue_derives_its_timeout_from_max_runtime_minutes(tmp_path):
     assert captured == [definition.stop_conditions.max_runtime_minutes * 60]
 
 
+def test_run_one_issue_appends_external_verification_without_changing_final_state(tmp_path, monkeypatch):
+    from loop_definition import LoopDefinition
+
+    definition = LoopDefinition.from_yaml(DEFINITION_PATH)
+    worktree_root = tmp_path / "worktrees"
+    (worktree_root / "harbor-issue-3").mkdir(parents=True)
+    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {
+        "local_path": "/x/harbor", "test_cmd": "false",  # deliberately failing
+    })
+    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(worktree_root))
+
+    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
+        return {"changed": True, "cost_usd": 0.0}
+
+    result = glr._run_one_issue(
+        "run_x", "harbor", 3, definition, tmp_path / "loop-runs", REPO_ROOT,
+        agent_invoker=fake_invoke, events_dir=tmp_path / "events",
+    )
+
+    # The single most important assertion in this plan: a failing
+    # external check must NOT flip an already-completed issue.
+    assert result.final_state.value == "completed"
+    names = [v.name for v in result.iterations[-1].verification_results]
+    assert names == ["external_test"]
+    assert result.iterations[-1].verification_results[0].passed is False
+
+
+def test_run_one_issue_appends_nothing_when_no_worktree_exists(tmp_path, monkeypatch):
+    from loop_definition import LoopDefinition
+
+    definition = LoopDefinition.from_yaml(DEFINITION_PATH)
+    # _no_real_project_config's default worktree_root never has a matching
+    # directory created under it, so this exercises the "no worktree" path
+    # even though get_project below configures a real test_cmd.
+    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {"local_path": "/x/harbor", "test_cmd": "true"})
+
+    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
+        return {"changed": True, "cost_usd": 0.0}
+
+    result = glr._run_one_issue(
+        "run_x", "harbor", 1, definition, tmp_path / "loop-runs", REPO_ROOT,
+        agent_invoker=fake_invoke, events_dir=tmp_path / "events",
+    )
+
+    assert result.iterations[-1].verification_results == []
+
+
+def test_run_one_issue_emits_verification_external_completed_events(tmp_path, monkeypatch):
+    from loop_definition import LoopDefinition
+    import events as events_module
+
+    definition = LoopDefinition.from_yaml(DEFINITION_PATH)
+    worktree_root = tmp_path / "worktrees"
+    (worktree_root / "harbor-issue-5").mkdir(parents=True)
+    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {
+        "local_path": "/x/harbor", "test_cmd": "true", "lint_cmd": "true",
+    })
+    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(worktree_root))
+
+    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
+        return {"changed": True, "cost_usd": 0.0}
+
+    events_dir = tmp_path / "events"
+    glr._run_one_issue(
+        "run_x", "harbor", 5, definition, tmp_path / "loop-runs", REPO_ROOT,
+        agent_invoker=fake_invoke, events_dir=events_dir,
+    )
+
+    recorded = list(events_module.iter_events(events_dir=events_dir))
+    external_events = [e for e in recorded if e["event_type"] == "verification.external_completed"]
+    assert [e["data"]["verifier"] for e in external_events] == ["external_test", "external_lint"]
+    assert all(e["data"]["passed"] is True for e in external_events)
+
+
 # --- Batch prompt builders (real subprocess against build_run_prompt.sh) ------
 
 

@@ -394,7 +394,8 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
     CLAUDE.md's dependency-injection rule - a def-time default would bind
     the function object at import and make
     `monkeypatch.setattr(glr, "invoke_issue_agent", ...)` silently
-    ineffective."""
+    ineffective. Also runs _external_verify_issue after the agent call
+    (observe-only - see that function's own docstring)."""
     if agent_invoker is None:
         agent_invoker = invoke_issue_agent
     issue_run_id = f"{run_id}_{alias}_{issue_iid}"
@@ -421,6 +422,18 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
     # than a LoopResult field on purpose: dataclasses.asdict() ignores it,
     # so outputs/loop-runs/<run>/result.json's shape is unchanged.
     setattr(result, _AGENT_COST_ATTR, _sum_or_none(raw_costs))
+
+    if result.iterations:
+        external_results = _external_verify_issue(alias, issue_iid, timeout_seconds, repo_root=repo_root)
+        result.iterations[-1].verification_results.extend(external_results)
+        for external_result in external_results:
+            _emit_best_effort(
+                "verification.external_completed", run_id=run_id, issue_run_id=issue_run_id,
+                project=alias, issue_iid=issue_iid,
+                data={"verifier": external_result.name, "passed": external_result.passed},
+                events_dir=events_dir,
+            )
+
     write_result(result, results_dir=results_dir)
     return result
 
