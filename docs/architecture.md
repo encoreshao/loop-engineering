@@ -203,6 +203,13 @@ failure never crashes the runtime — same `|| true` philosophy as
   cost_usd × total duration_hours × total iterations), summed across all
   persisted `LoopRuntime` runs. Shown as one tile among several on the
   Loop Runs page, deliberately not a standalone KPI.
+- **External GitLab issue verification** (`gitlab_loop_runner._external_verify_issue`)
+  — independently re-runs a project's real `test_cmd`/`lint_cmd` against
+  the worktree an issue's agent call actually used, recording the result
+  but not (yet) changing the issue's outcome. See
+  [`2026-09-13-gitlab-issue-external-verification-design.md`](superpowers/specs/2026-09-13-gitlab-issue-external-verification-design.md).
+  `loop audit` doesn't know about this mechanism — it still scores
+  `loops/gitlab-issue/loop.yaml`'s `verification` check as a FAIL.
 
 ## 8. CLI (`bin/loop_cli.py`)
 

@@ -35,11 +35,18 @@ actions:
 verification:
   required: []
 
-# Deliberately empty: the agent still verifies its own work exactly as
-# today (it runs each project's own real test_cmd/lint_cmd itself, per
-# LOOPX_INSTRUCTIONS.md) - LoopRuntime tracks/bounds this call, it does
-# not yet re-verify it externally. See the design doc's "known, accepted
-# limitation" section.
+# Deliberately empty: this field assumes one static command + cwd for
+# the whole loop, but this loop spans many projects (different
+# test_cmd/lint_cmd per project, from projects.json) and a different
+# worktree per issue - the wrong shape for that. Real external
+# verification now happens anyway: bin/gitlab_loop_runner.py's
+# _external_verify_issue independently re-runs each project's own
+# test_cmd/lint_cmd against the issue's actual worktree at runtime, not
+# through this field. It is currently observe-only (recorded, but never
+# changes an issue's outcome) - see
+# docs/superpowers/specs/2026-09-13-gitlab-issue-external-verification-design.md.
+# `loop audit` still FAILs this loop's `verification` check regardless:
+# it has no way to see this dynamic, runtime-only mechanism.
 verifiers: []
 
 stop_conditions:
