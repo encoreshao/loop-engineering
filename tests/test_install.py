@@ -189,10 +189,17 @@ def test_install_forwards_setup_flags(tmp_path):
         "--repo-url", str(origin), "--dir", str(target),
         "--skip-skills-install", "--config-path", "/tmp/projects.json",
         "--topics-config-path", "/tmp/topics.json",
+        "--ai-cli-config-path", "/tmp/ai_cli.json",
+        "--loops-config-path", "/tmp/loops.json",
+        "--state-path", "/tmp/loop_scheduler_state.json",
     )
 
     forwarded = (target / "setup_ran.txt").read_text().strip()
-    assert forwarded == "--skip-skills-install --config-path /tmp/projects.json --topics-config-path /tmp/topics.json"
+    assert forwarded == (
+        "--skip-skills-install --config-path /tmp/projects.json "
+        "--topics-config-path /tmp/topics.json --ai-cli-config-path /tmp/ai_cli.json "
+        "--loops-config-path /tmp/loops.json --state-path /tmp/loop_scheduler_state.json"
+    )
 
 
 def test_install_pulls_latest_when_dir_already_a_clone(tmp_path):

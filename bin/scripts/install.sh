@@ -124,8 +124,20 @@ while [ "$#" -gt 0 ]; do
       SETUP_ARGS+=("--topics-config-path" "$2")
       shift 2
       ;;
+    --ai-cli-config-path)
+      SETUP_ARGS+=("--ai-cli-config-path" "$2")
+      shift 2
+      ;;
+    --loops-config-path)
+      SETUP_ARGS+=("--loops-config-path" "$2")
+      shift 2
+      ;;
+    --state-path)
+      SETUP_ARGS+=("--state-path" "$2")
+      shift 2
+      ;;
     *)
-      echo "${C_RED}Usage: install.sh [--dir PATH] [--branch NAME] [--repo-url URL] [--launch-agents-dir PATH] [--upgrade] [--skip-nginx] [--skip-launchd-daemons] [--port PORT] [--skip-skills-install] [--config-path PATH] [--topics-config-path PATH]${C_RESET}" >&2
+      echo "${C_RED}Usage: install.sh [--dir PATH] [--branch NAME] [--repo-url URL] [--launch-agents-dir PATH] [--upgrade] [--skip-nginx] [--skip-launchd-daemons] [--port PORT] [--skip-skills-install] [--config-path PATH] [--topics-config-path PATH] [--ai-cli-config-path PATH] [--loops-config-path PATH] [--state-path PATH]${C_RESET}" >&2
       exit 1
       ;;
   esac
