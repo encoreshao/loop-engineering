@@ -50,6 +50,7 @@ import loop_config
 import loop_definition
 import loop_budget
 import loop_serialize
+import loops_config
 import memory_store
 import metrics
 import project_memory
@@ -1879,6 +1880,76 @@ def _describe_schedule(schedule):
         return f"{labels} {hour:02d}:{minute:02d}"
     except (KeyError, TypeError, ValueError, AttributeError):
         return "scheduled (see plist)"
+
+
+_LOOP_WEEKDAY_ABBR = {1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat", 7: "Sun"}
+
+
+def _describe_loop_schedule(schedule):
+    """Human-readable summary of one loops.json entry's own "schedule"
+    field ({"weekdays": [1-7,...] | "all", "hour", "minute"} - see
+    bin/loops_config.py), for the Daemons page's Registered Loops section.
+    Deliberately separate from _describe_schedule, which reads a launchd
+    plist's StartCalendarInterval shape (capitalized Weekday/Hour/Minute
+    keys, 0-6 Sunday-first) - loops.json uses ISO weekdays (1=Monday,
+    matching datetime.isoweekday(), same convention bin/loop_scheduler.py's
+    is_due uses) in a lowercase-keyed dict, an unrelated format that
+    happens to describe a similar thing."""
+    try:
+        hour, minute = schedule["hour"], schedule["minute"]
+        weekdays = schedule["weekdays"]
+        if weekdays == "all":
+            return f"Every day {hour:02d}:{minute:02d}"
+        weekdays = sorted(weekdays)
+        if weekdays == [1, 2, 3, 4, 5]:
+            return f"Mon–Fri {hour:02d}:{minute:02d}"
+        labels = ", ".join(_LOOP_WEEKDAY_ABBR[d] for d in weekdays)
+        return f"{labels} {hour:02d}:{minute:02d}"
+    except (KeyError, TypeError, ValueError):
+        return "schedule (see loops.json)"
+
+
+def _render_registered_loops_section():
+    """Read-only breakdown of every loop bin/loop_scheduler.py manages,
+    shown on the Daemons page below the launchd table so enabling/disabling
+    the single com.hermes.loop-engineering daemon there reads as "all
+    registered loops", not just the GitLab issue loop - see
+    docs/superpowers/specs/2026-09-14-unified-loop-scheduler-design.md.
+    Never raises: a missing/malformed ~/.loop-engineering/loops.json (a
+    fresh install that hasn't run bin/scripts/setup.sh yet) is reported as
+    a plain note, not a crashed page."""
+    try:
+        loops = loops_config.list_loops()
+    except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError):
+        return "<p>No loops registered yet - see <code>config/loops.json.template</code>.</p>"
+
+    if not loops:
+        return "<p>No loops registered yet - see <code>config/loops.json.template</code>.</p>"
+
+    rows = []
+    for loop in loops:
+        name = loop.get("name", "?")
+        safe_name = html.escape(str(name))
+        schedule_text = html.escape(_describe_loop_schedule(loop.get("schedule", {})))
+        loop_status = read_status(status_path_for_loop(name))
+        badge = _status_badge_markup(loop_status)
+        updated = loop_status.get("updated_at")
+        last_run = html.escape(_relative_time(updated)) if updated else "never"
+        rows.append(
+            "<tr>"
+            f"<td><code>{safe_name}</code></td>"
+            f"<td>{schedule_text}</td>"
+            f"<td>{badge}</td>"
+            f"<td>{last_run}</td>"
+            "</tr>"
+        )
+
+    return (
+        "<div class='table-wrap'><table class='daemons'>"
+        "<thead><tr><th>Loop</th><th>Schedule</th><th>Status</th><th>Last run</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table></div>"
+    )
 
 
 def _describe_trigger(daemon):
@@ -6991,6 +7062,8 @@ def render_daemons_page(flash=None, flash_ok=True):
         "</table></div>"
     ) if daemon_rows else "<p>(no launchd plist files found)</p>"
 
+    registered_loops_html = _render_registered_loops_section()
+
     body = f"""
 <div class="page-title">
 <h1>Launchd Daemons</h1>
@@ -7003,6 +7076,11 @@ def render_daemons_page(flash=None, flash_ok=True):
 <section class="card">
 <div class="section-header">{_SECTION_ICON_DAEMONS}<h2>Launchd Daemons</h2></div>
 {daemons_html}
+</section>
+<section class="card">
+<div class="section-header">{_SECTION_ICON_DAEMONS}<h2>Registered Loops</h2></div>
+<p class="subtitle">Every loop the com.hermes.loop-engineering scheduler above runs, one entry per <code>~/.loop-engineering/loops.json</code> registration - enabling or disabling that one daemon enables or disables all of these together.</p>
+{registered_loops_html}
 </section>
 </div>
 """

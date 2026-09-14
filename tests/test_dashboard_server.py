@@ -5365,6 +5365,53 @@ def test_render_topic_monitor_page_omits_timestamp_for_a_never_run_topic(monkeyp
     assert "ago" not in output.split("<h1>Topic Monitor</h1>", 1)[1]
 
 
+def test_describe_loop_schedule_mon_fri():
+    assert ds._describe_loop_schedule({"weekdays": [1, 2, 3, 4, 5], "hour": 10, "minute": 0}) == "Mon–Fri 10:00"
+
+
+def test_describe_loop_schedule_every_day():
+    assert ds._describe_loop_schedule({"weekdays": "all", "hour": 9, "minute": 30}) == "Every day 09:30"
+
+
+def test_describe_loop_schedule_arbitrary_subset():
+    assert ds._describe_loop_schedule({"weekdays": [2, 4], "hour": 8, "minute": 15}) == "Tue, Thu 08:15"
+
+
+def test_describe_loop_schedule_malformed_falls_back():
+    assert ds._describe_loop_schedule({"weekdays": [1]}) == "schedule (see loops.json)"
+
+
+def test_render_daemons_page_lists_registered_loops(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(ds, "LOOP_DIR", tmp_path)
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [
+        {"name": "gitlab-issue-loop", "schedule": {"weekdays": [1, 2, 3, 4, 5], "hour": 10, "minute": 0}},
+        {"name": "topic-monitor", "schedule": {"weekdays": "all", "hour": 10, "minute": 0}},
+    ])
+    ds.write_status("idle", status_path=ds.status_path_for_loop("gitlab-issue-loop"))
+    ds.write_status("running", status_path=ds.status_path_for_loop("topic-monitor"))
+
+    output = ds.render_daemons_page()
+
+    assert "gitlab-issue-loop" in output
+    assert "topic-monitor" in output
+    assert "Mon–Fri 10:00" in output
+    assert "Every day 10:00" in output
+
+
+def test_render_daemons_page_handles_missing_loops_registry_gracefully(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+
+    def raise_not_found(*a, **k):
+        raise FileNotFoundError("no registry")
+
+    monkeypatch.setattr(ds.loops_config, "list_loops", raise_not_found)
+
+    output = ds.render_daemons_page()
+
+    assert "<h1>Launchd Daemons</h1>" in output
+
+
 def test_render_daemons_page_shows_daemons_table(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
     monkeypatch.setattr(ds, "get_daemons_status", lambda *a, **k: [
