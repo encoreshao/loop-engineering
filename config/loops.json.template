@@ -1,18 +1,20 @@
 [
   {
-    "name": "gitlab-issue-loop",
+    "name": "gitlab-loop",
     "entry_point": "bin.gitlab_loop_runner",
-    "schedule": {"weekdays": [1, 2, 3, 4, 5], "hour": 10, "minute": 0},
+    "schedule": {"frequency": "weekly", "weekdays": [1, 2, 3, 4, 5], "hour": 10, "minute": 0},
+    "enabled": true,
     "timeout_seconds": 21600,
     "log_suffix": "",
     "emit_run_events": true
   },
   {
-    "name": "topic-monitor",
+    "name": "topic-loop",
     "entry_point": "bin.topic_monitor_runner",
-    "schedule": {"weekdays": "all", "hour": 10, "minute": 0},
+    "schedule": {"frequency": "daily", "hour": 10, "minute": 0},
+    "enabled": true,
     "timeout_seconds": 21600,
-    "log_suffix": "-topic-monitor",
+    "log_suffix": "-topic-loop",
     "emit_run_events": false
   }
 ]

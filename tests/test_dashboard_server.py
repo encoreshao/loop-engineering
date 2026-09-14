@@ -61,21 +61,21 @@ def test_write_status_then_read_status_round_trips(tmp_path):
     assert read_back == written
 
 
-def test_status_path_for_loop_gitlab_issue_loop_returns_status_path():
-    assert ds.status_path_for_loop("gitlab-issue-loop") == ds.STATUS_PATH
+def test_status_path_for_loop_gitlab_loop_returns_status_path():
+    assert ds.status_path_for_loop("gitlab-loop") == ds.STATUS_PATH
 
 
-def test_status_path_for_loop_gitlab_issue_loop_tracks_monkeypatched_status_path(tmp_path, monkeypatch):
+def test_status_path_for_loop_gitlab_loop_tracks_monkeypatched_status_path(tmp_path, monkeypatch):
     fake_status_path = tmp_path / "status.json"
     monkeypatch.setattr(ds, "STATUS_PATH", fake_status_path)
 
-    assert ds.status_path_for_loop("gitlab-issue-loop") == fake_status_path
+    assert ds.status_path_for_loop("gitlab-loop") == fake_status_path
 
 
 def test_status_path_for_loop_other_loop_returns_per_loop_path(tmp_path):
-    path = ds.status_path_for_loop("topic-monitor", base_dir=tmp_path)
+    path = ds.status_path_for_loop("topic-loop", base_dir=tmp_path)
 
-    assert path == tmp_path / "outputs" / "status" / "topic-monitor.json"
+    assert path == tmp_path / "outputs" / "status" / "topic-loop.json"
 
 
 def test_read_topic_status_missing_file_returns_empty_topics(tmp_path):
@@ -2488,6 +2488,159 @@ def test_do_post_unknown_path_is_404_and_get_never_triggers_actions(tmp_path, mo
     assert called == []
 
 
+def test_do_post_loop_enable_without_csrf_token_is_forbidden_and_mutates_nothing(monkeypatch):
+    called = []
+    monkeypatch.setattr(ds.loops_config, "set_enabled",
+                        lambda *a, **k: called.append(a) or (True, "should not happen"))
+
+    with _running_server() as port:
+        status, _headers, body = _post(port, "/daemons/loops/topic-loop/enable")
+        assert status == 403
+        assert "CSRF" in body
+
+    assert called == []
+
+
+def test_do_post_loop_disable_with_valid_csrf_calls_set_enabled_false(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        ds.loops_config, "set_enabled",
+        lambda name, enabled, **k: captured.setdefault("args", (name, enabled)) or (True, "Disabled topic-loop"),
+    )
+
+    with _running_server() as port:
+        token = ds._CSRF_TOKEN
+        status, headers, _body = _post(port, "/daemons/loops/topic-loop/disable", {"csrf_token": token})
+
+        assert status == 303
+        parsed = _flash_from_location(headers.get("Location"))
+        assert parsed["ok"] == ["1"]
+
+    assert captured["args"] == ("topic-loop", False)
+
+
+def test_do_post_loop_enable_with_valid_csrf_calls_set_enabled_true(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        ds.loops_config, "set_enabled",
+        lambda name, enabled, **k: captured.setdefault("args", (name, enabled)) or (True, "Enabled topic-loop"),
+    )
+
+    with _running_server() as port:
+        token = ds._CSRF_TOKEN
+        status, headers, _body = _post(port, "/daemons/loops/topic-loop/enable", {"csrf_token": token})
+
+        assert status == 303
+        parsed = _flash_from_location(headers.get("Location"))
+        assert parsed["ok"] == ["1"]
+
+    assert captured["args"] == ("topic-loop", True)
+
+
+def test_do_post_loop_schedule_without_csrf_token_is_forbidden_and_mutates_nothing(monkeypatch):
+    called = []
+    monkeypatch.setattr(ds.loops_config, "set_schedule",
+                        lambda *a, **k: called.append(a) or (True, "should not happen"))
+
+    with _running_server() as port:
+        status, _headers, body = _post(port, "/daemons/loops/topic-loop/schedule", {"time": "09:00"})
+        assert status == 403
+        assert "CSRF" in body
+
+    assert called == []
+
+
+def test_do_post_loop_schedule_daily_builds_frequency_shape(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        ds.loops_config, "set_schedule",
+        lambda name, schedule, **k: captured.setdefault("args", (name, schedule)) or (True, "Updated"),
+    )
+
+    with _running_server() as port:
+        token = ds._CSRF_TOKEN
+        status, headers, _body = _post(
+            port, "/daemons/loops/topic-loop/schedule",
+            [("csrf_token", token), ("time", "09:30"), ("frequency", "Daily")])
+
+        assert status == 303
+        parsed = _flash_from_location(headers.get("Location"))
+        assert parsed["ok"] == ["1"]
+
+    assert captured["args"] == ("topic-loop", {"frequency": "daily", "hour": 9, "minute": 30})
+
+
+def test_do_post_loop_schedule_weekly_builds_frequency_shape_with_weekdays(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        ds.loops_config, "set_schedule",
+        lambda name, schedule, **k: captured.setdefault("args", (name, schedule)) or (True, "Updated"),
+    )
+
+    with _running_server() as port:
+        token = ds._CSRF_TOKEN
+        status, headers, _body = _post(
+            port, "/daemons/loops/gitlab-loop/schedule",
+            [("csrf_token", token), ("time", "10:00"), ("frequency", "Weekly"),
+             ("weekday", "1"), ("weekday", "3")])
+
+        assert status == 303
+
+    assert captured["args"] == (
+        "gitlab-loop", {"frequency": "weekly", "weekdays": [1, 3], "hour": 10, "minute": 0},
+    )
+
+
+def test_do_post_loop_schedule_monthly_builds_frequency_shape_with_day(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        ds.loops_config, "set_schedule",
+        lambda name, schedule, **k: captured.setdefault("args", (name, schedule)) or (True, "Updated"),
+    )
+
+    with _running_server() as port:
+        token = ds._CSRF_TOKEN
+        status, headers, _body = _post(
+            port, "/daemons/loops/topic-loop/schedule",
+            [("csrf_token", token), ("time", "09:00"), ("frequency", "Monthly"), ("day_of_month", "15")])
+
+        assert status == 303
+
+    assert captured["args"] == ("topic-loop", {"frequency": "monthly", "day": 15, "hour": 9, "minute": 0})
+
+
+def test_do_post_loop_schedule_hourly_builds_frequency_shape_with_interval(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        ds.loops_config, "set_schedule",
+        lambda name, schedule, **k: captured.setdefault("args", (name, schedule)) or (True, "Updated"),
+    )
+
+    with _running_server() as port:
+        token = ds._CSRF_TOKEN
+        status, headers, _body = _post(
+            port, "/daemons/loops/topic-loop/schedule",
+            [("csrf_token", token), ("time", "09:00"), ("frequency", "Hourly"), ("interval_hours", "4")])
+
+        assert status == 303
+
+    assert captured["args"] == ("topic-loop", {"frequency": "hourly", "interval_hours": 4})
+
+
+def test_do_post_loop_schedule_reports_error_from_set_schedule_without_raising(monkeypatch):
+    monkeypatch.setattr(ds.loops_config, "set_schedule", lambda *a, **k: (False, "Unknown loop"))
+
+    with _running_server() as port:
+        token = ds._CSRF_TOKEN
+        status, headers, _body = _post(
+            port, "/daemons/loops/nonexistent/schedule",
+            [("csrf_token", token), ("time", "09:00"), ("frequency", "Daily")])
+
+        assert status == 303
+        parsed = _flash_from_location(headers.get("Location"))
+        assert parsed["ok"] == ["0"]
+
+
 def test_render_daemons_page_includes_csrf_token_in_both_enable_and_disable_forms(monkeypatch):
     monkeypatch.setattr(ds, "get_daemons_status", lambda *a, **k: [
         {"file": "com.example.on.plist", "label": "com.example.on", "loaded": True,
@@ -2672,6 +2825,15 @@ def test_render_daemons_page_omits_schedule_form_for_always_on_daemon(monkeypatc
          "program_arguments": ["/bin/true"], "run_at_load": True, "keep_alive": True,
          "schedule": None, "stdout_path": None, "stderr_path": None},
     ])
+    # Isolate the Registered Loops section (a different table further down
+    # the same page, which legitimately has its own /schedule forms) so
+    # this assertion stays scoped to the launchd daemons table this test
+    # is actually about, and so it doesn't depend on whatever real
+    # ~/.loop-engineering/loops.json this machine happens to have.
+    def raise_not_found(*a, **k):
+        raise FileNotFoundError("no registry")
+
+    monkeypatch.setattr(ds.loops_config, "list_loops", raise_not_found)
 
     output = ds.render_daemons_page()
 
@@ -5288,7 +5450,7 @@ def test_trigger_topic_monitor_run_launches_the_script(tmp_path, monkeypatch):
     ok, message = ds.trigger_topic_monitor_run(status_path=status_path, run_loop_path=run_loop_path)
 
     assert ok, message
-    assert captured["args"] == ["bash", str(run_loop_path), "topic-monitor"]
+    assert captured["args"] == ["bash", str(run_loop_path), "topic-loop"]
     assert captured["kwargs"]["start_new_session"] is True
 
 
@@ -5318,7 +5480,7 @@ def test_topic_monitor_run_now_route_launches_when_idle(monkeypatch, tmp_path):
         assert status == 303
         flash_query = _flash_from_location(headers["Location"], prefix="/topic-monitor?")
         assert flash_query["ok"] == ["1"]
-    assert captured["args"] == ["bash", str(tmp_path / "run-loop-now.sh"), "topic-monitor"]
+    assert captured["args"] == ["bash", str(tmp_path / "run-loop-now.sh"), "topic-loop"]
 
 
 @pytest.mark.xfail(
@@ -5365,38 +5527,63 @@ def test_render_topic_monitor_page_omits_timestamp_for_a_never_run_topic(monkeyp
     assert "ago" not in output.split("<h1>Topic Monitor</h1>", 1)[1]
 
 
-def test_describe_loop_schedule_mon_fri():
-    assert ds._describe_loop_schedule({"weekdays": [1, 2, 3, 4, 5], "hour": 10, "minute": 0}) == "Mon–Fri 10:00"
-
-
-def test_describe_loop_schedule_every_day():
-    assert ds._describe_loop_schedule({"weekdays": "all", "hour": 9, "minute": 30}) == "Every day 09:30"
-
-
-def test_describe_loop_schedule_arbitrary_subset():
-    assert ds._describe_loop_schedule({"weekdays": [2, 4], "hour": 8, "minute": 15}) == "Tue, Thu 08:15"
-
-
-def test_describe_loop_schedule_malformed_falls_back():
-    assert ds._describe_loop_schedule({"weekdays": [1]}) == "schedule (see loops.json)"
-
-
 def test_render_daemons_page_lists_registered_loops(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
     monkeypatch.setattr(ds, "LOOP_DIR", tmp_path)
     monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [
-        {"name": "gitlab-issue-loop", "schedule": {"weekdays": [1, 2, 3, 4, 5], "hour": 10, "minute": 0}},
-        {"name": "topic-monitor", "schedule": {"weekdays": "all", "hour": 10, "minute": 0}},
+        {"name": "gitlab-loop", "enabled": True,
+         "schedule": {"frequency": "weekly", "weekdays": [1, 2, 3, 4, 5], "hour": 10, "minute": 0}},
+        {"name": "topic-loop", "enabled": True,
+         "schedule": {"frequency": "daily", "hour": 10, "minute": 0}},
     ])
-    ds.write_status("idle", status_path=ds.status_path_for_loop("gitlab-issue-loop"))
-    ds.write_status("running", status_path=ds.status_path_for_loop("topic-monitor"))
+    ds.write_status("idle", status_path=ds.status_path_for_loop("gitlab-loop"))
+    ds.write_status("running", status_path=ds.status_path_for_loop("topic-loop"))
 
     output = ds.render_daemons_page()
 
-    assert "gitlab-issue-loop" in output
-    assert "topic-monitor" in output
-    assert "Mon–Fri 10:00" in output
-    assert "Every day 10:00" in output
+    assert "gitlab-loop" in output
+    assert "topic-loop" in output
+
+
+def test_render_daemons_page_loop_schedule_form_prefilled_for_weekly(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(ds, "LOOP_DIR", tmp_path)
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [
+        {"name": "gitlab-loop", "enabled": True,
+         "schedule": {"frequency": "weekly", "weekdays": [1, 2, 3, 4, 5], "hour": 10, "minute": 0}},
+    ])
+
+    output = ds.render_daemons_page()
+
+    assert "action='/daemons/loops/gitlab-loop/schedule'" in output
+    assert "value='10:00'" in output
+
+
+def test_render_daemons_page_loop_schedule_form_prefilled_for_hourly(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(ds, "LOOP_DIR", tmp_path)
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [
+        {"name": "topic-loop", "enabled": True, "schedule": {"frequency": "hourly", "interval_hours": 4}},
+    ])
+
+    output = ds.render_daemons_page()
+
+    assert "hourly-controls" in output
+    assert "action='/daemons/loops/topic-loop/schedule'" in output
+
+
+def test_render_daemons_page_loop_action_switch_reflects_enabled_state(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(ds, "LOOP_DIR", tmp_path)
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [
+        {"name": "gitlab-loop", "enabled": True, "schedule": {"frequency": "daily", "hour": 10, "minute": 0}},
+        {"name": "topic-loop", "enabled": False, "schedule": {"frequency": "daily", "hour": 10, "minute": 0}},
+    ])
+
+    output = ds.render_daemons_page()
+
+    assert "action='/daemons/loops/gitlab-loop/disable'" in output
+    assert "action='/daemons/loops/topic-loop/enable'" in output
 
 
 def test_render_daemons_page_handles_missing_loops_registry_gracefully(monkeypatch, tmp_path):
@@ -6750,7 +6937,7 @@ def test_chat_tool_run_issue_launches_the_script(tmp_path, monkeypatch):
     )
 
     assert result == {"ok": True, "message": "Started work on harbor #482"}
-    assert captured["args"] == ["bash", str(run_loop_path), "gitlab-issue-loop", "harbor", "482"]
+    assert captured["args"] == ["bash", str(run_loop_path), "gitlab-loop", "harbor", "482"]
     assert captured["kwargs"]["start_new_session"] is True
 
 
@@ -6898,7 +7085,7 @@ def test_trigger_manual_run_launches_the_script(tmp_path, monkeypatch):
     ok, message = ds.trigger_manual_run(status_path=status_path, run_loop_path=run_loop_path)
 
     assert ok, message
-    assert captured["args"] == ["bash", str(run_loop_path), "gitlab-issue-loop"]
+    assert captured["args"] == ["bash", str(run_loop_path), "gitlab-loop"]
     assert captured["kwargs"]["start_new_session"] is True
 
 
@@ -7223,7 +7410,7 @@ def test_run_now_route_launches_when_idle(monkeypatch, tmp_path):
         assert status == 303
         flash_query = _flash_from_location(headers["Location"], prefix="/?")
         assert flash_query["ok"] == ["1"]
-    assert captured["args"] == ["bash", str(tmp_path / "run-loop-now.sh"), "gitlab-issue-loop"]
+    assert captured["args"] == ["bash", str(tmp_path / "run-loop-now.sh"), "gitlab-loop"]
 
 
 @pytest.mark.xfail(

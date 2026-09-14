@@ -35,7 +35,7 @@ ever touches the projects you explicitly list in its config.
 
 ## How it works
 
-Each scheduled run (`run-loop-now.sh gitlab-issue-loop`):
+Each scheduled run (`run-loop-now.sh gitlab-loop`):
 
 1. Lists every open GitLab issue assigned to your configured username, across every project alias in your config.
 2. Processes them **one at a time, never in parallel**, following the step-by-step decision procedure in [`LOOPX_INSTRUCTIONS.md`](https://github.com/encoreshao/loop-engineering/blob/main/LOOPX_INSTRUCTIONS.md).
@@ -48,7 +48,7 @@ Each scheduled run (`run-loop-now.sh gitlab-issue-loop`):
 
 Reusable, cross-run lessons (fix patterns, gotchas) get recorded per issue as markdown task-memory files via `bin/memory_store.py` (entries recorded before this format existed are still read via `bin/project_memory.py`), so later runs start smarter than the last.
 
-A second, independent loop (`run-loop-now.sh topic-monitor`) watches arbitrary topics on the wider web instead of GitLab — see [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md).
+A second, independent loop (`run-loop-now.sh topic-loop`) watches arbitrary topics on the wider web instead of GitLab — see [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md).
 
 ## Requirements
 
@@ -183,8 +183,8 @@ Bundles live in `~/.gitlab/config.json`'s `bundles` key and, if a webhook overri
 **Manually**, once, to see it work before trusting it with a schedule:
 
 ```bash
-bash run-loop-now.sh gitlab-issue-loop   # the daily GitLab issue loop
-bash run-loop-now.sh topic-monitor       # the topic monitor loop
+bash run-loop-now.sh gitlab-loop   # the daily GitLab issue loop
+bash run-loop-now.sh topic-loop    # the topic monitor loop
 ```
 
 Both log to `outputs/history/`, and both also append every `claude` CLI invocation's output to `logs/loop-engineering.log` (viewable on the dashboard's **Logs** page); you can also trigger the GitLab loop from the dashboard's **Run now** button (Overview page) without a terminal.
@@ -255,7 +255,7 @@ Expand for the full list
 | `run-loop-now.sh`                   | Generic entry point for one registered loop's run (looked up from `~/.loop-engineering/loops.json` via `bin/loops_config.py`) — logs to `outputs/history/`, notifies Slack on failure. Invoked by `bin/loop_scheduler.py` (on schedule) or the dashboard (on demand) |
 | `bin/loop_scheduler.py`             | The single launchd-scheduled poll loop: reads `~/.loop-engineering/loops.json` and runs whichever registered loop(s) are due, via `run-loop-now.sh`                                                                                  |
 | `bin/loops_config.py`               | Reads `~/.loop-engineering/loops.json` — the registry of scheduled loops (name, schedule, entry point); no write path today, hand-edit the file (or copy the template) to change it                                                 |
-| `bin/gitlab_loop_runner.py`         | The per-issue orchestrator `run-loop-now.sh` delegates to when running `gitlab-issue-loop`: discovers assigned issues, runs each one through its own `LoopRuntime` (one `LoopResult` per issue under `outputs/loop-runs/`), owns the `claude -p`/`codex exec` invocation and its `--allowedTools`/`--disallowedTools` safety boundary, then runs one unconditional end-of-run wrap-up for the whole batch |
+| `bin/gitlab_loop_runner.py`         | The per-issue orchestrator `run-loop-now.sh` delegates to when running `gitlab-loop`: discovers assigned issues, runs each one through its own `LoopRuntime` (one `LoopResult` per issue under `outputs/loop-runs/`), owns the `claude -p`/`codex exec` invocation and its `--allowedTools`/`--disallowedTools` safety boundary, then runs one unconditional end-of-run wrap-up for the whole batch |
 | `bin/scripts/build_run_prompt.sh`   | Builds the prompt string `bin/gitlab_loop_runner.py` hands to the AI CLI — a single-issue prompt for `<alias> <issue_iid>` (the dashboard's Activity-chat scoped run), `--batch-issue <alias> <issue_iid>` for one issue inside a scheduled batch (no end-of-run), and `--batch-end-of-run` for the batch's one digest/daily-review wrap-up |
 | `bin/web/dashboard_server.py`       | The web dashboard; also a small CLI (`write-status`, `write-skills-install-status`, `read-messages`, `add-message`, `chat-tool`) used by `run-loop-now.sh`, `bin/loop_scheduler.py`, the dashboard's own actions, and the Activity page's embedded chat assistant |
 | `bin/loop_config.py`                | Reads `~/.loop-engineering/projects.json`                                                                                                                                                                                            |
@@ -264,7 +264,7 @@ Expand for the full list
 | `bin/project_memory.py`             | Reads (legacy) durable per-project lessons learned, stored inline in the GitLab cache                                                                                                                                                |
 | `bin/memory_store.py`               | Reads/records durable per-issue task memory as markdown files (one per issue, plus a per-project MEMORY.md index)                                                                                                                    |
 | `bin/ai_cli_config.py`              | Reads/writes `~/.loop-engineering/ai_cli.json` — which AI CLI (`claude` or `codex`) `run-loop-now.sh` invokes for every registered loop                                                                                              |
-| `bin/topic_monitor_runner.py`       | The per-topic orchestrator `run-loop-now.sh` delegates to when running `topic-monitor`: runs each configured topic through its own `LoopRuntime` (one `LoopResult` per topic under `outputs/loop-runs/`), owns the `claude -p`/`codex exec` invocation and its safety boundary — same role for the topic monitor loop as `bin/gitlab_loop_runner.py` plays for the GitLab loop |
+| `bin/topic_monitor_runner.py`       | The per-topic orchestrator `run-loop-now.sh` delegates to when running `topic-loop`: runs each configured topic through its own `LoopRuntime` (one `LoopResult` per topic under `outputs/loop-runs/`), owns the `claude -p`/`codex exec` invocation and its safety boundary — same role for the topic monitor loop as `bin/gitlab_loop_runner.py` plays for the GitLab loop |
 | `bin/scripts/build_topic_prompt.sh` | Builds the prompt string for one configured topic, same role as `build_run_prompt.sh` above; kept as a documented manual escape hatch even though `topic_monitor_runner.py` no longer calls it                                       |
 | `bin/topic_config.py`               | Reads `~/.loop-engineering/topics.json`                                                                                                                                                                                              |
 | `bin/topic_seen.py`                 | Rolling 7-day dedup window per topic, so briefings don't repeat the same story two days running                                                                                                                                      |

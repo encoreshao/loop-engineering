@@ -117,7 +117,7 @@ def test_setup_creates_loops_config_from_template_when_missing(tmp_path):
     run_setup("--config-path", str(projects_path), "--loops-config-path", str(loops_path))
 
     assert loops_path.exists()
-    assert "gitlab-issue-loop" in loops_path.read_text()
+    assert "gitlab-loop" in loops_path.read_text()
 
 
 def test_setup_leaves_existing_loops_config_untouched(tmp_path):

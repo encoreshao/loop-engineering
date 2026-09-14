@@ -8,8 +8,8 @@ load/PID/schedule status of every launchd daemon in launchd/*.plist.
 
 Also doubles as the tiny CLI run-loop-now.sh uses to record its own state:
 
-    python3 bin/web/dashboard_server.py write-status running --loop gitlab-issue-loop
-    python3 bin/web/dashboard_server.py write-status idle --loop gitlab-issue-loop --exit-code 0
+    python3 bin/web/dashboard_server.py write-status running --loop gitlab-loop
+    python3 bin/web/dashboard_server.py write-status idle --loop gitlab-loop --exit-code 0
 """
 import concurrent.futures
 import fcntl
@@ -308,13 +308,13 @@ def _iter_chat_job_chunks(reply_key, idle_timeout=None):
 
 def status_path_for_loop(loop_name, base_dir=None):
     """Resolve the outputs/status.json-equivalent path for a given loop
-    name. "gitlab-issue-loop" resolves to the existing STATUS_PATH (a
+    name. "gitlab-loop" resolves to the existing STATUS_PATH (a
     plain global lookup, so monkeypatching STATUS_PATH in a test still
     works, and every one of this file's existing STATUS_PATH call sites
     needs no change); any other loop name gets its own file under
     outputs/status/<loop_name>.json, so a new registered loop gets a
     status file for free without a code change here."""
-    if loop_name == "gitlab-issue-loop":
+    if loop_name == "gitlab-loop":
         return STATUS_PATH
     if base_dir is None:
         base_dir = LOOP_DIR
@@ -1882,42 +1882,111 @@ def _describe_schedule(schedule):
         return "scheduled (see plist)"
 
 
-_LOOP_WEEKDAY_ABBR = {1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat", 7: "Sun"}
+_LOOP_WEEKDAY_LABELS = (("1", "Mon"), ("2", "Tue"), ("3", "Wed"), ("4", "Thu"), ("5", "Fri"), ("6", "Sat"), ("7", "Sun"))
+_LOOP_SCHEDULE_FREQUENCIES = ("Daily", "Weekly", "Monthly", "Hourly")
+_LOOP_HOURLY_INTERVAL_CHOICES = ("1", "2", "3", "4", "6", "8", "12", "24")
 
 
-def _describe_loop_schedule(schedule):
-    """Human-readable summary of one loops.json entry's own "schedule"
-    field ({"weekdays": [1-7,...] | "all", "hour", "minute"} - see
-    bin/loops_config.py), for the Daemons page's Registered Loops section.
-    Deliberately separate from _describe_schedule, which reads a launchd
-    plist's StartCalendarInterval shape (capitalized Weekday/Hour/Minute
-    keys, 0-6 Sunday-first) - loops.json uses ISO weekdays (1=Monday,
-    matching datetime.isoweekday(), same convention bin/loop_scheduler.py's
-    is_due uses) in a lowercase-keyed dict, an unrelated format that
-    happens to describe a similar thing."""
+def _loop_schedule_form_html(loop, csrf_input):
+    """A time input, a Daily/Weekly/Monthly/Hourly frequency dropdown, and
+    whichever of weekday checkboxes (Weekly), a day-of-month dropdown
+    (Monthly), or an every-N-hours dropdown (Hourly) that frequency needs
+    - same show/hide-the-other-controls convention as _schedule_form_html
+    (the daemons table's own schedule editor), reusing its
+    weekly-controls/monthly-controls class names (and the document-level
+    'change' listener on select[name=frequency] in _render_shell that
+    toggles them) plus a new hourly-controls/time-control pair. Reads
+    loop["schedule"] defensively (bin/loops_config.py's frequency-less
+    legacy shape, or a value with missing fields) rather than raising -
+    same "never crash the page over one malformed entry" discipline as
+    the rest of this section."""
+    schedule = loop.get("schedule") or {}
+    frequency_key = schedule.get("frequency")
+    if frequency_key not in ("daily", "weekly", "monthly", "hourly"):
+        frequency_key = "daily" if schedule.get("weekdays") == "all" else "weekly"
+    frequency = frequency_key.capitalize()
+
+    hour = schedule.get("hour", 9)
+    minute = schedule.get("minute", 0)
     try:
-        hour, minute = schedule["hour"], schedule["minute"]
-        weekdays = schedule["weekdays"]
-        if weekdays == "all":
-            return f"Every day {hour:02d}:{minute:02d}"
-        weekdays = sorted(weekdays)
-        if weekdays == [1, 2, 3, 4, 5]:
-            return f"Mon–Fri {hour:02d}:{minute:02d}"
-        labels = ", ".join(_LOOP_WEEKDAY_ABBR[d] for d in weekdays)
-        return f"{labels} {hour:02d}:{minute:02d}"
-    except (KeyError, TypeError, ValueError):
-        return "schedule (see loops.json)"
+        time_value = f"{int(hour):02d}:{int(minute):02d}"
+    except (TypeError, ValueError):
+        time_value = "09:00"
+
+    weekdays = schedule.get("weekdays")
+    selected_weekdays = {str(d) for d in weekdays} if isinstance(weekdays, list) else {v for v, _ in _LOOP_WEEKDAY_LABELS}
+    checkboxes = "".join(
+        f"<label class='md-checkbox weekday-check'><input type='checkbox' name='weekday' value='{value}'"
+        f"{' checked' if value in selected_weekdays else ''}> {label}</label>"
+        for value, label in _LOOP_WEEKDAY_LABELS
+    )
+    day_of_month = schedule.get("day") or 1
+    day_select = _custom_select("day_of_month", (str(d) for d in range(1, 32)), str(day_of_month))
+    interval_hours = str(schedule.get("interval_hours") or 4)
+    interval_select = _custom_select("interval_hours", _LOOP_HOURLY_INTERVAL_CHOICES, interval_hours)
+    freq_select = _custom_select("frequency", _LOOP_SCHEDULE_FREQUENCIES, frequency)
+
+    time_style = " style='display:none'" if frequency == "Hourly" else ""
+    weekly_style = "" if frequency == "Weekly" else " style='display:none'"
+    monthly_style = "" if frequency == "Monthly" else " style='display:none'"
+    hourly_style = "" if frequency == "Hourly" else " style='display:none'"
+    safe_name = html.escape(str(loop.get("name", "?")))
+    return (
+        f"<form method='post' action='/daemons/loops/{safe_name}/schedule' class='daemon-action-form schedule-form'>"
+        f"{csrf_input}"
+        f"<span class='time-control'{time_style}><input type='time' name='time' value='{time_value}'></span>"
+        f"{freq_select}"
+        f"<span class='weekday-checks weekly-controls'{weekly_style}>{checkboxes}</span>"
+        f"<span class='monthly-controls'{monthly_style}>on day {day_select}</span>"
+        f"<span class='hourly-controls'{hourly_style}>every {interval_select} hour(s)</span>"
+        "<button type='submit' class='btn btn-neutral'>Save schedule</button>"
+        "</form>"
+    )
+
+
+def _loop_action_html(loop, csrf_input):
+    """The enable/disable switch for one Registered Loops row - same
+    .switch is-on/is-off form pattern as the launchd table's own
+    enable/disable action (see render_daemons_page), pointed at
+    /daemons/loops/<name>/enable|disable instead of /daemons/<file>/....
+    Unlike that launchd switch, no data-confirm: flipping loops.json's
+    "enabled" field is trivially reversible (flip it back any time), not
+    a real system-level daemon load/unload."""
+    name = loop.get("name", "?")
+    safe_name = html.escape(str(name))
+    enabled = loop.get("enabled", True)
+    if enabled:
+        return (
+            f"<form method='post' action='/daemons/loops/{safe_name}/disable' class='daemon-action-form'>"
+            f"{csrf_input}"
+            f"<button type='submit' class='switch is-on' role='switch' aria-checked='true' "
+            f"aria-label='Disable {safe_name}' title='Disable {safe_name}'>"
+            "<span class='switch-thumb'></span></button>"
+            "</form>"
+        )
+    return (
+        f"<form method='post' action='/daemons/loops/{safe_name}/enable' class='daemon-action-form'>"
+        f"{csrf_input}"
+        f"<button type='submit' class='switch is-off' role='switch' aria-checked='false' "
+        f"aria-label='Enable {safe_name}' title='Enable {safe_name}'>"
+        "<span class='switch-thumb'></span></button>"
+        "</form>"
+    )
 
 
 def _render_registered_loops_section():
-    """Read-only breakdown of every loop bin/loop_scheduler.py manages,
-    shown on the Daemons page below the launchd table so enabling/disabling
-    the single com.hermes.loop-engineering daemon there reads as "all
-    registered loops", not just the GitLab issue loop - see
+    """Every loop bin/loop_scheduler.py manages, shown on the Daemons page
+    below the launchd table so enabling/disabling the single
+    com.hermes.loop-engineering daemon there reads as "all registered
+    loops", not just the GitLab issue loop - see
     docs/superpowers/specs/2026-09-14-unified-loop-scheduler-design.md.
-    Never raises: a missing/malformed ~/.loop-engineering/loops.json (a
-    fresh install that hasn't run bin/scripts/setup.sh yet) is reported as
-    a plain note, not a crashed page."""
+    Each row's Schedule and Action cells are live forms (see
+    _loop_schedule_form_html/_loop_action_html), not read-only text - the
+    same "the form IS the display" convention the launchd table above it
+    already uses. Never raises: a missing/malformed
+    ~/.loop-engineering/loops.json (a fresh install that hasn't run
+    bin/scripts/setup.sh yet) is reported as a plain note, not a crashed
+    page."""
     try:
         loops = loops_config.list_loops()
     except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError):
@@ -1926,27 +1995,30 @@ def _render_registered_loops_section():
     if not loops:
         return "<p>No loops registered yet - see <code>config/loops.json.template</code>.</p>"
 
+    csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
     rows = []
     for loop in loops:
         name = loop.get("name", "?")
         safe_name = html.escape(str(name))
-        schedule_text = html.escape(_describe_loop_schedule(loop.get("schedule", {})))
         loop_status = read_status(status_path_for_loop(name))
         badge = _status_badge_markup(loop_status)
         updated = loop_status.get("updated_at")
         last_run = html.escape(_relative_time(updated)) if updated else "never"
+        schedule_html = _loop_schedule_form_html(loop, csrf_input)
+        action_html = _loop_action_html(loop, csrf_input)
         rows.append(
             "<tr>"
             f"<td><code>{safe_name}</code></td>"
-            f"<td>{schedule_text}</td>"
+            f"<td>{schedule_html}</td>"
             f"<td>{badge}</td>"
             f"<td>{last_run}</td>"
+            f"<td>{action_html}</td>"
             "</tr>"
         )
 
     return (
         "<div class='table-wrap'><table class='daemons'>"
-        "<thead><tr><th>Loop</th><th>Schedule</th><th>Status</th><th>Last run</th></tr></thead>"
+        "<thead><tr><th>Loop</th><th>Schedule</th><th>Status</th><th>Last run</th><th>Action</th></tr></thead>"
         f"<tbody>{''.join(rows)}</tbody>"
         "</table></div>"
     )
@@ -2566,7 +2638,7 @@ def _chat_tool_run_issue(url, status_path=None, run_loop_path=None,
     if not run_loop_path.exists():
         return {"ok": False, "message": f"run-loop-now.sh not found at {run_loop_path}"}
     subprocess.Popen(
-        ["bash", str(run_loop_path), "gitlab-issue-loop", alias, str(issue_iid)],
+        ["bash", str(run_loop_path), "gitlab-loop", alias, str(issue_iid)],
         cwd=str(LOOP_DIR),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -2643,7 +2715,7 @@ def _dispatch_chat_tool(action, args):
     print(json.dumps(result, indent=2))
 
 
-def trigger_manual_run(status_path=None, run_loop_path=None, loop_name="gitlab-issue-loop"):
+def trigger_manual_run(status_path=None, run_loop_path=None, loop_name="gitlab-loop"):
     """Launches run-loop-now.sh <loop_name> as a detached background
     process for an on-demand run, outside its normal scheduler check.
     Refuses if a run is already in progress (per the same status.json the
@@ -2676,7 +2748,7 @@ def trigger_manual_run(status_path=None, run_loop_path=None, loop_name="gitlab-i
     return True, "Run started - check back here for progress"
 
 
-def trigger_topic_monitor_run(status_path=None, run_loop_path=None, loop_name="topic-monitor"):
+def trigger_topic_monitor_run(status_path=None, run_loop_path=None, loop_name="topic-loop"):
     """The topic monitor loop's own equivalent of trigger_manual_run:
     launches run-loop-now.sh <loop_name> as a detached background process
     for an on-demand run, outside its normal scheduler check. Refuses if
@@ -4983,8 +5055,12 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     var freq = select.value.toLowerCase();
     var weekly = form.querySelector('.weekly-controls');
     var monthly = form.querySelector('.monthly-controls');
+    var hourly = form.querySelector('.hourly-controls');
+    var time = form.querySelector('.time-control');
     if (weekly) weekly.style.display = (freq === 'weekly') ? '' : 'none';
     if (monthly) monthly.style.display = (freq === 'monthly') ? '' : 'none';
+    if (hourly) hourly.style.display = (freq === 'hourly') ? '' : 'none';
+    if (time) time.style.display = (freq === 'hourly') ? 'none' : '';
   }});
 }})();
 (function() {{
@@ -8456,6 +8532,60 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._redirect_with_flash(ok, message, location="/skills")
             return
 
+        # Checked ahead of the generic /daemons/<file>/... routes below,
+        # since "/daemons/loops/topic-loop/enable" would otherwise also
+        # match startswith("/daemons/") and be misparsed as a launchd
+        # plist filename of "loops/topic-loop".
+        if self.path.startswith("/daemons/loops/") and self.path.endswith("/enable"):
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            name = urllib.parse.unquote(self.path[len("/daemons/loops/"):-len("/enable")])
+            ok, message = loops_config.set_enabled(name, True)
+            self._redirect_with_flash(ok, message)
+            return
+
+        if self.path.startswith("/daemons/loops/") and self.path.endswith("/disable"):
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            name = urllib.parse.unquote(self.path[len("/daemons/loops/"):-len("/disable")])
+            ok, message = loops_config.set_enabled(name, False)
+            self._redirect_with_flash(ok, message)
+            return
+
+        if self.path.startswith("/daemons/loops/") and self.path.endswith("/schedule"):
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            name = urllib.parse.unquote(self.path[len("/daemons/loops/"):-len("/schedule")])
+            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
+            time_value = form.get("time", [""])[0]
+            frequency = form.get("frequency", ["Daily"])[0]
+            try:
+                hour_str, minute_str = time_value.split(":")
+                hour, minute = int(hour_str), int(minute_str)
+                if frequency == "Monthly":
+                    schedule = {
+                        "frequency": "monthly", "day": int(form.get("day_of_month", [""])[0]),
+                        "hour": hour, "minute": minute,
+                    }
+                elif frequency == "Weekly":
+                    schedule = {
+                        "frequency": "weekly", "weekdays": sorted(int(v) for v in form.get("weekday", [])),
+                        "hour": hour, "minute": minute,
+                    }
+                elif frequency == "Hourly":
+                    schedule = {"frequency": "hourly", "interval_hours": int(form.get("interval_hours", [""])[0])}
+                else:
+                    schedule = {"frequency": "daily", "hour": hour, "minute": minute}
+            except ValueError:
+                ok, message = False, f"Invalid schedule value: {time_value!r}"
+            else:
+                ok, message = loops_config.set_schedule(name, schedule)
+            self._redirect_with_flash(ok, message)
+            return
+
         if self.path.startswith("/daemons/") and self.path.endswith("/enable"):
             if not self._csrf_ok(body):
                 self._forbidden()
@@ -8787,7 +8917,7 @@ def main():
             )
             sys.exit(1)
         state = sys.argv[2]
-        loop_name = "gitlab-issue-loop"
+        loop_name = "gitlab-loop"
         if "--loop" in sys.argv:
             idx = sys.argv.index("--loop")
             loop_name = sys.argv[idx + 1]

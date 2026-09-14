@@ -44,7 +44,7 @@ other.
   written by `bin/events.py`'s CLI (`bin/events.py emit --type ...`),
   called directly from `run-loop-now.sh` (`run.started`/`run.failed`, gated
   per loop by its `loops.json` entry's `emit_run_events` — `true` only for
-  `gitlab-issue-loop` today, matching the "topic monitor writes to only
+  `gitlab-loop` today, matching the "topic monitor writes to only
   the second system" split below) and by
   the agent itself per `LOOPX_INSTRUCTIONS.md` (`issue.started`,
   `issue.classified`, `verification.started/passed/failed`,
