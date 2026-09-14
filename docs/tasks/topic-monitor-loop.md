@@ -4,13 +4,13 @@
 
 Every day, for each topic configured in `~/.loop-engineering/topics.json`, research what's new since the last run (using live web search — this loop reads the wider internet, not GitLab), write a short briefing of the notable items, and deliver it as a saved history entry plus a Slack message. Nothing already reported in the last 7 days is repeated. A quiet day — nothing new to report — still produces a briefing and a Slack message saying so, exactly as the GitLab issue loop still sends its end-of-run digest on a morning with zero assigned issues.
 
-This is a separate, independent loop from the [daily GitLab issue loop](gitlab-issue-loop.md) — its own entry script, instructions doc, config file, and schedule. Nothing about the GitLab loop's files is shared or changed by this task.
+This is a separate, independent loop from the [daily GitLab issue loop](gitlab-issue-loop.md) — its own entry script, instructions doc, and config file. Nothing about the GitLab loop's files is shared or changed by this task. Both loops are, however, triggered by the same daemon: the unified scheduler (`bin/loop_scheduler.py`), the single launchd job `com.hermes.loop-engineering` polling on a `StartInterval`, checks `~/.loop-engineering/loops.json` (the loop registry) and runs whichever registered loop is due — there is no longer a dedicated topic-monitor plist/daemon.
 
 ## Setup
 
 Copy `config/topics.json.template` to `~/.loop-engineering/topics.json` and list the topics to monitor (see Scope below for the format). There is no dashboard form for managing topics — like `projects.json`, this file is hand-edited per machine.
 
-`launchd/com.hermes.loop-engineering-topic-monitor.plist` ships with a default schedule of every day at 10:00 AM. The dashboard's Daemons page can change the schedule (time and which days it runs) for this or any other daemon after that — see [`README.md`](../../README.md)'s Daemons page entry once this ships.
+This loop's schedule lives as its own entry in `~/.loop-engineering/loops.json` (seeded by `bin/scripts/setup.sh` from `config/loops.json.template`), which defaults to every day at 10:00 AM. Like `projects.json`/`topics.json`, that entry is hand-edited per machine, not driven from a dashboard form — the Daemons page shows this loop's daemon (the unified scheduler, `com.hermes.loop-engineering`) with its own on/off switch and polling interval, but changing which days/time this specific loop runs on means editing its entry in `loops.json` directly.
 
 ## Scope
 

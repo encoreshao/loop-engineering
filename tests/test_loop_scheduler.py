@@ -159,3 +159,31 @@ def test_run_due_loops_a_state_write_failure_does_not_block_the_next_loop(tmp_pa
 
     assert attempted == ["gitlab-issue-loop", "topic-monitor"]
     assert len(calls) == 2
+
+
+def test_run_due_loops_missing_registry_returns_empty_list_without_raising(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(sched.loops_config, "DEFAULT_CONFIG_PATH", tmp_path / "does-not-exist.json")
+
+    attempted = sched.run_due_loops(
+        state_path=tmp_path / "state.json",
+        run_loop_now_path=tmp_path / "run-loop-now.sh",
+        now=datetime(2026, 9, 14, 10, 5),
+    )
+
+    assert attempted == []
+    assert capsys.readouterr().err.strip() != ""
+
+
+def test_run_due_loops_malformed_registry_returns_empty_list_without_raising(tmp_path, monkeypatch, capsys):
+    config_path = tmp_path / "loops.json"
+    config_path.write_text("{not valid json")
+    monkeypatch.setattr(sched.loops_config, "DEFAULT_CONFIG_PATH", config_path)
+
+    attempted = sched.run_due_loops(
+        state_path=tmp_path / "state.json",
+        run_loop_now_path=tmp_path / "run-loop-now.sh",
+        now=datetime(2026, 9, 14, 10, 5),
+    )
+
+    assert attempted == []
+    assert capsys.readouterr().err.strip() != ""

@@ -106,13 +106,16 @@ def test_run_loop_now_sh_forwards_extra_args_generically():
     # run-loop-now.sh replaced run-loop.sh (see
     # docs/superpowers/specs/2026-09-14-unified-loop-scheduler-design.md) -
     # it no longer hardcodes gitlab_loop_runner.py; the entry point is
-    # resolved dynamically per loop name via bin/loops_config.py, and its
-    # own extra args (the optional `<alias> <issue_iid>` pair, or none)
-    # are forwarded to whichever entry point that resolves to, unchanged.
+    # resolved dynamically per loop name via bin/loops_config.py's
+    # consolidated `bash-env` subcommand (one invocation instead of four -
+    # see the final-review fix wave), and its own extra args (the optional
+    # `<alias> <issue_iid>` pair, or none) are forwarded to whichever entry
+    # point that resolves to, unchanged.
     run_loop_now_sh = Path(__file__).resolve().parent.parent / "run-loop-now.sh"
     content = run_loop_now_sh.read_text()
     assert 'RUNNER_ARGS=("$RUN_ID" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}")' in content
-    assert 'ENTRY_POINT="$(python3 "$LOOP_DIR/bin/loops_config.py" entry-point "$LOOP_NAME")"' in content
+    assert 'python3 "$LOOP_DIR/bin/loops_config.py" bash-env "$LOOP_NAME"' in content
+    assert 'ENTRY_SCRIPT="$LOOP_DIR/$(echo "$ENTRY_POINT" | tr . /).py"' in content
 
 
 def test_gitlab_loop_runner_build_prompt_forwards_args_to_build_run_prompt():

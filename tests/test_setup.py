@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+from datetime import date
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent.parent / "bin" / "scripts" / "setup.sh"
@@ -48,6 +49,45 @@ def test_setup_rejects_unknown_flag():
     result = run_setup("--not-a-real-flag", check=False)
 
     assert result.returncode != 0
+
+
+def test_setup_seeds_scheduler_state_with_todays_date_for_every_loop(tmp_path):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    env = {**os.environ, "HOME": str(fake_home)}
+    loops_config_path = tmp_path / "loops.json"
+    state_path = tmp_path / "loop_scheduler_state.json"
+
+    run_setup(
+        "--loops-config-path", str(loops_config_path),
+        "--state-path", str(state_path),
+        env=env,
+    )
+
+    loops = json.loads(loops_config_path.read_text())
+    state = json.loads(state_path.read_text())
+    today = date.today().isoformat()
+    assert set(state.keys()) == {loop["name"] for loop in loops}
+    for name in state:
+        assert state[name]["last_attempted_date"] == today
+
+
+def test_setup_leaves_existing_scheduler_state_untouched(tmp_path):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    env = {**os.environ, "HOME": str(fake_home)}
+    loops_config_path = tmp_path / "loops.json"
+    state_path = tmp_path / "loop_scheduler_state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text('{"already": "seeded"}')
+
+    run_setup(
+        "--loops-config-path", str(loops_config_path),
+        "--state-path", str(state_path),
+        env=env,
+    )
+
+    assert state_path.read_text() == '{"already": "seeded"}'
 
 
 def test_setup_creates_topics_config_from_template_when_missing(tmp_path):

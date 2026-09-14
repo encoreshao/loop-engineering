@@ -29,6 +29,7 @@ CONFIG_PATH="$HOME/.loop-engineering/projects.json"
 TOPICS_CONFIG_PATH="$HOME/.loop-engineering/topics.json"
 AI_CLI_CONFIG_PATH="$HOME/.loop-engineering/ai_cli.json"
 LOOPS_CONFIG_PATH="$HOME/.loop-engineering/loops.json"
+STATE_PATH="$HOME/.loop-engineering/loop_scheduler_state.json"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -52,8 +53,12 @@ while [ "$#" -gt 0 ]; do
       LOOPS_CONFIG_PATH="$2"
       shift 2
       ;;
+    --state-path)
+      STATE_PATH="$2"
+      shift 2
+      ;;
     *)
-      echo "${C_RED}Usage: setup.sh [--skip-skills-install] [--config-path PATH] [--topics-config-path PATH] [--ai-cli-config-path PATH] [--loops-config-path PATH]${C_RESET}" >&2
+      echo "${C_RED}Usage: setup.sh [--skip-skills-install] [--config-path PATH] [--topics-config-path PATH] [--ai-cli-config-path PATH] [--loops-config-path PATH] [--state-path PATH]${C_RESET}" >&2
       exit 1
       ;;
   esac
@@ -102,6 +107,34 @@ else
   mkdir -p "$(dirname "$LOOPS_CONFIG_PATH")"
   cp "$LOOP_DIR/config/loops.json.template" "$LOOPS_CONFIG_PATH"
   echo "${C_YELLOW}    Registers the GitLab issue loop and topic monitor with the unified scheduler (bin/loop_scheduler.py) - add a future loop here, not a new plist/shell script.${C_RESET}"
+fi
+
+if [ -f "$STATE_PATH" ]; then
+  echo "${C_BLUE}==> $STATE_PATH already exists, leaving it alone${C_RESET}"
+else
+  # Seed the scheduler's own state file with today's date for every
+  # registered loop, so its very first poll (right after install, or right
+  # after the scheduler daemon is enabled from the Daemons page) treats
+  # every loop as already attempted today instead of overdue. Without
+  # this, is_due() in bin/loop_scheduler.py sees "no state file yet" as
+  # "never attempted" and fires an immediate, unattended run - a real,
+  # live GitLab-loop run nobody is expecting - within the first ~15
+  # minutes, at whatever time of day install/enable happened to run.
+  echo "${C_BLUE}==> Seeding $STATE_PATH so the first poll doesn't fire an immediate run${C_RESET}"
+  mkdir -p "$(dirname "$STATE_PATH")"
+  python3 -c "
+import json
+import sys
+from datetime import date
+
+loops_path, state_path = sys.argv[1], sys.argv[2]
+with open(loops_path) as f:
+    loops = json.load(f)
+today = date.today().isoformat()
+state = {loop['name']: {'last_attempted_date': today} for loop in loops}
+with open(state_path, 'w') as f:
+    json.dump(state, f, indent=2)
+" "$LOOPS_CONFIG_PATH" "$STATE_PATH"
 fi
 
 cat <<EOF

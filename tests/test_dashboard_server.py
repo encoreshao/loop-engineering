@@ -626,6 +626,25 @@ def test_get_daemons_status_parses_scheduled_plist(tmp_path):
     assert result["pid"] is None
 
 
+def test_get_daemons_status_parses_start_interval_plist(tmp_path):
+    plist_path = tmp_path / "com.example.polling.plist"
+    with open(plist_path, "wb") as f:
+        plistlib.dump(
+            {
+                "Label": "com.example.polling",
+                "ProgramArguments": ["/usr/bin/python3", "loop_scheduler.py"],
+                "RunAtLoad": False,
+                "StartInterval": 900,
+            },
+            f,
+        )
+
+    [result] = ds.get_daemons_status(tmp_path, launchctl_output="")
+
+    assert result["start_interval"] == 900
+    assert result["schedule"] is None
+
+
 def test_get_daemons_status_parses_always_on_plist(tmp_path):
     plist_path = tmp_path / "com.example.always-on.plist"
     with open(plist_path, "wb") as f:
@@ -1787,6 +1806,10 @@ def test_describe_schedule_arbitrary_subset():
 
 def test_describe_schedule_monthly():
     assert ds._describe_schedule({"Day": 15, "Hour": 9, "Minute": 0}) == "Monthly on day 15 09:00"
+
+
+def test_describe_trigger_start_interval():
+    assert ds._describe_trigger({"start_interval": 900}) == "every 15 minutes"
 
 
 def test_build_calendar_interval_day_of_month():

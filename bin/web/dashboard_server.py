@@ -61,8 +61,8 @@ HISTORY_DIR = LOOP_DIR / "outputs" / "history"
 LOOP_RUNS_DIR = LOOP_DIR / "outputs" / "loop-runs"
 LOOPS_DIR = LOOP_DIR / "loops"
 # The one place every `claude` CLI invocation across this project writes
-# its raw output - run-loop.sh and run-topic-monitor-loop.sh each already
-# have their own per-day outputs/history/*.log (unchanged, still used by
+# its raw output - run-loop-now.sh already has its own per-day
+# outputs/history/*.log for each loop it runs (unchanged, still used by
 # Slack failure alerts and _today_log_tail), and this dashboard's own live
 # chat assistant (_run_chat_job) had no log at all before this existed.
 # logs/ sits outside outputs/ so it reads as "the raw process log", not
@@ -599,7 +599,7 @@ def _run_chat_job(reply_key, prompt, messages_path=None):
     the entry. That name is always _AI_CLI_DISPLAY_NAMES["claude"], not
     derived from ai_cli_config.get_selected_cli() - build_chat_command
     always invokes the `claude` binary regardless of that project-loop
-    setting (which only governs run-loop.sh/run-topic-monitor-loop.sh),
+    setting (which only governs run-loop-now.sh),
     so deriving it from get_selected_cli would mislabel entries as
     "Codex CLI" on a machine configured to use codex for the loop while
     this chat assistant still actually ran claude."""
@@ -1816,6 +1816,7 @@ def get_daemons_status(launchd_dir=LAUNCHD_DIR, launchctl_output=None):
             "run_at_load": bool(data.get("RunAtLoad", False)),
             "keep_alive": bool(data.get("KeepAlive", False)),
             "schedule": data.get("StartCalendarInterval"),
+            "start_interval": data.get("StartInterval"),
             "stdout_path": data.get("StandardOutPath"),
             "stderr_path": data.get("StandardErrorPath"),
         })
@@ -1885,6 +1886,8 @@ def _describe_trigger(daemon):
     schedule_desc = _describe_schedule(daemon.get("schedule"))
     if schedule_desc:
         return schedule_desc
+    if daemon.get("start_interval"):
+        return f"every {daemon['start_interval'] // 60} minutes"
     if daemon.get("run_at_load") and daemon.get("keep_alive"):
         return "always-on (RunAtLoad + KeepAlive)"
     if daemon.get("run_at_load"):

@@ -28,10 +28,21 @@ UNIFIED_LOG_DIR="$LOOP_DIR/logs"
 UNIFIED_LOG="$UNIFIED_LOG_DIR/loop-engineering.log"
 DATE_STAMP="$(date +%F)"
 
-ENTRY_POINT="$(python3 "$LOOP_DIR/bin/loops_config.py" entry-point "$LOOP_NAME")"
-TIMEOUT_SECONDS="$(python3 "$LOOP_DIR/bin/loops_config.py" timeout-seconds "$LOOP_NAME")"
-LOG_SUFFIX="$(python3 "$LOOP_DIR/bin/loops_config.py" log-suffix "$LOOP_NAME")"
-EMIT_RUN_EVENTS="$(python3 "$LOOP_DIR/bin/loops_config.py" emit-run-events "$LOOP_NAME")"
+# Resolve this loop's registry entry (entry point, timeout, log suffix,
+# whether to emit run.started/run.failed events) with exactly one
+# loops_config.py invocation, and BEFORE the log redirect/ERR trap below
+# are set up - so a bad/missing registry entry (unregistered loop name, a
+# malformed loops.json, an entry missing entry_point/timeout_seconds) is
+# never a silent `set -e` exit with nothing logged and no Slack alert.
+# This must happen before anything else that could fail, so failures are
+# actually captured, same discipline the old run-loop.sh followed.
+if ! LOOP_ENV_OUTPUT="$(python3 "$LOOP_DIR/bin/loops_config.py" bash-env "$LOOP_NAME" 2>&1)"; then
+  mkdir -p "$LOOP_DIR/outputs/history" "$LOOP_DIR/logs"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] ---- $LOOP_NAME ---- FAILED to resolve its loop registry entry: $LOOP_ENV_OUTPUT ----" >> "$LOOP_DIR/logs/loop-engineering.log"
+  python3 "$LOOP_DIR/bin/slack_notify.py" "*$LOOP_NAME loop FAILED* - could not resolve its registry entry: $LOOP_ENV_OUTPUT" || true
+  exit 1
+fi
+eval "$LOOP_ENV_OUTPUT"
 ENTRY_SCRIPT="$LOOP_DIR/$(echo "$ENTRY_POINT" | tr . /).py"
 
 # A stable identity for this run - see run-loop.sh's former comment on

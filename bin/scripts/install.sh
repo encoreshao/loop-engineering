@@ -30,20 +30,32 @@ set -euo pipefail
 # configured.
 #
 # Only the dashboard daemon is auto-started when it isn't already running
-# (the GitLab loop and topic monitor are never auto-started this way - they
-# act on projects.json/topics.json, which may still be template scaffolds).
-# But once ANY of this project's launchd agents is already loaded - the
-# dashboard, or the GitLab loop/topic monitor once the user has separately
-# opted them in from the dashboard's Daemons page - a successful upgrade
-# refreshes its registration so it's running the code just pulled: the
-# dashboard gets `launchctl kickstart -k` (it's an always-on server, so
-# that's also the only way to make it actually restart), while the loop and
-# topic monitor - cron-style jobs that already pick up new code on their
-# next scheduled run - just get their plist re-copied and reloaded
-# (`unload` + `load -w`, no `-k`), never kickstarted: kickstart would
-# trigger a real, out-of-schedule run against live GitLab/Slack, the same
-# action the dashboard's own "Run now" button gates behind a confirmation
-# dialog, which an unattended `curl | bash --upgrade` has no way to ask for.
+# (the unified scheduler, com.hermes.loop-engineering, is never
+# auto-started this way - both loops it polls act on
+# projects.json/topics.json, which may still be template scaffolds). But
+# once ANY of this project's launchd agents is already loaded - the
+# dashboard, or the unified scheduler once the user has separately opted
+# it in from the dashboard's Daemons page - a successful upgrade refreshes
+# its registration so it's running the code just pulled: the dashboard
+# gets `launchctl kickstart -k` (it's an always-on server, so that's also
+# the only way to make it actually restart), while the scheduler - a
+# StartInterval poll loop, not a calendar-scheduled one - just gets its
+# plist re-copied and reloaded (`unload` + `load -w`, no `-k`), never
+# kickstarted: kickstart would trigger an immediate poll (and, if any
+# registered loop is overdue, a real run against live GitLab/Slack right
+# now), the same action the dashboard's own "Run now" button gates behind
+# a confirmation dialog, which an unattended `curl | bash --upgrade` has
+# no way to ask for. Two more things this upgrade path actively handles
+# rather than assumes away: a machine whose rendered
+# com.hermes.loop-engineering.plist predates the unified scheduler (it
+# still points at the deleted run-loop.sh on a StartCalendarInterval) gets
+# that plist migrated and reloaded in place (see the "Migrating the
+# GitLab-loop daemon's plist" block below); and a fresh
+# ~/.loop-engineering/loop_scheduler_state.json is seeded by setup.sh with
+# today's date for every registered loop, so the scheduler's first-ever
+# poll after install (or after the user enables it from the Daemons page,
+# whatever time of day that happens to be) doesn't treat every loop as
+# overdue and fire an immediate, unattended run.
 
 # Colored output, only when stdout is an actual terminal - never for a
 # pipe/redirect (e.g. under a test harness, or `install.sh > log.txt`).
@@ -201,6 +213,29 @@ if [ -f "$orphan_dest" ] || [ -f "$DIR/launchd/$orphan_label.plist" ]; then
   rm -f "$orphan_dest" "$DIR/launchd/$orphan_label.plist"
 fi
 
+# This machine may already have a rendered com.hermes.loop-engineering.plist
+# from before this migration - it points at the now-deleted run-loop.sh on a
+# StartCalendarInterval, and the render loop above deliberately never
+# touches an already-rendered plist (a saved custom schedule is the
+# dashboard's own source of truth). Detect that specific stale shape and
+# re-render it from the current template, then reload it if it's currently
+# loaded - the same migration this file already does for the deleted
+# topic-monitor plist above, just for a rewritten plist instead of a
+# deleted one.
+loop_plist_path="$DIR/launchd/com.hermes.loop-engineering.plist"
+if [ -f "$loop_plist_path" ] && ! grep -q "loop_scheduler.py" "$loop_plist_path"; then
+  echo "${C_BLUE}==> Migrating the GitLab-loop daemon's plist to the unified scheduler...${C_RESET}"
+  sed -e "s|{{PYTHON3}}|$PYTHON3|g" -e "s|{{LOOP_DIR}}|$DIR|g" -e "s|{{PORT}}|$PORT|g" \
+    "$DIR/launchd/com.hermes.loop-engineering.plist.template" > "$loop_plist_path"
+  loop_dest="$LAUNCH_AGENTS_DIR/com.hermes.loop-engineering.plist"
+  if launchctl list com.hermes.loop-engineering >/dev/null 2>&1; then
+    mkdir -p "$LAUNCH_AGENTS_DIR"
+    cp "$loop_plist_path" "$loop_dest"
+    launchctl unload "$loop_dest" >/dev/null 2>&1 || true
+    launchctl load -w "$loop_dest" || echo "${C_YELLOW}    Warning: failed to reload com.hermes.loop-engineering after migrating its plist - re-enable it from the Daemons page.${C_RESET}" >&2
+  fi
+fi
+
 # Read the port back out of the actual rendered dashboard plist rather than
 # trusting $PORT directly: on an --upgrade where that plist already existed
 # (and so was left alone above, "don't clobber"), $PORT here may be a
@@ -262,16 +297,19 @@ else
     fi
   fi
 
-  # The GitLab loop and topic monitor are cron-style jobs (StartCalendarInterval,
-  # RunAtLoad=false) - never auto-started by this script (see the top-of-file
-  # comment), and each scheduled fire already runs whatever's on disk, so
-  # they don't need restarting to pick up new code the way the always-on
-  # dashboard does. But if the user has separately enabled one from the
+  # The unified scheduler (com.hermes.loop-engineering) is a StartInterval
+  # poll loop, RunAtLoad=false - never auto-started by this script (see the
+  # top-of-file comment), and each poll already runs whatever's on disk, so
+  # it doesn't need restarting to pick up new code the way the always-on
+  # dashboard does. But if the user has separately enabled it from the
   # dashboard's Daemons page, its launchd registration should still be
   # refreshed on upgrade (in case its rendered plist changed) - `unload` +
-  # `load -w`, deliberately never `kickstart -k`: kickstart would trigger a
-  # real, out-of-schedule run against live GitLab/Slack right now, which an
-  # unattended `curl | bash --upgrade` has no way to confirm.
+  # `load -w`, deliberately never `kickstart -k`: kickstart would trigger an
+  # immediate poll (and, if any registered loop is overdue, a real run
+  # against live GitLab/Slack right now), which an unattended
+  # `curl | bash --upgrade` has no way to confirm. (The stale-pre-migration
+  # plist case - a machine whose rendered plist still points at the deleted
+  # run-loop.sh - is handled earlier, above, before this loop ever sees it.)
   shopt -s nullglob
   for plist in "$DIR"/launchd/*.plist; do
     label="$(basename "$plist" .plist)"

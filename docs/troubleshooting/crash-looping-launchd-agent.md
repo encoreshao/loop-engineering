@@ -3,8 +3,8 @@
 ## Symptom
 
 `~/.loop-engineering/outputs/history/*.log` (`dashboard.err.log`,
-`launchd.err.log`, `topic-monitor-launchd.err.log`) keeps growing — new
-lines keep appearing even though you haven't touched the machine.
+`launchd.err.log`) keeps growing — new lines keep appearing even though you
+haven't touched the machine.
 
 ## Diagnosis
 
@@ -15,18 +15,23 @@ launchctl list | grep hermes
 ```
 -  2  com.hermes.loop-engineering-dashboard
 -  78 com.hermes.loop-engineering
--  78 com.hermes.loop-engineering-topic-monitor
 ```
 
 The second column is the job's last exit code. `78` is `EX_CONFIG`
 (misconfiguration); a non-zero code here means the job failed on its last
-run. `com.hermes.loop-engineering-dashboard` is the only one to watch
-closely: its plist sets `KeepAlive`, so if it exits at all — crash or
-otherwise — launchd immediately relaunches it, and a broken dashboard
-crash-loops forever, appending a fresh error line to `dashboard.err.log` on
-every relaunch. `com.hermes.loop-engineering` and
-`com.hermes.loop-engineering-topic-monitor` are calendar-scheduled instead,
-so a failure there only writes once per scheduled fire, not continuously.
+run. There are only two `com.hermes.loop-engineering*` daemons now — the
+always-on dashboard, and the unified scheduler
+(`bin/loop_scheduler.py`, see
+`docs/superpowers/specs/2026-09-14-unified-loop-scheduler-design.md`) that
+polls `~/.loop-engineering/loops.json` and runs whichever registered loop
+(the GitLab issue loop, the topic monitor loop) is due. There is no
+separate per-loop daemon anymore. `com.hermes.loop-engineering-dashboard`
+is the one to watch closely: its plist sets `KeepAlive`, so if it exits at
+all — crash or otherwise — launchd immediately relaunches it, and a broken
+dashboard crash-loops forever, appending a fresh error line to
+`dashboard.err.log` on every relaunch. `com.hermes.loop-engineering` is a
+`StartInterval` poll loop instead (no `KeepAlive`), so a failure there
+only writes once per poll (every 15 minutes by default), not continuously.
 
 To confirm which one is actively looping and see the real error, tail its
 stderr log and watch it grow, or inspect the job directly:
@@ -39,7 +44,7 @@ launchctl print gui/$(id -u)/com.hermes.loop-engineering-dashboard | grep -iE "s
 
 ## Common root cause: `~/.loop-engineering` isn't actually a full clone
 
-All three agents' plists (`launchd/*.plist.template`, rendered by
+Both agents' plists (`launchd/*.plist.template`, rendered by
 `bin/scripts/install.sh`) point `ProgramArguments`/`StandardOutPath`/
 `StandardErrorPath` at paths under `~/.loop-engineering`. If that directory
 was never fully populated by `install.sh` (e.g. it only contains an
@@ -78,7 +83,6 @@ job from launchd instead:
 ```bash
 launchctl bootout gui/$(id -u)/com.hermes.loop-engineering-dashboard
 launchctl bootout gui/$(id -u)/com.hermes.loop-engineering
-launchctl bootout gui/$(id -u)/com.hermes.loop-engineering-topic-monitor
 
 # Verify:
 launchctl list | grep hermes   # should print nothing
@@ -92,5 +96,4 @@ Reload later, once the install is fixed, with:
 ```bash
 launchctl load -w ~/Library/LaunchAgents/com.hermes.loop-engineering-dashboard.plist
 launchctl load -w ~/Library/LaunchAgents/com.hermes.loop-engineering.plist
-launchctl load -w ~/Library/LaunchAgents/com.hermes.loop-engineering-topic-monitor.plist
 ```

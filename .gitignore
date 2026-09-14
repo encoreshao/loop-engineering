@@ -11,6 +11,7 @@ outputs/*.lock
 outputs/history/*.md
 outputs/history/*.log
 outputs/status.json
+outputs/status/
 outputs/topic-monitor/
 outputs/events/
 outputs/loop-runs/

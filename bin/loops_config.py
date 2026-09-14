@@ -8,8 +8,18 @@ new loop means adding one entry here, not a new plist/shell script. See
 docs/superpowers/specs/2026-09-14-unified-loop-scheduler-design.md."""
 import json
 import os
+import re
+import shlex
 import sys
 from pathlib import Path
+
+# Loop names end up embedded in file paths built elsewhere (e.g.
+# status_path_for_loop in dashboard_server.py, ENTRY_SCRIPT in
+# run-loop-now.sh) - not currently exploitable (every caller passes a
+# fixed literal, and this registry is a local, user-owned config file at
+# the same trust tier as projects.json), but cheap defense in depth all
+# the same.
+_VALID_LOOP_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 # LOOP_ENGINEERING_HOME lets dev/verification work (see CLAUDE.md's
 # "Development mode" section) point this at a sandbox directory instead of
@@ -36,7 +46,13 @@ def list_loops(config_path=None):
 
 def get_loop(name, config_path=None):
     """One registry entry by name. Raises KeyError if no loop with that
-    name is registered."""
+    name is registered, or ValueError if `name` isn't safe to embed in a
+    file path (see _VALID_LOOP_NAME_RE above)."""
+    if not _VALID_LOOP_NAME_RE.match(name):
+        raise ValueError(
+            f"Invalid loop name {name!r} - loop names may only contain "
+            f"letters, digits, '.', '_', and '-'."
+        )
     for loop in list_loops(config_path):
         if loop["name"] == name:
             return loop
@@ -46,7 +62,7 @@ def get_loop(name, config_path=None):
 def main():
     if len(sys.argv) < 2:
         print(
-            "Usage: loops_config.py <names|entry-point|timeout-seconds|log-suffix|emit-run-events> [name]",
+            "Usage: loops_config.py <names|entry-point|timeout-seconds|log-suffix|emit-run-events|bash-env> [name]",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -60,7 +76,7 @@ def main():
     name = sys.argv[2]
     try:
         loop = get_loop(name)
-    except KeyError as exc:
+    except (KeyError, ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
     if command == "entry-point":
@@ -71,6 +87,19 @@ def main():
         print(loop.get("log_suffix", ""))
     elif command == "emit-run-events":
         print("true" if loop.get("emit_run_events", False) else "false")
+    elif command == "bash-env":
+        try:
+            entry_point = loop["entry_point"]
+            timeout_seconds = loop["timeout_seconds"]
+        except KeyError as exc:
+            print(f"Loop {name!r} is missing required registry field {exc}", file=sys.stderr)
+            sys.exit(1)
+        log_suffix = loop.get("log_suffix", "")
+        emit_run_events = "true" if loop.get("emit_run_events", False) else "false"
+        print(f"ENTRY_POINT={shlex.quote(str(entry_point))}")
+        print(f"TIMEOUT_SECONDS={shlex.quote(str(timeout_seconds))}")
+        print(f"LOG_SUFFIX={shlex.quote(str(log_suffix))}")
+        print(f"EMIT_RUN_EVENTS={shlex.quote(emit_run_events)}")
     else:
         print(f"Unknown command: {command}", file=sys.stderr)
         sys.exit(1)

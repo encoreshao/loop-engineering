@@ -61,6 +61,38 @@ LOOP_PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 """
 
+# The shape a rendered com.hermes.loop-engineering.plist had BEFORE the
+# unified scheduler migration - pointed at the now-deleted run-loop.sh on a
+# StartCalendarInterval, no mention of loop_scheduler.py anywhere. Used to
+# simulate a machine that installed this loop before this migration shipped.
+STALE_LOOP_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hermes.loop-engineering</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>/Users/someone/.loop-engineering/run-loop.sh</string>
+  </array>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Weekday</key>
+      <integer>1</integer>
+      <key>Hour</key>
+      <integer>10</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+  </array>
+</dict>
+</plist>
+"""
+
 
 def make_origin(tmp_path, with_launchd_fixtures=False):
     origin = tmp_path / "origin.git"
@@ -315,6 +347,47 @@ def test_install_removes_orphaned_topic_monitor_daemon(tmp_path):
     assert not orphan_rendered.exists()
     calls = [line.split() for line in log_path.read_text().splitlines()]
     assert ["unload", "-w", str(orphan_installed)] in calls
+
+
+def test_install_migrates_stale_pre_scheduler_loop_plist(tmp_path):
+    """A machine that installed this loop before the unified scheduler
+    migration has a rendered com.hermes.loop-engineering.plist pointing at
+    the now-deleted run-loop.sh on a StartCalendarInterval. The render loop
+    never touches an already-rendered plist, and the old "refresh
+    already-loaded daemons" loop would just copy this stale, broken plist
+    over and reload it. --upgrade must instead detect this specific stale
+    shape and re-render it from the current template, then reload it."""
+    origin = make_origin(tmp_path, with_launchd_fixtures=True)
+    target = tmp_path / "clone"
+    launch_agents_dir = tmp_path / "LaunchAgents"
+    fake_bin, log_path = make_fake_launchctl(tmp_path, already_loaded=True)
+
+    run_install(
+        "--repo-url", str(origin), "--dir", str(target),
+        "--launch-agents-dir", str(launch_agents_dir),
+        env=env_with_fake_launchctl(fake_bin),
+    )
+
+    # Simulate a machine that already had the pre-migration plist rendered
+    # and installed from before this repo pointed it at loop_scheduler.py.
+    loop_plist_path = target / "launchd" / "com.hermes.loop-engineering.plist"
+    loop_plist_path.write_text(STALE_LOOP_PLIST)
+    launch_agents_dir.mkdir(parents=True, exist_ok=True)
+    installed_dest = launch_agents_dir / "com.hermes.loop-engineering.plist"
+    installed_dest.write_text(STALE_LOOP_PLIST)
+
+    run_install(
+        "--repo-url", str(origin), "--dir", str(target), "--upgrade",
+        "--launch-agents-dir", str(launch_agents_dir),
+        env=env_with_fake_launchctl(fake_bin),
+    )
+
+    migrated = loop_plist_path.read_text()
+    assert "loop_scheduler.py" in migrated
+    assert "run-loop.sh" not in migrated
+    calls = [line.split() for line in log_path.read_text().splitlines()]
+    assert ["unload", str(installed_dest)] in calls
+    assert ["load", "-w", str(installed_dest)] in calls
 
 
 def test_install_runs_nginx_setup_and_loads_dashboard_daemon_by_default(tmp_path):

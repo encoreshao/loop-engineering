@@ -89,7 +89,11 @@ def run_due_loops(loops=None, state_path=None, run_loop_now_path=None, now=None,
     One loop raising never stops the rest from being checked. Returns the
     list of loop names actually attempted, in registry order."""
     if loops is None:
-        loops = loops_config.list_loops()
+        try:
+            loops = loops_config.list_loops()
+        except (FileNotFoundError, json.JSONDecodeError) as exc:
+            print(f"loop_scheduler: could not load the loops registry: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return []
     if run_loop_now_path is None:
         run_loop_now_path = RUN_LOOP_NOW_SH
     if runner is None:

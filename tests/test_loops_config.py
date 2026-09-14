@@ -49,6 +49,14 @@ def test_get_loop_unknown_name_raises_key_error(tmp_path):
         lc.get_loop("nonexistent", config_path=config_path)
 
 
+def test_get_loop_unsafe_name_raises_value_error(tmp_path):
+    config_path = tmp_path / "loops.json"
+    _write_registry(config_path, [{"name": "gitlab-issue-loop", "entry_point": "bin.gitlab_loop_runner"}])
+
+    with pytest.raises(ValueError):
+        lc.get_loop("../../etc/passwd", config_path=config_path)
+
+
 def test_cli_names_lists_every_loop_name(tmp_path, capsys, monkeypatch):
     config_path = tmp_path / "loops.json"
     _write_registry(config_path, [
@@ -72,6 +80,44 @@ def test_cli_entry_point_prints_the_named_loops_entry_point(tmp_path, capsys, mo
     lc.main()
 
     assert capsys.readouterr().out == "bin.topic_monitor_runner\n"
+
+
+def test_cli_bash_env_prints_four_bash_assignments(tmp_path, capsys, monkeypatch):
+    config_path = tmp_path / "loops.json"
+    _write_registry(config_path, [
+        {
+            "name": "gitlab-issue-loop",
+            "entry_point": "bin.gitlab_loop_runner",
+            "timeout_seconds": 21600,
+            "log_suffix": "",
+            "emit_run_events": True,
+        },
+    ])
+    monkeypatch.setattr(lc, "DEFAULT_CONFIG_PATH", config_path)
+    monkeypatch.setattr(sys, "argv", ["loops_config.py", "bash-env", "gitlab-issue-loop"])
+
+    lc.main()
+
+    out = capsys.readouterr().out
+    assert out == (
+        "ENTRY_POINT=bin.gitlab_loop_runner\n"
+        "TIMEOUT_SECONDS=21600\n"
+        "LOG_SUFFIX=''\n"
+        "EMIT_RUN_EVENTS=true\n"
+    )
+
+
+def test_cli_bash_env_unknown_loop_exits_nonzero_with_stderr_message(tmp_path, capsys, monkeypatch):
+    config_path = tmp_path / "loops.json"
+    _write_registry(config_path, [{"name": "gitlab-issue-loop", "entry_point": "bin.gitlab_loop_runner"}])
+    monkeypatch.setattr(lc, "DEFAULT_CONFIG_PATH", config_path)
+    monkeypatch.setattr(sys, "argv", ["loops_config.py", "bash-env", "nonexistent"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        lc.main()
+
+    assert exc_info.value.code != 0
+    assert capsys.readouterr().err.strip() != ""
 
 
 def test_cli_emit_run_events_prints_true_or_false(tmp_path, capsys, monkeypatch):
