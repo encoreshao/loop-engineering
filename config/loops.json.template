@@ -1,0 +1,18 @@
+[
+  {
+    "name": "gitlab-issue-loop",
+    "entry_point": "bin.gitlab_loop_runner",
+    "schedule": {"weekdays": [1, 2, 3, 4, 5], "hour": 10, "minute": 0},
+    "timeout_seconds": 21600,
+    "log_suffix": "",
+    "emit_run_events": true
+  },
+  {
+    "name": "topic-monitor",
+    "entry_point": "bin.topic_monitor_runner",
+    "schedule": {"weekdays": "all", "hour": 10, "minute": 0},
+    "timeout_seconds": 21600,
+    "log_suffix": "-topic-monitor",
+    "emit_run_events": false
+  }
+]
