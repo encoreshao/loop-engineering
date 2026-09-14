@@ -7,14 +7,17 @@
 ![Dependencies](https://img.shields.io/badge/dependencies-stdlib%20only-green)
 ![Shell](https://img.shields.io/badge/shell-bash-4EAA25)
 
-An unattended, weekday-scheduled loop that checks the GitLab issues assigned
-to you, and for each one either implements a fix and opens a merge request,
-answers directly with a comment, or escalates with a clarifying question —
-plus a local web dashboard for watching it work, reviewing its history, and
-configuring everything by hand instead of by editing JSON.
+Loop X Engineering's mission is to give you back the time issue triage
+eats: a standing, unattended teammate that works your GitLab queue every
+weekday so nothing assigned to you sits untouched — shipping fixes,
+answering questions, or flagging what genuinely needs your judgment — and
+your attention goes only where it actually matters. A local web dashboard
+lets you watch it work, review everything it's done, and configure it all
+by hand — no editing JSON.
 
-It never merges its own merge requests, never self-assigns issues, and only
-ever touches the projects you explicitly list in its config.
+It's built to be safe to leave running unattended: it never merges its own
+merge requests, never assigns itself new issues, and only ever touches the
+projects you've explicitly told it about.
 
 ## Table of contents
 
