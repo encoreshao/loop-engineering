@@ -102,15 +102,17 @@ def test_three_args_is_rejected():
     assert "Usage" in result.stderr
 
 
-def test_run_loop_sh_forwards_its_args_to_gitlab_loop_runner():
-    # build_run_prompt.sh is no longer invoked directly from run-loop.sh -
-    # that responsibility moved into gitlab_loop_runner.py's build_prompt()
-    # (see the test below), which run-loop.sh now delegates to, forwarding
-    # its own "$@" (the optional `<alias> <issue_iid>` pair) unchanged.
-    run_loop_sh = Path(__file__).resolve().parent.parent / "run-loop.sh"
-    content = run_loop_sh.read_text()
-    assert 'RUNNER_ARGS=("$RUN_ID" "$@")' in content
-    assert "gitlab_loop_runner.py" in content
+def test_run_loop_now_sh_forwards_extra_args_generically():
+    # run-loop-now.sh replaced run-loop.sh (see
+    # docs/superpowers/specs/2026-09-14-unified-loop-scheduler-design.md) -
+    # it no longer hardcodes gitlab_loop_runner.py; the entry point is
+    # resolved dynamically per loop name via bin/loops_config.py, and its
+    # own extra args (the optional `<alias> <issue_iid>` pair, or none)
+    # are forwarded to whichever entry point that resolves to, unchanged.
+    run_loop_now_sh = Path(__file__).resolve().parent.parent / "run-loop-now.sh"
+    content = run_loop_now_sh.read_text()
+    assert 'RUNNER_ARGS=("$RUN_ID" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}")' in content
+    assert 'ENTRY_POINT="$(python3 "$LOOP_DIR/bin/loops_config.py" entry-point "$LOOP_NAME")"' in content
 
 
 def test_gitlab_loop_runner_build_prompt_forwards_args_to_build_run_prompt():
