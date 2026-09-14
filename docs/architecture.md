@@ -42,7 +42,10 @@ other.
 
 - **The GitLab issue loop's own event log** — `outputs/events/*.jsonl`,
   written by `bin/events.py`'s CLI (`bin/events.py emit --type ...`),
-  called directly from `run-loop.sh` (`run.started`/`run.failed`) and by
+  called directly from `run-loop-now.sh` (`run.started`/`run.failed`, gated
+  per loop by its `loops.json` entry's `emit_run_events` — `true` only for
+  `gitlab-issue-loop` today, matching the "topic monitor writes to only
+  the second system" split below) and by
   the agent itself per `LOOPX_INSTRUCTIONS.md` (`issue.started`,
   `issue.classified`, `verification.started/passed/failed`,
   `issue.completed`/`issue.escalated`, `memory.created`/`memory.reused`).
@@ -89,6 +92,8 @@ subdirectories — see §9.
 | `metrics.py`, `cost.py`, `health.py`, `learning.py` | Pure report builders over the event log (the GitLab-issue-loop world, §2) |
 | `gitlab_loop_runner.py` | Wires the real GitLab issue loop through `LoopRuntime`, one issue at a time |
 | `topic_monitor_runner.py` | Wires the real Topic Monitor loop through `LoopRuntime`, one topic at a time |
+| `loop_scheduler.py` | The single launchd-scheduled poll loop: reads `loops_config.list_loops()` and runs whichever registered loop(s) are due, via `run-loop-now.sh` |
+| `loops_config.py` | Loads the loops registry (`~/.loop-engineering/loops.json`) — name, schedule, entry point, and per-loop knobs for `run-loop-now.sh`/`loop_scheduler.py` |
 
 ## 4. `LoopDefinition`
 
@@ -174,7 +179,7 @@ either transitions to `COMPLETED`, retries (`EXECUTING` again, subject to
 `retry.max_attempts`), or exits to `BLOCKED`/`ESCALATED`/`STOPPED`/`FAILED`.
 Every step emits through `bin/events.py`, best-effort (an event-log write
 failure never crashes the runtime — same `|| true` philosophy as
-`run-loop.sh`). See
+`run-loop-now.sh`). See
 [`2026-09-06-loop-runtime-foundation-design.md`](superpowers/specs/2026-09-06-loop-runtime-foundation-design.md).
 
 ## 7. Observability
@@ -244,22 +249,38 @@ verifies, and escalates correctly, not whether an agent can write code
 ## 9. How the two production loops actually plug in
 
 ```text
-run-loop.sh                          run-topic-monitor-loop.sh
-     │                                       │
-     ↓                                       ↓
-gitlab_loop_runner.py                 topic_monitor_runner.py
-     │  (one issue at a time)               │  (one topic at a time)
-     ↓                                       ↓
+loop_scheduler.py (launchd, StartInterval poll)     dashboard "Run now" / chat tool
+              │                                              │
+              └──────────────────┬───────────────────────────┘
+                                  ↓
+                    run-loop-now.sh <loop_name>
+                 (entry point/timeout/etc. looked up
+                  from loops.json via loops_config.py)
+                                  │
+                  ┌───────────────┴───────────────┐
+                  ↓                                ↓
+        gitlab_loop_runner.py              topic_monitor_runner.py
+         (one issue at a time)               (one topic at a time)
+                  │                                ↓
+                  └───────────────┬────────────────┘
+                                  ↓
 LoopRuntime(agent_fn, verifiers).start(definition, run_id=issue_run_id)
 ```
 
 Each issue/topic gets its own `LoopRuntime.start()` call — the runtime
 tracks and bounds that single invocation, it does not span the whole
-scheduled batch. `run-loop.sh`/`run-topic-monitor-loop.sh` themselves are
-unchanged as the actual `launchd`-scheduled entry points; nothing here
-requires `loop run gitlab-issue` as the plan originally imagined (plan
-§25/§26's "final state" was never reached — the shell scripts remain the
-real trigger, calling into `LoopRuntime` one level down rather than being
+scheduled batch. `run-loop-now.sh` is the one shell entry point both loops
+go through (replacing the old separate `run-loop.sh`/
+`run-topic-monitor-loop.sh`); `bin/loop_scheduler.py` is the actual
+`launchd`-scheduled trigger now — a single `com.hermes.loop-engineering`
+job on a fixed `StartInterval` poll, replacing the old per-loop
+`StartCalendarInterval` plists, which invokes `run-loop-now.sh <loop_name>`
+for whichever registered loop(s) are due. The dashboard's Run now button
+and its chat tool's "paste an issue link" flow invoke `run-loop-now.sh`
+directly, on demand, bypassing the scheduler. Nothing here requires
+`loop run gitlab-issue` as the plan originally imagined (plan §25/§26's
+"final state" was never reached — the shell script remains the real
+trigger, calling into `LoopRuntime` one level down rather than being
 replaced by it).
 
 ## 10. Deliberately not (yet) built

@@ -13,7 +13,8 @@ dashboard and tooling around it; follow them without being asked.
 
 `bin/*.py` — the loop's own small Python CLI helpers (`loop_config.py`,
 `slack_notify.py`, `list_assigned_issues.py`, `track_new_comments.py`,
-`project_memory.py`, `memory_store.py`). `bin/web/` — the dashboard web server
+`project_memory.py`, `memory_store.py`, `loop_scheduler.py`,
+`loops_config.py`). `bin/web/` — the dashboard web server
 (`dashboard_server.py`) alone. `bin/scripts/` — one-shot shell scripts
 (`setup.sh`, `setup-nginx.sh`, `uninstall.sh`, `new_worktree.sh`,
 `open_merge_request.sh`). Moving a script between these means updating, in
@@ -22,7 +23,7 @@ script itself (it's relative-path-depth-sensitive — see
 `bin/web/dashboard_server.py`'s `LOOP_DIR` and its explicit `sys.path`
 insert for `loop_config`/`project_memory`, and `bin/scripts/setup.sh`'s
 `LOOP_DIR`), every hardcoded path to it in `LOOPX_INSTRUCTIONS.md`,
-`run-loop.sh`, `bin/gitlab_loop_runner.py` (including its `_allowed_tools()`
+`run-loop-now.sh`, `bin/gitlab_loop_runner.py` (including its `_allowed_tools()`
 glob — a glob's `*` doesn't cross a `/`, so each directory needs its own
 pattern; this list lived in `run-loop.sh` as `ALLOWED_TOOLS` until the
 per-issue runner moved it into Python), `README.md`, and any
@@ -54,7 +55,8 @@ kill %1
 `LOOP_ENGINEERING_HOME` overrides the default `~/.loop-engineering` base
 directory everywhere it's resolved — `bin/loop_config.py`,
 `bin/topic_config.py`, `bin/ai_cli_config.py`'s `DEFAULT_CONFIG_PATH`,
-`bin/memory_store.py`'s `DEFAULT_MEMORY_ROOT`, and
+`bin/memory_store.py`'s `DEFAULT_MEMORY_ROOT`, `bin/loops_config.py`'s
+`DEFAULT_CONFIG_PATH`, `bin/loop_scheduler.py`'s `DEFAULT_STATE_PATH`, and
 `bin/web/dashboard_server.py`'s `CUSTOM_INSTRUCTIONS_PATH`. Leave it
 unset and every one of those falls back to the real path, which is exactly
 why it must always be set before running anything in dev/verification.
@@ -65,7 +67,7 @@ because events are per-checkout run history (same category as
 like `projects.json`.
 Run this way, `dashboard_server.py` is a plain foreground process — no
 `launchd`, no `KeepAlive` — kill it whenever you're done. Same idea for the
-loop scripts themselves (`run-loop.sh`, `bin/*.py`): run them with
+loop scripts themselves (`run-loop-now.sh`, `bin/*.py`): run them with
 `LOOP_ENGINEERING_HOME` set to a scratch directory, never against the real
 config, when the point is to exercise the code rather than actually act on
 the user's real projects.

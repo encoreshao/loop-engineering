@@ -68,7 +68,7 @@ With no arguments this defaults to every alias from `loop_config.py aliases` and
 Throughout Step 2 below, you'll see `python3 <loop_dir>/bin/events.py emit
 ...` calls alongside the existing Slack/status calls. Every one of them is
 best-effort: `$LOOP_RUN_ID` is already set in your environment (exported by
-`run-loop.sh` before it started you), and every issue's own `--issue-run-id`
+`run-loop-now.sh` before it started you), and every issue's own `--issue-run-id`
 is `<run_id>_<alias>_<issue_iid>`, built from values already on hand at each
 call site. If one of these `emit` calls fails, note it and continue the
 issue's own flow exactly as if it had succeeded — it is never a

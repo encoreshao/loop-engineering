@@ -35,7 +35,7 @@ ever touches the projects you explicitly list in its config.
 
 ## How it works
 
-Each scheduled run (`run-loop.sh`):
+Each scheduled run (`run-loop-now.sh gitlab-issue-loop`):
 
 1. Lists every open GitLab issue assigned to your configured username, across every project alias in your config.
 2. Processes them **one at a time, never in parallel**, following the step-by-step decision procedure in [`LOOPX_INSTRUCTIONS.md`](https://github.com/encoreshao/loop-engineering/blob/main/LOOPX_INSTRUCTIONS.md).
@@ -48,7 +48,7 @@ Each scheduled run (`run-loop.sh`):
 
 Reusable, cross-run lessons (fix patterns, gotchas) get recorded per issue as markdown task-memory files via `bin/memory_store.py` (entries recorded before this format existed are still read via `bin/project_memory.py`), so later runs start smarter than the last.
 
-A second, independent loop (`run-topic-monitor-loop.sh`) watches arbitrary topics on the wider web instead of GitLab — see [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md).
+A second, independent loop (`run-loop-now.sh topic-monitor`) watches arbitrary topics on the wider web instead of GitLab — see [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md).
 
 ## Requirements
 
@@ -143,8 +143,9 @@ Two more config files live outside this tree entirely, editable from the dashboa
 | `~/.loop-engineering/projects.json`   | Which projects to track, their local checkout paths, target branch, install/lint/test commands, your GitLab username, and the worktree scratch directory (`worktree_root`, defaults to `~/.loop-engineering/worktrees`) | Dashboard **GitLab Settings** page's "Tracked Projects" section, or copy [`config/projects.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/projects.json.template) by hand, or let `bin/scripts/setup.sh` do it |
 | ↳ per-project `instance` (optional)   | Overrides the top-level `gitlab_instance` for one project — set this when your projects span more than one GitLab instance. Falls back to `gitlab_instance` when omitted.                                               | Same file, per project entry — see the template's `harbor` example                                                                                                            |
 | `~/.loop-engineering/topics.json`     | Which topics to monitor and what counts as notable for each one (topic monitor loop only)                                                                                                                               | Copy [`config/topics.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/topics.json.template) by hand, or let `bin/scripts/setup.sh` do it                                                                |
+| `~/.loop-engineering/loops.json`      | The registry of scheduled loops: each entry's name, schedule (weekdays/hour/minute), entry point module, timeout, and per-loop knobs — read by `bin/loops_config.py`, polled by `bin/loop_scheduler.py`                 | Copy [`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template) by hand, or let `bin/scripts/setup.sh` do it                                                                  |
 | `~/.loop-engineering/instructions.md` | Your own free-text instructions, read by the loop at the start of every run                                                                                                                                             | Dashboard **Settings** page's Instructions tab                                                                                                                               |
-| `~/.loop-engineering/ai_cli.json`     | Which AI CLI (Claude Code or Codex CLI) `run-loop.sh` and `run-topic-monitor-loop.sh` both invoke; defaults to `claude`                                                                                                  | Dashboard **Settings** page's AI CLI tab, or let `bin/scripts/setup.sh` do it                                                                                                                |
+| `~/.loop-engineering/ai_cli.json`     | Which AI CLI (Claude Code or Codex CLI) `run-loop-now.sh` invokes for every registered loop; defaults to `claude`                                                                                                        | Dashboard **Settings** page's AI CLI tab, or let `bin/scripts/setup.sh` do it                                                                                                                |
 | `~/.gitlab/config.json`               | GitLab instance URLs, tokens, and project-alias → project-ID mappings (read by the `gitlab-config` skill)                                                                                                               | Dashboard **GitLab Settings** page                                                                                                                                                     |
 | `~/.slack/config.json`                | Your Slack incoming webhook URL (and any per-bundle overrides)                                                                                                                                                          | Dashboard **Settings** page's Notifications tab (the default webhook) / **GitLab Settings** page's Access bundles section (per-bundle overrides)                                                              |
 
@@ -178,30 +179,28 @@ Bundles live in `~/.gitlab/config.json`'s `bundles` key and, if a webhook overri
 **Manually**, once, to see it work before trusting it with a schedule:
 
 ```bash
-bash run-loop.sh                # the daily GitLab issue loop
-bash run-topic-monitor-loop.sh  # the topic monitor loop
+bash run-loop-now.sh gitlab-issue-loop   # the daily GitLab issue loop
+bash run-loop-now.sh topic-monitor       # the topic monitor loop
 ```
 
 Both log to `outputs/history/`, and both also append every `claude` CLI invocation's output to `logs/loop-engineering.log` (viewable on the dashboard's **Logs** page); you can also trigger the GitLab loop from the dashboard's **Run now** button (Overview page) without a terminal.
 
-**On a schedule**, via `launchd` — install the three agents under [`launchd/`](https://github.com/encoreshao/loop-engineering/tree/main/launchd), most easily with a click each from the dashboard's **Daemons** page (which also shows whether each is currently loaded and its PID), or by hand:
+**On a schedule**, via `launchd` — install the two agents under [`launchd/`](https://github.com/encoreshao/loop-engineering/tree/main/launchd), most easily with a click each from the dashboard's **Daemons** page (which also shows whether each is currently loaded and its PID), or by hand:
 
 ```bash
 cp launchd/com.hermes.loop-engineering*.plist ~/Library/LaunchAgents/
 launchctl load -w ~/Library/LaunchAgents/com.hermes.loop-engineering.plist
 launchctl load -w ~/Library/LaunchAgents/com.hermes.loop-engineering-dashboard.plist
-launchctl load -w ~/Library/LaunchAgents/com.hermes.loop-engineering-topic-monitor.plist
 ```
 
 
-| Agent                                       | Runs                                                     |
-| ------------------------------------------- | -------------------------------------------------------- |
-| `com.hermes.loop-engineering`               | The loop itself, weekdays at 10:00 by default            |
-| `com.hermes.loop-engineering-dashboard`     | The web dashboard, always-on (`RunAtLoad` + `KeepAlive`) |
-| `com.hermes.loop-engineering-topic-monitor` | The topic monitor loop, every day at 10:00 by default    |
+| Agent                                   | Runs                                                                                                                                             |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------|
+| `com.hermes.loop-engineering`           | The single scheduler poll loop (`bin/loop_scheduler.py`), every 15 minutes (`StartInterval`) — runs whichever loop(s) registered in `~/.loop-engineering/loops.json` are due, via `run-loop-now.sh` |
+| `com.hermes.loop-engineering-dashboard` | The web dashboard, always-on (`RunAtLoad` + `KeepAlive`)                                                                                          |
 
 
-To change when a scheduled agent runs, use the schedule editor on the dashboard's **Daemons** page — it rewrites the plist and reloads `launchd` for you.
+Which loops run and on what schedule is config, not code — edit `~/.loop-engineering/loops.json` (see [`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template)) to add a loop or change when it's due; adding a third loop needs a new `loops.json` entry, not a new plist. The **Daemons** page's per-agent schedule editor only applies to a plist's own `StartCalendarInterval`, which `com.hermes.loop-engineering` no longer has (it polls every 15 minutes on a fixed `StartInterval` and defers to `loops.json` for which loop is actually due) — editing a loop's own schedule is a hand-edit of `loops.json` for now.
 
 ## The dashboard
 
@@ -249,25 +248,26 @@ Expand for the full list
 
 | Script                              | Purpose                                                                                                                                                                                                                              |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `run-loop.sh`                       | Entry point for one scheduled or manual run — logs to `outputs/history/` and `logs/loop-engineering.log`, notifies Slack on failure                                                                                                  |
-| `bin/gitlab_loop_runner.py`         | The per-issue orchestrator `run-loop.sh` delegates to: discovers assigned issues, runs each one through its own `LoopRuntime` (one `LoopResult` per issue under `outputs/loop-runs/`), owns the `claude -p`/`codex exec` invocation and its `--allowedTools`/`--disallowedTools` safety boundary, then runs one unconditional end-of-run wrap-up for the whole batch |
+| `run-loop-now.sh`                   | Generic entry point for one registered loop's run (looked up from `~/.loop-engineering/loops.json` via `bin/loops_config.py`) — logs to `outputs/history/`, notifies Slack on failure. Invoked by `bin/loop_scheduler.py` (on schedule) or the dashboard (on demand) |
+| `bin/loop_scheduler.py`             | The single launchd-scheduled poll loop: reads `~/.loop-engineering/loops.json` and runs whichever registered loop(s) are due, via `run-loop-now.sh`                                                                                  |
+| `bin/loops_config.py`               | Reads `~/.loop-engineering/loops.json` — the registry of scheduled loops (name, schedule, entry point); no write path today, hand-edit the file (or copy the template) to change it                                                 |
+| `bin/gitlab_loop_runner.py`         | The per-issue orchestrator `run-loop-now.sh` delegates to when running `gitlab-issue-loop`: discovers assigned issues, runs each one through its own `LoopRuntime` (one `LoopResult` per issue under `outputs/loop-runs/`), owns the `claude -p`/`codex exec` invocation and its `--allowedTools`/`--disallowedTools` safety boundary, then runs one unconditional end-of-run wrap-up for the whole batch |
 | `bin/scripts/build_run_prompt.sh`   | Builds the prompt string `bin/gitlab_loop_runner.py` hands to the AI CLI — a single-issue prompt for `<alias> <issue_iid>` (the dashboard's Activity-chat scoped run), `--batch-issue <alias> <issue_iid>` for one issue inside a scheduled batch (no end-of-run), and `--batch-end-of-run` for the batch's one digest/daily-review wrap-up |
-| `bin/web/dashboard_server.py`       | The web dashboard; also a small CLI (`write-status`, `write-skills-install-status`, `read-messages`, `add-message`, `chat-tool`) used by `run-loop.sh`, the dashboard's own actions, and the Activity page's embedded chat assistant |
+| `bin/web/dashboard_server.py`       | The web dashboard; also a small CLI (`write-status`, `write-skills-install-status`, `read-messages`, `add-message`, `chat-tool`) used by `run-loop-now.sh`, `bin/loop_scheduler.py`, the dashboard's own actions, and the Activity page's embedded chat assistant |
 | `bin/loop_config.py`                | Reads `~/.loop-engineering/projects.json`                                                                                                                                                                                            |
 | `bin/list_assigned_issues.py`       | Lists open GitLab issues assigned to the configured user across configured projects                                                                                                                                                  |
 | `bin/track_new_comments.py`         | Detects which notes on a cached issue are new since the loop last looked                                                                                                                                                             |
 | `bin/project_memory.py`             | Reads (legacy) durable per-project lessons learned, stored inline in the GitLab cache                                                                                                                                                |
 | `bin/memory_store.py`               | Reads/records durable per-issue task memory as markdown files (one per issue, plus a per-project MEMORY.md index)                                                                                                                    |
-| `bin/ai_cli_config.py`              | Reads/writes `~/.loop-engineering/ai_cli.json` — which AI CLI (`claude` or `codex`) `run-loop.sh` and `run-topic-monitor-loop.sh` invoke                                                                                             |
-| `run-topic-monitor-loop.sh`         | Entry point for one scheduled or manual topic-monitor run                                                                                                                                                                            |
-| `bin/topic_monitor_runner.py`       | The per-topic orchestrator `run-topic-monitor-loop.sh` delegates to: runs each configured topic through its own `LoopRuntime` (one `LoopResult` per topic under `outputs/loop-runs/`), owns the `claude -p`/`codex exec` invocation and its safety boundary — same role for the topic monitor loop as `bin/gitlab_loop_runner.py` plays for the GitLab loop |
+| `bin/ai_cli_config.py`              | Reads/writes `~/.loop-engineering/ai_cli.json` — which AI CLI (`claude` or `codex`) `run-loop-now.sh` invokes for every registered loop                                                                                              |
+| `bin/topic_monitor_runner.py`       | The per-topic orchestrator `run-loop-now.sh` delegates to when running `topic-monitor`: runs each configured topic through its own `LoopRuntime` (one `LoopResult` per topic under `outputs/loop-runs/`), owns the `claude -p`/`codex exec` invocation and its safety boundary — same role for the topic monitor loop as `bin/gitlab_loop_runner.py` plays for the GitLab loop |
 | `bin/scripts/build_topic_prompt.sh` | Builds the prompt string for one configured topic, same role as `build_run_prompt.sh` above; kept as a documented manual escape hatch even though `topic_monitor_runner.py` no longer calls it                                       |
 | `bin/topic_config.py`               | Reads `~/.loop-engineering/topics.json`                                                                                                                                                                                              |
 | `bin/topic_seen.py`                 | Rolling 7-day dedup window per topic, so briefings don't repeat the same story two days running                                                                                                                                      |
 | `bin/slack_notify.py`               | Posts a message to the configured Slack incoming webhook                                                                                                                                                                             |
 | `bin/scripts/new_worktree.sh`       | Creates (or reuses) an isolated git worktree on a `loop/issue-<iid>` branch                                                                                                                                                          |
 | `bin/scripts/open_merge_request.sh` | Pushes an issue branch and opens its MR — refuses anything not named `loop/issue-*`                                                                                                                                                  |
-| `bin/scripts/install.sh`            | Online installer — clones (or updates) this repo, then runs `setup.sh`; `--upgrade` for an existing install, refreshing every currently-loaded launchd agent (dashboard restarted, GitLab loop/topic monitor just re-registered) so they pick up the new code; safe to pipe from `curl`                                          |
+| `bin/scripts/install.sh`            | Online installer — clones (or updates) this repo, then runs `setup.sh`; `--upgrade` for an existing install, refreshing every currently-loaded launchd agent (dashboard restarted, scheduler daemon just re-registered) so they pick up the new code; also removes the old, now-orphaned `com.hermes.loop-engineering-topic-monitor` daemon if still installed from before the unified scheduler; safe to pipe from `curl`                                          |
 | `bin/scripts/setup.sh`              | One-command install: the `gitlab-config` skill + the `projects.json`/`topics.json` scaffolds                                                                                                                                         |
 | `bin/scripts/setup-nginx.sh`        | Optional local nginx reverse proxy (`http://loop.x/` → the dashboard)                                                                                                                                                            |
 | `bin/scripts/uninstall.sh`          | Reverses `setup.sh`/`setup-nginx.sh`/`install.sh`; safe to pipe from `curl`                                                                                                                                                          |
