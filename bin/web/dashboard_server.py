@@ -76,8 +76,7 @@ TOPIC_MONITOR_DIR = LOOP_DIR / "outputs" / "topic-monitor"
 TOPIC_MONITOR_HISTORY_DIR = TOPIC_MONITOR_DIR / "history"
 TOPIC_MONITOR_STATUS_PATH = TOPIC_MONITOR_DIR / "status.json"
 FAVICON_PATH = LOOP_DIR / "assets" / "favicon.ico"
-RUN_LOOP_SH = LOOP_DIR / "run-loop.sh"
-RUN_TOPIC_MONITOR_LOOP_SH = LOOP_DIR / "run-topic-monitor-loop.sh"
+RUN_LOOP_NOW_SH = LOOP_DIR / "run-loop-now.sh"
 PROGRESS_PATH = LOOP_DIR / "PROGRESS.md"
 README_PATH = LOOP_DIR / "README.md"
 # LOOP_ENGINEERING_HOME lets a dev instance (see CLAUDE.md's "Development
@@ -2454,13 +2453,13 @@ def _chat_tool_run_now(kind, status_path=None, run_loop_path=None,
         if status_path is None:
             status_path = STATUS_PATH
         if run_loop_path is None:
-            run_loop_path = RUN_LOOP_SH
+            run_loop_path = RUN_LOOP_NOW_SH
         ok, message = trigger_manual_run(status_path, run_loop_path)
     elif kind == "topic-monitor":
         if topic_status_path is None:
             topic_status_path = TOPIC_MONITOR_STATUS_PATH
         if topic_run_loop_path is None:
-            topic_run_loop_path = RUN_TOPIC_MONITOR_LOOP_SH
+            topic_run_loop_path = RUN_LOOP_NOW_SH
         ok, message = trigger_topic_monitor_run(topic_status_path, topic_run_loop_path)
     else:
         return {"error": f"Unknown run-now kind {kind!r} - expected 'gitlab' or 'topic-monitor'"}
@@ -2469,7 +2468,7 @@ def _chat_tool_run_now(kind, status_path=None, run_loop_path=None,
 
 def _chat_tool_run_issue(url, status_path=None, run_loop_path=None,
                           loop_config_path=None, gitlab_config_path=None):
-    """Launches run-loop.sh scoped to exactly one issue, resolved from a
+    """Launches run-loop-now.sh scoped to exactly one issue, resolved from a
     pasted GitLab issue URL - the chat-tool action behind the Activity
     page chat's "paste an issue link" flow. Reuses trigger_manual_run's
     exact concurrency guard (same STATUS_PATH) so a single-issue run can
@@ -2481,7 +2480,7 @@ def _chat_tool_run_issue(url, status_path=None, run_loop_path=None,
     if status_path is None:
         status_path = STATUS_PATH
     if run_loop_path is None:
-        run_loop_path = RUN_LOOP_SH
+        run_loop_path = RUN_LOOP_NOW_SH
     prefixes = gitlab_issue_url_prefixes(loop_config_path, gitlab_config_path)
     resolved = _resolve_gitlab_issue_url(url, prefixes)
     if resolved is None:
@@ -2491,9 +2490,9 @@ def _chat_tool_run_issue(url, status_path=None, run_loop_path=None,
     if status.get("state") == "running":
         return {"ok": False, "message": "A run is already in progress"}
     if not run_loop_path.exists():
-        return {"ok": False, "message": f"run-loop.sh not found at {run_loop_path}"}
+        return {"ok": False, "message": f"run-loop-now.sh not found at {run_loop_path}"}
     subprocess.Popen(
-        ["bash", str(run_loop_path), alias, str(issue_iid)],
+        ["bash", str(run_loop_path), "gitlab-issue-loop", alias, str(issue_iid)],
         cwd=str(LOOP_DIR),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -2570,30 +2569,30 @@ def _dispatch_chat_tool(action, args):
     print(json.dumps(result, indent=2))
 
 
-def trigger_manual_run(status_path=None, run_loop_path=None):
-    """Launches run-loop.sh as a detached background process for an
-    on-demand run, outside its normal launchd schedule. Refuses if a run
-    is already in progress (per the same status.json the loop itself
-    writes) rather than starting a second, overlapping one - the loop
-    assumes it's the only writer of its own git worktrees and PROGRESS.md.
-    stdout/stderr are left to run-loop.sh's own redirect (it `exec`s its
-    output into outputs/history/<date>.log near the top of the script,
-    before anything else that could fail), so this doesn't need to capture
-    or manage them itself. start_new_session=True detaches the child from
-    this server process's session, so the run keeps going even if the
-    dashboard daemon restarts - same independence a launchd-triggered run
-    already has."""
+def trigger_manual_run(status_path=None, run_loop_path=None, loop_name="gitlab-issue-loop"):
+    """Launches run-loop-now.sh <loop_name> as a detached background
+    process for an on-demand run, outside its normal scheduler check.
+    Refuses if a run is already in progress (per the same status.json the
+    loop itself writes) rather than starting a second, overlapping one -
+    the loop assumes it's the only writer of its own git worktrees and
+    PROGRESS.md. stdout/stderr are left to run-loop-now.sh's own redirect
+    (it `exec`s its output into outputs/history/<date>.log near the top
+    of the script, before anything else that could fail), so this doesn't
+    need to capture or manage them itself. start_new_session=True detaches
+    the child from this server process's session, so the run keeps going
+    even if the dashboard daemon restarts - same independence a
+    scheduler-triggered run already has."""
     if status_path is None:
         status_path = STATUS_PATH
     if run_loop_path is None:
-        run_loop_path = RUN_LOOP_SH
+        run_loop_path = RUN_LOOP_NOW_SH
     status = read_status(status_path)
     if status.get("state") == "running":
         return False, "A run is already in progress"
     if not run_loop_path.exists():
-        return False, f"run-loop.sh not found at {run_loop_path}"
+        return False, f"run-loop-now.sh not found at {run_loop_path}"
     subprocess.Popen(
-        ["bash", str(run_loop_path)],
+        ["bash", str(run_loop_path), loop_name],
         cwd=str(LOOP_DIR),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -2603,25 +2602,25 @@ def trigger_manual_run(status_path=None, run_loop_path=None):
     return True, "Run started - check back here for progress"
 
 
-def trigger_topic_monitor_run(status_path=None, run_loop_path=None):
+def trigger_topic_monitor_run(status_path=None, run_loop_path=None, loop_name="topic-monitor"):
     """The topic monitor loop's own equivalent of trigger_manual_run:
-    launches run-topic-monitor-loop.sh as a detached background process for
-    an on-demand run, outside its normal launchd schedule. Refuses if any
-    configured topic is currently running (per outputs/topic-monitor/
-    status.json's per-topic "state" entries) rather than starting a second,
-    overlapping run - the loop assumes it's the only writer of its own
-    outputs/topic-monitor/ state files."""
+    launches run-loop-now.sh <loop_name> as a detached background process
+    for an on-demand run, outside its normal scheduler check. Refuses if
+    any configured topic is currently running (per outputs/topic-monitor/
+    status.json's per-topic "state" entries) rather than starting a
+    second, overlapping run - the loop assumes it's the only writer of
+    its own outputs/topic-monitor/ state files."""
     if status_path is None:
         status_path = TOPIC_MONITOR_STATUS_PATH
     if run_loop_path is None:
-        run_loop_path = RUN_TOPIC_MONITOR_LOOP_SH
+        run_loop_path = RUN_LOOP_NOW_SH
     topics = read_topic_status(status_path).get("topics", {})
     if any(entry.get("state") == "running" for entry in topics.values()):
         return False, "A run is already in progress"
     if not run_loop_path.exists():
-        return False, f"run-topic-monitor-loop.sh not found at {run_loop_path}"
+        return False, f"run-loop-now.sh not found at {run_loop_path}"
     subprocess.Popen(
-        ["bash", str(run_loop_path)],
+        ["bash", str(run_loop_path), loop_name],
         cwd=str(LOOP_DIR),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,

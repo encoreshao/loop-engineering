@@ -5249,7 +5249,7 @@ def test_trigger_topic_monitor_run_refuses_when_script_missing(tmp_path):
 def test_trigger_topic_monitor_run_launches_the_script(tmp_path, monkeypatch):
     status_path = tmp_path / "status.json"
     ds.write_topic_status("ai-news", "idle", status_path=status_path)
-    run_loop_path = tmp_path / "run-topic-monitor-loop.sh"
+    run_loop_path = tmp_path / "run-loop-now.sh"
     run_loop_path.write_text("#!/bin/bash\ntrue\n")
     run_loop_path.chmod(0o755)
 
@@ -5265,7 +5265,7 @@ def test_trigger_topic_monitor_run_launches_the_script(tmp_path, monkeypatch):
     ok, message = ds.trigger_topic_monitor_run(status_path=status_path, run_loop_path=run_loop_path)
 
     assert ok, message
-    assert captured["args"] == ["bash", str(run_loop_path)]
+    assert captured["args"] == ["bash", str(run_loop_path), "topic-monitor"]
     assert captured["kwargs"]["start_new_session"] is True
 
 
@@ -5278,8 +5278,8 @@ def test_topic_monitor_run_now_route_launches_when_idle(monkeypatch, tmp_path):
     status_path = tmp_path / "status.json"
     ds.write_topic_status("ai-news", "idle", status_path=status_path)
     monkeypatch.setattr(ds, "TOPIC_MONITOR_STATUS_PATH", status_path)
-    monkeypatch.setattr(ds, "RUN_TOPIC_MONITOR_LOOP_SH", tmp_path / "run-topic-monitor-loop.sh")
-    (tmp_path / "run-topic-monitor-loop.sh").write_text("#!/bin/bash\ntrue\n")
+    monkeypatch.setattr(ds, "RUN_LOOP_NOW_SH", tmp_path / "run-loop-now.sh")
+    (tmp_path / "run-loop-now.sh").write_text("#!/bin/bash\ntrue\n")
 
     captured = {}
 
@@ -5295,7 +5295,7 @@ def test_topic_monitor_run_now_route_launches_when_idle(monkeypatch, tmp_path):
         assert status == 303
         flash_query = _flash_from_location(headers["Location"], prefix="/topic-monitor?")
         assert flash_query["ok"] == ["1"]
-    assert captured["args"] == ["bash", str(tmp_path / "run-topic-monitor-loop.sh")]
+    assert captured["args"] == ["bash", str(tmp_path / "run-loop-now.sh"), "topic-monitor"]
 
 
 @pytest.mark.xfail(
@@ -6578,7 +6578,7 @@ def test_chat_tool_run_issue_refuses_when_already_running(tmp_path, monkeypatch)
 
     result = ds._chat_tool_run_issue(
         "https://gitlab.acme.com/acme/harbor/harbor/-/issues/482",
-        status_path=status_path, run_loop_path=tmp_path / "run-loop.sh",
+        status_path=status_path, run_loop_path=tmp_path / "run-loop-now.sh",
         loop_config_path=loop_config_path, gitlab_config_path=gitlab_config_path,
     )
 
@@ -6608,7 +6608,7 @@ def test_chat_tool_run_issue_refuses_unmatched_url(tmp_path, monkeypatch):
 
     result = ds._chat_tool_run_issue(
         "https://gitlab.acme.com/acme/some-other-project/-/issues/1",
-        status_path=status_path, run_loop_path=tmp_path / "run-loop.sh",
+        status_path=status_path, run_loop_path=tmp_path / "run-loop-now.sh",
         loop_config_path=loop_config_path, gitlab_config_path=gitlab_config_path,
     )
 
@@ -6651,7 +6651,7 @@ def test_chat_tool_run_issue_refuses_when_script_missing(tmp_path, monkeypatch):
 def test_chat_tool_run_issue_launches_the_script(tmp_path, monkeypatch):
     status_path = tmp_path / "status.json"
     ds.write_status("idle", status_path=status_path)
-    run_loop_path = tmp_path / "run-loop.sh"
+    run_loop_path = tmp_path / "run-loop-now.sh"
     run_loop_path.write_text("#!/bin/bash\ntrue\n")
     run_loop_path.chmod(0o755)
     loop_config_path = tmp_path / "projects.json"
@@ -6680,7 +6680,7 @@ def test_chat_tool_run_issue_launches_the_script(tmp_path, monkeypatch):
     )
 
     assert result == {"ok": True, "message": "Started work on harbor #482"}
-    assert captured["args"] == ["bash", str(run_loop_path), "harbor", "482"]
+    assert captured["args"] == ["bash", str(run_loop_path), "gitlab-issue-loop", "harbor", "482"]
     assert captured["kwargs"]["start_new_session"] is True
 
 
@@ -6812,7 +6812,7 @@ def test_trigger_manual_run_refuses_when_script_missing(tmp_path):
 def test_trigger_manual_run_launches_the_script(tmp_path, monkeypatch):
     status_path = tmp_path / "status.json"
     ds.write_status("idle", status_path=status_path)
-    run_loop_path = tmp_path / "run-loop.sh"
+    run_loop_path = tmp_path / "run-loop-now.sh"
     run_loop_path.write_text("#!/bin/bash\ntrue\n")
     run_loop_path.chmod(0o755)
 
@@ -6828,7 +6828,7 @@ def test_trigger_manual_run_launches_the_script(tmp_path, monkeypatch):
     ok, message = ds.trigger_manual_run(status_path=status_path, run_loop_path=run_loop_path)
 
     assert ok, message
-    assert captured["args"] == ["bash", str(run_loop_path)]
+    assert captured["args"] == ["bash", str(run_loop_path), "gitlab-issue-loop"]
     assert captured["kwargs"]["start_new_session"] is True
 
 
@@ -7131,8 +7131,8 @@ def test_run_now_route_launches_when_idle(monkeypatch, tmp_path):
     status_path = tmp_path / "status.json"
     ds.write_status("idle", status_path=status_path)
     monkeypatch.setattr(ds, "STATUS_PATH", status_path)
-    monkeypatch.setattr(ds, "RUN_LOOP_SH", tmp_path / "run-loop.sh")
-    (tmp_path / "run-loop.sh").write_text("#!/bin/bash\ntrue\n")
+    monkeypatch.setattr(ds, "RUN_LOOP_NOW_SH", tmp_path / "run-loop-now.sh")
+    (tmp_path / "run-loop-now.sh").write_text("#!/bin/bash\ntrue\n")
 
     captured = {}
 
@@ -7153,7 +7153,7 @@ def test_run_now_route_launches_when_idle(monkeypatch, tmp_path):
         assert status == 303
         flash_query = _flash_from_location(headers["Location"], prefix="/?")
         assert flash_query["ok"] == ["1"]
-    assert captured["args"] == ["bash", str(tmp_path / "run-loop.sh")]
+    assert captured["args"] == ["bash", str(tmp_path / "run-loop-now.sh"), "gitlab-issue-loop"]
 
 
 @pytest.mark.xfail(
