@@ -105,10 +105,13 @@ def run_due_loops(loops=None, state_path=None, run_loop_now_path=None, now=None,
             continue
         try:
             runner(["bash", str(run_loop_now_path), loop["name"]])
-        except Exception:
-            pass
-        state.setdefault(loop["name"], {})["last_attempted_date"] = now.date().isoformat()
-        _write_state(state, state_path)
+        except Exception as exc:
+            print(f"loop_scheduler: {loop['name']} failed to run: {type(exc).__name__}: {exc}", file=sys.stderr)
+        try:
+            state.setdefault(loop["name"], {})["last_attempted_date"] = now.date().isoformat()
+            _write_state(state, state_path)
+        except Exception as exc:
+            print(f"loop_scheduler: failed to record state for {loop['name']}: {type(exc).__name__}: {exc}", file=sys.stderr)
         attempted.append(loop["name"])
     return attempted
 

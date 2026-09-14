@@ -137,3 +137,25 @@ def test_run_due_loops_skips_loops_that_are_not_due(tmp_path, monkeypatch):
     )
 
     assert attempted == []
+
+
+def test_run_due_loops_a_state_write_failure_does_not_block_the_next_loop(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(sched.dashboard_server, "read_status", lambda path: {"state": "idle"})
+    original_write_state = sched._write_state
+
+    def failing_write_state(state, state_path=None):
+        if "gitlab-issue-loop" in state:
+            raise OSError("disk full")
+        return original_write_state(state, state_path)
+
+    monkeypatch.setattr(sched, "_write_state", failing_write_state)
+
+    attempted = sched.run_due_loops(
+        loops=[GITLAB_LOOP, TOPIC_LOOP], state_path=tmp_path / "state.json",
+        run_loop_now_path=tmp_path / "run-loop-now.sh",
+        now=datetime(2026, 9, 14, 10, 5), runner=lambda args, **kw: calls.append(args),
+    )
+
+    assert attempted == ["gitlab-issue-loop", "topic-monitor"]
+    assert len(calls) == 2
