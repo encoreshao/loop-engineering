@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """Lightweight, read-only, localhost-only web dashboard for the GitLab daily
 loop. Runs as its own always-on background daemon (a separate launchd entry
-from the main loop's schedule — see launchd/com.hermes.loop-engineering-
-dashboard.plist), stdlib Python only. Shows current/last run state, run
-history, per-project memory, live GitLab issues/MRs, and the load/PID/
-schedule status of every launchd daemon in launchd/*.plist.
+from the unified scheduler's own StartInterval job - see launchd/com.hermes.
+loop-engineering-dashboard.plist), stdlib Python only. Shows current/last run
+state, run history, per-project memory, live GitLab issues/MRs, and the
+load/PID/schedule status of every launchd daemon in launchd/*.plist.
 
-Also doubles as the tiny CLI the main loop's run-loop.sh uses to record its
-own state:
+Also doubles as the tiny CLI run-loop-now.sh uses to record its own state:
 
-    python3 bin/web/dashboard_server.py write-status running
-    python3 bin/web/dashboard_server.py write-status idle --exit-code 0
+    python3 bin/web/dashboard_server.py write-status running --loop gitlab-issue-loop
+    python3 bin/web/dashboard_server.py write-status idle --loop gitlab-issue-loop --exit-code 0
 """
 import concurrent.futures
 import fcntl
@@ -305,6 +304,21 @@ def _iter_chat_job_chunks(reply_key, idle_timeout=None):
             return
         if waited and not pending:
             yield ("idle", None)
+
+
+def status_path_for_loop(loop_name, base_dir=None):
+    """Resolve the outputs/status.json-equivalent path for a given loop
+    name. "gitlab-issue-loop" resolves to the existing STATUS_PATH (a
+    plain global lookup, so monkeypatching STATUS_PATH in a test still
+    works, and every one of this file's existing STATUS_PATH call sites
+    needs no change); any other loop name gets its own file under
+    outputs/status/<loop_name>.json, so a new registered loop gets a
+    status file for free without a code change here."""
+    if loop_name == "gitlab-issue-loop":
+        return STATUS_PATH
+    if base_dir is None:
+        base_dir = LOOP_DIR
+    return Path(base_dir) / "outputs" / "status" / f"{loop_name}.json"
 
 
 def read_status(status_path=STATUS_PATH):
@@ -8687,12 +8701,16 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] == "write-status":
         if len(sys.argv) < 3:
             print(
-                "Usage: dashboard_server.py write-status <state> [--exit-code N] "
+                "Usage: dashboard_server.py write-status <state> [--loop NAME] [--exit-code N] "
                 "[--current-issue TEXT] [--current-step TEXT]",
                 file=sys.stderr,
             )
             sys.exit(1)
         state = sys.argv[2]
+        loop_name = "gitlab-issue-loop"
+        if "--loop" in sys.argv:
+            idx = sys.argv.index("--loop")
+            loop_name = sys.argv[idx + 1]
         extra = {}
         if "--exit-code" in sys.argv:
             idx = sys.argv.index("--exit-code")
@@ -8703,7 +8721,7 @@ def main():
         if "--current-step" in sys.argv:
             idx = sys.argv.index("--current-step")
             extra["current_step"] = sys.argv[idx + 1]
-        write_status(state, STATUS_PATH, **extra)
+        write_status(state, status_path_for_loop(loop_name), **extra)
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "write-topic-status":

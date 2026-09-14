@@ -61,6 +61,23 @@ def test_write_status_then_read_status_round_trips(tmp_path):
     assert read_back == written
 
 
+def test_status_path_for_loop_gitlab_issue_loop_returns_status_path():
+    assert ds.status_path_for_loop("gitlab-issue-loop") == ds.STATUS_PATH
+
+
+def test_status_path_for_loop_gitlab_issue_loop_tracks_monkeypatched_status_path(tmp_path, monkeypatch):
+    fake_status_path = tmp_path / "status.json"
+    monkeypatch.setattr(ds, "STATUS_PATH", fake_status_path)
+
+    assert ds.status_path_for_loop("gitlab-issue-loop") == fake_status_path
+
+
+def test_status_path_for_loop_other_loop_returns_per_loop_path(tmp_path):
+    path = ds.status_path_for_loop("topic-monitor", base_dir=tmp_path)
+
+    assert path == tmp_path / "outputs" / "status" / "topic-monitor.json"
+
+
 def test_read_topic_status_missing_file_returns_empty_topics(tmp_path):
     missing = tmp_path / "status.json"
 
@@ -6298,6 +6315,26 @@ def test_write_status_cli_idle_clears_progress_fields(tmp_path, monkeypatch):
     assert written["state"] == "idle"
     assert "current_issue" not in written
     assert "current_step" not in written
+
+
+def test_write_status_cli_loop_flag_writes_to_the_per_loop_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "LOOP_DIR", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["dashboard_server.py", "write-status", "running", "--loop", "topic-monitor"])
+
+    ds.main()
+
+    written = ds.read_status(tmp_path / "outputs" / "status" / "topic-monitor.json")
+    assert written["state"] == "running"
+
+
+def test_write_status_cli_without_loop_flag_still_writes_status_path(tmp_path, monkeypatch):
+    status_path = tmp_path / "status.json"
+    monkeypatch.setattr(ds, "STATUS_PATH", status_path)
+    monkeypatch.setattr(sys, "argv", ["dashboard_server.py", "write-status", "running"])
+
+    ds.main()
+
+    assert ds.read_status(status_path)["state"] == "running"
 
 
 def test_read_messages_cli_prints_unseen_user_messages_as_json(tmp_path, monkeypatch, capsys):
