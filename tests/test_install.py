@@ -50,10 +50,13 @@ LOOP_PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
   <string>com.hermes.loop-engineering</string>
   <key>ProgramArguments</key>
   <array>
-    <string>{{LOOP_DIR}}/run-loop.sh</string>
+    <string>{{PYTHON3}}</string>
+    <string>{{LOOP_DIR}}/bin/loop_scheduler.py</string>
   </array>
   <key>RunAtLoad</key>
   <false/>
+  <key>StartInterval</key>
+  <integer>900</integer>
 </dict>
 </plist>
 """
@@ -237,6 +240,7 @@ def test_install_renders_launchd_plist_templates_for_this_machine(tmp_path):
     loop_plist = (target / "launchd" / "com.hermes.loop-engineering.plist").read_text()
     assert "{{" not in loop_plist
     assert str(target) in loop_plist
+    assert shutil.which("python3") in loop_plist
 
 
 def test_install_upgrade_does_not_clobber_an_already_rendered_plist(tmp_path):

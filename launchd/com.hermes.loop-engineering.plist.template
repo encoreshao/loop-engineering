@@ -6,7 +6,8 @@
 	<string>com.hermes.loop-engineering</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>{{LOOP_DIR}}/run-loop.sh</string>
+		<string>{{PYTHON3}}</string>
+		<string>{{LOOP_DIR}}/bin/loop_scheduler.py</string>
 	</array>
 	<key>RunAtLoad</key>
 	<false/>
@@ -14,48 +15,7 @@
 	<string>{{LOOP_DIR}}/outputs/history/launchd.err.log</string>
 	<key>StandardOutPath</key>
 	<string>{{LOOP_DIR}}/outputs/history/launchd.out.log</string>
-	<key>StartCalendarInterval</key>
-	<array>
-		<dict>
-			<key>Hour</key>
-			<integer>10</integer>
-			<key>Minute</key>
-			<integer>0</integer>
-			<key>Weekday</key>
-			<integer>1</integer>
-		</dict>
-		<dict>
-			<key>Hour</key>
-			<integer>10</integer>
-			<key>Minute</key>
-			<integer>0</integer>
-			<key>Weekday</key>
-			<integer>2</integer>
-		</dict>
-		<dict>
-			<key>Hour</key>
-			<integer>10</integer>
-			<key>Minute</key>
-			<integer>0</integer>
-			<key>Weekday</key>
-			<integer>3</integer>
-		</dict>
-		<dict>
-			<key>Hour</key>
-			<integer>10</integer>
-			<key>Minute</key>
-			<integer>0</integer>
-			<key>Weekday</key>
-			<integer>4</integer>
-		</dict>
-		<dict>
-			<key>Hour</key>
-			<integer>10</integer>
-			<key>Minute</key>
-			<integer>0</integer>
-			<key>Weekday</key>
-			<integer>5</integer>
-		</dict>
-	</array>
+	<key>StartInterval</key>
+	<integer>900</integer>
 </dict>
 </plist>
