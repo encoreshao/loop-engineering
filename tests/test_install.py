@@ -280,6 +280,43 @@ def test_install_upgrade_does_not_clobber_an_already_rendered_plist(tmp_path):
     assert loop_plist_path.read_text() == customized
 
 
+def test_install_removes_orphaned_topic_monitor_daemon(tmp_path):
+    """The topic-monitor daemon was replaced by the unified scheduler (see
+    docs/superpowers/specs/2026-09-14-unified-loop-scheduler-design.md) -
+    its .plist.template no longer exists in this repo. A machine that
+    already had it installed from before must have it unloaded and
+    removed, not left running old code forever."""
+    origin = make_origin(tmp_path, with_launchd_fixtures=True)
+    target = tmp_path / "clone"
+    launch_agents_dir = tmp_path / "LaunchAgents"
+    fake_bin, log_path = make_fake_launchctl(tmp_path, already_loaded=True)
+
+    run_install(
+        "--repo-url", str(origin), "--dir", str(target),
+        "--launch-agents-dir", str(launch_agents_dir),
+        env=env_with_fake_launchctl(fake_bin),
+    )
+
+    # Simulate a machine that already had the old topic-monitor daemon
+    # installed from before this repo removed it.
+    launch_agents_dir.mkdir(parents=True, exist_ok=True)
+    orphan_installed = launch_agents_dir / "com.hermes.loop-engineering-topic-monitor.plist"
+    orphan_installed.write_text("<plist/>\n")
+    orphan_rendered = target / "launchd" / "com.hermes.loop-engineering-topic-monitor.plist"
+    orphan_rendered.write_text("<plist/>\n")
+
+    run_install(
+        "--repo-url", str(origin), "--dir", str(target), "--upgrade",
+        "--launch-agents-dir", str(launch_agents_dir),
+        env=env_with_fake_launchctl(fake_bin),
+    )
+
+    assert not orphan_installed.exists()
+    assert not orphan_rendered.exists()
+    calls = [line.split() for line in log_path.read_text().splitlines()]
+    assert ["unload", "-w", str(orphan_installed)] in calls
+
+
 def test_install_runs_nginx_setup_and_loads_dashboard_daemon_by_default(tmp_path):
     origin = make_origin(tmp_path, with_launchd_fixtures=True)
     target = tmp_path / "clone"

@@ -6,11 +6,13 @@ set -euo pipefail
 # their own local config). Installs this
 # loop's one external dependency, the `gitlab-config` skill from
 # encore-skills (github.com/encoreshao/encore-skills), and scaffolds all
-# three per-machine config files from their templates if they don't exist
+# four per-machine config files from their templates if they don't exist
 # yet: ~/.loop-engineering/projects.json (the GitLab issue loop),
-# ~/.loop-engineering/topics.json (the topic monitor loop), and
-# ~/.loop-engineering/ai_cli.json (which AI CLI both loops invoke). Check
-# the dashboard's /skills page afterward for a live view of what's installed.
+# ~/.loop-engineering/topics.json (the topic monitor loop),
+# ~/.loop-engineering/ai_cli.json (which AI CLI both loops invoke), and
+# ~/.loop-engineering/loops.json (the unified scheduler's loop registry).
+# Check the dashboard's /skills page afterward for a live view of what's
+# installed.
 
 # Colored output, only when stdout is an actual terminal - never for a
 # pipe/redirect (e.g. under a test harness). The color variables carry
@@ -26,6 +28,7 @@ SKIP_SKILLS_INSTALL=0
 CONFIG_PATH="$HOME/.loop-engineering/projects.json"
 TOPICS_CONFIG_PATH="$HOME/.loop-engineering/topics.json"
 AI_CLI_CONFIG_PATH="$HOME/.loop-engineering/ai_cli.json"
+LOOPS_CONFIG_PATH="$HOME/.loop-engineering/loops.json"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -45,8 +48,12 @@ while [ "$#" -gt 0 ]; do
       AI_CLI_CONFIG_PATH="$2"
       shift 2
       ;;
+    --loops-config-path)
+      LOOPS_CONFIG_PATH="$2"
+      shift 2
+      ;;
     *)
-      echo "${C_RED}Usage: setup.sh [--skip-skills-install] [--config-path PATH] [--topics-config-path PATH] [--ai-cli-config-path PATH]${C_RESET}" >&2
+      echo "${C_RED}Usage: setup.sh [--skip-skills-install] [--config-path PATH] [--topics-config-path PATH] [--ai-cli-config-path PATH] [--loops-config-path PATH]${C_RESET}" >&2
       exit 1
       ;;
   esac
@@ -86,6 +93,15 @@ else
   mkdir -p "$(dirname "$AI_CLI_CONFIG_PATH")"
   cp "$LOOP_DIR/config/ai_cli.json.template" "$AI_CLI_CONFIG_PATH"
   echo "${C_YELLOW}    Defaults to Claude - switch to Codex any time from the dashboard's AI CLI page.${C_RESET}"
+fi
+
+if [ -f "$LOOPS_CONFIG_PATH" ]; then
+  echo "${C_BLUE}==> $LOOPS_CONFIG_PATH already exists, leaving it alone${C_RESET}"
+else
+  echo "${C_BLUE}==> Creating $LOOPS_CONFIG_PATH from the template${C_RESET}"
+  mkdir -p "$(dirname "$LOOPS_CONFIG_PATH")"
+  cp "$LOOP_DIR/config/loops.json.template" "$LOOPS_CONFIG_PATH"
+  echo "${C_YELLOW}    Registers the GitLab issue loop and topic monitor with the unified scheduler (bin/loop_scheduler.py) - add a future loop here, not a new plist/shell script.${C_RESET}"
 fi
 
 cat <<EOF

@@ -70,6 +70,28 @@ def test_setup_leaves_existing_topics_config_untouched(tmp_path):
     assert topics_path.read_text() == '[{"already": "configured"}]'
 
 
+def test_setup_creates_loops_config_from_template_when_missing(tmp_path):
+    projects_path = tmp_path / "projects.json"
+    loops_path = tmp_path / "loops.json"
+
+    run_setup("--config-path", str(projects_path), "--loops-config-path", str(loops_path))
+
+    assert loops_path.exists()
+    assert "gitlab-issue-loop" in loops_path.read_text()
+
+
+def test_setup_leaves_existing_loops_config_untouched(tmp_path):
+    loops_path = tmp_path / "loops.json"
+    loops_path.write_text('{"already": "configured"}')
+
+    run_setup(
+        "--config-path", str(tmp_path / "projects.json"),
+        "--loops-config-path", str(loops_path),
+    )
+
+    assert loops_path.read_text() == '{"already": "configured"}'
+
+
 def test_setup_creates_ai_cli_config_from_template_when_missing(tmp_path):
     projects_path = tmp_path / "projects.json"
     ai_cli_path = tmp_path / "ai_cli.json"

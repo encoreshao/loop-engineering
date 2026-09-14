@@ -185,6 +185,22 @@ if [ -d "$DIR/launchd" ]; then
   shopt -u nullglob
 fi
 
+# This machine may already have the old topic-monitor daemon installed
+# from before the unified scheduler replaced it (see
+# docs/superpowers/specs/2026-09-14-unified-loop-scheduler-design.md) -
+# its .plist.template no longer exists in this repo, so the "refresh
+# already-loaded daemons" loop further below would never touch it again,
+# leaving it loaded and running old code forever. Unload and remove both
+# the installed copy and this clone's own gitignored rendered copy (which
+# persists across `git pull` since launchd/*.plist is gitignored).
+orphan_label="com.hermes.loop-engineering-topic-monitor"
+orphan_dest="$LAUNCH_AGENTS_DIR/$orphan_label.plist"
+if [ -f "$orphan_dest" ] || [ -f "$DIR/launchd/$orphan_label.plist" ]; then
+  echo "${C_BLUE}==> Removing the old topic-monitor daemon (replaced by the unified scheduler)...${C_RESET}"
+  launchctl unload -w "$orphan_dest" >/dev/null 2>&1 || true
+  rm -f "$orphan_dest" "$DIR/launchd/$orphan_label.plist"
+fi
+
 # Read the port back out of the actual rendered dashboard plist rather than
 # trusting $PORT directly: on an --upgrade where that plist already existed
 # (and so was left alone above, "don't clobber"), $PORT here may be a
