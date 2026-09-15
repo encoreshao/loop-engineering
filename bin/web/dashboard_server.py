@@ -1341,12 +1341,28 @@ def _resolve_gitlab_issue_url(url, prefixes):
     return None
 
 
-def _run_gitlab_api(alias, subcommand):
+def _run_gitlab_api(alias, subcommand, *extra_args):
     result = subprocess.run(
-        [sys.executable, str(GITLAB_API), subcommand, alias, "opened"],
+        [sys.executable, str(GITLAB_API), subcommand, alias, "opened", *extra_args],
         capture_output=True, text=True, check=True, timeout=15,
     )
     return json.loads(result.stdout)
+
+
+def _merge_gitlab_items(*item_lists):
+    """Combine several GitLab issue/MR lists into one, de-duplicated by id -
+    the same item legitimately comes back from both an --assignee and an
+    --author query (e.g. something you filed for yourself)."""
+    seen = set()
+    merged = []
+    for items in item_lists:
+        for item in items:
+            key = item.get("id")
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+    return merged
 
 
 def _relative_time(iso_timestamp):
@@ -1420,20 +1436,30 @@ def _describe_gitlab_api_error(exc):
 def _fetch_alias_gitlab_state(alias, username):
     """One alias's {"issues": [...], "mrs": [...], "issues_error": str|None,
     "mrs_error": str|None} - the per-alias body get_live_gitlab_state used to
-    run inline, factored out so it can run in its own worker thread."""
+    run inline, factored out so it can run in its own worker thread.
+
+    Each of issues/mrs is fetched as two separate server-side-filtered
+    queries - --assignee=<username> and --author=<username> - rather than
+    one unfiltered fetch plus a client-side assignee check. GitLab's API
+    ANDs assignee_username/author_username together in a single call, so a
+    single call can't express "assigned to OR authored by me"; two calls
+    merged and de-duped by id can. This also fixes issues/MRs silently
+    going missing once a project has more open items than GitLab's default
+    page size - see gitlab_api.py's _request_all, which these two calls now
+    page through fully instead of trusting a single response."""
     entry = {}
     try:
-        issues = _run_gitlab_api(alias, "list-issues")
-        entry["issues"] = [
-            i for i in issues
-            if any(a.get("username") == username for a in i.get("assignees", []))
-        ]
+        assigned = _run_gitlab_api(alias, "list-issues", f"--assignee={username}")
+        authored = _run_gitlab_api(alias, "list-issues", f"--author={username}")
+        entry["issues"] = _merge_gitlab_items(assigned, authored)
         entry["issues_error"] = None
     except Exception as e:
         entry["issues"] = []
         entry["issues_error"] = _describe_gitlab_api_error(e)
     try:
-        entry["mrs"] = _run_gitlab_api(alias, "list-mrs")
+        assigned = _run_gitlab_api(alias, "list-mrs", f"--assignee={username}")
+        authored = _run_gitlab_api(alias, "list-mrs", f"--author={username}")
+        entry["mrs"] = _merge_gitlab_items(assigned, authored)
         entry["mrs_error"] = None
     except Exception as e:
         entry["mrs"] = []
@@ -1443,8 +1469,9 @@ def _fetch_alias_gitlab_state(alias, username):
 
 def get_live_gitlab_state(config_path=None):
     """{alias: {"issues": [...], "mrs": [...], "issues_error": str|None,
-    "mrs_error": str|None}} for each configured alias, filtered to the
-    configured assignee. On any per-alias failure (network error, non-zero
+    "mrs_error": str|None}} for each configured alias, filtered to issues/MRs
+    assigned to or authored by the configured user. On any per-alias failure
+    (network error, non-zero
     exit, bad JSON), that list becomes empty and its "_error" sibling is set
     to a human-readable reason - one broken project must not break the whole
     dashboard, and a failure must never be mistaken for zero real issues.
@@ -6120,7 +6147,8 @@ def render_logs_page():
 
 def render_gitlab_live_fragment():
     """The actual GitLab data for the Live GitLab page: open issues and MRs
-    assigned to the configured user, per configured project alias. Split out
+    assigned to or authored by the configured user, per configured project
+    alias. Split out
     of render_gitlab_page so that slow part (get_live_gitlab_state does a
     subprocess + real GitLab API round trip per configured project, easily
     several seconds with more than one or two projects) only ever runs when
@@ -6186,7 +6214,7 @@ def render_gitlab_page():
     body = f"""
 <div class="page-title">
 <h1>Live GitLab</h1>
-<p class="subtitle">Open issues and merge requests assigned to you, across configured projects.</p>
+<p class="subtitle">Open issues and merge requests assigned to or created by you, across configured projects.</p>
 </div>
 
 <div class="grid">

@@ -505,7 +505,7 @@ def test_get_live_gitlab_state_sets_error_when_subprocess_fails(tmp_path, monkey
         "projects": {"myproj": {"project_id": "a/b"}},
     }))
 
-    def fake_run(alias, subcommand):
+    def fake_run(alias, subcommand, *extra_args):
         raise subprocess.CalledProcessError(1, ["gitlab_api.py"], stderr="Error: something broke\n")
 
     monkeypatch.setattr(ds, "_run_gitlab_api", fake_run)
@@ -521,8 +521,9 @@ def test_get_live_gitlab_state_sets_error_when_subprocess_fails(tmp_path, monkey
 def test_get_live_gitlab_state_fetches_aliases_concurrently(tmp_path, monkeypatch):
     """Regression test for the "Live GitLab is slow" complaint: with N
     aliases each taking ~0.2s per call, sequential fetching would take
-    roughly N * 2 * 0.2s. Concurrent fetching should take roughly one
-    alias's worth of time, not the sum of all of them."""
+    roughly N * 4 * 0.2s (issues assigned-to-you, issues authored-by-you,
+    MRs assigned-to-you, MRs authored-by-you). Concurrent fetching should
+    take roughly one alias's worth of time, not the sum of all of them."""
     import time
 
     config_path = tmp_path / "projects.json"
@@ -531,7 +532,7 @@ def test_get_live_gitlab_state_fetches_aliases_concurrently(tmp_path, monkeypatc
         "projects": {f"proj{i}": {"project_id": f"a/proj{i}"} for i in range(5)},
     }))
 
-    def slow_run(alias, subcommand):
+    def slow_run(alias, subcommand, *extra_args):
         time.sleep(0.2)
         return []
 
@@ -542,11 +543,11 @@ def test_get_live_gitlab_state_fetches_aliases_concurrently(tmp_path, monkeypatc
     elapsed = time.monotonic() - started
 
     assert len(state) == 5
-    # Sequential would be 5 aliases * 2 calls * 0.2s = 2.0s; concurrent
-    # should land close to one alias's own 2 calls (~0.4s). 1.0s leaves
+    # Sequential would be 5 aliases * 4 calls * 0.2s = 4.0s; concurrent
+    # should land close to one alias's own 4 calls (~0.8s). 1.5s leaves
     # generous headroom for scheduling jitter while still failing fast if
     # this regresses to sequential.
-    assert elapsed < 1.0, f"expected concurrent fetching, took {elapsed:.2f}s"
+    assert elapsed < 1.5, f"expected concurrent fetching, took {elapsed:.2f}s"
 
 
 def test_get_live_gitlab_state_no_error_on_success(tmp_path, monkeypatch):
@@ -556,12 +557,69 @@ def test_get_live_gitlab_state_no_error_on_success(tmp_path, monkeypatch):
         "projects": {"myproj": {"project_id": "a/b"}},
     }))
 
-    monkeypatch.setattr(ds, "_run_gitlab_api", lambda alias, subcommand: [])
+    monkeypatch.setattr(ds, "_run_gitlab_api", lambda alias, subcommand, *extra_args: [])
 
     state = ds.get_live_gitlab_state(config_path=config_path)
 
     assert state["myproj"]["issues_error"] is None
     assert state["myproj"]["mrs_error"] is None
+
+
+def test_fetch_alias_gitlab_state_requests_assignee_and_author_separately(monkeypatch):
+    """The dashboard must ask GitLab for "assigned to you" and "authored by
+    you" as two separate server-side-filtered queries (GitLab's API ANDs
+    assignee_username/author_username together in one call, which would
+    only return items that are both) rather than fetching every open item
+    and filtering client-side, which silently misses anything past
+    GitLab's first page - see the gitlab_api.py side of this fix."""
+    calls = []
+
+    def fake_run(alias, subcommand, *extra_args):
+        calls.append((alias, subcommand, extra_args))
+        return []
+
+    monkeypatch.setattr(ds, "_run_gitlab_api", fake_run)
+
+    ds._fetch_alias_gitlab_state("myproj", "encore")
+
+    assert ("myproj", "list-issues", ("--assignee=encore",)) in calls
+    assert ("myproj", "list-issues", ("--author=encore",)) in calls
+    assert ("myproj", "list-mrs", ("--assignee=encore",)) in calls
+    assert ("myproj", "list-mrs", ("--author=encore",)) in calls
+
+
+def test_fetch_alias_gitlab_state_merges_assigned_and_authored_issues_deduped(monkeypatch):
+    def fake_run(alias, subcommand, *extra_args):
+        if subcommand == "list-issues":
+            if extra_args == ("--assignee=encore",):
+                return [{"id": 1, "iid": 10}, {"id": 2, "iid": 20}]
+            if extra_args == ("--author=encore",):
+                return [{"id": 2, "iid": 20}, {"id": 3, "iid": 30}]
+        return []
+
+    monkeypatch.setattr(ds, "_run_gitlab_api", fake_run)
+
+    entry = ds._fetch_alias_gitlab_state("myproj", "encore")
+
+    assert sorted(i["id"] for i in entry["issues"]) == [1, 2, 3]
+    assert entry["issues_error"] is None
+
+
+def test_fetch_alias_gitlab_state_merges_assigned_and_authored_mrs_deduped(monkeypatch):
+    def fake_run(alias, subcommand, *extra_args):
+        if subcommand == "list-mrs":
+            if extra_args == ("--assignee=encore",):
+                return [{"id": 5, "iid": 50}]
+            if extra_args == ("--author=encore",):
+                return [{"id": 5, "iid": 50}, {"id": 6, "iid": 60}]
+        return []
+
+    monkeypatch.setattr(ds, "_run_gitlab_api", fake_run)
+
+    entry = ds._fetch_alias_gitlab_state("myproj", "encore")
+
+    assert sorted(m["id"] for m in entry["mrs"]) == [5, 6]
+    assert entry["mrs_error"] is None
 
 
 def test_describe_gitlab_api_error_prefers_stderr_over_generic_message():
