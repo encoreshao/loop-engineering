@@ -3402,6 +3402,7 @@ html.collapsed .sidebar-top {{
   justify-content: center;
   gap: 0.4rem;
 }}
+html.collapsed .activity-composer {{ left: 64px; }}
 
 @media (max-width: 720px) {{
   .sidebar {{ width: 64px; }}
@@ -3411,9 +3412,18 @@ html.collapsed .sidebar-top {{
   .sidebar-toggle {{ display: none; }}
   .sidebar-nav a {{ justify-content: center; }}
   .sidebar-top {{ justify-content: center; }}
+  .activity-composer {{ left: 64px; }}
 }}
 
-.activity-messages-grid {{ margin-bottom: 1rem; }}
+/* The composer's reserved space below the Conversation card - kept in
+   sync with the composer's actual rendered height by JS (see the
+   ResizeObserver in the "activity-composer-form" IIFE below), never a
+   guessed constant. A fixed margin-bottom here drifted out of sync the
+   moment the composer's own height changed (e.g. dragging the textarea's
+   resize handle - see `resize: vertical` below - taller), silently
+   letting the fixed composer bar overlap and hide the last message(s)
+   behind it. */
+.activity-messages-grid {{ margin-bottom: 6rem; }}
 /* The Dashboard page's stats section - tracked-projects/configured-topics
    setup counts plus GitLab-loop run totals (see _gitlab_loop_stats),
    sitting above the message thread as a quick-glance summary. Kept
@@ -3465,23 +3475,27 @@ html.collapsed .sidebar-top {{
    new message - so a long conversation stays navigable the way a real
    chat UI's thread pane does. */
 #activity-message-list {{ max-height: 60vh; overflow-y: auto; padding-right: 0.25rem; }}
-/* Deliberately NOT position:fixed. That was tried first (pinned to the
-   viewport bottom, with .activity-messages-grid's margin-bottom guessing
-   how much space to reserve above it) and it broke the moment the
-   composer's own height changed - dragging the textarea's resize handle
-   (see .activity-composer-form textarea's `resize: vertical` above) taller
-   grew the fixed bar without the reserved margin growing to match, so it
-   silently overlapped and hid the last message(s) behind it. Plain normal
-   flow, sitting right after the Conversation card, can never hide
-   anything: whatever height the composer ends up being, the page simply
-   has that much more content before it, so its bottom (Send button
-   included) is always reachable by scrolling exactly as far as the page
-   actually is - never further, never blocked. */
+/* Pinned to the viewport bottom (not the whole thread scrolling the
+   composer out of view) so the input box is always visible without
+   scrolling - `left` matches .content-area's current margin-left,
+   including its collapsed/mobile widths above. This previously hid the
+   last message(s) behind it whenever the composer's own height changed
+   (e.g. dragging the textarea's resize handle - see `resize: vertical`
+   below - taller), because .activity-messages-grid's margin-bottom was a
+   guessed constant that didn't grow to match. That margin is now kept in
+   sync with this element's actual rendered height by a ResizeObserver
+   (see the "activity-composer-form" IIFE below), so growing the composer
+   can never overlap the thread again. */
 .activity-composer {{
+  position: fixed;
+  left: 220px;
+  right: 0;
+  bottom: 0;
   background: var(--md-nav-surface);
   border-top: 1px solid var(--md-outline-variant);
-  border-radius: 12px;
   padding: 0.85rem 1.25rem;
+  z-index: 80;
+  transition: left 150ms ease;
 }}
 .activity-composer-inner {{ max-width: 1080px; margin: 0 auto; }}
 .activity-composer-form {{ width: 100%; flex-wrap: nowrap; align-items: flex-end; }}
@@ -5112,6 +5126,28 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     }}
     // Open on the most recent messages, not the top of a long thread.
     scrollToBottom();
+
+    // .activity-composer is pinned to the viewport bottom (see that CSS
+    // rule) so the input box is always visible without scrolling - this
+    // keeps .activity-messages-grid's reserved margin-bottom equal to the
+    // composer's actual rendered height, instead of a guessed constant
+    // that goes stale (and starts hiding the last message(s) behind the
+    // composer) the moment the composer's height changes - dragging the
+    // textarea's resize handle taller, the window resizing, or the
+    // sidebar collapsing/expanding all change that height.
+    var composer = document.querySelector('.activity-composer');
+    var messagesGrid = document.querySelector('.activity-messages-grid');
+    if (composer && messagesGrid) {{
+      var syncComposerSpacing = function() {{
+        messagesGrid.style.marginBottom = (composer.offsetHeight + 16) + 'px';
+      }};
+      syncComposerSpacing();
+      if (window.ResizeObserver) {{
+        new ResizeObserver(syncComposerSpacing).observe(composer);
+      }} else {{
+        window.addEventListener('resize', syncComposerSpacing);
+      }}
+    }}
 
     function appendBubble(className, whoHtml, text) {{
       var ul = list.querySelector('.message-list');
