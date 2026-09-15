@@ -622,6 +622,28 @@ def test_fetch_alias_gitlab_state_merges_assigned_and_authored_mrs_deduped(monke
     assert entry["mrs_error"] is None
 
 
+def test_fetch_alias_gitlab_state_tags_assigned_to_me_issues(monkeypatch):
+    """Issues returned by the --assignee=<username> query are what the Live
+    GitLab page's priority section surfaces - tag them at fetch time, where
+    username is already in scope, rather than re-deriving it at render
+    time from each item's assignees list."""
+    def fake_run(alias, subcommand, *extra_args):
+        if subcommand == "list-issues":
+            if extra_args == ("--assignee=encore",):
+                return [{"id": 1, "iid": 10}]
+            if extra_args == ("--author=encore",):
+                return [{"id": 2, "iid": 20}]
+        return []
+
+    monkeypatch.setattr(ds, "_run_gitlab_api", fake_run)
+
+    entry = ds._fetch_alias_gitlab_state("myproj", "encore")
+
+    by_id = {i["id"]: i for i in entry["issues"]}
+    assert by_id[1]["_assigned_to_me"] is True
+    assert by_id[2]["_assigned_to_me"] is False
+
+
 def test_describe_gitlab_api_error_prefers_stderr_over_generic_message():
     exc = subprocess.CalledProcessError(1, ["gitlab_api.py"], stderr="Error: Instance 'x' not found\n")
 
@@ -4983,7 +5005,7 @@ def test_render_gitlab_live_fragment_shows_error_notice_instead_of_fake_issue(mo
     assert "Couldn't check: Error: Instance &#x27;x&#x27; not found" in output
     assert "class='inline-error'" in output
     assert "(error:" not in output
-    assert "Issues <span class='badge-count'>0</span>" in output
+    assert "Backlog <span class='badge-count'>0</span>" in output
 
 
 def test_render_gitlab_live_fragment_shows_assignee_updated_time_and_labels(monkeypatch):
@@ -5006,6 +5028,77 @@ def test_render_gitlab_live_fragment_shows_assignee_updated_time_and_labels(monk
     assert "Berin Zhou &middot; 2h ago" in output
     assert "class='gitlab-item-row'" in output
     assert "<span class='pill pill-grey'>Status: In Progress</span>" in output
+
+
+def test_render_gitlab_live_fragment_shows_priority_section_across_projects(monkeypatch):
+    """Issues assigned to you are what the loop actually works next, so they
+    surface in one combined section at the top of the page instead of being
+    buried inside their own project's block."""
+    monkeypatch.setattr(ds, "get_live_gitlab_state", lambda *a, **k: {
+        "proja": {"issues": [
+            {"iid": 1, "title": "Fix A", "web_url": "http://x/1", "_assigned_to_me": True},
+        ], "mrs": []},
+        "projb": {"issues": [
+            {"iid": 2, "title": "Fix B", "web_url": "http://x/2", "_assigned_to_me": True},
+        ], "mrs": []},
+    })
+
+    output = ds.render_gitlab_live_fragment()
+
+    assert "Needs Your Attention" in output
+    assert output.index("Needs Your Attention") < output.index("Fix A")
+    assert output.index("Needs Your Attention") < output.index("Fix B")
+    assert output.index("Fix A") < output.index("<h3>proja</h3>")
+    assert output.index("Fix B") < output.index("<h3>projb</h3>")
+
+
+def test_render_gitlab_live_fragment_priority_section_sorted_by_recency(monkeypatch):
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(ds, "get_live_gitlab_state", lambda *a, **k: {
+        "myproj": {"issues": [
+            {
+                "iid": 1, "title": "Older assigned issue", "web_url": "http://x/1",
+                "_assigned_to_me": True,
+                "updated_at": (now - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            },
+            {
+                "iid": 2, "title": "Newer assigned issue", "web_url": "http://x/2",
+                "_assigned_to_me": True,
+                "updated_at": (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            },
+        ], "mrs": []},
+    })
+
+    output = ds.render_gitlab_live_fragment()
+
+    assert output.index("Newer assigned issue") < output.index("Older assigned issue")
+
+
+def test_render_gitlab_live_fragment_excludes_assigned_issues_from_project_backlog(monkeypatch):
+    monkeypatch.setattr(ds, "get_live_gitlab_state", lambda *a, **k: {
+        "myproj": {"issues": [
+            {"iid": 1, "title": "Assigned issue", "web_url": "http://x/1", "_assigned_to_me": True},
+            {"iid": 2, "title": "Backlog issue", "web_url": "http://x/2", "_assigned_to_me": False},
+        ], "mrs": []},
+    })
+
+    output = ds.render_gitlab_live_fragment()
+
+    assert output.count("Assigned issue") == 1
+    assert output.count("Backlog issue") == 1
+    assert "Backlog <span class='badge-count'>1</span>" in output
+
+
+def test_render_gitlab_live_fragment_shows_calm_message_when_nothing_assigned(monkeypatch):
+    monkeypatch.setattr(ds, "get_live_gitlab_state", lambda *a, **k: {
+        "myproj": {"issues": [
+            {"iid": 1, "title": "Backlog issue", "web_url": "http://x/1", "_assigned_to_me": False},
+        ], "mrs": []},
+    })
+
+    output = ds.render_gitlab_live_fragment()
+
+    assert "Nothing assigned to you right now" in output
 
 
 def test_render_shell_wires_up_lazy_load_fetch():

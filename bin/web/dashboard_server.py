@@ -1451,6 +1451,14 @@ def _fetch_alias_gitlab_state(alias, username):
     try:
         assigned = _run_gitlab_api(alias, "list-issues", f"--assignee={username}")
         authored = _run_gitlab_api(alias, "list-issues", f"--author={username}")
+        # Tag each issue with whether the --assignee query is what surfaced
+        # it, before merging - the Live GitLab page's priority section reads
+        # this to separate "assigned to you" (what the loop actually works
+        # next) from everything else you merely authored.
+        for item in assigned:
+            item["_assigned_to_me"] = True
+        for item in authored:
+            item["_assigned_to_me"] = False
         entry["issues"] = _merge_gitlab_items(assigned, authored)
         entry["issues_error"] = None
     except Exception as e:
@@ -6250,34 +6258,65 @@ def render_gitlab_live_fragment():
             f"Couldn't check: {html.escape(message)}</p>"
         ) if message else ""
 
-    def gitlab_item(item, prefix):
+    def gitlab_item(item, prefix, alias=None):
         assignees = item.get("assignees") or []
         assignee_names = ", ".join(a.get("name") or a.get("username", "") for a in assignees) or "Unassigned"
         updated = _relative_time(item.get("updated_at", ""))
         labels = item.get("labels") or []
         label_pills = "".join(f"<span class='pill pill-grey'>{html.escape(l)}</span>" for l in labels)
         label_row = f"<div class='pill-row'>{label_pills}</div>" if label_pills else ""
+        alias_pill = f"<span class='pill pill-blue'>{html.escape(alias)}</span> " if alias else ""
         return (
             "<li class='gitlab-item'>"
             "<div class='gitlab-item-row'>"
             f"<a class='gitlab-item-title' href='{html.escape(item.get('web_url', '#'))}' target='_blank' rel='noopener'>"
             f"{prefix}{html.escape(str(item.get('iid', '?')))} {html.escape(item.get('title', ''))}</a>"
-            f"<span class='gitlab-item-meta'>{html.escape(assignee_names)} &middot; {html.escape(updated)}</span>"
+            f"<span class='gitlab-item-meta'>{alias_pill}{html.escape(assignee_names)} &middot; {html.escape(updated)}</span>"
             "</div>"
             f"{label_row}"
             "</li>"
         )
 
-    gitlab_sections = []
+    if not live:
+        return _empty_state_html(
+            "No projects configured yet, so there's nothing to check for issues or MRs.",
+            "/settings", "Set up a project",
+        )
+
+    # Issues assigned to you are what the loop actually works next, so they
+    # get pulled into one combined section across every project instead of
+    # staying buried inside their own project's block - see the design note
+    # on _fetch_alias_gitlab_state's "_assigned_to_me" tag.
+    priority_items = [
+        (alias, item)
+        for alias, entry in live.items()
+        for item in entry.get("issues", [])
+        if item.get("_assigned_to_me")
+    ]
+    priority_items.sort(key=lambda pair: pair[1].get("updated_at", ""), reverse=True)
+    priority_list = "".join(gitlab_item(item, "#", alias=alias) for alias, item in priority_items)
+    priority_body = (
+        f"<ul class='plain gitlab-list'>{priority_list}</ul>" if priority_items
+        else "<p style='color: var(--md-on-surface-variant);'>Nothing assigned to you right now.</p>"
+    )
+    priority_section = (
+        "<div class='project-block'>"
+        "<h3>Needs Your Attention</h3>"
+        f"<p>Assigned to you <span class='badge-count'>{len(priority_items)}</span></p>"
+        f"{priority_body}"
+        "</div>"
+    )
+
+    gitlab_sections = [priority_section]
     for alias, entry in live.items():
-        issues = entry.get("issues", [])
+        backlog_issues = [i for i in entry.get("issues", []) if not i.get("_assigned_to_me")]
         mrs = entry.get("mrs", [])
-        issue_items = "".join(gitlab_item(i, "#") for i in issues) or "<li>(none)</li>"
+        issue_items = "".join(gitlab_item(i, "#") for i in backlog_issues) or "<li>(none)</li>"
         mr_items = "".join(gitlab_item(m, "!") for m in mrs) or "<li>(none)</li>"
         gitlab_sections.append(
             "<div class='project-block'>"
             f"<h3>{html.escape(alias)}</h3>"
-            f"<p>Issues <span class='badge-count'>{len(issues)}</span></p>"
+            f"<p>Backlog <span class='badge-count'>{len(backlog_issues)}</span></p>"
             f"{error_notice(entry.get('issues_error'))}"
             f"<ul class='plain gitlab-list'>{issue_items}</ul>"
             f"<p>MRs <span class='badge-count'>{len(mrs)}</span></p>"
@@ -6285,10 +6324,7 @@ def render_gitlab_live_fragment():
             f"<ul class='plain gitlab-list'>{mr_items}</ul>"
             "</div>"
         )
-    return "".join(gitlab_sections) or _empty_state_html(
-        "No projects configured yet, so there's nothing to check for issues or MRs.",
-        "/settings", "Set up a project",
-    )
+    return "".join(gitlab_sections)
 
 
 def render_gitlab_page():
