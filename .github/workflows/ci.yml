@@ -18,6 +18,9 @@ jobs:
       - name: Install dependencies
         run: pip install pyyaml pytest
 
+      - name: Install encore-skills (gitlab-config dependency)
+        run: git clone --depth 1 https://github.com/encoreshao/encore-skills.git ~/.encore-skills
+
       - name: Run test suite
         run: python3 -m pytest tests/ -q
 
