@@ -112,10 +112,19 @@ asked to — never as the routine way to check a change works — using the
 real daemon:
 
 ```bash
-launchctl kickstart -k gui/$(id -u)/com.hermes.loop-engineering-dashboard
+bin/scripts/restart-daemons.sh
 sleep 1
 curl -s -o /dev/null -w "HTTP %{http_code}\n" http://127.0.0.1:8420/<page>
 ```
+
+`restart-daemons.sh` wraps `launchctl kickstart -k gui/$(id -u)/<label>` for
+every one of this repo's launchd agents that is currently loaded, restarting
+only the dashboard by default — it never loads, enables, or removes an
+agent, and it deliberately does **not** restart `com.hermes.loop-engineering`
+(the unified scheduler) unless `--with-scheduler` is also passed, since
+kickstarting the scheduler forces an immediate poll and, if any registered
+loop is overdue, a real unscheduled run against live GitLab/Slack right now.
+Pass `--with-scheduler` only when that's actually the point of the check.
 
 (`8420` is `dashboard_server.py`'s own local-dev default. A machine installed via `bin/scripts/install.sh` may be running on a different port picked at first install — check the actual port in `launchd/com.hermes.loop-engineering-dashboard.plist`'s `ProgramArguments` before assuming 8420.) `dashboard_server.py` does **not** hot-reload, so this is the only way to see a code change reflected on the real daemon.
 
