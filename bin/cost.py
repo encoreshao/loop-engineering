@@ -133,7 +133,9 @@ def _priced_run_ids(events):
 
 
 def compute_cost_metrics(events):
-    """{"total_cost_usd", "total_tokens", "cost_per_issue",
+    """{"total_cost_usd", "total_tokens", "total_input_tokens",
+    "total_output_tokens", "total_cache_read_tokens",
+    "total_cache_write_tokens", "cache_hit_rate", "cost_per_issue",
     "cost_per_resolution", "wasted_cost", "wasted_cost_unavailable_reason"}
     from run.completed events' data field, plus issue counts via
     metrics.compute_issue_metrics(events) - no project filter, see
@@ -143,10 +145,26 @@ def compute_cost_metrics(events):
     a failed extraction contributes 0, not an error. The issue-count
     denominator is restricted to events from those same priced runs, so
     issues processed/completed during an unpriced run (Codex, or a failed
-    Claude cost extraction) don't dilute cost_per_issue/cost_per_resolution."""
+    Claude cost extraction) don't dilute cost_per_issue/cost_per_resolution.
+
+    cache_read/cache_write are broken out from the blended total_tokens
+    specifically so it's possible to tell whether the identical system-
+    prompt/tool-definitions prefix this loop sends for every issue (see
+    gitlab_loop_runner.py's _allowed_tools - the same string regardless of
+    project or issue) is actually landing in Anthropic's prompt cache
+    across separate `claude -p` invocations. cache_hit_rate is
+    cache_read_tokens / (cache_read_tokens + input_tokens) - the share of
+    prompt-side tokens served from cache rather than sent fresh; output
+    tokens are never cached so they're excluded from that ratio. None when
+    there are no such tokens to divide, same "no data" convention as
+    cost_per_issue/cost_per_resolution below."""
     events = list(events)
     total_cost_usd = 0.0
     total_tokens = 0
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_cache_read_tokens = 0
+    total_cache_write_tokens = 0
 
     for event in events:
         if event.get("event_type") != "run.completed":
@@ -158,6 +176,10 @@ def compute_cost_metrics(events):
         total_cost_usd += cost_usd
         for key in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"):
             total_tokens += data.get(key) or 0
+        total_input_tokens += data.get("input_tokens") or 0
+        total_output_tokens += data.get("output_tokens") or 0
+        total_cache_read_tokens += data.get("cache_read_tokens") or 0
+        total_cache_write_tokens += data.get("cache_write_tokens") or 0
 
     priced_run_ids = _priced_run_ids(events)
     priced_events = [event for event in events if event.get("run_id") in priced_run_ids]
@@ -165,9 +187,17 @@ def compute_cost_metrics(events):
     processed = issue_metrics["issues_processed"]
     completed = issue_metrics["issues_completed"]
 
+    cache_eligible_tokens = total_cache_read_tokens + total_input_tokens
+    cache_hit_rate = (total_cache_read_tokens / cache_eligible_tokens) if cache_eligible_tokens else None
+
     return {
         "total_cost_usd": total_cost_usd,
         "total_tokens": total_tokens,
+        "total_input_tokens": total_input_tokens,
+        "total_output_tokens": total_output_tokens,
+        "total_cache_read_tokens": total_cache_read_tokens,
+        "total_cache_write_tokens": total_cache_write_tokens,
+        "cache_hit_rate": cache_hit_rate,
         "cost_per_issue": (total_cost_usd / processed) if processed else None,
         "cost_per_resolution": (total_cost_usd / completed) if completed else None,
         "wasted_cost": None,
@@ -195,6 +225,10 @@ def _fmt_count(value):
     return f"{value:,}" if value is not None else "N/A"
 
 
+def _fmt_percent(value):
+    return f"{value * 100:.1f}%" if value is not None else "N/A"
+
+
 def format_cost_report(report):
     scope = report["scope"]
     if scope["since_date"] is None and scope["until_date"] is None:
@@ -206,6 +240,9 @@ def format_cost_report(report):
     lines = [header, ""]
     lines.append(f"Total AI cost         {_fmt_money(cost_metrics['total_cost_usd'])}")
     lines.append(f"Total tokens          {_fmt_count(cost_metrics['total_tokens'])}")
+    lines.append(f"Cache read tokens     {_fmt_count(cost_metrics['total_cache_read_tokens'])}")
+    lines.append(f"Cache write tokens    {_fmt_count(cost_metrics['total_cache_write_tokens'])}")
+    lines.append(f"Cache hit rate        {_fmt_percent(cost_metrics['cache_hit_rate'])}")
     lines.append("")
     lines.append(f"Cost per issue         {_fmt_money(cost_metrics['cost_per_issue'])}")
     lines.append(f"Cost per resolution    {_fmt_money(cost_metrics['cost_per_resolution'])}")

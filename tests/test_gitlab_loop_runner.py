@@ -102,7 +102,14 @@ def test_invoke_issue_agent_extracts_cost_for_claude(tmp_path, monkeypatch):
     unified_log = tmp_path / "unified.log"
     result = glr.invoke_issue_agent("harbor", 42, repo_root=REPO_ROOT, unified_log_path=unified_log)
 
-    assert result == {"changed": True, "cost_usd": 0.42}
+    assert result["changed"] is True
+    assert result["cost_usd"] == 0.42
+    # The token/cache breakdown must survive alongside cost_usd - this is
+    # the data compute_cost_metrics needs to report cache-hit visibility
+    # (see bin/cost.py), previously dropped between here and
+    # _emit_run_completed.
+    assert result["usage"]["input_tokens"] == 100
+    assert result["usage"]["output_tokens"] == 50
     assert "Fixed the issue." in unified_log.read_text()
 
 
@@ -599,6 +606,77 @@ def test_main_emits_run_completed_with_aggregated_cost(tmp_path, monkeypatch):
     assert completed[0]["run_id"] == "run_20260907_160000"
 
 
+def _fake_per_issue_invoker_with_usage(calls, usages):
+    """Like _fake_per_issue_invoker, but returns a real usage/cache-token
+    payload per issue_iid (from `usages`), so the aggregation path from
+    _invoke_cli_with_prompt's return value through to run.completed's
+    emitted data can be exercised end-to-end."""
+    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
+        calls.append(("issue", alias, issue_iid, timeout_seconds))
+        usage = usages[issue_iid]
+        return {"changed": True, "cost_usd": usage["cost_usd"], "usage": usage}
+
+    return fake_invoke
+
+
+def test_main_aggregates_cache_token_usage_across_issues(tmp_path, monkeypatch):
+    """The whole point of threading `usage` through _invoke_cli_with_prompt:
+    run.completed's data must carry summed input/output/cache tokens so
+    bin/cost.py's compute_cost_metrics can report real cache-hit numbers -
+    previously this data was silently dropped and total_tokens was always
+    0 for every real run."""
+    usages = {
+        1: {"input_tokens": 100, "output_tokens": 20, "cache_read_tokens": 300, "cache_write_tokens": 10, "cost_usd": 0.2},
+        2: {"input_tokens": 50, "output_tokens": 10, "cache_read_tokens": 150, "cache_write_tokens": 0, "cost_usd": 0.1},
+    }
+    monkeypatch.setattr(glr, "invoke_batch_issue_agent", _fake_per_issue_invoker_with_usage([], usages))
+    monkeypatch.setattr(glr, "invoke_batch_end_of_run_agent", _fake_wrapup_invoker([]))
+    monkeypatch.setattr(
+        glr, "list_assigned_issues",
+        lambda aliases, username: {"harbor": [{"iid": 1}, {"iid": 2}]},
+    )
+
+    events_dir = tmp_path / "events"
+    glr.main(
+        argv=["run_20260915_100000"], results_dir=tmp_path / "loop-runs",
+        definition_path=DEFINITION_PATH, events_dir=events_dir,
+        aliases=["harbor"], username="encore",
+    )
+
+    completed = [e for e in _read_events(events_dir) if e["event_type"] == "run.completed"]
+    assert len(completed) == 1
+    data = completed[0]["data"]
+    assert data["input_tokens"] == 150
+    assert data["output_tokens"] == 30
+    assert data["cache_read_tokens"] == 450
+    assert data["cache_write_tokens"] == 10
+
+
+def test_main_omits_token_fields_when_nothing_was_actually_priced(tmp_path, monkeypatch):
+    """Mirrors cost_usd's own omission rule: a Codex-only run (or a failed
+    Claude cost extraction) reports no usage data at all, so the token
+    fields must be absent, not zero - a zero would falsely look like "we
+    know this run used 0 tokens" rather than "we never measured it"."""
+    monkeypatch.setattr(glr, "invoke_batch_issue_agent", _fake_unpriced_invoker([]))
+    monkeypatch.setattr(glr, "invoke_batch_end_of_run_agent", _fake_wrapup_invoker([]))
+    monkeypatch.setattr(
+        glr, "list_assigned_issues",
+        lambda aliases, username: {"harbor": [{"iid": 1}, {"iid": 2}]},
+    )
+
+    events_dir = tmp_path / "events"
+    glr.main(
+        argv=["run_20260915_110000"], results_dir=tmp_path / "loop-runs",
+        definition_path=DEFINITION_PATH, events_dir=events_dir,
+        aliases=["harbor"], username="encore",
+    )
+
+    completed = [e for e in _read_events(events_dir) if e["event_type"] == "run.completed"]
+    assert len(completed) == 1
+    for key in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"):
+        assert key not in completed[0]["data"]
+
+
 def _fake_unpriced_invoker(calls):
     """Every issue comes back with `cost_usd: None` - the Codex path (which
     reports no cost at all), or a Claude run whose cost extraction failed."""
@@ -803,7 +881,8 @@ def test_invoke_cli_with_prompt_logs_stderr_on_the_success_path(tmp_path, monkey
         "a prompt", repo_root=REPO_ROOT, unified_log_path=unified_log,
     )
 
-    assert result == {"changed": True, "cost_usd": 0.1}
+    assert result["changed"] is True
+    assert result["cost_usd"] == 0.1
     logged = unified_log.read_text()
     assert "Done." in logged
     assert "a warning from the CLI" in logged
@@ -926,5 +1005,5 @@ def test_invoke_batch_issue_agent_reports_no_cost_on_the_codex_path(tmp_path, mo
         "harbor", 42, repo_root=REPO_ROOT, unified_log_path=unified_log,
     )
 
-    assert result == {"changed": True, "cost_usd": None}
+    assert result == {"changed": True, "cost_usd": None, "usage": None}
     assert "codex did the thing" in unified_log.read_text()

@@ -229,6 +229,34 @@ def test_compute_cost_metrics_sums_and_divides_correctly():
     assert result["cost_per_resolution"] == 4.0 / 1  # 1 completed
 
 
+def test_compute_cost_metrics_breaks_out_cache_tokens_and_hit_rate():
+    """The whole point of carrying cache_read/cache_write separately rather
+    than only the blended total_tokens: being able to tell whether the
+    identical system-prompt/tool-definitions prefix Claude Code sends for
+    every issue is actually landing in Anthropic's prompt cache across
+    separate `claude -p` invocations, not just how many tokens were used."""
+    events = [
+        _run_completed("run_1", {"cost_usd": 1.0, "input_tokens": 100, "output_tokens": 50, "cache_read_tokens": 300, "cache_write_tokens": 5}),
+        _run_completed("run_2", {"cost_usd": 1.0, "input_tokens": 50, "output_tokens": 20, "cache_read_tokens": 150, "cache_write_tokens": 0}),
+    ]
+
+    result = cost.compute_cost_metrics(events)
+
+    assert result["total_input_tokens"] == 150
+    assert result["total_output_tokens"] == 70
+    assert result["total_cache_read_tokens"] == 450
+    assert result["total_cache_write_tokens"] == 5
+    # cache_read / (cache_read + input) - the share of prompt-side tokens
+    # that came from cache rather than being sent fresh.
+    assert result["cache_hit_rate"] == 450 / (450 + 150)
+
+
+def test_compute_cost_metrics_cache_hit_rate_is_none_with_no_eligible_tokens():
+    result = cost.compute_cost_metrics([])
+
+    assert result["cache_hit_rate"] is None
+
+
 def test_compute_cost_metrics_ignores_run_completed_without_cost_usd():
     events = [
         _run_completed("run_codex", {}),  # e.g. a Codex run, no usage data
@@ -322,6 +350,30 @@ def test_format_cost_report_renders_wasted_cost_na_with_reason():
 
     assert "N/A" in text
     assert cost.RETRY_WASTE_UNAVAILABLE_REASON in text
+
+
+def test_format_cost_report_shows_cache_hit_rate_and_token_breakdown():
+    events_list = [
+        _run_completed("run_1", {"cost_usd": 1.0, "input_tokens": 100, "output_tokens": 50, "cache_read_tokens": 300, "cache_write_tokens": 5}),
+    ]
+    report = {"cost": cost.compute_cost_metrics(events_list), "scope": {"since_date": None, "until_date": None}}
+
+    text = cost.format_cost_report(report)
+
+    assert "Cache read tokens" in text
+    assert "300" in text
+    assert "Cache write tokens" in text
+    assert "Cache hit rate" in text
+    assert "75.0%" in text  # 300 / (300 + 100)
+
+
+def test_format_cost_report_cache_hit_rate_na_when_no_eligible_tokens():
+    report = {"cost": cost.compute_cost_metrics([]), "scope": {"since_date": None, "until_date": None}}
+
+    text = cost.format_cost_report(report)
+
+    assert "Cache hit rate" in text
+    assert "N/A" in text
 
 
 def test_cli_report_bare_invocation(tmp_path):

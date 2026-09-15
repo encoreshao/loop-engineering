@@ -53,6 +53,14 @@ _STDERR_EXCERPT_CHARS = 800
 _AGENT_COST_ATTR = "agent_cost_usd"
 _UNSET = object()
 
+# Where `_run_one_issue` stashes an issue's summed token/cache usage (a
+# dict with the four fields below, or None if the issue never got real
+# usage data - the Codex path, or a failed Claude cost extraction). Same
+# plain-attribute trick as _AGENT_COST_ATTR and for the same reason:
+# dataclasses.asdict() ignores it, so result.json's shape is unchanged.
+_AGENT_USAGE_ATTR = "agent_usage_tokens"
+_USAGE_TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")
+
 # The actually-enforced permission list, moved here verbatim from
 # run-loop.sh's former ALLOWED_TOOLS/DISALLOWED_TOOLS shell variables.
 # LOOPX_INSTRUCTIONS.md's "Tool permissions policy" section describes the
@@ -290,6 +298,7 @@ def _invoke_cli_with_prompt(prompt, repo_root=None, timeout_seconds=900, unified
     else:
         result_text = proc.stdout
         cost_usd = None
+        usage = None
 
     print(result_text)
     _append_unified_log(result_text, repo_root=repo_root, unified_log_path=unified_log_path)
@@ -304,7 +313,7 @@ def _invoke_cli_with_prompt(prompt, repo_root=None, timeout_seconds=900, unified
             f"{ai_cli} stderr:\n{proc.stderr}", repo_root=repo_root, unified_log_path=unified_log_path
         )
 
-    return {"changed": True, "cost_usd": cost_usd}
+    return {"changed": True, "cost_usd": cost_usd, "usage": usage}
 
 
 def invoke_issue_agent(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
@@ -412,6 +421,7 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
     issue_run_id = f"{run_id}_{alias}_{issue_iid}"
     timeout_seconds = definition.stop_conditions.max_runtime_minutes * 60
     raw_costs = []
+    raw_usages = []
 
     def agent_fn(context):
         agent_result = agent_invoker(
@@ -419,6 +429,7 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
         )
         if isinstance(agent_result, dict):
             raw_costs.append(agent_result.get("cost_usd"))
+            raw_usages.append(agent_result.get("usage"))
         return agent_result
 
     verifiers = build_verifiers(definition.verifiers, cwd=None)
@@ -433,6 +444,7 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
     # than a LoopResult field on purpose: dataclasses.asdict() ignores it,
     # so outputs/loop-runs/<run>/result.json's shape is unchanged.
     setattr(result, _AGENT_COST_ATTR, _sum_or_none(raw_costs))
+    setattr(result, _AGENT_USAGE_ATTR, _sum_usages(raw_usages))
 
     if result.iterations:
         external_results = _external_verify_issue(alias, issue_iid, timeout_seconds, repo_root=repo_root)
@@ -534,6 +546,18 @@ def _sum_or_none(values):
     return sum(priced) if priced else None
 
 
+def _sum_usages(usages):
+    """Sum each of _USAGE_TOKEN_FIELDS across the non-None entries in
+    `usages` (one per agent_fn call - LoopRuntime may retry within an
+    issue), or None when none of them carried real usage data - same
+    "no data" convention as _sum_or_none, for the same reason: a Codex
+    call or a failed Claude cost extraction contributes nothing, not 0."""
+    real = [u for u in usages if u]
+    if not real:
+        return None
+    return {field: sum(u.get(field) or 0 for u in real) for field in _USAGE_TOKEN_FIELDS}
+
+
 def aggregate_cost_usd(results):
     """Total real dollars across `results`, or **None** when not a single
     result contributed an actual figure (a Codex-only run, a zero-issue
@@ -562,27 +586,48 @@ def aggregate_cost_usd(results):
     return _sum_or_none(contributions)
 
 
+def aggregate_usage_tokens(results):
+    """{"input_tokens", "output_tokens", "cache_read_tokens",
+    "cache_write_tokens"} summed across `results`, or **None** when not a
+    single result carried real usage data (a Codex-only run, a zero-issue
+    morning, a failed Claude cost extraction) - mirrors `aggregate_cost_usd`
+    for the same reason: cost.py's `compute_cost_metrics` needs to tell
+    "never measured" apart from "measured as zero"."""
+    per_result = [
+        usage for usage in (getattr(result, _AGENT_USAGE_ATTR, None) for result in results) if usage
+    ]
+    if not per_result:
+        return None
+    return {field: sum(u.get(field) or 0 for u in per_result) for field in _USAGE_TOKEN_FIELDS}
+
+
 def _emit_run_completed(run_id, results, events_dir=None):
     """bin/cost.py's `compute_cost_metrics` reads run.completed's
-    data.cost_usd, and bin/metrics.py aggregates on run_id - so this event
-    must be emitted exactly once per run, by whoever actually holds the
-    cost figures. That used to be run-loop.sh (one CLI call per run, cost
-    extracted from its JSON); now it's one call per issue, so Python owns
-    both the aggregation and the emit, and run-loop.sh emits nothing.
+    data.cost_usd and its four token fields, and bin/metrics.py aggregates
+    on run_id - so this event must be emitted exactly once per run, by
+    whoever actually holds the cost figures. That used to be run-loop.sh
+    (one CLI call per run, cost extracted from its JSON); now it's one call
+    per issue, so Python owns both the aggregation and the emit, and
+    run-loop.sh emits nothing.
 
-    Token counts are deliberately absent: LoopRuntime only threads
-    `cost_usd` out of an agent call, so per-issue token totals aren't
-    available here (cost.py treats a missing token field as 0, not an
-    error).
+    The token fields exist specifically so cost.py's cache_hit_rate can
+    tell whether the identical system-prompt/tool-definitions prefix this
+    loop sends for every issue (see _allowed_tools) is actually landing in
+    Anthropic's prompt cache across separate `claude -p` invocations,
+    rather than that being pure guesswork.
 
-    `cost_usd` is *omitted entirely* - not set to None - when nothing was
-    actually priced, which is exactly the pre-existing shape of the event
-    run-loop.sh used to emit and what bin/cost.py's `_priced_run_ids`
-    reads as "unpriced". See `aggregate_cost_usd`."""
+    Both `cost_usd` and the token fields are *omitted entirely* - not set
+    to 0/None - when nothing was actually priced, which is exactly the
+    pre-existing shape of the event run-loop.sh used to emit and what
+    bin/cost.py's `_priced_run_ids` reads as "unpriced". See
+    `aggregate_cost_usd`/`aggregate_usage_tokens`."""
     data = {"issues": len(results)}
     cost_usd = aggregate_cost_usd(results)
     if cost_usd is not None:
         data["cost_usd"] = cost_usd
+    usage_totals = aggregate_usage_tokens(results)
+    if usage_totals is not None:
+        data.update(usage_totals)
     return _emit_best_effort(
         "run.completed", run_id=run_id, data=data, events_dir=events_dir,
     )
