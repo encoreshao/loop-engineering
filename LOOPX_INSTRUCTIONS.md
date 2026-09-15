@@ -24,6 +24,7 @@ A *scheduled* run no longer happens in a single agent session. `bin/gitlab_loop_
 - `issue.started` — this issue was checked.
 - `issue.completed` with `data.action == "fix"` — fixed, with the merge request at `data.mr_url`.
 - `issue.completed` with `data.action == "answer"` — answered directly by GitLab comment, no code change.
+- `issue.completed` with `data.action == "wait_for_review"` — waiting on someone else's review; `data.reminder_sent == true` means this run sent the one weekly Slack reminder, otherwise nothing happened at all this run.
 - `issue.escalated` with `data.reason == "needs_clarification"` — escalated for clarification.
 - `issue.escalated` with `data.reason == "verification_failed"` or `"worktree_creation_failed"` — escalated because verification could not pass.
 
@@ -81,6 +82,8 @@ For each project alias and each issue in that project's list, in order — never
 
 Slack messages in this file use Slack's own `mrkdwn` syntax — bold is `*text*` and a link is `<url|link text>` — **not** GitHub-flavored markdown (`**text**`, `[text](url)`), which Slack does not render. `slack_notify.py` posts a plain `{"text": ...}` payload, which Slack renders as `mrkdwn` automatically, so the formatting lives entirely in the message strings written below. Keep it that way when editing them.
 
+**GitLab comment style.** Every comment posted straight to a GitLab issue — the answer in "Answer directly", the question in "Escalate: needs clarification", the report in "Escalate: verification failed" — exists for exactly one of two reasons: it states a decided next action (what you did, what you need, or what happens next), grounded in the full issue background and every message on it, not just the latest one; or it shares progress with the team. Either way it must be short, plain, and easy to read on first pass: 2-4 sentences, one idea per sentence, leading with the decision or update itself rather than a long lead-in. Long, multi-clause sentences and restating context the reader already has just make the comment harder to act on — cut them.
+
 Also run `python3 <loop_dir>/bin/project_memory.py get <instance> <project_id>` (legacy lessons) and `python3 <loop_dir>/bin/memory_store.py list <alias>` (file-based task memory, one entry per issue previously recorded) once per alias, using that alias's own `instance` from `project <alias>` above. Read both, merged, before analyzing any issue on that project — a lesson recorded before this repo moved to file-based memory is exactly as relevant as one recorded yesterday; it often shortcuts step 3 below.
 
 Before starting each issue's own numbered steps below, check for pending messages from the dashboard:
@@ -111,12 +114,13 @@ python3 <loop_dir>/bin/events.py emit --type issue.started --run-id "$LOOP_RUN_I
    python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Starting* <<issue_url>|#<issue_iid> (<alias>)>: <issue title>"
    ```
 
-3. **Analyze.** Read the issue description, every note returned by `track_new_comments.py` (or the full issue if this is the first time it's been seen), and the project's recorded learnings from `project_memory.py get` and `memory_store.py list`, merged. Decide between three outcomes:
+3. **Analyze.** Read the issue description, every note returned by `track_new_comments.py` (or the full issue if this is the first time it's been seen), and the project's recorded learnings from `project_memory.py get` and `memory_store.py list`, merged. Decide between four outcomes:
+   - **Already handed off to someone else to review, and nothing new has been asked of the loop since** — the most recent relevant activity is the issue being assigned to another person to review, with or without a stated turnaround ("assigning to @X to review, should hear back in 2 days") → skip step 4 (Classify) entirely and go straight to "Wait for reviewer" below.
    - **Ambiguous, needs a judgment call, or too large for a single scoped fix** → go to step 4 (Classify), then continue to "Escalate: needs clarification" below.
    - **Clear, but doesn't need a code change** — a question about how something behaves, a status check, a request for information you can answer by reading code or GitLab data ("can you confirm X works in production?", "what does Y do?", "is Z still happening?") → go to step 4 (Classify), then continue to "Answer directly (no code change needed)" below. This is *not* an ambiguous issue: the ask is perfectly clear, it just has no diff attached to it, so do not escalate it as needing clarification.
    - **Clear and scoped, and requires a code change** (a specific bug, a small well-defined change explicitly requested in the issue or a new comment) → continue to step 4 (Classify).
 
-4. **Classify.** Score this issue's risk deterministically, then add your own judgment, and emit both together — regardless of which outcome you picked in step 3 (fix, answer, or escalate):
+4. **Classify.** Score this issue's risk deterministically, then add your own judgment, and emit both together — for whichever of fix, answer, or escalate you picked in step 3 (never for "Wait for reviewer", which skips this step entirely):
    ```
    python3 <loop_dir>/bin/risk.py score --title "<issue title>" --description "<issue description>"
    ```
@@ -239,6 +243,40 @@ python3 <loop_dir>/bin/web/dashboard_server.py write-status running --current-is
    ```
    Step 5 left you inside this issue's worktree; the next issue starts its own worktree from scratch and must not inherit this one as its working directory. Every command in this file names its scripts by absolute path so this is belt-and-braces rather than load-bearing, but do it anyway so the invariant "cwd is `<loop_dir>` at the start of each issue" always holds.
 
+### Wait for reviewer
+
+Some issues aren't the loop's to act on right now — the work has already been handed to someone else to review, and nothing new has been asked of the loop since. Re-posting the same "still waiting" comment on GitLab every run just adds noise for the reviewer, so this path never comments on GitLab at all; at most it sends one Slack reminder, once, after a week.
+
+1. **Read this issue's own state.**
+   ```
+   python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_cache.py get-issue <instance> <project_id> <issue_iid>
+   ```
+   Look at `_notes.awaiting_review_since` (a `YYYY-MM-DD` date, absent if this is the first time the issue has been seen in this state) and `_notes.awaiting_review_reminded` (`true` once the one reminder has gone out, otherwise absent).
+
+2. **`awaiting_review_since` is absent** — this is the first run to see the handoff. Record today's date and stop; no GitLab comment, no Slack message, no worktree:
+   ```
+   python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_cache.py annotate-issue <instance> <project_id> <issue_iid> awaiting_review_since "<today's UTC date, YYYY-MM-DD>"
+   ```
+
+3. **Fewer than 7 days since `awaiting_review_since`** — do nothing this run: no comment, no Slack message, no annotation change.
+
+4. **7 or more days since `awaiting_review_since`, and `awaiting_review_reminded` is not `true`** — send exactly one Slack reminder, mark it sent, and still post nothing to GitLab:
+   ```
+   python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Review reminder* <<issue_url>|#<issue_iid> (<alias>)>: still waiting on review after a week"
+   python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_cache.py annotate-issue <instance> <project_id> <issue_iid> awaiting_review_reminded true
+   ```
+
+5. **`awaiting_review_reminded` is already `true`** — the one reminder already went out; do nothing, and don't send another.
+
+In every case: mark the notes seen so this state isn't re-analyzed as new next run, create no worktree, and emit the outcome (use `reminder_sent: true` only for case 4, `false` for cases 2, 3, and 5):
+```
+python3 <loop_dir>/bin/track_new_comments.py mark-seen <instance> <project_id> <issue_iid>
+python3 <loop_dir>/bin/events.py emit --type issue.completed --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"action\": \"wait_for_review\", \"reminder_sent\": <true_or_false>}"
+```
+No worktree is ever created on this path, so the working directory is already `<loop_dir>` throughout — there's nothing to `cd` back from before moving to the next issue.
+
+None of cases 2, 3, 4, or 5 touches the GitLab issue itself; case 4 is the only one that sends anything at all, and only once per handoff. All four count toward this run's "No-ops" in `daily-review.md` — note there when a Slack reminder actually went out (case 4) so it isn't invisible in the summary.
+
 ### Answer directly (no code change needed)
 
 Some issues don't need a fix at all — a question about behavior, a request to check the status of something, "can you confirm X works", "what does Y do", a request for information you can get by reading code or GitLab data. For these:
@@ -342,7 +380,7 @@ This section always runs, even if Step 1 found zero assigned issues — a quiet 
 
 All paths here are written absolutely for the same reason as the script paths: this section runs after the last issue's per-issue work, so the working directory may still be a leftover worktree.
 
-1. Write `<loop_dir>/outputs/daily-review.md` with sections: Summary, Issues checked, New comments found, MRs opened, Answered directly, Escalations, No-ops. "Answered directly" lists issues closed out with a GitLab comment and no code change; "No-ops" means nothing new since the last run and no action taken — an answered question is never a no-op. If nothing was actionable, this can be short (e.g. "No assigned issues today"), but it must still exist and say so explicitly.
+1. Write `<loop_dir>/outputs/daily-review.md` with sections: Summary, Issues checked, New comments found, MRs opened, Answered directly, Escalations, No-ops. "Answered directly" lists issues closed out with a GitLab comment and no code change; "No-ops" means nothing new since the last run and no action taken — an answered question is never a no-op. An issue handled via "Wait for reviewer" always belongs under No-ops (it never gets a GitLab comment); if that run happened to be the one that sent the weekly Slack reminder (`data.reminder_sent == true`), say so in the No-ops line for that issue so the reminder isn't invisible in the summary. If nothing was actionable, this can be short (e.g. "No assigned issues today"), but it must still exist and say so explicitly.
 2. Copy it to `<loop_dir>/outputs/history/<YYYY-MM-DD>.md`.
 3. Update `<loop_dir>/PROGRESS.md`: last run date, issues touched, MR links opened today, open escalations.
 4. Send the end-of-run Slack digest — unconditionally, even when every count is zero:
