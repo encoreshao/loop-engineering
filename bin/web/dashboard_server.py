@@ -3402,7 +3402,6 @@ html.collapsed .sidebar-top {{
   justify-content: center;
   gap: 0.4rem;
 }}
-html.collapsed .activity-composer {{ left: 64px; }}
 
 @media (max-width: 720px) {{
   .sidebar {{ width: 64px; }}
@@ -3412,34 +3411,32 @@ html.collapsed .activity-composer {{ left: 64px; }}
   .sidebar-toggle {{ display: none; }}
   .sidebar-nav a {{ justify-content: center; }}
   .sidebar-top {{ justify-content: center; }}
-  .activity-composer {{ left: 64px; }}
 }}
 
-/* The Activity page's message composer floats fixed to the bottom of the
-   content area (not the whole viewport - `left` matches .content-area's
-   current margin-left, including its collapsed/mobile widths above), so
-   it's always reachable without scrolling down through the whole thread. */
-.activity-messages-grid {{ margin-bottom: 6rem; }}
+.activity-messages-grid {{ margin-bottom: 1rem; }}
 /* The Dashboard page's stats section - tracked-projects/configured-topics
    setup counts plus GitLab-loop run totals (see _gitlab_loop_stats),
-   sitting above the message thread as a quick-glance summary. */
+   sitting above the message thread as a quick-glance summary. Kept
+   deliberately compact (small padding/gap/font sizes here) so it never
+   competes with the Conversation section below for vertical room - this
+   is a glance strip, not a focal point. */
 .dash-stats-grid {{
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 0.75rem;
-  margin-bottom: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
 }}
 .dash-stat-tile {{
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
-  padding: 0.75rem 0.9rem;
-  border-radius: 12px;
+  gap: 0.1rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 10px;
   background: var(--md-surface-container-high);
 }}
-.dash-stat-icon {{ color: var(--md-primary); font-size: 20px; }}
-.dash-stat-value {{ font-size: 1.4rem; font-weight: 700; }}
-.dash-stat-label {{ font-size: 0.78rem; color: var(--md-on-surface-variant); }}
+.dash-stat-icon {{ color: var(--md-primary); font-size: 17px; }}
+.dash-stat-value {{ font-size: 1.15rem; font-weight: 700; }}
+.dash-stat-label {{ font-size: 0.72rem; color: var(--md-on-surface-variant); }}
 .analytics-days-selector {{ display: flex; gap: 0.5rem; margin: 0 0 1rem 0; }}
 .analytics-days-selector a {{ padding: 0.3rem 0.75rem; border-radius: 6px; background: var(--md-surface-container-low); color: var(--md-on-surface-variant); text-decoration: none; font-size: 0.85rem; }}
 .analytics-days-selector a.active {{ background: var(--md-primary); color: var(--md-on-primary); }}
@@ -3468,16 +3465,23 @@ html.collapsed .activity-composer {{ left: 64px; }}
    new message - so a long conversation stays navigable the way a real
    chat UI's thread pane does. */
 #activity-message-list {{ max-height: 60vh; overflow-y: auto; padding-right: 0.25rem; }}
+/* Deliberately NOT position:fixed. That was tried first (pinned to the
+   viewport bottom, with .activity-messages-grid's margin-bottom guessing
+   how much space to reserve above it) and it broke the moment the
+   composer's own height changed - dragging the textarea's resize handle
+   (see .activity-composer-form textarea's `resize: vertical` above) taller
+   grew the fixed bar without the reserved margin growing to match, so it
+   silently overlapped and hid the last message(s) behind it. Plain normal
+   flow, sitting right after the Conversation card, can never hide
+   anything: whatever height the composer ends up being, the page simply
+   has that much more content before it, so its bottom (Send button
+   included) is always reachable by scrolling exactly as far as the page
+   actually is - never further, never blocked. */
 .activity-composer {{
-  position: fixed;
-  left: 220px;
-  right: 0;
-  bottom: 0;
   background: var(--md-nav-surface);
   border-top: 1px solid var(--md-outline-variant);
+  border-radius: 12px;
   padding: 0.85rem 1.25rem;
-  z-index: 80;
-  transition: left 150ms ease;
 }}
 .activity-composer-inner {{ max-width: 1080px; margin: 0 auto; }}
 .activity-composer-form {{ width: 100%; flex-wrap: nowrap; align-items: flex-end; }}
@@ -5130,6 +5134,24 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
       return li.querySelector('.message-text');
     }}
 
+    // A bubble built by appendBubble above is a plain-text placeholder for
+    // a message that isn't persisted yet - it never gets markdown
+    // formatting or a delete button, since building those client-side
+    // would duplicate render_markdown and the delete-form markup in JS.
+    // This instead re-fetches '/activity/messages/fragment' - the exact
+    // same server-rendered markup render_overview_page uses - and swaps
+    // it in wholesale, once the message it's waiting on is actually saved
+    // (see the two call sites below: right after the user's own message
+    // is persisted, and again once the reply finishes streaming).
+    function refreshMessageList() {{
+      return fetch('/activity/messages/fragment')
+        .then(function(response) {{ return response.text(); }})
+        .then(function(responseHtml) {{
+          list.innerHTML = responseHtml;
+          scrollToBottom();
+        }});
+    }}
+
     var composerInput = form.querySelector("[name='text']");
     if (composerInput) {{
       // Textarea default is a literal newline on Enter; match the old
@@ -5155,17 +5177,24 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
       input.value = '';
       button.disabled = true;
 
-      var pendingTextEl = appendBubble(
-        'message-bubble-loop',
-        "<span class='k' aria-label='Loop X'>" +
-          "<svg class='message-brand-icon' viewBox='0 0 24 24' width='20' height='20' fill='none' " +
-          "stroke='currentColor' stroke-width='2' aria-hidden='true'>" +
-          "<circle cx='8' cy='12' r='4.5'/><circle cx='16' cy='12' r='4.5'/></svg></span>",
-        ''
-      );
-      var spinner = document.createElement('span');
-      spinner.className = 'md-spinner md-spinner-sm';
-      pendingTextEl.parentElement.insertBefore(spinner, pendingTextEl);
+      function appendPendingLoopBubble() {{
+        var textEl = appendBubble(
+          'message-bubble-loop',
+          "<span class='k' aria-label='Loop X'>" +
+            "<svg class='message-brand-icon' viewBox='0 0 24 24' width='20' height='20' fill='none' " +
+            "stroke='currentColor' stroke-width='2' aria-hidden='true'>" +
+            "<circle cx='8' cy='12' r='4.5'/><circle cx='16' cy='12' r='4.5'/></svg></span>",
+          ''
+        );
+        var spinnerEl = document.createElement('span');
+        spinnerEl.className = 'md-spinner md-spinner-sm';
+        textEl.parentElement.insertBefore(spinnerEl, textEl);
+        return {{ textEl: textEl, spinner: spinnerEl }};
+      }}
+
+      var pending = appendPendingLoopBubble();
+      var pendingTextEl = pending.textEl;
+      var spinner = pending.spinner;
 
       var body = new URLSearchParams();
       body.set('text', text);
@@ -5178,6 +5207,45 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
       window.__loopChatStreaming = true;
       function stopStreamingFlag() {{ window.__loopChatStreaming = false; }}
 
+      function startStream(replyKey) {{
+        var source = new EventSource('/activity/chat-stream?reply_key=' + encodeURIComponent(replyKey));
+        var accumulated = '';
+        source.addEventListener('chunk', function(ev) {{
+          accumulated += JSON.parse(ev.data);
+          pendingTextEl.textContent = accumulated;
+          spinner.remove();
+          scrollToBottom();
+        }});
+        source.addEventListener('done', function(ev) {{
+          button.disabled = false;
+          stopStreamingFlag();
+          source.close();
+          // The reply is now persisted (see _chat_job_finish/append_message
+          // on the server) - refresh so its bubble picks up markdown
+          // rendering and a delete button immediately, instead of only
+          // after a full page reload.
+          refreshMessageList();
+        }});
+        source.addEventListener('error', function(ev) {{
+          var message = 'Something went wrong - try again.';
+          try {{ message = JSON.parse(ev.data) || message; }} catch (e) {{}}
+          if (accumulated === '') {{
+            pendingTextEl.textContent = message;
+          }} else {{
+            // Partial text already streamed into the bubble - a failed
+            // or timed-out reply must never look like a normal, complete
+            // answer that will simply vanish on the next reload (nothing
+            // partial was ever saved via append_message), so this marks
+            // it visibly rather than leaving the bubble unchanged.
+            pendingTextEl.textContent = accumulated + ' (reply interrupted)';
+          }}
+          spinner.remove();
+          button.disabled = false;
+          stopStreamingFlag();
+          source.close();
+        }});
+      }}
+
       fetch('/activity/chat', {{ method: 'POST', body: body }})
         .then(function(response) {{ return response.json().then(function(data) {{ return {{ ok: response.ok, data: data }}; }}); }})
         .then(function(result) {{
@@ -5188,49 +5256,18 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
             stopStreamingFlag();
             return;
           }}
-          var source = new EventSource('/activity/chat-stream?reply_key=' + encodeURIComponent(result.data.reply_key));
-          var accumulated = '';
-          source.addEventListener('chunk', function(ev) {{
-            accumulated += JSON.parse(ev.data);
-            pendingTextEl.textContent = accumulated;
-            spinner.remove();
-            scrollToBottom();
-          }});
-          source.addEventListener('done', function(ev) {{
-            // The authoritative, already-persisted reply text (see
-            // _chat_job_finish/append_message on the server) replaces
-            // whatever the streamed chunks accumulated to - but only when
-            // the server actually sent one back non-empty. An empty/falsy
-            // payload here must leave the bubble showing whatever text the
-            // streamed chunks already accumulated, rather than blanking it.
-            var parsedText = null;
-            try {{ parsedText = JSON.parse(ev.data); }} catch (e) {{}}
-            if (parsedText) {{
-              pendingTextEl.textContent = parsedText;
-            }}
-            spinner.remove();
-            button.disabled = false;
-            stopStreamingFlag();
-            scrollToBottom();
-            source.close();
-          }});
-          source.addEventListener('error', function(ev) {{
-            var message = 'Something went wrong - try again.';
-            try {{ message = JSON.parse(ev.data) || message; }} catch (e) {{}}
-            if (accumulated === '') {{
-              pendingTextEl.textContent = message;
-            }} else {{
-              // Partial text already streamed into the bubble - a failed
-              // or timed-out reply must never look like a normal, complete
-              // answer that will simply vanish on the next reload (nothing
-              // partial was ever saved via append_message), so this marks
-              // it visibly rather than leaving the bubble unchanged.
-              pendingTextEl.textContent = accumulated + ' (reply interrupted)';
-            }}
-            spinner.remove();
-            button.disabled = false;
-            stopStreamingFlag();
-            source.close();
+          // The user's own message is already persisted at this point (see
+          // send_user_message inside POST /activity/chat) - refresh now so
+          // it picks up its delete button and markdown rendering without
+          // waiting for the whole reply to finish streaming. This redraws
+          // the entire list from disk, which necessarily discards the
+          // pending loop bubble above too, so a fresh one is re-appended
+          // right after for the still-in-flight reply.
+          refreshMessageList().then(function() {{
+            pending = appendPendingLoopBubble();
+            pendingTextEl = pending.textEl;
+            spinner = pending.spinner;
+            startStream(result.data.reply_key);
           }});
         }})
         .catch(function() {{
@@ -5496,33 +5533,23 @@ def _dashboard_stats_html(stats, projects_count, topics_count):
 """
 
 
-def render_overview_page(flash=None, flash_ok=True):
-    """The dashboard's home page: a stats-at-a-glance section (see
-    _dashboard_stats_html) above a two-way async message thread with the
-    GitLab loop. You can send a message anytime; the loop reads unseen ones
-    at the start of its next issue (see pop_unseen_user_messages, called by
-    the `read-messages` CLI subcommand) and may reply here. This is NOT
-    real-time chat: the loop is still a scheduled, one-shot process
-    (run-loop.sh), not a persistent one - see LOOPX_INSTRUCTIONS.md for
-    exactly when it checks. A separate live chat assistant (/activity/chat,
-    /activity/chat-stream) also replies inline in the same thread, right
-    away, independent of the loop itself.
-
-    `flash`/`flash_ok` carry a POST-redirect-GET result from sending or
-    deleting a message (/activity/messages, /activity/messages/<ts>/delete)."""
-    status = read_status(STATUS_PATH)
-    messages = read_messages(MESSAGES_PATH)
-
-    stats = _gitlab_loop_stats()
-    projects_count = len(read_loop_projects_config().get("projects", []))
-    topics_count = len(get_configured_topics())
-    stats_html = _dashboard_stats_html(stats, projects_count, topics_count)
-
-    flash_html = ""
-    if flash:
-        flash_class = "flash-success" if flash_ok else "flash-danger"
-        flash_html = f"<div class='flash {flash_class}'>{html.escape(str(flash))}</div>"
-
+def render_activity_messages_fragment(messages_path=None):
+    """The Conversation section's message thread content (everything that
+    goes inside '#activity-message-list'): day separators, each bubble's
+    markdown-rendered text (render_markdown) and its delete form. This is
+    the single source of truth for what a persisted message looks like -
+    render_overview_page uses it for the initial page render, and the
+    '/activity/messages/fragment' GET route serves the exact same markup
+    to the Conversation section's own script, which re-fetches it right
+    after sending a message and again once a live reply finishes
+    streaming (see that script in render_overview_page). Before that
+    script existed, freshly sent/received bubbles were built by ad-hoc
+    client-side JS instead of this function, so they never got markdown
+    formatting or a delete button until the next full page load - fetching
+    this same fragment client-side is what closes that gap."""
+    if messages_path is None:
+        messages_path = MESSAGES_PATH
+    messages = read_messages(messages_path)
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
 
     message_rows = []
@@ -5567,15 +5594,40 @@ def render_overview_page(flash=None, flash_ok=True):
             "</form>"
             "</li>"
         )
-    messages_html = (
-        "<div id='activity-message-list'>"
-        + (
-            f"<ul class='message-list'>{''.join(message_rows)}</ul>"
-            if message_rows
-            else "<p>(no messages yet)</p>"
-        )
-        + "</div>"
-    )
+    if message_rows:
+        return f"<ul class='message-list'>{''.join(message_rows)}</ul>"
+    return "<p>(no messages yet)</p>"
+
+
+def render_overview_page(flash=None, flash_ok=True):
+    """The dashboard's home page: a stats-at-a-glance section (see
+    _dashboard_stats_html) above a two-way async message thread with the
+    GitLab loop. You can send a message anytime; the loop reads unseen ones
+    at the start of its next issue (see pop_unseen_user_messages, called by
+    the `read-messages` CLI subcommand) and may reply here. This is NOT
+    real-time chat: the loop is still a scheduled, one-shot process
+    (run-loop.sh), not a persistent one - see LOOPX_INSTRUCTIONS.md for
+    exactly when it checks. A separate live chat assistant (/activity/chat,
+    /activity/chat-stream) also replies inline in the same thread, right
+    away, independent of the loop itself.
+
+    `flash`/`flash_ok` carry a POST-redirect-GET result from sending or
+    deleting a message (/activity/messages, /activity/messages/<ts>/delete)."""
+    status = read_status(STATUS_PATH)
+
+    stats = _gitlab_loop_stats()
+    projects_count = len(read_loop_projects_config().get("projects", []))
+    topics_count = len(get_configured_topics())
+    stats_html = _dashboard_stats_html(stats, projects_count, topics_count)
+
+    flash_html = ""
+    if flash:
+        flash_class = "flash-success" if flash_ok else "flash-danger"
+        flash_html = f"<div class='flash {flash_class}'>{html.escape(str(flash))}</div>"
+
+    messages_html = f"<div id='activity-message-list'>{render_activity_messages_fragment(MESSAGES_PATH)}</div>"
+
+    csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
 
     message_form = f"""
 <div class="activity-composer">
@@ -8193,6 +8245,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             flash = query.get("flash", [None])[0]
             flash_ok = query.get("ok", ["1"])[0] != "0"
             self._send_html(render_overview_page(flash=flash, flash_ok=flash_ok))
+            return
+
+        if split.path == "/activity/messages/fragment":
+            self._send_html(render_activity_messages_fragment())
             return
 
         if split.path == "/history":

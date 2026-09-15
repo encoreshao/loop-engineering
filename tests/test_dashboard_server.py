@@ -7255,6 +7255,53 @@ def test_render_overview_page_empty_thread_shows_placeholder(monkeypatch, tmp_pa
     assert "(no messages yet)" in output
 
 
+def test_render_activity_messages_fragment_matches_overview_page_thread(monkeypatch, tmp_path):
+    """render_overview_page's own message thread markup must come from this
+    fragment function verbatim - anything else re-diverges the two render
+    paths the Conversation section's live-update JS was fixed to unify."""
+    messages_path = tmp_path / "messages.json"
+    ds.append_message("user", "hello **world**", messages_path)
+    ds.append_message("loop", "hi there", messages_path)
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds, "MESSAGES_PATH", messages_path)
+
+    fragment = ds.render_activity_messages_fragment(messages_path)
+    page = ds.render_overview_page()
+
+    assert fragment in page
+    assert "<strong>world</strong>" in fragment
+    assert "message-delete-form" in fragment
+
+
+def test_render_activity_messages_fragment_defaults_to_messages_path(monkeypatch, tmp_path):
+    messages_path = tmp_path / "messages.json"
+    ds.append_message("user", "hello", messages_path)
+    monkeypatch.setattr(ds, "MESSAGES_PATH", messages_path)
+
+    fragment = ds.render_activity_messages_fragment()
+
+    assert "hello" in fragment
+
+
+def test_activity_messages_fragment_route_serves_current_thread(monkeypatch, tmp_path):
+    messages_path = tmp_path / "messages.json"
+    ds.append_message("user", "please hold off on brightleaf.web today", messages_path)
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds, "MESSAGES_PATH", messages_path)
+
+    with _running_server() as port:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/activity/messages/fragment", timeout=10) as response:
+            assert response.status == 200
+            body = response.read().decode("utf-8")
+            assert "please hold off on brightleaf.web today" in body
+            assert "message-delete-form" in body
+            # A fragment response is meant to be dropped straight into
+            # '#activity-message-list' client-side (see that script in
+            # render_overview_page) - it must not carry its own id'd wrapper
+            # or a nested duplicate-id element would result.
+            assert "id='activity-message-list'" not in body
+
+
 def test_render_overview_page_does_not_auto_refresh(monkeypatch, tmp_path):
     """Only Live GitLab, Topic Monitor, and Activity auto-refresh - the
     Overview page is mostly a user-edited message thread and shouldn't
