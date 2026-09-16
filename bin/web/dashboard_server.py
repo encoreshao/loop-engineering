@@ -22,6 +22,7 @@ import re
 import secrets
 import shlex
 import shutil
+import signal
 import socketserver
 import subprocess
 import sys
@@ -2812,6 +2813,117 @@ def trigger_topic_monitor_run(status_path=None, run_loop_path=None, loop_name="t
     return True, "Run started - check back here for progress"
 
 
+def _process_alive(pid):
+    """Liveness check for a run's recorded pid. Dashboard-triggered runs
+    (trigger_manual_run/trigger_topic_monitor_run) are this server
+    process's own direct children, spawned via subprocess.Popen with its
+    return value discarded - nothing ever calls .wait()/.poll() on them,
+    so a finished run's pid would otherwise sit as a zombie in this
+    process's table indefinitely. A zombie still answers os.kill(pid, 0)
+    as if alive on this platform, so a plain existence check can't tell
+    "still running" from "finished but unreaped" - os.waitpid(pid,
+    WNOHANG) can, and reaps it in the same call when it has exited,
+    clearing the zombie as a side effect. For a pid that isn't this
+    process's own child (a scheduler-triggered run, launched by the
+    separate unified-scheduler daemon process) waitpid raises
+    ChildProcessError, so fall back to a plain existence check - that
+    process launches via a blocking subprocess.run, which reaps its own
+    children immediately on exit, so no zombie period exists to get wrong
+    there either way."""
+    try:
+        reaped_pid, _status = os.waitpid(pid, os.WNOHANG)
+    except ChildProcessError:
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+    return reaped_pid == 0
+
+
+def _kill_process_group(pid, wait_seconds=2.0, poll_interval=0.1):
+    """Hard-stops an entire run's process tree (this script -> the zsh/
+    timeout wrapper -> the loop's python runner -> the claude CLI
+    subprocess) in one shot. Works because every run is launched with
+    start_new_session=True (trigger_manual_run, trigger_topic_monitor_run,
+    and loop_scheduler.py's run_due_loops all pass it), which makes `pid`
+    both the process id and the process group id, so os.killpg(pid, ...)
+    reaches every descendant at once. Sends SIGTERM first and only
+    escalates to SIGKILL if the group is still alive after `wait_seconds`,
+    giving the run a chance to exit on its own."""
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    deadline = time.monotonic() + wait_seconds
+    while time.monotonic() < deadline:
+        if not _process_alive(pid):
+            return
+        time.sleep(poll_interval)
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def stop_gitlab_loop(status_path=None):
+    """Hard-stops the GitLab loop's current run, for the Activity page's
+    Stop button. If status.json's recorded pid is missing or already dead
+    (a stale "running" state left behind by a crash, a machine restart, or
+    a run that predates pid-tracking), this just clears the state to
+    "stopped" instead of refusing - self-healing is more useful here than
+    an error, since there's nothing left to signal either way."""
+    if status_path is None:
+        status_path = STATUS_PATH
+    status = read_status(status_path)
+    if status.get("state") != "running":
+        return False, "No run is currently in progress"
+    pid = status.get("pid")
+    stale = pid is None or not _process_alive(pid)
+    if not stale:
+        _kill_process_group(pid)
+    write_status("stopped", status_path)
+    if stale:
+        return True, "Cleared a stale running state (no active process found)"
+    return True, "Run stopped"
+
+
+def stop_topic_loop(status_path=None, topic_status_path=None):
+    """The topic loop's stop_gitlab_loop equivalent. The topic loop's own
+    "is it running" signal the Activity page displays is the per-topic map
+    in outputs/topic-monitor/status.json (any entry with state=="running"),
+    but the pid of the one process handling every topic in this run lives
+    in the separate generic per-loop file run-loop-now.sh always writes
+    via status_path_for_loop("topic-loop") - see that function's
+    docstring. Acts whenever *either* file says a run is in progress (the
+    two are written independently, so treat them as agreeing rather than
+    requiring both, matching what actually makes the Stop button visible).
+    Killing the one process stops every topic in this run, so every topic
+    entry still showing "running" is flipped to "stopped" too, not just
+    the generic file that held the pid."""
+    if status_path is None:
+        status_path = status_path_for_loop("topic-loop")
+    if topic_status_path is None:
+        topic_status_path = TOPIC_MONITOR_STATUS_PATH
+    status = read_status(status_path)
+    topics = read_topic_status(topic_status_path)["topics"]
+    running_topics = [name for name, entry in topics.items() if entry.get("state") == "running"]
+    if status.get("state") != "running" and not running_topics:
+        return False, "No run is currently in progress"
+    pid = status.get("pid")
+    stale = pid is None or not _process_alive(pid)
+    if not stale:
+        _kill_process_group(pid)
+    write_status("stopped", status_path)
+    for name in running_topics:
+        write_topic_status(name, "stopped", topic_status_path)
+    if stale:
+        return True, "Cleared a stale running state (no active process found)"
+    return True, "Run stopped"
+
+
 def trigger_skills_install(status_path=None, setup_script_path=None, log_path=None, daemon_label=None):
     """Launches bin/scripts/setup.sh in the background so a missing skill can be
     installed straight from the Skills page - no terminal required. Refuses
@@ -4699,6 +4811,8 @@ def _status_badge(state):
         return "pill-grey", _DOT_ICON_TEMPLATE.format(cls="")
     if state_str == "failed":
         return "pill-red", _DOT_ICON_TEMPLATE.format(cls="")
+    if state_str == "stopped":
+        return "pill-grey", _DOT_ICON_TEMPLATE.format(cls="")
     return "pill-grey", _DOT_ICON_TEMPLATE.format(cls="")
 
 
@@ -4814,6 +4928,27 @@ def _run_now_action_html(action, confirm_text, csrf_input, disabled_hint_html=No
 {csrf_input}
 <button type='submit' class='btn btn-primary' data-confirm="{confirm_attr}">
 <span class='material-symbols-outlined' aria-hidden='true'>bolt</span> Run now
+</button>
+</form>
+</div>
+"""
+
+
+def _stop_action_html(action, confirm_text, csrf_input):
+    """One card's "Stop" action area - rendered in render_activity_page in
+    place of _run_now_action_html's now-hidden button while that loop is
+    "running", so a Stop button always occupies the same slot a Run now
+    button would. Hard-kills the run's whole process group (see
+    stop_gitlab_loop/stop_topic_loop), so it's styled destructive
+    (btn-warning) with a data-confirm, matching every other irreversible
+    action in this app rather than _run_now_action_html's btn-primary."""
+    confirm_attr = html.escape(confirm_text, quote=True)
+    return f"""
+<div class='run-now-action'>
+<form method='post' action='{action}' class='daemon-action-form'>
+{csrf_input}
+<button type='submit' class='btn btn-warning' data-confirm="{confirm_attr}">
+<span class='material-symbols-outlined' aria-hidden='true'>warning</span> Stop
 </button>
 </form>
 </div>
@@ -8327,7 +8462,11 @@ def render_activity_page(flash=None, flash_ok=True):
 
     has_projects = bool(read_loop_projects_config().get("projects"))
     if state == "running":
-        gitlab_run_now_html = ""
+        gitlab_run_now_html = _stop_action_html(
+            "/gitlab/stop",
+            "Stop the running GitLab loop? The in-progress issue's work will be abandoned.",
+            csrf_input,
+        )
     elif not has_projects:
         gitlab_run_now_html = _run_now_action_html(
             "/run-now", "", csrf_input,
@@ -8368,7 +8507,11 @@ def render_activity_page(flash=None, flash_ok=True):
         )
 
     if any_topic_running:
-        topic_run_now_html = ""
+        topic_run_now_html = _stop_action_html(
+            "/topic-monitor/stop",
+            "Stop the running topic loop? The in-progress topic's work will be abandoned.",
+            csrf_input,
+        )
     elif not topics:
         topic_run_now_html = _run_now_action_html(
             "/topic-monitor/run-now", "", csrf_input,
@@ -8747,6 +8890,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             ok, message = trigger_manual_run()
             self._redirect_with_flash(ok, message, location="/")
+            return
+
+        if self.path == "/gitlab/stop":
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            ok, message = stop_gitlab_loop()
+            self._redirect_with_flash(ok, message, location="/activity")
+            return
+
+        if self.path == "/topic-monitor/stop":
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            ok, message = stop_topic_loop()
+            self._redirect_with_flash(ok, message, location="/activity")
             return
 
         if self.path.startswith("/history/") and self.path.endswith("/delete"):
@@ -9209,7 +9368,7 @@ def main():
         if len(sys.argv) < 3:
             print(
                 "Usage: dashboard_server.py write-status <state> [--loop NAME] [--exit-code N] "
-                "[--current-issue TEXT] [--current-step TEXT]",
+                "[--current-issue TEXT] [--current-step TEXT] [--pid N]",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -9219,6 +9378,9 @@ def main():
             idx = sys.argv.index("--loop")
             loop_name = sys.argv[idx + 1]
         extra = {}
+        if "--pid" in sys.argv:
+            idx = sys.argv.index("--pid")
+            extra["pid"] = int(sys.argv[idx + 1])
         if "--exit-code" in sys.argv:
             idx = sys.argv.index("--exit-code")
             extra["last_exit_code"] = int(sys.argv[idx + 1])

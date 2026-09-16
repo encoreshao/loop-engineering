@@ -132,6 +132,23 @@ def test_run_due_loops_invokes_run_loop_now_for_each_due_loop(tmp_path, monkeypa
     ]
 
 
+def test_run_due_loops_isolates_each_run_in_its_own_process_group(tmp_path, monkeypatch):
+    """A stop action needs to killpg() the run's pid without also killing
+    the scheduler itself - that only works if the run-loop-now.sh child is
+    its own process group leader, same isolation trigger_manual_run's own
+    Popen(start_new_session=True) already gives dashboard-triggered runs."""
+    calls = []
+    monkeypatch.setattr(sched.dashboard_server, "read_status", lambda path: {"state": "idle"})
+
+    sched.run_due_loops(
+        loops=[GITLAB_LOOP], state_path=tmp_path / "state.json",
+        run_loop_now_path=tmp_path / "run-loop-now.sh",
+        now=datetime(2026, 9, 14, 10, 5), runner=lambda args, **kw: calls.append(kw),
+    )
+
+    assert calls == [{"start_new_session": True}]
+
+
 def test_run_due_loops_skips_a_loop_that_is_already_running(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(

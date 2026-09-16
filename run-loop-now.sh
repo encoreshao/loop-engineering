@@ -84,7 +84,14 @@ if [ "$EMIT_RUN_EVENTS" = "true" ]; then
     --data "{\"trigger\": \"$RUN_TRIGGER\"}" || true
 fi
 
-python3 bin/web/dashboard_server.py write-status running --loop "$LOOP_NAME"
+# $$ is this script's own pid - every caller (trigger_manual_run,
+# trigger_topic_monitor_run, loop_scheduler.py's run_due_loops) launches
+# it with start_new_session=True, so $$ is also this run's own process
+# group id. Recording it lets the Activity page's Stop button
+# os.killpg($$, ...) the whole tree below it (this script, the zsh/timeout
+# wrapper, the loop's python runner, and the claude CLI subprocess) in one
+# shot - see dashboard_server.py's stop_gitlab_loop/stop_topic_loop.
+python3 bin/web/dashboard_server.py write-status running --loop "$LOOP_NAME" --pid "$$"
 
 RUNNER_ARGS=("$RUN_ID" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}")
 SERIALIZED_RUNNER_CMD="$(printf '%q ' python3 "$ENTRY_SCRIPT" "${RUNNER_ARGS[@]}")"

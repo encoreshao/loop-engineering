@@ -3,6 +3,7 @@ import fcntl
 import html
 import http.client
 import json
+import os
 import plistlib
 import re
 import shutil
@@ -3128,6 +3129,7 @@ def test_other_states_still_use_the_plain_dot_or_check_icon():
     assert ds._status_badge("idle") == ("pill-green", ds._CHECK_ICON)
     assert ds._status_badge("never_run") == ("pill-grey", ds._DOT_ICON_TEMPLATE.format(cls=""))
     assert ds._status_badge("failed") == ("pill-red", ds._DOT_ICON_TEMPLATE.format(cls=""))
+    assert ds._status_badge("stopped") == ("pill-grey", ds._DOT_ICON_TEMPLATE.format(cls=""))
 
 
 def test_material_symbols_icons_are_aria_hidden():
@@ -3680,7 +3682,7 @@ def test_render_activity_page_shows_run_now_button_when_idle(tmp_path, monkeypat
     assert "class='btn btn-primary'" in output
 
 
-def test_render_activity_page_hides_run_now_button_when_already_running(tmp_path, monkeypatch):
+def test_render_activity_page_shows_stop_button_when_already_running(tmp_path, monkeypatch):
     status_path = tmp_path / "status.json"
     monkeypatch.setattr(ds, "STATUS_PATH", status_path)
     monkeypatch.setattr(ds, "LOOP_DIR", tmp_path)
@@ -3693,6 +3695,9 @@ def test_render_activity_page_hides_run_now_button_when_already_running(tmp_path
     output = ds.render_activity_page()
 
     assert "action='/run-now'" not in output
+    assert "action='/gitlab/stop'" in output
+    assert "class='btn btn-warning'" in output
+    assert "data-confirm=" in output
 
 
 def test_render_activity_page_disables_gitlab_run_now_when_no_projects_configured(tmp_path, monkeypatch):
@@ -3781,7 +3786,7 @@ def test_render_activity_page_disables_topic_run_now_when_no_topics_configured(t
     assert "<a href='/topic-monitor/settings'>" in output
 
 
-def test_render_activity_page_hides_topic_run_now_while_a_topic_is_running(tmp_path, monkeypatch):
+def test_render_activity_page_shows_stop_button_while_a_topic_is_running(tmp_path, monkeypatch):
     status_path = tmp_path / "status.json"
     monkeypatch.setattr(ds, "STATUS_PATH", status_path)
     monkeypatch.setattr(ds, "LOOP_DIR", tmp_path)
@@ -3801,6 +3806,8 @@ def test_render_activity_page_hides_topic_run_now_while_a_topic_is_running(tmp_p
     assert "action='/topic-monitor/run-now'" not in output
     assert "No topics configured yet" not in output
     assert "Researching" in output
+    assert "action='/topic-monitor/stop'" in output
+    assert "class='btn btn-warning'" in output
 
 
 def test_render_activity_page_formats_updated_at_as_relative_time(tmp_path, monkeypatch):
@@ -6891,6 +6898,20 @@ def test_write_status_cli_records_current_issue_and_step(tmp_path, monkeypatch):
     assert written["current_step"] == "verifying"
 
 
+def test_write_status_cli_records_pid(tmp_path, monkeypatch):
+    status_path = tmp_path / "status.json"
+    monkeypatch.setattr(ds, "STATUS_PATH", status_path)
+    monkeypatch.setattr(sys, "argv", [
+        "dashboard_server.py", "write-status", "running", "--pid", "12345",
+    ])
+
+    ds.main()
+
+    written = ds.read_status(status_path)
+    assert written["state"] == "running"
+    assert written["pid"] == 12345
+
+
 def test_write_status_cli_idle_clears_progress_fields(tmp_path, monkeypatch):
     status_path = tmp_path / "status.json"
     ds.write_status("running", status_path, current_issue="brightleaf.web #1206", current_step="verifying")
@@ -7420,6 +7441,142 @@ def test_trigger_manual_run_launches_the_script(tmp_path, monkeypatch):
     assert captured["kwargs"]["start_new_session"] is True
 
 
+def test_process_alive_true_for_the_current_process():
+    assert ds._process_alive(os.getpid()) is True
+
+
+def test_process_alive_false_for_a_pid_that_has_exited():
+    proc = subprocess.Popen(["true"])
+    proc.wait()
+    assert ds._process_alive(proc.pid) is False
+
+
+def test_kill_process_group_terminates_every_process_in_the_group():
+    proc = subprocess.Popen(["bash", "-c", "sleep 30"], start_new_session=True)
+    try:
+        ds._kill_process_group(proc.pid, wait_seconds=2.0, poll_interval=0.05)
+        proc.wait(timeout=5)
+        assert not ds._process_alive(proc.pid)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
+
+def test_kill_process_group_escalates_to_sigkill_when_sigterm_is_ignored():
+    proc = subprocess.Popen(["bash", "-c", "trap '' TERM; sleep 30"], start_new_session=True)
+    try:
+        ds._kill_process_group(proc.pid, wait_seconds=0.3, poll_interval=0.05)
+        proc.wait(timeout=5)
+        assert not ds._process_alive(proc.pid)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
+
+def test_stop_gitlab_loop_reports_nothing_to_stop_when_idle(tmp_path):
+    status_path = tmp_path / "status.json"
+    ds.write_status("idle", status_path=status_path)
+
+    ok, message = ds.stop_gitlab_loop(status_path=status_path)
+
+    assert not ok
+    assert "No run is currently in progress" in message
+
+
+def test_stop_gitlab_loop_clears_stale_state_when_pid_is_dead(tmp_path):
+    status_path = tmp_path / "status.json"
+    dead_proc = subprocess.Popen(["true"])
+    dead_proc.wait()
+    ds.write_status("running", status_path=status_path, pid=dead_proc.pid)
+
+    ok, message = ds.stop_gitlab_loop(status_path=status_path)
+
+    assert ok
+    assert "stale" in message.lower()
+    assert ds.read_status(status_path)["state"] == "stopped"
+
+
+def test_stop_gitlab_loop_without_a_recorded_pid_is_treated_as_stale(tmp_path):
+    status_path = tmp_path / "status.json"
+    ds.write_status("running", status_path=status_path)
+
+    ok, message = ds.stop_gitlab_loop(status_path=status_path)
+
+    assert ok
+    assert ds.read_status(status_path)["state"] == "stopped"
+
+
+def test_stop_gitlab_loop_kills_a_live_process_group(tmp_path):
+    status_path = tmp_path / "status.json"
+    proc = subprocess.Popen(["bash", "-c", "sleep 30"], start_new_session=True)
+    ds.write_status("running", status_path=status_path, pid=proc.pid)
+    try:
+        ok, message = ds.stop_gitlab_loop(status_path=status_path)
+
+        proc.wait(timeout=5)
+        assert ok
+        assert "stopped" in message.lower()
+        assert ds.read_status(status_path)["state"] == "stopped"
+        assert not ds._process_alive(proc.pid)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
+
+def test_stop_topic_loop_reports_nothing_to_stop_when_idle(tmp_path):
+    status_path = tmp_path / "topic-loop.json"
+    topic_status_path = tmp_path / "topic-status.json"
+    ds.write_status("idle", status_path=status_path)
+
+    ok, message = ds.stop_topic_loop(status_path=status_path, topic_status_path=topic_status_path)
+
+    assert not ok
+    assert "No run is currently in progress" in message
+
+
+def test_stop_topic_loop_kills_the_process_and_marks_running_topics_stopped(tmp_path):
+    status_path = tmp_path / "topic-loop.json"
+    topic_status_path = tmp_path / "topic-status.json"
+    proc = subprocess.Popen(["bash", "-c", "sleep 30"], start_new_session=True)
+    ds.write_status("running", status_path=status_path, pid=proc.pid)
+    ds.write_topic_status("roadmap-watch", "running", topic_status_path)
+    ds.write_topic_status("competitor-scan", "idle", topic_status_path)
+    try:
+        ok, message = ds.stop_topic_loop(status_path=status_path, topic_status_path=topic_status_path)
+
+        proc.wait(timeout=5)
+        assert ok
+        assert ds.read_status(status_path)["state"] == "stopped"
+        topics = ds.read_topic_status(topic_status_path)["topics"]
+        assert topics["roadmap-watch"]["state"] == "stopped"
+        assert topics["competitor-scan"]["state"] == "idle"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
+
+def test_stop_topic_loop_acts_when_a_topic_is_running_even_if_the_generic_file_says_idle(tmp_path):
+    """The per-topic map (what the Activity page's hero pill actually
+    reads) and the generic per-loop file (where the pid lives) are
+    written separately - if a topic is showing "running" the Stop button
+    is visible regardless of what the generic file says, so this must
+    still act (clearing the stale per-topic entry) rather than refusing."""
+    status_path = tmp_path / "topic-loop.json"
+    topic_status_path = tmp_path / "topic-status.json"
+    ds.write_status("idle", status_path=status_path)
+    ds.write_topic_status("roadmap-watch", "running", topic_status_path)
+
+    ok, message = ds.stop_topic_loop(status_path=status_path, topic_status_path=topic_status_path)
+
+    assert ok
+    topics = ds.read_topic_status(topic_status_path)["topics"]
+    assert topics["roadmap-watch"]["state"] == "stopped"
+
+
 def test_status_badge_markup_shows_progress_detail_while_running():
     status = {"state": "running", "current_issue": "brightleaf.web #1206", "current_step": "verifying"}
 
@@ -7820,6 +7977,72 @@ def test_run_now_route_requires_csrf(tmp_path, monkeypatch):
 
     with _running_server() as port:
         status, _headers, _body = _post(port, "/run-now", {"csrf_token": ""})
+        assert status == 403
+
+
+def test_gitlab_stop_route_stops_a_running_loop(monkeypatch, tmp_path):
+    status_path = tmp_path / "status.json"
+    proc = subprocess.Popen(["bash", "-c", "sleep 30"], start_new_session=True)
+    ds.write_status("running", status_path=status_path, pid=proc.pid)
+    monkeypatch.setattr(ds, "STATUS_PATH", status_path)
+
+    try:
+        with _running_server() as port:
+            token = _fetch_csrf_token(port, "/daemons")
+            status, headers, _body = _post(port, "/gitlab/stop", {"csrf_token": token})
+            assert status == 303
+            flash_query = _flash_from_location(headers["Location"], prefix="/activity?")
+            assert flash_query["ok"] == ["1"]
+        proc.wait(timeout=5)
+        assert ds.read_status(status_path)["state"] == "stopped"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
+
+def test_gitlab_stop_route_requires_csrf(tmp_path, monkeypatch):
+    status_path = tmp_path / "status.json"
+    ds.write_status("running", status_path=status_path)
+    monkeypatch.setattr(ds, "STATUS_PATH", status_path)
+
+    with _running_server() as port:
+        status, _headers, _body = _post(port, "/gitlab/stop", {"csrf_token": ""})
+        assert status == 403
+
+
+def test_topic_monitor_stop_route_stops_a_running_topic(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "LOOP_DIR", tmp_path)
+    status_path = ds.status_path_for_loop("topic-loop", base_dir=tmp_path)
+    topic_status_path = tmp_path / "topic-status.json"
+    proc = subprocess.Popen(["bash", "-c", "sleep 30"], start_new_session=True)
+    ds.write_status("running", status_path=status_path, pid=proc.pid)
+    ds.write_topic_status("roadmap-watch", "running", topic_status_path)
+    monkeypatch.setattr(ds, "TOPIC_MONITOR_STATUS_PATH", topic_status_path)
+
+    try:
+        with _running_server() as port:
+            token = _fetch_csrf_token(port, "/daemons")
+            status, headers, _body = _post(port, "/topic-monitor/stop", {"csrf_token": token})
+            assert status == 303
+            flash_query = _flash_from_location(headers["Location"], prefix="/activity?")
+            assert flash_query["ok"] == ["1"]
+        proc.wait(timeout=5)
+        topics = ds.read_topic_status(topic_status_path)["topics"]
+        assert topics["roadmap-watch"]["state"] == "stopped"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
+
+def test_topic_monitor_stop_route_requires_csrf(tmp_path, monkeypatch):
+    topic_status_path = tmp_path / "topic-status.json"
+    ds.write_topic_status("roadmap-watch", "running", topic_status_path)
+    monkeypatch.setattr(ds, "TOPIC_MONITOR_STATUS_PATH", topic_status_path)
+
+    with _running_server() as port:
+        status, _headers, _body = _post(port, "/topic-monitor/stop", {"csrf_token": ""})
         assert status == 403
 
 

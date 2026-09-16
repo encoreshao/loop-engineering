@@ -108,8 +108,14 @@ def run_due_loops(loops=None, state_path=None, run_loop_now_path=None, now=None,
     own status file - a belt-and-suspenders guard against two overlapping
     scheduler polls, on top of the once-per-day state check below),
     invokes `runner` (defaults to subprocess.run) as
-    ["bash", str(run_loop_now_path), loop["name"]], blocking until it
-    returns before checking the next loop, and records both
+    ["bash", str(run_loop_now_path), loop["name"]] with
+    start_new_session=True - still blocking until it returns before
+    checking the next loop (start_new_session only isolates the child's
+    session/process group, it doesn't make the call non-blocking), same
+    isolation trigger_manual_run's own Popen call already gives
+    dashboard-triggered runs, so a Stop button can later killpg() a
+    scheduler-triggered run's pid without also killing this scheduler
+    process - and records both
     last_attempted_date and last_attempted_at immediately after -
     regardless of exit code or exception, so a failed run is never
     retried until tomorrow (matching how a missed/failed
@@ -138,7 +144,7 @@ def run_due_loops(loops=None, state_path=None, run_loop_now_path=None, now=None,
         if _is_running(loop["name"]):
             continue
         try:
-            runner(["bash", str(run_loop_now_path), loop["name"]])
+            runner(["bash", str(run_loop_now_path), loop["name"]], start_new_session=True)
         except Exception as exc:
             print(f"loop_scheduler: {loop['name']} failed to run: {type(exc).__name__}: {exc}", file=sys.stderr)
         try:

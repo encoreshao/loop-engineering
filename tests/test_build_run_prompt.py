@@ -118,6 +118,20 @@ def test_run_loop_now_sh_forwards_extra_args_generically():
     assert 'ENTRY_SCRIPT="$LOOP_DIR/$(echo "$ENTRY_POINT" | tr . /).py"' in content
 
 
+def test_run_loop_now_sh_records_its_own_pid_for_the_stop_action():
+    # A Stop button on the Activity page needs a real pid to signal - see
+    # dashboard_server.py's stop_gitlab_loop/stop_topic_loop. $$ here is
+    # this script's own pid, which (via Popen(start_new_session=True) at
+    # every call site - trigger_manual_run, trigger_topic_monitor_run, and
+    # loop_scheduler.py's run_due_loops) is also its own process group id,
+    # so os.killpg($$, ...) reaches this script and everything it spawns
+    # (the zsh/timeout wrapper, the loop's python runner, and the claude
+    # CLI subprocess) in one shot.
+    run_loop_now_sh = Path(__file__).resolve().parent.parent / "run-loop-now.sh"
+    content = run_loop_now_sh.read_text()
+    assert 'write-status running --loop "$LOOP_NAME" --pid "$$"' in content
+
+
 def test_gitlab_loop_runner_build_prompt_forwards_args_to_build_run_prompt():
     prompt = glr.build_prompt("harbor", "482", repo_root=REPO_ROOT)
     assert "Follow LOOPX_INSTRUCTIONS.md" in prompt
