@@ -59,6 +59,16 @@ def _no_real_project_config(monkeypatch, tmp_path):
     monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(tmp_path / "nonexistent-worktree-root"))
 
 
+@pytest.fixture(autouse=True)
+def _all_issues_enabled_by_default(monkeypatch):
+    """Safe default for the issue_tracking_config lookup run_all_issues now
+    makes before each issue: every issue enabled unless a test explicitly
+    overrides this - same shape of safety net as _no_real_project_config
+    above, so a test that doesn't care about the toggle never depends on
+    this machine's real ~/.loop-engineering/issue_tracking.json."""
+    monkeypatch.setattr(glr.issue_tracking_config, "is_issue_enabled", lambda alias, issue_iid: True)
+
+
 def test_the_modules_safety_net_stubs_both_the_ai_cli_and_slack(slack_calls):
     """Guards the safety net itself. `_notify_slack_best_effort` calls
     slack_notify.post_message in-process, which reads the real
@@ -197,6 +207,39 @@ def test_run_all_issues_continues_after_one_issue_fails(tmp_path, monkeypatch):
     )
 
     assert [r.final_state.value for r in results] == ["failed", "completed"]
+
+
+def test_run_all_issues_skips_issues_disabled_in_issue_tracking_config(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
+        calls.append((alias, issue_iid))
+        return {"changed": True, "cost_usd": 0.1}
+
+    monkeypatch.setattr(glr, "invoke_batch_issue_agent", fake_invoke)
+    monkeypatch.setattr(
+        glr, "invoke_batch_end_of_run_agent",
+        lambda repo_root=None, timeout_seconds=900, unified_log_path=None: {"changed": True, "cost_usd": 0.0},
+    )
+    monkeypatch.setattr(
+        glr, "list_assigned_issues",
+        lambda aliases, username: {"harbor": [{"iid": 1}, {"iid": 2}]},
+    )
+    monkeypatch.setattr(
+        glr.issue_tracking_config, "is_issue_enabled",
+        lambda alias, issue_iid: issue_iid != 1,
+    )
+
+    results_dir = tmp_path / "loop-runs"
+    results = glr.run_all_issues(
+        "run_20260916_090000", results_dir=results_dir,
+        definition_path=REPO_ROOT / "loops" / "gitlab-issue" / "loop.yaml",
+        aliases=["harbor"], username="encore",
+        events_dir=tmp_path / "events",
+    )
+
+    assert calls == [("harbor", 2)]
+    assert [r.final_state.value for r in results] == ["completed"]
 
 
 def test_run_single_issue_writes_its_own_result(tmp_path, monkeypatch):

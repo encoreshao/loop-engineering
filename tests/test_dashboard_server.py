@@ -2617,6 +2617,59 @@ def test_do_post_loop_enable_with_valid_csrf_calls_set_enabled_true(monkeypatch)
     assert captured["args"] == ("topic-loop", True)
 
 
+def test_do_post_gitlab_issue_disable_without_csrf_token_is_forbidden_and_mutates_nothing(monkeypatch):
+    called = []
+    monkeypatch.setattr(ds.issue_tracking_config, "set_issue_enabled",
+                        lambda *a, **k: called.append(a) or (True, "should not happen"))
+
+    with _running_server() as port:
+        status, _headers, body = _post(port, "/gitlab/issues/harbor/42/disable")
+        assert status == 403
+        assert "CSRF" in body
+
+    assert called == []
+
+
+def test_do_post_gitlab_issue_disable_with_valid_csrf_calls_set_issue_enabled_false(monkeypatch):
+    captured = {}
+
+    def fake_set_issue_enabled(alias, issue_iid, enabled, **k):
+        captured["args"] = (alias, issue_iid, enabled)
+        return True, "Disabled tracking for #42"
+
+    monkeypatch.setattr(ds.issue_tracking_config, "set_issue_enabled", fake_set_issue_enabled)
+
+    with _running_server() as port:
+        token = ds._CSRF_TOKEN
+        status, headers, _body = _post(port, "/gitlab/issues/harbor/42/disable", {"csrf_token": token})
+
+        assert status == 303
+        parsed = _flash_from_location(headers.get("Location"), prefix="/gitlab?")
+        assert parsed["ok"] == ["1"]
+
+    assert captured["args"] == ("harbor", 42, False)
+
+
+def test_do_post_gitlab_issue_enable_with_valid_csrf_calls_set_issue_enabled_true(monkeypatch):
+    captured = {}
+
+    def fake_set_issue_enabled(alias, issue_iid, enabled, **k):
+        captured["args"] = (alias, issue_iid, enabled)
+        return True, "Enabled tracking for #42"
+
+    monkeypatch.setattr(ds.issue_tracking_config, "set_issue_enabled", fake_set_issue_enabled)
+
+    with _running_server() as port:
+        token = ds._CSRF_TOKEN
+        status, headers, _body = _post(port, "/gitlab/issues/harbor/42/enable", {"csrf_token": token})
+
+        assert status == 303
+        parsed = _flash_from_location(headers.get("Location"), prefix="/gitlab?")
+        assert parsed["ok"] == ["1"]
+
+    assert captured["args"] == ("harbor", 42, True)
+
+
 def test_do_post_loop_schedule_without_csrf_token_is_forbidden_and_mutates_nothing(monkeypatch):
     called = []
     monkeypatch.setattr(ds.loops_config, "set_schedule",
@@ -4952,6 +5005,33 @@ def test_render_gitlab_page_auto_refreshes(monkeypatch, tmp_path):
     output = ds.render_gitlab_page()
 
     assert "auto-refreshes every 30s" in output
+
+
+def test_render_gitlab_page_auto_refresh_re_fetches_instead_of_reloading_the_whole_page(monkeypatch, tmp_path):
+    """Unlike Topic Monitor/Activity/Logs (still a hard location.reload()),
+    Live GitLab's own data rarely changes between ticks, so its auto-refresh
+    re-fetches the lazy-loaded fragment in place instead of reloading the
+    whole page - see _render_shell's lazy_refresh option."""
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+
+    output = ds.render_gitlab_page()
+
+    assert "location.reload();" not in output
+    assert "window.__loopLoadLazyContent" in output
+    assert "querySelectorAll('[data-lazy-load]')" in output
+
+
+def test_render_activity_page_auto_refresh_still_reloads_the_whole_page(monkeypatch, tmp_path):
+    """Only Live GitLab opts into the lazy re-fetch - every other
+    auto-refreshing page is unaffected by that change."""
+    status_path = tmp_path / "status.json"
+    monkeypatch.setattr(ds, "STATUS_PATH", status_path)
+    monkeypatch.setattr(ds, "LOOP_DIR", tmp_path)
+    monkeypatch.setattr(ds, "TOPIC_MONITOR_HISTORY_DIR", tmp_path / "does-not-exist")
+    ds.write_status("idle", status_path=status_path)
+
+    output = ds.render_activity_page()
+
     assert "location.reload();" in output
 
 
@@ -5099,6 +5179,50 @@ def test_render_gitlab_live_fragment_shows_calm_message_when_nothing_assigned(mo
     output = ds.render_gitlab_live_fragment()
 
     assert "Nothing assigned to you right now" in output
+
+
+def test_render_gitlab_live_fragment_priority_issue_shows_enabled_toggle_by_default(monkeypatch):
+    """An assigned-to-you issue with no issue_tracking.json entry at all is
+    tracked by default, so its switch renders "on" and posts to the
+    /disable route (flipping it off)."""
+    monkeypatch.setattr(ds, "get_live_gitlab_state", lambda *a, **k: {
+        "myproj": {"issues": [
+            {"iid": 1, "title": "Fix A", "web_url": "http://x/1", "_assigned_to_me": True},
+        ], "mrs": []},
+    })
+
+    output = ds.render_gitlab_live_fragment()
+
+    assert "action='/gitlab/issues/myproj/1/disable'" in output
+    assert "class='switch is-on'" in output
+
+
+def test_render_gitlab_live_fragment_priority_issue_shows_disabled_toggle_when_tracking_disabled(monkeypatch):
+    monkeypatch.setattr(ds, "get_live_gitlab_state", lambda *a, **k: {
+        "myproj": {"issues": [
+            {"iid": 1, "title": "Fix A", "web_url": "http://x/1", "_assigned_to_me": True},
+        ], "mrs": []},
+    })
+    monkeypatch.setattr(ds.issue_tracking_config, "is_issue_enabled", lambda alias, issue_iid: False)
+
+    output = ds.render_gitlab_live_fragment()
+
+    assert "action='/gitlab/issues/myproj/1/enable'" in output
+    assert "class='switch is-off'" in output
+
+
+def test_render_gitlab_live_fragment_backlog_issue_has_no_tracking_toggle(monkeypatch):
+    """The loop only ever tracks issues assigned to you, so a backlog issue
+    (not assigned to you) gets no enable/disable switch at all."""
+    monkeypatch.setattr(ds, "get_live_gitlab_state", lambda *a, **k: {
+        "myproj": {"issues": [
+            {"iid": 1, "title": "Backlog issue", "web_url": "http://x/1", "_assigned_to_me": False},
+        ], "mrs": []},
+    })
+
+    output = ds.render_gitlab_live_fragment()
+
+    assert "/gitlab/issues/" not in output
 
 
 def test_render_shell_wires_up_lazy_load_fetch():

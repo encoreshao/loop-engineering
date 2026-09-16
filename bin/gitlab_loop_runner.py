@@ -29,6 +29,7 @@ from pathlib import Path
 import ai_cli_config
 import cost as cost_module
 import events as events_module
+import issue_tracking_config
 import loop_config
 import slack_notify
 from list_assigned_issues import list_assigned_issues
@@ -490,6 +491,8 @@ def run_all_issues(run_id, results_dir=None, definition_path=None, repo_root=Non
     results = []
     for alias, issues in assigned.items():
         for issue in issues:
+            if not issue_tracking_config.is_issue_enabled(alias, issue["iid"]):
+                continue
             results.append(_run_one_issue(
                 run_id, alias, issue["iid"], definition, results_dir, repo_root,
                 agent_invoker=invoke_batch_issue_agent, events_dir=events_dir,

@@ -44,6 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import ai_cli_config
 import cost
 import health
+import issue_tracking_config
 import learning
 import loop_audit
 import loop_config
@@ -4878,7 +4879,8 @@ def _favicon_version():
     return hashlib.sha256(data).hexdigest()[:8]
 
 
-def _render_shell(title, active_page, status_badge_html, body_html, refresh=False, refresh_note=False):
+def _render_shell(title, active_page, status_badge_html, body_html, refresh=False, refresh_note=False,
+                  lazy_refresh=False):
     """The <!doctype>...</html> skeleton shared by every page this server
     renders: head (style, viewport, a pre-paint script that restores the
     sidebar's collapsed state from localStorage before the page ever
@@ -4900,7 +4902,16 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     `status_badge_html` carries the "md-spinner" class (i.e. whenever the
     caller's own state is "running" - see _status_badge's _SPINNER_ICON)
     - reusing that marker instead of a separate parameter keeps every
-    render_*_page() call site unchanged."""
+    render_*_page() call site unchanged.
+
+    `lazy_refresh=True` (render_gitlab_page only, so far) changes what the
+    timer does on each tick: instead of location.reload() (which discards
+    scroll position and re-runs every other page fetch too), it re-fetches
+    every [data-lazy-load] element in place via the same
+    window.__loopLoadLazyContent the initial paint already uses, then
+    reschedules itself - Live GitLab's own data rarely changes between
+    ticks, so a full page reload every 30s was needless churn. Every other
+    refresh=True page keeps the reload."""
     # Passes ai_cli_config.DEFAULT_CONFIG_PATH explicitly rather than
     # relying on get_selected_cli's own default, for the same reason
     # render_general_settings_page's AI CLI tab does - a test's
@@ -4931,14 +4942,19 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
         # Without this, a routine 30s auto-refresh tears down an in-flight
         # EventSource stream, the pending bubble, and its accumulated
         # text mid-reply.
-        refresh_schedule_script = """
+        refresh_action = (
+            "document.querySelectorAll('[data-lazy-load]').forEach(window.__loopLoadLazyContent);\n"
+            "      __loopScheduleRefresh();"
+            if lazy_refresh else "location.reload();"
+        )
+        refresh_schedule_script = f"""
   var refreshSeconds = parseInt(localStorage.getItem('loop-dashboard-refresh-interval'), 10) || 30;
-  (function __loopScheduleRefresh() {
-    setTimeout(function() {
-      if (window.__loopChatStreaming) { __loopScheduleRefresh(); return; }
-      location.reload();
-    }, refreshSeconds * 1000);
-  })();"""
+  (function __loopScheduleRefresh() {{
+    setTimeout(function() {{
+      if (window.__loopChatStreaming) {{ __loopScheduleRefresh(); return; }}
+      {refresh_action}
+    }}, refreshSeconds * 1000);
+  }})();"""
     refresh_note_script = ""
     if refresh_note:
         refresh_note_script = """
@@ -5405,6 +5421,11 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
         el.innerHTML = "<p class='inline-error'><span class='material-symbols-outlined' aria-hidden='true'>error</span> Couldn't load this section.</p>";
       }});
   }}
+  // Exposed globally so _render_shell's lazy_refresh auto-refresh timer
+  // (see refresh_schedule_script above) can reuse this exact fetch-and-swap
+  // logic to re-fetch a page's lazy-loaded fragments in place, instead of
+  // reloading the whole page.
+  window.__loopLoadLazyContent = loadLazyContent;
   document.addEventListener('DOMContentLoaded', function() {{
     document.querySelectorAll('[data-lazy-load]').forEach(loadLazyContent);
   }});
@@ -6241,6 +6262,32 @@ def render_logs_page():
     )
 
 
+def _issue_tracking_toggle_html(alias, issue_iid):
+    """The enable/disable switch for one assigned-to-you issue row - same
+    .switch is-on/is-off form pattern as _loop_action_html's registered-loop
+    switch, pointed at /gitlab/issues/<alias>/<iid>/enable|disable instead of
+    /daemons/loops/<name>/enable|disable. Flipping it only ever changes
+    whether gitlab_loop_runner.run_all_issues skips this one issue - trivially
+    reversible any time, so no data-confirm, matching that same precedent."""
+    safe_alias = urllib.parse.quote(str(alias), safe="")
+    enabled = issue_tracking_config.is_issue_enabled(alias, issue_iid)
+    if enabled:
+        action, switch_class, aria_checked, label = "disable", "is-on", "true", f"Stop tracking #{issue_iid}"
+    else:
+        action, switch_class, aria_checked, label = "enable", "is-off", "false", f"Track #{issue_iid} again"
+    safe_label = html.escape(label)
+    csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
+    return (
+        f"<form method='post' action='/gitlab/issues/{safe_alias}/{issue_iid}/{action}' "
+        "class='daemon-action-form issue-tracking-toggle'>"
+        f"{csrf_input}"
+        f"<button type='submit' class='switch {switch_class}' role='switch' aria-checked='{aria_checked}' "
+        f"aria-label='{safe_label}' title='{safe_label}'>"
+        "<span class='switch-thumb'></span></button>"
+        "</form>"
+    )
+
+
 def render_gitlab_live_fragment():
     """The actual GitLab data for the Live GitLab page: open issues and MRs
     assigned to or authored by the configured user, per configured project
@@ -6266,12 +6313,21 @@ def render_gitlab_live_fragment():
         label_pills = "".join(f"<span class='pill pill-grey'>{html.escape(l)}</span>" for l in labels)
         label_row = f"<div class='pill-row'>{label_pills}</div>" if label_pills else ""
         alias_pill = f"<span class='pill pill-blue'>{html.escape(alias)}</span> " if alias else ""
+        # Only issues assigned to you (alias is only ever passed for those -
+        # see the priority section below) are ones the loop tracks at all
+        # (list_assigned_issues.py), so a backlog issue or MR gets no
+        # tracking switch.
+        issue_iid = item.get("iid")
+        toggle_html = (
+            _issue_tracking_toggle_html(alias, issue_iid) if alias and issue_iid is not None else ""
+        )
         return (
             "<li class='gitlab-item'>"
             "<div class='gitlab-item-row'>"
             f"<a class='gitlab-item-title' href='{html.escape(item.get('web_url', '#'))}' target='_blank' rel='noopener'>"
             f"{prefix}{html.escape(str(item.get('iid', '?')))} {html.escape(item.get('title', ''))}</a>"
             f"<span class='gitlab-item-meta'>{alias_pill}{html.escape(assignee_names)} &middot; {html.escape(updated)}</span>"
+            f"{toggle_html}"
             "</div>"
             f"{label_row}"
             "</li>"
@@ -6351,7 +6407,8 @@ def render_gitlab_page():
 </div>
 """
     return _render_shell(
-        "Live GitLab · Loop X Engineering", "gitlab", _status_badge_markup(status), body, refresh=True, refresh_note=True
+        "Live GitLab · Loop X Engineering", "gitlab", _status_badge_markup(status), body,
+        refresh=True, refresh_note=True, lazy_refresh=True,
     )
 
 
@@ -8678,6 +8735,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
             name = urllib.parse.unquote(self.path[len("/topic-monitor/topics/"):-len("/delete")])
             ok, message = topic_config.delete_topic(name, topic_config.DEFAULT_CONFIG_PATH)
             self._redirect_with_flash(ok, message, location="/topic-monitor/settings")
+            return
+
+        if self.path.startswith("/gitlab/issues/") and (self.path.endswith("/enable") or self.path.endswith("/disable")):
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            action = "enable" if self.path.endswith("/enable") else "disable"
+            middle = self.path[len("/gitlab/issues/"):-len(f"/{action}")]
+            alias_part, _, iid_part = middle.rpartition("/")
+            alias = urllib.parse.unquote(alias_part)
+            try:
+                issue_iid = int(iid_part)
+            except ValueError:
+                self._not_found()
+                return
+            ok, message = issue_tracking_config.set_issue_enabled(alias, issue_iid, action == "enable")
+            self._redirect_with_flash(ok, message, location="/gitlab")
             return
 
         if self.path == "/skills/install":
