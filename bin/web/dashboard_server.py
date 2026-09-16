@@ -4942,9 +4942,22 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
         # Without this, a routine 30s auto-refresh tears down an in-flight
         # EventSource stream, the pending bubble, and its accumulated
         # text mid-reply.
+        # gitlab-refresh-indicator (see render_gitlab_page) is a small
+        # spinner next to the section header, shown only while this
+        # background re-fetch is actually in flight - Promise.all waits for
+        # every lazy-loaded fragment on the page to finish before hiding it
+        # and rescheduling, so it doesn't disappear before the new content
+        # has actually swapped in. getElementById returns null harmlessly
+        # on any page that opts into lazy_refresh without that element.
         refresh_action = (
-            "document.querySelectorAll('[data-lazy-load]').forEach(window.__loopLoadLazyContent);\n"
-            "      __loopScheduleRefresh();"
+            "var indicator = document.getElementById('gitlab-refresh-indicator');\n"
+            "      if (indicator) { indicator.style.display = ''; }\n"
+            "      Promise.all(Array.prototype.map.call(\n"
+            "        document.querySelectorAll('[data-lazy-load]'), window.__loopLoadLazyContent\n"
+            "      )).then(function() {\n"
+            "        if (indicator) { indicator.style.display = 'none'; }\n"
+            "        __loopScheduleRefresh();\n"
+            "      });"
             if lazy_refresh else "location.reload();"
         )
         refresh_schedule_script = f"""
@@ -5414,7 +5427,11 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
   // switch on. One generic handler here rather than a per-page <script>,
   // so any future slow page can opt in with just the attribute.
   function loadLazyContent(el) {{
-    fetch(el.getAttribute('data-lazy-load'))
+    // Returns its promise chain (rather than fire-and-forget) so
+    // lazy_refresh's timer can Promise.all() every fragment on the page and
+    // know when they've all actually finished, to hide its refresh
+    // indicator at the right time - see refresh_schedule_script above.
+    return fetch(el.getAttribute('data-lazy-load'))
       .then(function(response) {{ return response.text(); }})
       .then(function(html) {{ el.innerHTML = html; }})
       .catch(function() {{
@@ -5496,6 +5513,44 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     if (saved === null) return;
     try {{ sessionStorage.removeItem(key); }} catch (e) {{}}
     window.scrollTo(0, parseInt(saved, 10) || 0);
+  }});
+}})();
+(function() {{
+  // The Live GitLab per-issue tracking switch (see
+  // _issue_tracking_toggle_html) is the one .daemon-action-form that must
+  // NOT do a plain POST-redirect-GET - flipping it must never reload the
+  // whole page (the point of the feature). Intercept its submit, POST via
+  // fetch, and flip the button's own state from the JSON response (see
+  // do_POST's /gitlab/issues/<alias>/<iid>/enable|disable) instead of
+  // navigating anywhere. On any failure (bad CSRF, network error), the
+  // switch is simply left as-is and re-enabled so the user can retry.
+  document.addEventListener('submit', function(ev) {{
+    var form = ev.target;
+    if (!form.matches || !form.matches('.issue-tracking-toggle')) return;
+    ev.preventDefault();
+    var button = form.querySelector('button[type="submit"]');
+    var issueIid = form.getAttribute('data-issue-iid');
+    if (button) button.disabled = true;
+    fetch(form.getAttribute('action'), {{
+      method: 'POST',
+      body: new URLSearchParams(new FormData(form)),
+    }})
+      .then(function(response) {{ return response.json(); }})
+      .then(function(result) {{
+        if (!result.ok) throw new Error('toggle failed');
+        var enabled = result.enabled;
+        var otherAction = enabled ? 'disable' : 'enable';
+        form.setAttribute('action', form.getAttribute('action').replace(/\\/(enable|disable)$/, '/' + otherAction));
+        if (button) {{
+          button.className = 'switch ' + (enabled ? 'is-on' : 'is-off');
+          button.setAttribute('aria-checked', enabled ? 'true' : 'false');
+          var label = enabled ? ('Stop tracking #' + issueIid) : ('Track #' + issueIid + ' again');
+          button.setAttribute('aria-label', label);
+          button.setAttribute('title', label);
+        }}
+      }})
+      .catch(function() {{}})
+      .then(function() {{ if (button) button.disabled = false; }});
   }});
 }})();
 </script>
@@ -6268,7 +6323,12 @@ def _issue_tracking_toggle_html(alias, issue_iid):
     switch, pointed at /gitlab/issues/<alias>/<iid>/enable|disable instead of
     /daemons/loops/<name>/enable|disable. Flipping it only ever changes
     whether gitlab_loop_runner.run_all_issues skips this one issue - trivially
-    reversible any time, so no data-confirm, matching that same precedent."""
+    reversible any time, so no data-confirm, matching that same precedent.
+
+    Unlike that switch, this one must never reload the page (see
+    _render_shell's issue-tracking-toggle submit interceptor), so it also
+    carries data-issue-iid: the JS handler needs the bare issue number to
+    rebuild the on/off label text without re-parsing the action URL."""
     safe_alias = urllib.parse.quote(str(alias), safe="")
     enabled = issue_tracking_config.is_issue_enabled(alias, issue_iid)
     if enabled:
@@ -6279,7 +6339,7 @@ def _issue_tracking_toggle_html(alias, issue_iid):
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
     return (
         f"<form method='post' action='/gitlab/issues/{safe_alias}/{issue_iid}/{action}' "
-        "class='daemon-action-form issue-tracking-toggle'>"
+        f"data-issue-iid='{issue_iid}' class='daemon-action-form issue-tracking-toggle'>"
         f"{csrf_input}"
         f"<button type='submit' class='switch {switch_class}' role='switch' aria-checked='{aria_checked}' "
         f"aria-label='{safe_label}' title='{safe_label}'>"
@@ -6399,7 +6459,7 @@ def render_gitlab_page():
 
 <div class="grid">
 <section class="card">
-<div class="section-header">{_SECTION_ICON_GITLAB}<h2>Live GitLab (open issues &amp; MRs)</h2></div>
+<div class="section-header">{_SECTION_ICON_GITLAB}<h2>Live GitLab (open issues &amp; MRs)</h2><span id='gitlab-refresh-indicator' class='md-spinner md-spinner-sm' style='display:none' aria-hidden='true' title='Refreshing…'></span></div>
 <div data-lazy-load='/gitlab/live'>
 <div class="lazy-loading"><div class="md-spinner"></div><p class="loading-text">Loading live GitLab data<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span></p></div>
 </div>
@@ -8738,6 +8798,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
 
         if self.path.startswith("/gitlab/issues/") and (self.path.endswith("/enable") or self.path.endswith("/disable")):
+            # Unlike every other action route here, this one answers with a
+            # small JSON body instead of a 303 redirect: the switch is driven
+            # entirely by JS (see the issue-tracking-toggle submit handler in
+            # _render_shell), which flips its own state from this response
+            # rather than navigating anywhere - clicking it must never
+            # reload the Live GitLab page.
             if not self._csrf_ok(body):
                 self._forbidden()
                 return
@@ -8750,8 +8816,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except ValueError:
                 self._not_found()
                 return
-            ok, message = issue_tracking_config.set_issue_enabled(alias, issue_iid, action == "enable")
-            self._redirect_with_flash(ok, message, location="/gitlab")
+            enabled = action == "enable"
+            ok, message = issue_tracking_config.set_issue_enabled(alias, issue_iid, enabled)
+            self._send_json(200, {"ok": ok, "enabled": enabled, "message": message})
             return
 
         if self.path == "/skills/install":

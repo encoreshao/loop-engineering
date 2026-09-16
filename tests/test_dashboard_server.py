@@ -2631,6 +2631,10 @@ def test_do_post_gitlab_issue_disable_without_csrf_token_is_forbidden_and_mutate
 
 
 def test_do_post_gitlab_issue_disable_with_valid_csrf_calls_set_issue_enabled_false(monkeypatch):
+    """Unlike the loop enable/disable routes (a plain POST-redirect-GET),
+    this one is driven entirely by JS (see the issue-tracking-toggle submit
+    handler in _render_shell) so the switch flips without reloading the
+    page - it answers with a small JSON body instead of a 303 redirect."""
     captured = {}
 
     def fake_set_issue_enabled(alias, issue_iid, enabled, **k):
@@ -2641,11 +2645,11 @@ def test_do_post_gitlab_issue_disable_with_valid_csrf_calls_set_issue_enabled_fa
 
     with _running_server() as port:
         token = ds._CSRF_TOKEN
-        status, headers, _body = _post(port, "/gitlab/issues/harbor/42/disable", {"csrf_token": token})
+        status, _headers, body = _post(port, "/gitlab/issues/harbor/42/disable", {"csrf_token": token})
 
-        assert status == 303
-        parsed = _flash_from_location(headers.get("Location"), prefix="/gitlab?")
-        assert parsed["ok"] == ["1"]
+        assert status == 200
+        parsed = json.loads(body)
+        assert parsed == {"ok": True, "enabled": False, "message": "Disabled tracking for #42"}
 
     assert captured["args"] == ("harbor", 42, False)
 
@@ -2661,11 +2665,11 @@ def test_do_post_gitlab_issue_enable_with_valid_csrf_calls_set_issue_enabled_tru
 
     with _running_server() as port:
         token = ds._CSRF_TOKEN
-        status, headers, _body = _post(port, "/gitlab/issues/harbor/42/enable", {"csrf_token": token})
+        status, _headers, body = _post(port, "/gitlab/issues/harbor/42/enable", {"csrf_token": token})
 
-        assert status == 303
-        parsed = _flash_from_location(headers.get("Location"), prefix="/gitlab?")
-        assert parsed["ok"] == ["1"]
+        assert status == 200
+        parsed = json.loads(body)
+        assert parsed == {"ok": True, "enabled": True, "message": "Enabled tracking for #42"}
 
     assert captured["args"] == ("harbor", 42, True)
 
@@ -5021,6 +5025,41 @@ def test_render_gitlab_page_auto_refresh_re_fetches_instead_of_reloading_the_who
     assert "querySelectorAll('[data-lazy-load]')" in output
 
 
+def test_render_gitlab_page_includes_a_hidden_refresh_indicator(monkeypatch, tmp_path):
+    """A small spinner next to the section header, hidden until a
+    background auto-refresh tick is actually in flight - the big centered
+    spinner (lazy-loading placeholder) only ever shows on the very first
+    load, before any content exists at all."""
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+
+    output = ds.render_gitlab_page()
+
+    assert "id='gitlab-refresh-indicator'" in output
+    assert "class='md-spinner md-spinner-sm'" in output
+    assert "style='display:none'" in output
+
+
+def test_render_gitlab_page_auto_refresh_shows_indicator_while_refetching(monkeypatch, tmp_path):
+    """The lazy_refresh timer must reveal the indicator before re-fetching
+    and hide it again only once every lazy-loaded fragment has actually
+    resolved (Promise.all), not immediately after kicking the fetches off."""
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+
+    output = ds.render_gitlab_page()
+
+    assert "getElementById('gitlab-refresh-indicator')" in output
+    assert "Promise.all(" in output
+
+
+def test_render_shell_lazy_load_fetch_returns_a_promise_for_chaining():
+    """window.__loopLoadLazyContent must return its fetch promise (not just
+    fire-and-forget) so the lazy_refresh timer can Promise.all() every
+    fragment and know when they've all actually finished."""
+    output = ds.render_overview_page()
+
+    assert "return fetch(el.getAttribute('data-lazy-load'))" in output
+
+
 def test_render_activity_page_auto_refresh_still_reloads_the_whole_page(monkeypatch, tmp_path):
     """Only Live GitLab opts into the lazy re-fetch - every other
     auto-refreshing page is unaffected by that change."""
@@ -5195,6 +5234,9 @@ def test_render_gitlab_live_fragment_priority_issue_shows_enabled_toggle_by_defa
 
     assert "action='/gitlab/issues/myproj/1/disable'" in output
     assert "class='switch is-on'" in output
+    # The JS submit interceptor (see _render_shell) needs the issue number
+    # without re-parsing the action URL, to rebuild the on/off label text.
+    assert "data-issue-iid='1'" in output
 
 
 def test_render_gitlab_live_fragment_priority_issue_shows_disabled_toggle_when_tracking_disabled(monkeypatch):
@@ -5230,6 +5272,20 @@ def test_render_shell_wires_up_lazy_load_fetch():
 
     assert "data-lazy-load" in output
     assert "fetch(" in output
+
+
+def test_render_shell_wires_up_issue_tracking_toggle_fetch_interceptor():
+    """The issue-tracking switch must never navigate (see
+    _issue_tracking_toggle_html) - _render_shell wires up a delegated
+    submit listener, present on every page (the toggle form only ever
+    exists inside the Live GitLab fragment, loaded in after the shell
+    itself already painted), that intercepts it and POSTs via fetch
+    instead."""
+    output = ds.render_overview_page()
+
+    assert ".issue-tracking-toggle" in output
+    assert "ev.preventDefault();" in output
+    assert "fetch(form.getAttribute('action')" in output
 
 
 def test_render_shell_wires_up_tab_switching():
