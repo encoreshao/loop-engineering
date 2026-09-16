@@ -3217,7 +3217,7 @@ body {{
   font-size: 16px;
 }}
 
-.wrap {{ max-width: 1080px; margin: 0 auto; padding: 2rem 1.25rem 0; }}
+.wrap {{ max-width: clamp(1080px, 90%, 2400px); margin: 0 auto; padding: 2rem 1.25rem 0; }}
 
 h1, h2, h3 {{ font-family: var(--font-family-stack); color: var(--md-on-surface); font-weight: 500; margin: 0 0 0.5rem; }}
 /* Page titles (h1) get a size step up from h2/h3 - stays at the same
@@ -3505,7 +3505,7 @@ html.collapsed .activity-composer {{ left: 64px; }}
   z-index: 80;
   transition: left 150ms ease;
 }}
-.activity-composer-inner {{ max-width: 1080px; margin: 0 auto; }}
+.activity-composer-inner {{ max-width: clamp(1080px, 90%, 2400px); margin: 0 auto; }}
 .activity-composer-form {{ width: 100%; flex-wrap: nowrap; align-items: flex-end; }}
 /* Overrides the generic .daemon-action-form textarea rule (flex-basis:
    100%, its own full-width line) - the composer's textarea shares its
