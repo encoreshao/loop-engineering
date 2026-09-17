@@ -3070,7 +3070,11 @@ def _log_entry_html(entry):
     (or a "continued from an earlier entry" note for the headerless
     leading entry - see _parse_unified_log_entries) plus its body, each
     wrapped in its own bordered block so a reader can tell where one
-    append_unified_log call ends and the next begins at a glance."""
+    append_unified_log call ends and the next begins at a glance. The body
+    is the same human-readable text an assistant reply/error/review would
+    show elsewhere on this dashboard (see append_unified_log's own
+    contract), so it's rendered through render_markdown like those other
+    surfaces rather than dumped into a <pre> as literal text."""
     if entry["source"] is None:
         header_html = "<span class='log-entry-meta'>(continued from an earlier entry)</span>"
     else:
@@ -3079,7 +3083,7 @@ def _log_entry_html(entry):
             f"<span class='log-entry-detail'>{html.escape(entry['detail'])}</span>"
             f"<span class='log-entry-time'>{html.escape(entry['timestamp'])}</span>"
         )
-    body_html = f"<pre class='log-entry-body'>{html.escape(entry['body'])}</pre>" if entry["body"] else ""
+    body_html = f"<div class='log-entry-body markdown'>{render_markdown(entry['body'])}</div>" if entry["body"] else ""
     return f"<div class='log-entry'><div class='log-entry-header'>{header_html}</div>{body_html}</div>"
 
 
@@ -3927,11 +3931,9 @@ pre.log {{
   padding: 0.75rem 0.85rem;
   overflow-x: auto;
   font-size: 0.85rem;
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.5;
   color: var(--md-on-surface-variant);
 }}
+.log-entry-body.markdown > :last-child {{ margin-bottom: 0; }}
 
 .markdown {{
   color: var(--md-on-surface-variant);
