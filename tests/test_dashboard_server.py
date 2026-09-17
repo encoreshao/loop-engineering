@@ -5159,7 +5159,9 @@ def test_render_gitlab_live_fragment_shows_assignee_updated_time_and_labels(monk
 def test_render_gitlab_live_fragment_shows_priority_section_across_projects(monkeypatch):
     """Issues assigned to you are what the loop actually works next, so they
     surface in one combined section at the top of the page instead of being
-    buried inside their own project's block."""
+    buried inside their own project's block. With more than one project
+    represented, that section groups its rows under a per-project
+    sub-heading instead of one undifferentiated list."""
     monkeypatch.setattr(ds, "get_live_gitlab_state", lambda *a, **k: {
         "proja": {"issues": [
             {"iid": 1, "title": "Fix A", "web_url": "http://x/1", "_assigned_to_me": True},
@@ -5171,11 +5173,51 @@ def test_render_gitlab_live_fragment_shows_priority_section_across_projects(monk
 
     output = ds.render_gitlab_live_fragment()
 
-    assert "Needs Your Attention" in output
-    assert output.index("Needs Your Attention") < output.index("Fix A")
-    assert output.index("Needs Your Attention") < output.index("Fix B")
+    assert "My Queue" in output
+    assert "2 issues across 2 projects" in output
+    assert output.index("My Queue") < output.index("Fix A")
+    assert output.index("My Queue") < output.index("Fix B")
+    assert "<h4 class='attn-group-title'>proja <span class='badge-count'>1</span></h4>" in output
+    assert "<h4 class='attn-group-title'>projb <span class='badge-count'>1</span></h4>" in output
     assert output.index("Fix A") < output.index("<h3>proja</h3>")
     assert output.index("Fix B") < output.index("<h3>projb</h3>")
+
+
+def test_render_gitlab_live_fragment_priority_section_single_project_has_no_group_heading(monkeypatch):
+    """Grouping by project only earns its keep once there's more than one
+    project to distinguish - a single-project setup stays a flat list."""
+    monkeypatch.setattr(ds, "get_live_gitlab_state", lambda *a, **k: {
+        "myproj": {"issues": [
+            {"iid": 1, "title": "Fix A", "web_url": "http://x/1", "_assigned_to_me": True},
+        ], "mrs": []},
+    })
+
+    output = ds.render_gitlab_live_fragment()
+
+    assert "My Queue" in output
+    assert "1 issue</p>" in output
+    assert "attn-group" not in output
+
+
+def test_render_gitlab_live_fragment_priority_item_omits_your_own_name(monkeypatch):
+    """My Queue is, in its entirety, issues assigned to you - repeating your
+    own name on every row is redundant, unlike a backlog/MR row which still
+    shows its assignee."""
+    monkeypatch.setattr(ds, "get_live_gitlab_state", lambda *a, **k: {
+        "myproj": {"issues": [
+            {
+                "iid": 1, "title": "Fix A", "web_url": "http://x/1", "_assigned_to_me": True,
+                "assignees": [{"name": "Encore Shao", "username": "encore"}],
+                "labels": ["bug"],
+            },
+        ], "mrs": []},
+    })
+
+    output = ds.render_gitlab_live_fragment()
+
+    assert "Encore Shao" not in output
+    assert "<span class='pill pill-grey'>bug</span>" in output
+    assert "class='gitlab-item-meta gitlab-item-meta-standalone'" in output
 
 
 def test_render_gitlab_live_fragment_priority_section_sorted_by_recency(monkeypatch):

@@ -3991,6 +3991,26 @@ ul.plain li {{ font-size: 0.9rem; }}
 .gitlab-item-title {{ font-weight: 500; color: var(--md-on-surface); text-decoration: none; flex: 1 1 auto; min-width: 0; }}
 .gitlab-item-title:hover {{ color: var(--md-primary); text-decoration: underline; }}
 .gitlab-item-meta {{ font-size: 0.78rem; color: var(--md-on-surface-variant); flex-shrink: 0; white-space: nowrap; text-align: right; }}
+/* My Queue's per-row meta line (just "updated Xh ago") once the alias and
+   assignee name move up into the group's own .attn-group-title - a block
+   below the labels instead of sharing .gitlab-item-row's flex line with
+   the title. */
+.gitlab-item-meta-standalone {{ text-align: left; white-space: normal; margin-top: 0.2rem; }}
+
+/* My Queue's per-project sub-groups (only rendered once 2+ projects have
+   items assigned to you - see render_gitlab_live_fragment). */
+.attn-group + .attn-group {{ margin-top: 0.85rem; }}
+.attn-group-title {{
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--md-on-surface-variant);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}}
 
 table.daemons {{ border-collapse: collapse; width: 100%; font-size: 0.87rem; }}
 table.daemons th {{
@@ -6502,14 +6522,17 @@ def render_gitlab_live_fragment():
             f"Couldn't check: {html.escape(message)}</p>"
         ) if message else ""
 
-    def gitlab_item(item, prefix, alias=None):
-        assignees = item.get("assignees") or []
-        assignee_names = ", ".join(a.get("name") or a.get("username", "") for a in assignees) or "Unassigned"
+    def gitlab_item(item, prefix, alias=None, compact_meta=False):
+        """compact_meta is for My Queue's grouped rendering: the project
+        alias and your own name are already conveyed by the group's own
+        sub-heading (see the priority section below), so repeating either
+        on every single row is pure noise there. Backlog issues and MRs
+        elsewhere on the page still want the full inline meta line since
+        they aren't grouped by anything that already states it."""
         updated = _relative_time(item.get("updated_at", ""))
         labels = item.get("labels") or []
         label_pills = "".join(f"<span class='pill pill-grey'>{html.escape(l)}</span>" for l in labels)
         label_row = f"<div class='pill-row'>{label_pills}</div>" if label_pills else ""
-        alias_pill = f"<span class='pill pill-blue'>{html.escape(alias)}</span> " if alias else ""
         # Only issues assigned to you (alias is only ever passed for those -
         # see the priority section below) are ones the loop tracks at all
         # (list_assigned_issues.py), so a backlog issue or MR gets no
@@ -6518,6 +6541,22 @@ def render_gitlab_live_fragment():
         toggle_html = (
             _issue_tracking_toggle_html(alias, issue_iid) if alias and issue_iid is not None else ""
         )
+        if compact_meta:
+            meta_line = f"<div class='gitlab-item-meta gitlab-item-meta-standalone'>{html.escape(updated)}</div>"
+            return (
+                "<li class='gitlab-item'>"
+                "<div class='gitlab-item-row'>"
+                f"<a class='gitlab-item-title' href='{html.escape(item.get('web_url', '#'))}' target='_blank' rel='noopener'>"
+                f"{prefix}{html.escape(str(item.get('iid', '?')))} {html.escape(item.get('title', ''))}</a>"
+                f"{toggle_html}"
+                "</div>"
+                f"{label_row}"
+                f"{meta_line}"
+                "</li>"
+            )
+        assignees = item.get("assignees") or []
+        assignee_names = ", ".join(a.get("name") or a.get("username", "") for a in assignees) or "Unassigned"
+        alias_pill = f"<span class='pill pill-blue'>{html.escape(alias)}</span> " if alias else ""
         return (
             "<li class='gitlab-item'>"
             "<div class='gitlab-item-row'>"
@@ -6539,23 +6578,49 @@ def render_gitlab_live_fragment():
     # Issues assigned to you are what the loop actually works next, so they
     # get pulled into one combined section across every project instead of
     # staying buried inside their own project's block - see the design note
-    # on _fetch_alias_gitlab_state's "_assigned_to_me" tag.
-    priority_items = [
-        (alias, item)
-        for alias, entry in live.items()
-        for item in entry.get("issues", [])
-        if item.get("_assigned_to_me")
-    ]
-    priority_items.sort(key=lambda pair: pair[1].get("updated_at", ""), reverse=True)
-    priority_list = "".join(gitlab_item(item, "#", alias=alias) for alias, item in priority_items)
-    priority_body = (
-        f"<ul class='plain gitlab-list'>{priority_list}</ul>" if priority_items
-        else "<p style='color: var(--md-on-surface-variant);'>Nothing assigned to you right now.</p>"
+    # on _fetch_alias_gitlab_state's "_assigned_to_me" tag. Your own name is
+    # never repeated per row (compact_meta) - it's redundant inside a
+    # section that is, in its entirety, "assigned to you" - and once more
+    # than one project has items here they're grouped under a per-project
+    # sub-heading instead of one undifferentiated list, since the alias is
+    # then the only thing distinguishing rows from each other.
+    priority_groups = {}
+    for alias, entry in live.items():
+        assigned = [item for item in entry.get("issues", []) if item.get("_assigned_to_me")]
+        if assigned:
+            assigned.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
+            priority_groups[alias] = assigned
+    total_priority_count = sum(len(items) for items in priority_groups.values())
+    ordered_aliases = sorted(
+        priority_groups.keys(), key=lambda a: priority_groups[a][0].get("updated_at", ""), reverse=True,
     )
+
+    if not priority_groups:
+        priority_body = "<p style='color: var(--md-on-surface-variant);'>Nothing assigned to you right now.</p>"
+        priority_subtitle = ""
+    elif len(priority_groups) == 1:
+        alias = ordered_aliases[0]
+        items_html = "".join(gitlab_item(item, "#", alias=alias, compact_meta=True) for item in priority_groups[alias])
+        priority_body = f"<ul class='plain gitlab-list'>{items_html}</ul>"
+        priority_subtitle = f"<p>{total_priority_count} issue{'' if total_priority_count == 1 else 's'}</p>"
+    else:
+        group_blocks = []
+        for alias in ordered_aliases:
+            items = priority_groups[alias]
+            items_html = "".join(gitlab_item(item, "#", alias=alias, compact_meta=True) for item in items)
+            group_blocks.append(
+                "<div class='attn-group'>"
+                f"<h4 class='attn-group-title'>{html.escape(alias)} <span class='badge-count'>{len(items)}</span></h4>"
+                f"<ul class='plain gitlab-list'>{items_html}</ul>"
+                "</div>"
+            )
+        priority_body = "".join(group_blocks)
+        priority_subtitle = f"<p>{total_priority_count} issues across {len(priority_groups)} projects</p>"
+
     priority_section = (
         "<div class='project-block'>"
-        "<h3>Needs Your Attention</h3>"
-        f"<p>Assigned to you <span class='badge-count'>{len(priority_items)}</span></p>"
+        "<h3>My Queue</h3>"
+        f"{priority_subtitle}"
         f"{priority_body}"
         "</div>"
     )
