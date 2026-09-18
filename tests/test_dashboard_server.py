@@ -4561,6 +4561,13 @@ def test_resolve_gitlab_issue_url_tolerates_surrounding_whitespace():
     assert result == ("harbor", 482)
 
 
+def test_resolve_gitlab_issue_url_matches_a_work_items_link():
+    prefixes = {"harbor": "https://gitlab.acme.com/acme/harbor/harbor"}
+    result = ds._resolve_gitlab_issue_url(
+        "https://gitlab.acme.com/acme/harbor/harbor/-/work_items/482", prefixes)
+    assert result == ("harbor", 482)
+
+
 def test_resolve_gitlab_issue_url_rejects_untracked_project():
     prefixes = {"harbor": "https://gitlab.acme.com/acme/harbor/harbor"}
     result = ds._resolve_gitlab_issue_url(

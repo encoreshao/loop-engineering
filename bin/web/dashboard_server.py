@@ -1369,11 +1369,14 @@ def _resolve_gitlab_issue_url(url, prefixes):
     {alias: base_url} map. Returns (alias, issue_iid) on a match, or None
     if it doesn't match any tracked project's issue URL shape - wrong
     host, wrong project, or not an issue URL at all (e.g. a merge
-    request link). Pure function, no I/O, so the caller (_chat_tool_run_issue)
-    controls exactly which prefixes are considered."""
+    request link). Accepts both the classic /-/issues/ path and GitLab's
+    newer /-/work_items/ path - both address the same issue, GitLab just
+    links to the latter from some views (e.g. boards, linked-items lists).
+    Pure function, no I/O, so the caller (_chat_tool_run_issue) controls
+    exactly which prefixes are considered."""
     url = url.strip()
     for alias, base_url in prefixes.items():
-        pattern = re.escape(base_url.rstrip("/")) + r"/-/issues/(\d+)/?$"
+        pattern = re.escape(base_url.rstrip("/")) + r"/-/(?:issues|work_items)/(\d+)/?$"
         match = re.match(pattern, url)
         if match:
             return alias, int(match.group(1))
