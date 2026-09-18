@@ -160,6 +160,31 @@ def test_run_all_topics_writes_one_result_per_topic(tmp_path, monkeypatch):
     ]
 
 
+def test_run_all_topics_skips_disabled_topics_when_names_not_given(tmp_path, monkeypatch):
+    topics_path = tmp_path / "topics.json"
+    topics_path.write_text(json.dumps([
+        {"name": "ai-news", "label": "AI news", "brief": "b", "slack_bundle": None, "enabled": True},
+        {"name": "rust-lang", "label": "Rust", "brief": "b", "slack_bundle": None, "enabled": False},
+    ]))
+    monkeypatch.setattr(tmr.topic_config, "DEFAULT_CONFIG_PATH", topics_path)
+
+    calls = []
+
+    def fake_invoke(name, repo_root=None, timeout_seconds=1800, unified_log_path=None):
+        calls.append(name)
+        return {"changed": True, "cost_usd": None}
+
+    monkeypatch.setattr(tmr, "invoke_topic_agent", fake_invoke)
+
+    tmr.run_all_topics(
+        "run_20260907_100000", results_dir=tmp_path / "loop-runs",
+        definition_path=REPO_ROOT / "loops" / "topic-monitor" / "loop.yaml",
+        events_dir=tmp_path / "events",
+    )
+
+    assert calls == ["ai-news"]
+
+
 def test_run_all_topics_continues_after_one_topic_fails(tmp_path, monkeypatch):
     def fake_invoke(name, repo_root=None, timeout_seconds=1800, unified_log_path=None):
         if name == "ai-news":

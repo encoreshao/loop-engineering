@@ -5700,6 +5700,21 @@ def test_render_topic_settings_page_includes_edit_and_delete_forms_for_each_topi
     assert "value='AI news'" in output
     assert "Major AI news." in output
     assert "action='/topic-monitor/topics/ai-news/delete'" in output
+    assert "action='/topic-monitor/topics/ai-news/disable'" in output
+    assert "class='switch is-on'" in output
+
+
+def test_render_topic_settings_page_shows_enable_switch_for_a_disabled_topic(monkeypatch):
+    monkeypatch.setattr(ds, "get_configured_topics", lambda *a, **k: [
+        {"name": "ai-news", "label": "AI news", "brief": "Major AI news.", "slack_bundle": None, "enabled": False},
+    ])
+    monkeypatch.setattr(ds, "read_topic_status", lambda *a, **k: {"topics": {}})
+    monkeypatch.setattr(ds, "read_gitlab_config", lambda *a, **k: {"bundles": {}})
+
+    output = ds.render_topic_settings_page()
+
+    assert "action='/topic-monitor/topics/ai-news/enable'" in output
+    assert "class='switch is-off'" in output
 
 
 def test_render_topic_settings_page_includes_add_topic_form(monkeypatch):
@@ -5789,6 +5804,56 @@ def test_topic_monitor_topics_delete_route_requires_csrf(monkeypatch, tmp_path):
         status, _headers, _body = _post(port, "/topic-monitor/topics/ai-news/delete", {"csrf_token": ""})
         assert status == 403
     assert topic_config.list_names(topics_path) == ["ai-news"]
+
+
+def test_topic_monitor_topics_disable_route_requires_csrf(monkeypatch, tmp_path):
+    topics_path = tmp_path / "topics.json"
+    topic_config.upsert_topic("ai-news", "AI news", "Brief.", "", topics_path)
+    monkeypatch.setattr(topic_config, "DEFAULT_CONFIG_PATH", topics_path)
+
+    with _running_server() as port:
+        status, _headers, _body = _post(port, "/topic-monitor/topics/ai-news/disable", {"csrf_token": ""})
+        assert status == 403
+    assert topic_config.get_topic("ai-news", topics_path)["enabled"] is True
+
+
+def test_topic_monitor_topics_disable_route_success(monkeypatch, tmp_path):
+    topics_path = tmp_path / "topics.json"
+    topic_config.upsert_topic("ai-news", "AI news", "Brief.", "", topics_path)
+    monkeypatch.setattr(topic_config, "DEFAULT_CONFIG_PATH", topics_path)
+
+    with _running_server() as port:
+        status, headers, _body = _post(port, "/topic-monitor/topics/ai-news/disable", {"csrf_token": ds._CSRF_TOKEN})
+        assert status == 303
+        parsed = _flash_from_location(headers.get("Location"), prefix="/topic-monitor/settings?")
+        assert parsed["ok"] == ["1"]
+    assert topic_config.get_topic("ai-news", topics_path)["enabled"] is False
+
+
+def test_topic_monitor_topics_enable_route_requires_csrf(monkeypatch, tmp_path):
+    topics_path = tmp_path / "topics.json"
+    topic_config.upsert_topic("ai-news", "AI news", "Brief.", "", topics_path)
+    topic_config.set_enabled("ai-news", False, topics_path)
+    monkeypatch.setattr(topic_config, "DEFAULT_CONFIG_PATH", topics_path)
+
+    with _running_server() as port:
+        status, _headers, _body = _post(port, "/topic-monitor/topics/ai-news/enable", {"csrf_token": ""})
+        assert status == 403
+    assert topic_config.get_topic("ai-news", topics_path)["enabled"] is False
+
+
+def test_topic_monitor_topics_enable_route_success(monkeypatch, tmp_path):
+    topics_path = tmp_path / "topics.json"
+    topic_config.upsert_topic("ai-news", "AI news", "Brief.", "", topics_path)
+    topic_config.set_enabled("ai-news", False, topics_path)
+    monkeypatch.setattr(topic_config, "DEFAULT_CONFIG_PATH", topics_path)
+
+    with _running_server() as port:
+        status, headers, _body = _post(port, "/topic-monitor/topics/ai-news/enable", {"csrf_token": ds._CSRF_TOKEN})
+        assert status == 303
+        parsed = _flash_from_location(headers.get("Location"), prefix="/topic-monitor/settings?")
+        assert parsed["ok"] == ["1"]
+    assert topic_config.get_topic("ai-news", topics_path)["enabled"] is True
 
 
 def test_trigger_topic_monitor_run_refuses_when_a_topic_is_running(tmp_path):

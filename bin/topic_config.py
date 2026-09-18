@@ -70,7 +70,12 @@ def upsert_topic(name, label, brief, slack_bundle="", config_path=DEFAULT_CONFIG
     state - callers should treat it as fixed once a topic has ever run,
     the same way GitLab project aliases are fixed once configured). Blank
     `slack_bundle` means "use the default webhook", stored as `None` to
-    match config/topics.json.template's own convention."""
+    match config/topics.json.template's own convention.
+
+    An edit preserves the existing entry's `enabled` value rather than
+    resetting it - saving label/brief/slack_bundle changes on the settings
+    page must not silently re-enable a topic someone disabled. A brand new
+    topic defaults to enabled."""
     name = name.strip()
     label = label.strip()
     brief = brief.strip()
@@ -82,17 +87,38 @@ def upsert_topic(name, label, brief, slack_bundle="", config_path=DEFAULT_CONFIG
     if not brief:
         return False, "Brief is required"
     topics = _load_topics_or_empty(config_path)
-    entry = {"name": name, "label": label, "brief": brief, "slack_bundle": slack_bundle or None}
+    enabled = True
     is_new = True
     for i, t in enumerate(topics):
         if t["name"] == name:
-            topics[i] = entry
+            enabled = t.get("enabled", True)
             is_new = False
             break
+    entry = {"name": name, "label": label, "brief": brief, "slack_bundle": slack_bundle or None, "enabled": enabled}
     if is_new:
         topics.append(entry)
+    else:
+        for i, t in enumerate(topics):
+            if t["name"] == name:
+                topics[i] = entry
+                break
     _write_topics(topics, config_path)
     return True, f"{'Added' if is_new else 'Updated'} topic {name}"
+
+
+def set_enabled(name, enabled, config_path=None):
+    """Flip one topic's "enabled" field and write topics.json back.
+    Returns (ok, message); (False, ...) and no write at all if no topic
+    named `name` is configured - same contract as loops_config.set_enabled."""
+    if config_path is None:
+        config_path = DEFAULT_CONFIG_PATH
+    topics = _load_topics_or_empty(config_path)
+    for topic in topics:
+        if topic["name"] == name:
+            topic["enabled"] = bool(enabled)
+            _write_topics(topics, config_path)
+            return True, f"{'Enabled' if enabled else 'Disabled'} topic {name}"
+    return False, f"No topic named {name!r} in {config_path}"
 
 
 def delete_topic(name, config_path=DEFAULT_CONFIG_PATH):

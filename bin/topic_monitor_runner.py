@@ -355,7 +355,14 @@ def run_all_topics(run_id, results_dir=None, definition_path=None, repo_root=Non
     if repo_root is None:
         repo_root = REPO_ROOT
     if names is None:
-        names = topic_config.list_names()
+        # Skip disabled topics on a real scheduled run - list_names() alone
+        # returns every configured topic, enabled or not, since it also
+        # backs the plain "names" CLI listing and the settings page.
+        # topic_config.DEFAULT_CONFIG_PATH is read explicitly here, not
+        # left to load_config's own default argument, since that default is
+        # bound once at import time and would silently ignore a test's (or
+        # LOOP_ENGINEERING_HOME's) override of the module attribute.
+        names = [t["name"] for t in topic_config.load_config(topic_config.DEFAULT_CONFIG_PATH) if t.get("enabled", True)]
 
     definition = LoopDefinition.from_yaml(definition_path)
 

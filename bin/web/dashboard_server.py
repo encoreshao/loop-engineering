@@ -7282,6 +7282,35 @@ def render_topic_monitor_page(flash=None, flash_ok=True):
     )
 
 
+def _topic_action_html(topic, csrf_input):
+    """The enable/disable switch for one Topic Settings row - same
+    .switch is-on/is-off form pattern as _loop_action_html, pointed at
+    /topic-monitor/topics/<name>/enable|disable instead of
+    /daemons/loops/<name>/.... Also trivially reversible (flip it back any
+    time), not a real system-level daemon load/unload, so no data-confirm."""
+    name = topic.get("name", "?")
+    safe_name = html.escape(str(name))
+    url_safe_name = urllib.parse.quote(str(name), safe="")
+    enabled = topic.get("enabled", True)
+    if enabled:
+        return (
+            f"<form method='post' action='/topic-monitor/topics/{url_safe_name}/disable' class='daemon-action-form'>"
+            f"{csrf_input}"
+            f"<button type='submit' class='switch is-on' role='switch' aria-checked='true' "
+            f"aria-label='Disable {safe_name}' title='Disable {safe_name}'>"
+            "<span class='switch-thumb'></span></button>"
+            "</form>"
+        )
+    return (
+        f"<form method='post' action='/topic-monitor/topics/{url_safe_name}/enable' class='daemon-action-form'>"
+        f"{csrf_input}"
+        f"<button type='submit' class='switch is-off' role='switch' aria-checked='false' "
+        f"aria-label='Enable {safe_name}' title='Enable {safe_name}'>"
+        "<span class='switch-thumb'></span></button>"
+        "</form>"
+    )
+
+
 def render_topic_settings_page(flash=None, flash_ok=True):
     """Topic Settings page: adding/editing/deleting topics - split out of
     render_topic_monitor_page (see its docstring) so editing configuration
@@ -7290,7 +7319,8 @@ def render_topic_settings_page(flash=None, flash_ok=True):
     about configuration, not live status.
 
     `flash`/`flash_ok` carry a POST-redirect-GET result from
-    /topic-monitor/topics or /topic-monitor/topics/<name>/delete."""
+    /topic-monitor/topics, /topic-monitor/topics/<name>/delete, or
+    /topic-monitor/topics/<name>/enable|disable."""
     status = read_status(STATUS_PATH)
     topics = get_configured_topics()
     bundles = read_gitlab_config(GITLAB_CONFIG_PATH).get("bundles", {})
@@ -7329,6 +7359,7 @@ def render_topic_settings_page(flash=None, flash_ok=True):
 </form>
 <div class='topic-row-actions'>
 <button type='submit' form='{edit_form_id}' class='btn btn-neutral'>Save</button>
+{_topic_action_html(topic, csrf_input)}
 <form method='post' action='/topic-monitor/topics/{url_safe_name}/delete' id='{delete_form_id}'>{csrf_input}</form>
 <button type='submit' form='{delete_form_id}' class='btn btn-warning' data-confirm="{delete_confirm}">
 <span class='material-symbols-outlined' aria-hidden='true'>delete</span> Delete</button>
@@ -9020,6 +9051,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             name = urllib.parse.unquote(self.path[len("/topic-monitor/topics/"):-len("/delete")])
             ok, message = topic_config.delete_topic(name, topic_config.DEFAULT_CONFIG_PATH)
+            self._redirect_with_flash(ok, message, location="/topic-monitor/settings")
+            return
+
+        if self.path.startswith("/topic-monitor/topics/") and self.path.endswith("/enable"):
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            name = urllib.parse.unquote(self.path[len("/topic-monitor/topics/"):-len("/enable")])
+            ok, message = topic_config.set_enabled(name, True)
+            self._redirect_with_flash(ok, message, location="/topic-monitor/settings")
+            return
+
+        if self.path.startswith("/topic-monitor/topics/") and self.path.endswith("/disable"):
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            name = urllib.parse.unquote(self.path[len("/topic-monitor/topics/"):-len("/disable")])
+            ok, message = topic_config.set_enabled(name, False)
             self._redirect_with_flash(ok, message, location="/topic-monitor/settings")
             return
 

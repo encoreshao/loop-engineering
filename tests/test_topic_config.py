@@ -104,7 +104,7 @@ def test_upsert_topic_creates_file_when_missing(tmp_path):
     assert ok, message
     assert "Added" in message
     topics = topic_config.load_config(config_path)
-    assert topics == [{"name": "ai-news", "label": "AI news", "brief": "Major AI news.", "slack_bundle": None}]
+    assert topics == [{"name": "ai-news", "label": "AI news", "brief": "Major AI news.", "slack_bundle": None, "enabled": True}]
 
 
 def test_upsert_topic_adds_to_existing_list(tmp_path):
@@ -127,7 +127,56 @@ def test_upsert_topic_updates_existing_entry_in_place(tmp_path):
     topics = topic_config.load_config(config_path)
     assert [t["name"] for t in topics] == ["ai-news", "rust-lang"]
     updated = topic_config.get_topic("ai-news", config_path)
-    assert updated == {"name": "ai-news", "label": "AI News Updated", "brief": "New brief.", "slack_bundle": "eng-bundle"}
+    assert updated == {"name": "ai-news", "label": "AI News Updated", "brief": "New brief.", "slack_bundle": "eng-bundle", "enabled": True}
+
+
+def test_upsert_topic_preserves_disabled_state_on_edit(tmp_path):
+    config_path = write_config(tmp_path / "topics.json")
+    topic_config.set_enabled("ai-news", False, config_path)
+
+    ok, message = topic_config.upsert_topic("ai-news", "AI News Updated", "New brief.", "", config_path)
+
+    assert ok, message
+    assert topic_config.get_topic("ai-news", config_path)["enabled"] is False
+
+
+def test_upsert_topic_new_entry_defaults_to_enabled(tmp_path):
+    config_path = write_config(tmp_path / "topics.json")
+
+    topic_config.upsert_topic("new-topic", "New Topic", "Something new.", "", config_path)
+
+    assert topic_config.get_topic("new-topic", config_path)["enabled"] is True
+
+
+def test_set_enabled_disables_a_topic(tmp_path):
+    config_path = write_config(tmp_path / "topics.json")
+
+    ok, message = topic_config.set_enabled("ai-news", False, config_path)
+
+    assert ok, message
+    assert "Disabled" in message
+    assert topic_config.get_topic("ai-news", config_path)["enabled"] is False
+    assert topic_config.get_topic("rust-lang", config_path).get("enabled", True) is True
+
+
+def test_set_enabled_reenables_a_topic(tmp_path):
+    config_path = write_config(tmp_path / "topics.json")
+    topic_config.set_enabled("ai-news", False, config_path)
+
+    ok, message = topic_config.set_enabled("ai-news", True, config_path)
+
+    assert ok, message
+    assert "Enabled" in message
+    assert topic_config.get_topic("ai-news", config_path)["enabled"] is True
+
+
+def test_set_enabled_unknown_name_returns_false(tmp_path):
+    config_path = write_config(tmp_path / "topics.json")
+
+    ok, message = topic_config.set_enabled("does-not-exist", False, config_path)
+
+    assert not ok
+    assert "No topic named" in message
 
 
 def test_upsert_topic_blank_slack_bundle_means_default_webhook(tmp_path):
