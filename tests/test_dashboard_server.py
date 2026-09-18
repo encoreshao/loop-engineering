@@ -127,6 +127,57 @@ def test_write_topic_status_preserves_other_topics(tmp_path):
     assert data["topics"]["rust-lang"]["state"] == "running"
 
 
+def test_migrate_topic_rename_moves_the_status_entry(tmp_path):
+    status_path = tmp_path / "status.json"
+    ds.write_topic_status("ai-news", "idle", status_path=status_path, current_step="done")
+
+    ds._migrate_topic_rename("ai-news", "ai-updates", status_path=status_path,
+                             history_dir=tmp_path / "history", state_dir=tmp_path / "state")
+
+    data = ds.read_topic_status(status_path)
+    assert "ai-news" not in data["topics"]
+    assert data["topics"]["ai-updates"]["state"] == "idle"
+    assert data["topics"]["ai-updates"]["current_step"] == "done"
+
+
+def test_migrate_topic_rename_moves_history_files_only_for_that_topic(tmp_path):
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    (history_dir / "2026-09-17-ai-news.md").write_text("old briefing")
+    (history_dir / "2026-09-18-ai-news.md").write_text("newer briefing")
+    (history_dir / "2026-09-18-rust-lang.md").write_text("unrelated topic")
+
+    ds._migrate_topic_rename("ai-news", "ai-updates", status_path=tmp_path / "status.json",
+                             history_dir=history_dir, state_dir=tmp_path / "state")
+
+    remaining = sorted(p.name for p in history_dir.iterdir())
+    assert remaining == [
+        "2026-09-17-ai-updates.md",
+        "2026-09-18-ai-updates.md",
+        "2026-09-18-rust-lang.md",
+    ]
+    assert (history_dir / "2026-09-18-ai-updates.md").read_text() == "newer briefing"
+
+
+def test_migrate_topic_rename_moves_the_dedup_state_file(tmp_path):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    (state_dir / "ai-news.json").write_text('[{"url": "x", "title": "y", "seen_at": "z"}]')
+
+    ds._migrate_topic_rename("ai-news", "ai-updates", status_path=tmp_path / "status.json",
+                             history_dir=tmp_path / "history", state_dir=state_dir)
+
+    assert not (state_dir / "ai-news.json").exists()
+    assert (state_dir / "ai-updates.json").exists()
+
+
+def test_migrate_topic_rename_is_a_no_op_for_a_never_run_topic(tmp_path):
+    """Nothing saved yet for this topic - no status entry, no history, no
+    dedup state - so there's nothing to move, and this must not raise."""
+    ds._migrate_topic_rename("brand-new", "still-new", status_path=tmp_path / "status.json",
+                             history_dir=tmp_path / "history", state_dir=tmp_path / "state")
+
+
 def test_main_write_topic_status_writes_expected_json(tmp_path, monkeypatch):
     status_path = tmp_path / "status.json"
     monkeypatch.setattr(ds, "TOPIC_MONITOR_STATUS_PATH", status_path)
@@ -5770,6 +5821,8 @@ def test_render_topic_settings_page_includes_add_topic_form(monkeypatch):
     assert output.count("action='/topic-monitor/topics'") == 1
     assert "placeholder='topic name'" in output
     assert "Add topic" in output
+    assert "<textarea name='brief'" in output
+    assert "class='topic-row-switch-spacer'" in output
 
 
 @pytest.mark.xfail(
@@ -5806,6 +5859,75 @@ def test_topic_monitor_topics_route_edit_success(monkeypatch, tmp_path):
             "name": "ai-news", "label": "AI news", "brief": "New brief.", "slack_bundle": "", "csrf_token": token,
         })
         assert status == 303
+    assert topic_config.get_topic("ai-news", topics_path)["brief"] == "New brief."
+
+
+def test_topic_monitor_topics_route_renames_and_migrates_history(monkeypatch, tmp_path):
+    topics_path = tmp_path / "topics.json"
+    topic_config.upsert_topic("ai-news", "AI News", "Old brief.", "", topics_path)
+    monkeypatch.setattr(topic_config, "DEFAULT_CONFIG_PATH", topics_path)
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    (history_dir / "2026-09-18-ai-news.md").write_text("briefing")
+    monkeypatch.setattr(ds, "TOPIC_MONITOR_HISTORY_DIR", history_dir)
+    status_path = tmp_path / "status.json"
+    ds.write_topic_status("ai-news", "idle", status_path=status_path)
+    monkeypatch.setattr(ds, "TOPIC_MONITOR_STATUS_PATH", status_path)
+
+    with _running_server() as port:
+        status, headers, _body = _post(port, "/topic-monitor/topics", {
+            "original_name": "ai-news", "name": "ai-updates", "label": "AI Updates",
+            "brief": "New brief.", "slack_bundle": "", "csrf_token": ds._CSRF_TOKEN,
+        })
+        assert status == 303
+        parsed = _flash_from_location(headers.get("Location"), prefix="/topic-monitor/settings?")
+        assert parsed["ok"] == ["1"]
+
+    assert topic_config.list_names(topics_path) == ["ai-updates"]
+    updated = topic_config.get_topic("ai-updates", topics_path)
+    assert updated["label"] == "AI Updates"
+    assert updated["brief"] == "New brief."
+    assert (history_dir / "2026-09-18-ai-updates.md").exists()
+    assert not (history_dir / "2026-09-18-ai-news.md").exists()
+    data = ds.read_topic_status(status_path)
+    assert "ai-updates" in data["topics"]
+    assert "ai-news" not in data["topics"]
+
+
+def test_topic_monitor_topics_route_rename_collision_leaves_topics_untouched(monkeypatch, tmp_path):
+    topics_path = tmp_path / "topics.json"
+    topic_config.upsert_topic("ai-news", "AI News", "Brief.", "", topics_path)
+    topic_config.upsert_topic("rust-lang", "Rust", "Brief.", "", topics_path)
+    monkeypatch.setattr(topic_config, "DEFAULT_CONFIG_PATH", topics_path)
+
+    with _running_server() as port:
+        status, headers, _body = _post(port, "/topic-monitor/topics", {
+            "original_name": "ai-news", "name": "rust-lang", "label": "AI News",
+            "brief": "Brief.", "slack_bundle": "", "csrf_token": ds._CSRF_TOKEN,
+        })
+        assert status == 303
+        parsed = _flash_from_location(headers.get("Location"), prefix="/topic-monitor/settings?")
+        assert parsed["ok"] == ["0"]
+
+    assert topic_config.list_names(topics_path) == ["ai-news", "rust-lang"]
+    assert topic_config.get_topic("ai-news", topics_path)["label"] == "AI News"
+
+
+def test_topic_monitor_topics_route_same_name_is_a_plain_field_update(monkeypatch, tmp_path):
+    """original_name == name (the common case - editing label/brief without
+    touching the identifier) must not go through the rename path at all."""
+    topics_path = tmp_path / "topics.json"
+    topic_config.upsert_topic("ai-news", "AI News", "Old brief.", "", topics_path)
+    monkeypatch.setattr(topic_config, "DEFAULT_CONFIG_PATH", topics_path)
+
+    with _running_server() as port:
+        status, _headers, _body = _post(port, "/topic-monitor/topics", {
+            "original_name": "ai-news", "name": "ai-news", "label": "AI News",
+            "brief": "New brief.", "slack_bundle": "", "csrf_token": ds._CSRF_TOKEN,
+        })
+        assert status == 303
+
+    assert topic_config.list_names(topics_path) == ["ai-news"]
     assert topic_config.get_topic("ai-news", topics_path)["brief"] == "New brief."
 
 

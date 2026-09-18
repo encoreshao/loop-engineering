@@ -57,6 +57,7 @@ import memory_store
 import metrics
 import project_memory
 import topic_config
+import topic_seen
 
 LOOP_DIR = Path(__file__).resolve().parent.parent.parent
 STATUS_PATH = LOOP_DIR / "outputs" / "status.json"
@@ -394,6 +395,42 @@ def write_topic_status(topic_name, state, status_path=None, **extra):
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
     return data
+
+
+def _migrate_topic_rename(old_name, new_name, status_path=None, history_dir=None, state_dir=None):
+    """Carry over everything a topic rename must move: topic_config.rename_topic
+    only touches topics.json, but the topic's saved history briefings,
+    its status.json entry, and its topic_seen dedup "seen" state file are
+    all separately keyed by the topic's name on disk - left alone, a
+    rename would silently orphan all three under the old name. Best-effort
+    on each piece: a topic with no saved history, no status entry yet
+    (never run), or no dedup state yet has nothing to move for that piece,
+    which is expected, not an error."""
+    if status_path is None:
+        status_path = TOPIC_MONITOR_STATUS_PATH
+    if history_dir is None:
+        history_dir = TOPIC_MONITOR_HISTORY_DIR
+    if state_dir is None:
+        state_dir = topic_seen.DEFAULT_STATE_DIR
+
+    history_dir = Path(history_dir)
+    old_suffix = f"{old_name}.md"
+    for filename in list_topic_history(old_name, history_dir=history_dir):
+        new_filename = filename[: -len(old_suffix)] + f"{new_name}.md"
+        (history_dir / filename).rename(history_dir / new_filename)
+
+    old_state_path = Path(state_dir) / f"{Path(old_name).name}.json"
+    if old_state_path.exists():
+        new_state_path = Path(state_dir) / f"{Path(new_name).name}.json"
+        old_state_path.rename(new_state_path)
+
+    data = read_topic_status(status_path)
+    if old_name in data["topics"]:
+        data["topics"][new_name] = data["topics"].pop(old_name)
+        path = Path(status_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
 
 
 def read_messages(path=None):
@@ -3137,7 +3174,7 @@ _FONT_FACE_VARS = "\n".join(
 _MATERIAL_SYMBOLS_ICON_NAMES = (
     "account_balance_wallet,add,bolt,check_circle,chevron_left,circle,delete,description,"
     "dns,edit_note,error,expand_more,extension,fact_check,folder,folder_off,forum,history,lightbulb,loop,merge,monitoring,newspaper,"
-    "open_in_new,palette,payments,send,settings,smart_toy,space_dashboard,speed,terminal,topic,tune,warning"
+    "open_in_new,palette,payments,save,send,settings,smart_toy,space_dashboard,speed,terminal,topic,tune,warning"
 )
 
 
@@ -4236,9 +4273,17 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
    used for Save targeting the edit form it isn't nested inside. */
 .topic-row {{ display: flex; gap: 0.75rem; align-items: flex-start; }}
 .topic-row-switch {{ flex: 0 0 auto; margin: 0.15rem 0 0; }}
+/* The Add-topic row has nothing to enable/disable yet, but keeps this
+   same-width empty spacer in the switch's column so its fields line up
+   with every edited topic row above it. */
+.topic-row-switch-spacer {{ flex: 0 0 auto; width: 40px; }}
 .topic-row-fields {{ flex: 1 1 auto; min-width: 0; }}
 .topic-row-line1 {{ display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-bottom: 0.4rem; }}
-.topic-row-name-chip {{ flex: 0 0 auto; }}
+.topic-row-name-input {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; flex: 0 1 160px; min-width: 110px; }}
+/* Wide enough for the longest option label ("(use default webhook)") to
+   render on one line without the .custom-select-value ellipsis kicking in
+   under normal row widths. */
+.topic-row-line1 .custom-select {{ flex: 1 1 220px; min-width: 200px; }}
 .topic-row-fields .topic-row-brief {{ display: block; width: 100%; min-height: 3.2em; resize: vertical; }}
 .topic-row-actions {{ display: flex; flex-direction: column; gap: 0.4rem; flex: 0 0 auto; margin: 0; }}
 .topic-row-actions form {{ margin: 0; }}
@@ -4343,6 +4388,11 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
   cursor: pointer;
   transition: border-color 150ms ease, background-color 150ms ease;
 }}
+/* Without this, the selected-value span wraps to two lines the moment its
+   flex sibling (a label input, say) leaves it less width than its text
+   needs - truncate with an ellipsis instead, same as any other single-line
+   control. */
+.custom-select-value {{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }}
 .custom-select-trigger:hover {{ background: var(--md-surface-container-high); }}
 .custom-select-trigger:focus-visible {{ border-color: var(--md-primary); border-width: 2px; outline: none; }}
 .custom-select.is-open .custom-select-trigger {{ border-color: var(--md-primary); border-width: 2px; }}
@@ -4400,6 +4450,7 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
   cursor: pointer;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.3rem;
   transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
 }}
@@ -7367,16 +7418,17 @@ def render_topic_settings_page(flash=None, flash_ok=True):
 {_topic_action_html(topic, csrf_input)}
 <form method='post' action='/topic-monitor/topics' class='daemon-action-form topic-row-fields' id='{edit_form_id}'>
 {csrf_input}
-<input type='hidden' name='name' value='{safe_name}'>
+<input type='hidden' name='original_name' value='{safe_name}'>
 <div class='topic-row-line1'>
 <input type='text' name='label' value='{html.escape(topic.get("label", ""))}' placeholder='label' required>
-<code class='topic-row-name-chip'>{safe_name}</code>
+<input type='text' name='name' value='{safe_name}' placeholder='topic name' class='topic-row-name-input' required>
 {_custom_select('slack_bundle', bundles, topic.get('slack_bundle') or '', empty_label='(use default webhook)')}
 </div>
 <textarea name='brief' rows='2' placeholder='what counts as notable' class='topic-row-brief' required>{html.escape(topic.get("brief", ""))}</textarea>
 </form>
 <div class='topic-row-actions'>
-<button type='submit' form='{edit_form_id}' class='btn btn-neutral'>Save</button>
+<button type='submit' form='{edit_form_id}' class='btn btn-neutral'>
+<span class='material-symbols-outlined' aria-hidden='true'>save</span> Save</button>
 <form method='post' action='/topic-monitor/topics/{url_safe_name}/delete' id='{delete_form_id}'>{csrf_input}</form>
 <button type='submit' form='{delete_form_id}' class='btn btn-warning' data-confirm="{delete_confirm}">
 <span class='material-symbols-outlined' aria-hidden='true'>delete</span> Delete</button>
@@ -7386,15 +7438,32 @@ def render_topic_settings_page(flash=None, flash_ok=True):
 """)
     settings_html = "".join(settings_blocks)
 
+    # Same .topic-row skeleton as every edited topic above (switch column -
+    # here an empty spacer, since there's nothing to enable/disable before
+    # a topic exists - fields column with a line1 group plus a full-width
+    # brief textarea, actions column on the right) so this reads as one
+    # continuous list rather than a differently-shaped row bolted on the
+    # end. `name` is a real input here, unlike the read-only code chip on
+    # an existing topic's row, since this is the one place it's still
+    # being chosen.
     add_topic_form = f"""
-<form method='post' action='/topic-monitor/topics' class='daemon-action-form add-row-form'>
+<div class='project-block topic-settings-row'>
+<div class='topic-row'>
+<div class='topic-row-switch-spacer'></div>
+<form method='post' action='/topic-monitor/topics' class='daemon-action-form topic-row-fields' id='topic-add-form'>
 {csrf_input}
+<div class='topic-row-line1'>
 <input type='text' name='name' placeholder='topic name' required>
 <input type='text' name='label' placeholder='label' required>
-<input type='text' name='brief' placeholder='what counts as notable' required>
 {_custom_select('slack_bundle', bundles, None, empty_label='(use default webhook)')}
-<button type='submit' class='btn btn-neutral'><span class='material-symbols-outlined' aria-hidden='true'>add</span> Add topic</button>
+</div>
+<textarea name='brief' rows='2' placeholder='what counts as notable' class='topic-row-brief' required></textarea>
 </form>
+<div class='topic-row-actions'>
+<button type='submit' form='topic-add-form' class='btn btn-neutral'><span class='material-symbols-outlined' aria-hidden='true'>add</span> Add topic</button>
+</div>
+</div>
+</div>
 """
 
     body = f"""
@@ -9058,6 +9127,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
             label = form.get("label", [""])[0]
             brief = form.get("brief", [""])[0]
             slack_bundle = form.get("slack_bundle", [""])[0]
+            # `original_name` is a hidden field present only on an existing
+            # topic's edit form (see render_topic_settings_page) - its own
+            # `name` field is editable now, not just Add-topic's, so a
+            # changed value here means a rename, not a plain field update.
+            # Migrate everything keyed by the old name (history files,
+            # status.json, dedup state - see _migrate_topic_rename) before
+            # saving the rest of the fields under the new one, so nothing
+            # is silently orphaned under the old identifier.
+            original_name = form.get("original_name", [""])[0].strip()
+            if original_name and original_name != name.strip():
+                ok, message = topic_config.rename_topic(original_name, name, topic_config.DEFAULT_CONFIG_PATH)
+                if not ok:
+                    self._redirect_with_flash(False, message, location="/topic-monitor/settings")
+                    return
+                _migrate_topic_rename(original_name, name.strip())
             ok, message = topic_config.upsert_topic(name, label, brief, slack_bundle, topic_config.DEFAULT_CONFIG_PATH)
             self._redirect_with_flash(ok, message, location="/topic-monitor/settings")
             return

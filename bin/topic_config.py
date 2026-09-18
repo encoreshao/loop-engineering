@@ -106,6 +106,34 @@ def upsert_topic(name, label, brief, slack_bundle="", config_path=DEFAULT_CONFIG
     return True, f"{'Added' if is_new else 'Updated'} topic {name}"
 
 
+def rename_topic(old_name, new_name, config_path=None):
+    """Rename a topic's identity in topics.json in place, preserving its
+    other fields (label/brief/slack_bundle/enabled). This module only
+    knows about topics.json - a caller that also needs to migrate the
+    saved history files, status.json entry, and topic_seen dedup state
+    that are keyed by the old name on disk does that separately (see
+    dashboard_server.py's _migrate_topic_rename). Returns (ok, message);
+    a blank new_name, an unknown old_name, or a collision with an existing
+    other topic is (False, ...) with no write at all."""
+    if config_path is None:
+        config_path = DEFAULT_CONFIG_PATH
+    old_name = old_name.strip()
+    new_name = new_name.strip()
+    if not new_name:
+        return False, "Topic name is required"
+    if old_name == new_name:
+        return True, "No change to topic name"
+    topics = _load_topics_or_empty(config_path)
+    if any(t["name"] == new_name for t in topics):
+        return False, f"A topic named {new_name!r} already exists"
+    for topic in topics:
+        if topic["name"] == old_name:
+            topic["name"] = new_name
+            _write_topics(topics, config_path)
+            return True, f"Renamed topic {old_name} to {new_name}"
+    return False, f"No topic named {old_name!r} in {config_path}"
+
+
 def set_enabled(name, enabled, config_path=None):
     """Flip one topic's "enabled" field and write topics.json back.
     Returns (ok, message); (False, ...) and no write at all if no topic

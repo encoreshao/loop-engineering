@@ -179,6 +179,64 @@ def test_set_enabled_unknown_name_returns_false(tmp_path):
     assert "No topic named" in message
 
 
+def test_rename_topic_updates_the_name_field(tmp_path):
+    config_path = write_config(tmp_path / "topics.json")
+
+    ok, message = topic_config.rename_topic("ai-news", "ai-updates", config_path)
+
+    assert ok, message
+    assert topic_config.list_names(config_path) == ["ai-updates", "rust-lang"]
+
+
+def test_rename_topic_preserves_other_fields(tmp_path):
+    config_path = write_config(tmp_path / "topics.json")
+
+    topic_config.rename_topic("rust-lang", "rust-releases", config_path)
+
+    renamed = topic_config.get_topic("rust-releases", config_path)
+    assert renamed["label"] == "Rust language"
+    assert renamed["brief"] == "Rust releases and RFCs."
+    assert renamed["slack_bundle"] == "eng-bundle"
+
+
+def test_rename_topic_rejects_collision_with_an_existing_other_topic(tmp_path):
+    config_path = write_config(tmp_path / "topics.json")
+
+    ok, message = topic_config.rename_topic("ai-news", "rust-lang", config_path)
+
+    assert not ok
+    assert "already exists" in message
+    assert topic_config.list_names(config_path) == ["ai-news", "rust-lang"]
+
+
+def test_rename_topic_unknown_old_name_returns_false(tmp_path):
+    config_path = write_config(tmp_path / "topics.json")
+
+    ok, message = topic_config.rename_topic("does-not-exist", "new-name", config_path)
+
+    assert not ok
+    assert "No topic named" in message
+
+
+def test_rename_topic_blank_new_name_is_rejected(tmp_path):
+    config_path = write_config(tmp_path / "topics.json")
+
+    ok, message = topic_config.rename_topic("ai-news", "  ", config_path)
+
+    assert not ok
+    assert "required" in message.lower()
+    assert topic_config.list_names(config_path) == ["ai-news", "rust-lang"]
+
+
+def test_rename_topic_same_name_is_a_no_op(tmp_path):
+    config_path = write_config(tmp_path / "topics.json")
+
+    ok, message = topic_config.rename_topic("ai-news", "ai-news", config_path)
+
+    assert ok, message
+    assert topic_config.list_names(config_path) == ["ai-news", "rust-lang"]
+
+
 def test_upsert_topic_blank_slack_bundle_means_default_webhook(tmp_path):
     config_path = write_config(tmp_path / "topics.json")
 
