@@ -48,4 +48,22 @@ else
   git -C "$REPO_PATH" worktree add -b "$BRANCH" "$WORKTREE_PATH" "origin/$DEFAULT_BRANCH" >&2
 fi
 
+# .ruby-version (and similar per-developer version pins) is commonly
+# gitignored, so `git worktree add` never brings it along — it only checks
+# out tracked files. Without it, rbenv/nvm/etc. fall back to whatever pin
+# file they find further up the filesystem (e.g. a stale $HOME/.ruby-version),
+# silently running the wrong runtime version inside the worktree. Copy it
+# from the source repo on every run, including follow-ups, so a pin added
+# after the worktree already exists still gets picked up.
+if [ -f "$REPO_PATH/.ruby-version" ]; then
+  cp "$REPO_PATH/.ruby-version" "$WORKTREE_PATH/.ruby-version"
+fi
+
+# `git worktree add` checks out a submodule's placeholder directory (empty)
+# but never runs `submodule update --init` for it — submodule checkouts are
+# per-worktree, not shared with the main checkout. Run it unconditionally
+# (it's a no-op with nothing to do) so both a brand-new worktree and a
+# follow-up run that just merged in a newly-added submodule get it.
+git -C "$WORKTREE_PATH" submodule update --init --recursive >&2
+
 echo "$WORKTREE_PATH"
