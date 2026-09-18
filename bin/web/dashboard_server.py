@@ -4223,20 +4223,28 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
    gap of its own - give it some breathing room from the last table row
    above it. */
 .daemon-action-form.add-row-form {{ margin-top: 0.85rem; }}
-/* Topic Settings row (render_topic_settings_page): label + Slack bundle
-   share line 1, the "what counts as notable" description gets its own
-   full-width line 2 (flex-basis: 100% forces the wrap inside the already
-   flex-wrap: wrap .daemon-action-form), and Save/Delete sit together as
-   one button column beside the fields rather than Delete trailing below
-   in its own separate row. The Delete <form> itself renders with no
-   visible content (just its CSRF input) - its button lives in
-   .topic-row-actions and targets it via `form=`, the same trick used for
-   Save targeting the edit form it isn't nested inside. */
+/* Topic Settings row (render_topic_settings_page): the enable/disable
+   switch leads the row (its own single-button <form>), then the editable
+   fields span two lines - label input + read-only name chip + Slack
+   bundle share line 1, the "what counts as notable" description gets its
+   own full-width textarea as line 2, big enough to actually write a brief
+   in rather than scroll a single-line input sideways - and Save/Delete
+   sit together as one button column on the right rather than Delete
+   trailing below in its own separate row. The Delete <form> itself
+   renders with no visible content (just its CSRF input) - its button
+   lives in .topic-row-actions and targets it via `form=`, the same trick
+   used for Save targeting the edit form it isn't nested inside. */
 .topic-row {{ display: flex; gap: 0.75rem; align-items: flex-start; }}
+.topic-row-switch {{ flex: 0 0 auto; margin: 0.15rem 0 0; }}
 .topic-row-fields {{ flex: 1 1 auto; min-width: 0; }}
-.topic-row-fields .topic-row-brief {{ flex-basis: 100%; }}
+.topic-row-line1 {{ display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-bottom: 0.4rem; }}
+.topic-row-name-chip {{ flex: 0 0 auto; }}
+.topic-row-fields .topic-row-brief {{ display: block; width: 100%; min-height: 3.2em; resize: vertical; }}
 .topic-row-actions {{ display: flex; flex-direction: column; gap: 0.4rem; flex: 0 0 auto; margin: 0; }}
 .topic-row-actions form {{ margin: 0; }}
+/* Disabled topics stay fully legible (never opacity so low it reads as
+   "broken"), just visibly muted while scanning the list. */
+.topic-settings-row.is-disabled {{ opacity: 0.6; }}
 .daemon-action-form input[type='text'],
 .daemon-action-form input[type='password'],
 .daemon-action-form input[type='time'],
@@ -7186,7 +7194,12 @@ def render_topic_monitor_page(flash=None, flash_ok=True):
     button's /topic-monitor/run-now route, same convention as
     render_overview_page's own /run-now button."""
     status = read_status(STATUS_PATH)
-    topics = get_configured_topics()
+    # Disabled topics are configuration, not something to show a live status
+    # card for here - they never run, so a status card for one would either
+    # go stale forever or (for one that's never run) just repeat the same
+    # "never_run" badge alongside topics that actually do run. Manage
+    # enabled/disabled on the Topic Settings page instead.
+    topics = [t for t in get_configured_topics() if t.get("enabled", True)]
     topic_status = read_topic_status(TOPIC_MONITOR_STATUS_PATH)["topics"]
     any_topic_running = any(entry.get("state") == "running" for entry in topic_status.values())
 
@@ -7204,9 +7217,9 @@ def render_topic_monitor_page(flash=None, flash_ok=True):
         # run with nothing to actually research. Hidden outright rather
         # than shown disabled-with-a-hint (contrast render_overview_page's
         # own use of _run_now_action_html's disabled_hint_html): this
-        # page's own topics_html already renders "No topics configured
-        # yet. Add one on the Topic Settings page." right above this exact
-        # spot, so a second, separate explanation here would just repeat it.
+        # page's own topics_html already renders "No enabled topics, so
+        # there's nothing to monitor." right above this exact spot, so a
+        # second, separate explanation here would just repeat it.
         run_now_form = ""
     else:
         run_now_form = _run_now_action_html(
@@ -7217,8 +7230,8 @@ def render_topic_monitor_page(flash=None, flash_ok=True):
 
     if not topics:
         topics_html = _empty_state_html(
-            "No topics configured yet, so there's nothing to monitor.",
-            "/topic-monitor/settings", "Set up a topic",
+            "No enabled topics, so there's nothing to monitor.",
+            "/topic-monitor/settings", "Manage topics",
         )
         latest_data_section = ""
     else:
@@ -7287,14 +7300,16 @@ def _topic_action_html(topic, csrf_input):
     .switch is-on/is-off form pattern as _loop_action_html, pointed at
     /topic-monitor/topics/<name>/enable|disable instead of
     /daemons/loops/<name>/.... Also trivially reversible (flip it back any
-    time), not a real system-level daemon load/unload, so no data-confirm."""
+    time), not a real system-level daemon load/unload, so no data-confirm.
+    Carries the `.topic-row-switch` class so it renders first in the row,
+    ahead of the editable fields, per the row layout `.topic-row` lays out."""
     name = topic.get("name", "?")
     safe_name = html.escape(str(name))
     url_safe_name = urllib.parse.quote(str(name), safe="")
     enabled = topic.get("enabled", True)
     if enabled:
         return (
-            f"<form method='post' action='/topic-monitor/topics/{url_safe_name}/disable' class='daemon-action-form'>"
+            f"<form method='post' action='/topic-monitor/topics/{url_safe_name}/disable' class='daemon-action-form topic-row-switch'>"
             f"{csrf_input}"
             f"<button type='submit' class='switch is-on' role='switch' aria-checked='true' "
             f"aria-label='Disable {safe_name}' title='Disable {safe_name}'>"
@@ -7302,7 +7317,7 @@ def _topic_action_html(topic, csrf_input):
             "</form>"
         )
     return (
-        f"<form method='post' action='/topic-monitor/topics/{url_safe_name}/enable' class='daemon-action-form'>"
+        f"<form method='post' action='/topic-monitor/topics/{url_safe_name}/enable' class='daemon-action-form topic-row-switch'>"
         f"{csrf_input}"
         f"<button type='submit' class='switch is-off' role='switch' aria-checked='false' "
         f"aria-label='Enable {safe_name}' title='Enable {safe_name}'>"
@@ -7335,7 +7350,6 @@ def render_topic_settings_page(flash=None, flash_ok=True):
     settings_blocks = []
     for index, topic in enumerate(topics):
         name = topic["name"]
-        label = topic.get("label", name)
         safe_name = html.escape(name)
         url_safe_name = urllib.parse.quote(name, safe="")
         delete_confirm = html.escape(f"Delete topic {name}? This does not delete its saved briefings.", quote=True)
@@ -7346,20 +7360,23 @@ def render_topic_settings_page(flash=None, flash_ok=True):
         # targets it via the `form=` attribute, same trick used for Save.
         edit_form_id = f"topic-edit-form-{index}"
         delete_form_id = f"topic-delete-form-{index}"
+        disabled_class = "" if topic.get("enabled", True) else " is-disabled"
         settings_blocks.append(f"""
-<div class='project-block'>
-<h3>{html.escape(str(label))} <code>{safe_name}</code></h3>
+<div class='project-block topic-settings-row{disabled_class}'>
 <div class='topic-row'>
+{_topic_action_html(topic, csrf_input)}
 <form method='post' action='/topic-monitor/topics' class='daemon-action-form topic-row-fields' id='{edit_form_id}'>
 {csrf_input}
 <input type='hidden' name='name' value='{safe_name}'>
+<div class='topic-row-line1'>
 <input type='text' name='label' value='{html.escape(topic.get("label", ""))}' placeholder='label' required>
+<code class='topic-row-name-chip'>{safe_name}</code>
 {_custom_select('slack_bundle', bundles, topic.get('slack_bundle') or '', empty_label='(use default webhook)')}
-<input type='text' name='brief' value='{html.escape(topic.get("brief", ""))}' placeholder='what counts as notable' class='topic-row-brief' required>
+</div>
+<textarea name='brief' rows='2' placeholder='what counts as notable' class='topic-row-brief' required>{html.escape(topic.get("brief", ""))}</textarea>
 </form>
 <div class='topic-row-actions'>
 <button type='submit' form='{edit_form_id}' class='btn btn-neutral'>Save</button>
-{_topic_action_html(topic, csrf_input)}
 <form method='post' action='/topic-monitor/topics/{url_safe_name}/delete' id='{delete_form_id}'>{csrf_input}</form>
 <button type='submit' form='{delete_form_id}' class='btn btn-warning' data-confirm="{delete_confirm}">
 <span class='material-symbols-outlined' aria-hidden='true'>delete</span> Delete</button>

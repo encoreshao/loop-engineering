@@ -5483,7 +5483,19 @@ def test_render_topic_monitor_page_shows_no_topics_message_when_unconfigured(mon
 
     output = ds.render_topic_monitor_page()
 
-    assert "No topics configured" in output
+    assert "No enabled topics" in output
+
+
+def test_render_topic_monitor_page_hides_disabled_topics(monkeypatch):
+    monkeypatch.setattr(ds, "get_configured_topics", lambda *a, **k: [
+        {"name": "ai-news", "label": "AI news", "brief": "x", "slack_bundle": None, "enabled": True},
+        {"name": "rust-lang", "label": "Rust Language", "brief": "x", "slack_bundle": None, "enabled": False},
+    ])
+
+    output = ds.render_topic_monitor_page()
+
+    assert "AI news" in output
+    assert "Rust Language" not in output
 
 
 def test_render_topic_monitor_page_shows_empty_state_with_topic_settings_link_when_no_topics(monkeypatch):
@@ -5702,6 +5714,37 @@ def test_render_topic_settings_page_includes_edit_and_delete_forms_for_each_topi
     assert "action='/topic-monitor/topics/ai-news/delete'" in output
     assert "action='/topic-monitor/topics/ai-news/disable'" in output
     assert "class='switch is-on'" in output
+    assert "<textarea name='brief'" in output
+    assert "class='project-block topic-settings-row'" in output
+
+
+def test_render_topic_settings_page_puts_the_switch_before_the_editable_fields(monkeypatch):
+    """Per the approved row redesign: the enable/disable switch leads each
+    row, ahead of the label/name/Slack-bundle/brief fields, not tucked
+    into the trailing action column with Save/Delete."""
+    monkeypatch.setattr(ds, "get_configured_topics", lambda *a, **k: [
+        {"name": "ai-news", "label": "AI news", "brief": "Major AI news.", "slack_bundle": None},
+    ])
+    monkeypatch.setattr(ds, "read_topic_status", lambda *a, **k: {"topics": {}})
+    monkeypatch.setattr(ds, "read_gitlab_config", lambda *a, **k: {"bundles": {}})
+
+    output = ds.render_topic_settings_page()
+
+    switch_index = output.index("action='/topic-monitor/topics/ai-news/disable'")
+    fields_index = output.index("id='topic-edit-form-0'")
+    assert switch_index < fields_index
+
+
+def test_render_topic_settings_page_marks_a_disabled_topic_row(monkeypatch):
+    monkeypatch.setattr(ds, "get_configured_topics", lambda *a, **k: [
+        {"name": "ai-news", "label": "AI news", "brief": "Major AI news.", "slack_bundle": None, "enabled": False},
+    ])
+    monkeypatch.setattr(ds, "read_topic_status", lambda *a, **k: {"topics": {}})
+    monkeypatch.setattr(ds, "read_gitlab_config", lambda *a, **k: {"bundles": {}})
+
+    output = ds.render_topic_settings_page()
+
+    assert "class='project-block topic-settings-row is-disabled'" in output
 
 
 def test_render_topic_settings_page_shows_enable_switch_for_a_disabled_topic(monkeypatch):
