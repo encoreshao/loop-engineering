@@ -67,16 +67,19 @@ For each topic name:
 
    Layout:
    - Line 1: `*<label> briefing (<YYYY-MM-DD>)*`
-   - Blank line, then one `• ` bullet per notable item: `• *<item title>*: <one-or-two sentence description> — <<url>|source>`
-   - If nothing new turned up, the message is just the header line followed by `_Nothing notable since the last run._`
+   - Blank line, then the same one-sentence summary written at the top of today's briefing file (step 5), in `_italics_`, as its own section.
+   - Blank line, then one `• ` bullet per notable item: `• *<item title>*: <one-or-two sentence description> — <<url>|<domain>>` — where `<domain>` is the item's source domain (the URL's host with any leading `www.` stripped, e.g. `techcrunch.com`), never the literal word "source".
+   - If nothing new turned up, the message is just the header line followed by `_Nothing notable since the last run._` (no separate summary section in that case — the "nothing new" line already is the summary).
 
    Example invocation (use a `$(cat <<'SLACKMSG' ... SLACKMSG)` heredoc so newlines and quotes survive):
    ```
    python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "$(cat <<'SLACKMSG'
    *<label> briefing (<YYYY-MM-DD>)*
 
-   • *<item 1 title>*: <description> — <<url1>|source>
-   • *<item 2 title>*: <description> — <<url2>|source>
+   _<one-sentence summary>_
+
+   • *<item 1 title>*: <description> — <<url1>|techcrunch.com>
+   • *<item 2 title>*: <description> — <<url2>|siliconangle.com>
    SLACKMSG
    )"
    ```
