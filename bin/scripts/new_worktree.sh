@@ -59,6 +59,20 @@ if [ -f "$REPO_PATH/.ruby-version" ]; then
   cp "$REPO_PATH/.ruby-version" "$WORKTREE_PATH/.ruby-version"
 fi
 
+# config/database.yml (per-developer DB credentials) is the same kind of gap:
+# commonly gitignored, so it's never brought into the worktree either. Without
+# it, `bundle exec rspec` can't boot at all (no database config) — and, less
+# obviously, rubocop-rails' Rails/BulkChangeTable cop can't detect the DB
+# adapter without this file, which makes any pre-existing
+# `# rubocop:disable Rails/BulkChangeTable` migration comment look like a
+# bogus "redundant disable" lint offense. That false positive has shown up as
+# an apparent pre-existing-lint-debt blocker on kurrant.web verification runs
+# when it was really just this missing file. Copy it on every run, including
+# follow-ups, same as .ruby-version above.
+if [ -f "$REPO_PATH/config/database.yml" ]; then
+  cp "$REPO_PATH/config/database.yml" "$WORKTREE_PATH/config/database.yml"
+fi
+
 # `git worktree add` checks out a submodule's placeholder directory (empty)
 # but never runs `submodule update --init` for it — submodule checkouts are
 # per-worktree, not shared with the main checkout. Run it unconditionally

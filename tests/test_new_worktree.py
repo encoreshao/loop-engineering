@@ -188,6 +188,66 @@ def test_new_worktree_copies_untracked_ruby_version_into_existing_worktree(tmp_p
     assert (Path(second.stdout.strip()) / ".ruby-version").read_text() == "3.4.7\n"
 
 
+def test_new_worktree_copies_untracked_database_yml_into_new_worktree(tmp_path):
+    repo = make_repo(tmp_path)
+    # config/database.yml is commonly gitignored (per-developer DB
+    # credentials), so `git worktree add` never copies it — same gap as
+    # .ruby-version above. Without it, `bundle exec rspec` can't even boot
+    # (no database config), and rubocop-rails' Rails/BulkChangeTable cop
+    # can't detect the DB adapter either, which makes any pre-existing
+    # `# rubocop:disable Rails/BulkChangeTable` migration comment look like
+    # a bogus "redundant disable" lint offense — a false positive purely
+    # from the missing file, not real lint debt.
+    (repo / "config").mkdir()
+    (repo / "config" / "application.rb").write_text("# app config\n")
+    run_git(repo, "add", "config/application.rb")
+    (repo / ".gitignore").write_text("config/database.yml\n")
+    run_git(repo, "add", ".gitignore")
+    run_git(repo, "commit", "-m", "add tracked config, gitignore database.yml")
+    run_git(repo, "push", "origin", "staging")
+    (repo / "config" / "database.yml").write_text("development:\n  adapter: postgresql\n")
+    worktree_root = tmp_path / "worktrees"
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
+        check=True, capture_output=True, text=True,
+    )
+    worktree_path = Path(result.stdout.strip())
+
+    assert (worktree_path / "config" / "database.yml").read_text() == "development:\n  adapter: postgresql\n"
+
+
+def test_new_worktree_copies_untracked_database_yml_into_existing_worktree(tmp_path):
+    repo = make_repo(tmp_path)
+    (repo / "config").mkdir()
+    (repo / "config" / "application.rb").write_text("# app config\n")
+    run_git(repo, "add", "config/application.rb")
+    (repo / ".gitignore").write_text("config/database.yml\n")
+    run_git(repo, "add", ".gitignore")
+    run_git(repo, "commit", "-m", "add tracked config, gitignore database.yml")
+    run_git(repo, "push", "origin", "staging")
+    worktree_root = tmp_path / "worktrees"
+
+    first = subprocess.run(
+        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
+        check=True, capture_output=True, text=True,
+    )
+    worktree_path = Path(first.stdout.strip())
+    assert not (worktree_path / "config" / "database.yml").exists()
+
+    # The credentials file appears later (e.g. a developer sets up their
+    # local DB after the worktree already exists); a follow-up run on the
+    # same issue should pick it up too, not just first creation.
+    (repo / "config" / "database.yml").write_text("development:\n  adapter: postgresql\n")
+
+    second = subprocess.run(
+        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
+        check=True, capture_output=True, text=True,
+    )
+
+    assert (Path(second.stdout.strip()) / "config" / "database.yml").read_text() == "development:\n  adapter: postgresql\n"
+
+
 def test_new_worktree_initializes_submodules_in_new_worktree(tmp_path):
     repo = make_repo(tmp_path)
     # `git worktree add` checks out the submodule's placeholder directory
