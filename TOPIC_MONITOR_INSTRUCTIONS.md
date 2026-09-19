@@ -63,25 +63,39 @@ For each topic name:
    python3 <loop_dir>/bin/topic_seen.py add <name> "<url>" "<title>"
    ```
 
-7. **Notify Slack.** One message containing the full briefing, not a condensed one-liner — every notable item from today's briefing file, each with its own description and source link — formatted in **Slack's mrkdwn**, not GitHub-flavored Markdown (Slack does not render `#` headings or `[text](url)` links; use `*bold*`, `_italic_`, a leading `• ` per bullet, and `<url|link text>` for links). The dashboard is localhost-only, so never link to it.
+7. **Notify Slack.** Send the full briefing as **Slack Block Kit blocks** via `slack_notify.py`'s `--blocks=` flag, not a single wall-of-text message — a header block, then one section block per notable item, so it renders as distinct rows instead of one dense paragraph. Every notable item from today's briefing file gets its own section block, each with its own description and source link. Text inside each block still uses **Slack's mrkdwn**, not GitHub-flavored Markdown (Slack does not render `#` headings or `[text](url)` links inside block text either; use `*bold*`, `_italic_`, and `<url|link text>` for links). The dashboard is localhost-only, so never link to it.
 
-   Layout:
-   - Line 1: `*<label> briefing (<YYYY-MM-DD>)*`
-   - Blank line, then the same one-sentence summary written at the top of today's briefing file (step 5), in `_italics_`, as its own section.
-   - Blank line, then one `• ` bullet per notable item: `• *<item title>*: <one-or-two sentence description> — <<url>|<domain>>` — where `<domain>` is the item's source domain (the URL's host with any leading `www.` stripped, e.g. `techcrunch.com`), never the literal word "source".
-   - If nothing new turned up, the message is just the header line followed by `_Nothing notable since the last run._` (no separate summary section in that case — the "nothing new" line already is the summary).
+   Blocks array, in order:
+   - A `header` block: `{"type": "header", "text": {"type": "plain_text", "text": "<label> briefing (<YYYY-MM-DD>)"}}`
+   - If nothing new turned up: exactly one more block, a `section` whose text is `_Nothing notable since the last run._`, then skip straight to the invocation below (no summary block, no divider, no item blocks).
+   - Otherwise: a `section` block whose text is the same one-sentence summary written at the top of today's briefing file (step 5), in `_italics_`.
+   - A `divider` block.
+   - One `section` block per notable item, text: `*<item title>*: <one-or-two sentence description> — <<url>|<domain>>` — where `<domain>` is the item's source domain (the URL's host with any leading `www.` stripped, e.g. `techcrunch.com`), never the literal word "source".
 
-   Example invocation (use a `$(cat <<'SLACKMSG' ... SLACKMSG)` heredoc so newlines and quotes survive):
+   `slack_notify.py` requires a trailing positional message too — Slack's own fallback text, shown in notification previews and by any client that can't render blocks. Use the same header line for it.
+
+   Example invocation (use a `$(cat <<'BLOCKS' ... BLOCKS)` heredoc for the JSON so newlines and quotes survive):
    ```
-   python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "$(cat <<'SLACKMSG'
-   *<label> briefing (<YYYY-MM-DD>)*
-
-   _<one-sentence summary>_
-
-   • *<item 1 title>*: <description> — <<url1>|techcrunch.com>
-   • *<item 2 title>*: <description> — <<url2>|siliconangle.com>
-   SLACKMSG
-   )"
+   python3 <loop_dir>/bin/slack_notify.py<bundle_flag> --blocks="$(cat <<'BLOCKS'
+   [
+     {"type": "header", "text": {"type": "plain_text", "text": "<label> briefing (<YYYY-MM-DD>)"}},
+     {"type": "section", "text": {"type": "mrkdwn", "text": "_<one-sentence summary>_"}},
+     {"type": "divider"},
+     {"type": "section", "text": {"type": "mrkdwn", "text": "*<item 1 title>*: <description> — <<url1>|techcrunch.com>"}},
+     {"type": "section", "text": {"type": "mrkdwn", "text": "*<item 2 title>*: <description> — <<url2>|siliconangle.com>"}}
+   ]
+   BLOCKS
+   )" "<label> briefing (<YYYY-MM-DD>)"
+   ```
+   And for a quiet day:
+   ```
+   python3 <loop_dir>/bin/slack_notify.py<bundle_flag> --blocks="$(cat <<'BLOCKS'
+   [
+     {"type": "header", "text": {"type": "plain_text", "text": "<label> briefing (<YYYY-MM-DD>)"}},
+     {"type": "section", "text": {"type": "mrkdwn", "text": "_Nothing notable since the last run._"}}
+   ]
+   BLOCKS
+   )" "<label> briefing (<YYYY-MM-DD>)"
    ```
    `<bundle_flag>` is the empty string if this topic's `slack_bundle` is `null`, or ` --bundle=<slack_bundle>` (including the leading space) otherwise — same convention `LOOPX_INSTRUCTIONS.md` uses for GitLab loop notifications.
 
