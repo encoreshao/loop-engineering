@@ -208,6 +208,38 @@ competing for a 64px rail); if a collapsed/narrow layout ever "loses" an
 element that has `display` set correctly, check the flex-shrink math on
 its container before touching `display` again.
 
+## A bare `bundle exec rubocop` lint_cmd silently breaks under `worktree_root`
+
+Any `worktree_root` nested under a dot-directory (the scaffolded default,
+`~/.loop-engineering/worktrees`, is one) trips a real RuboCop quirk:
+`TargetFinder#hidden_path?` (`lib/rubocop/target_finder.rb`) treats any
+scan root whose path contains a hidden (dot-prefixed) directory component
+as a "hidden path," and for that case only, skips every *file-level*
+`AllCops: Exclude` entry — directory-level excludes like `vendor/**/*`
+still get pruned normally, but per-file excludes (`Gemfile`, `Capfile`,
+`bin/*`, a specific old migration) do not. So a project's own worktree,
+scanned with a bare `bundle exec rubocop`, reports pre-existing "offenses"
+in files the project explicitly excludes — offenses a normal checkout of
+the same commit never shows, since it isn't under a dot-directory. This
+showed up for real as a loop-posted GitLab comment second-guessing a lint
+"baseline" that didn't actually exist; nothing was wrong with the target
+project's code, config, or the loop's decision logic — only with how the
+configured `lint_cmd` string happened to be phrased.
+
+Fix it at the `lint_cmd` layer in `~/.loop-engineering/projects.json`, not
+by moving `worktree_root`: pass an explicit path argument, e.g.
+`bundle exec rubocop .` instead of bare `bundle exec rubocop`. An explicit
+path argument makes `TargetFinder` take `process_explicit_path`/the
+`target_files_in_dir(arg)` branch with a *relative* base dir ("."), which
+isn't subject to `hidden_path?`, so per-file Excludes apply correctly
+again — confirmed directly by running both forms back-to-back in the same
+worktree and diffing the file counts and offenses. This isn't
+rubocop-specific in principle (any tool with its own "am I scanning a
+dotfiles-style hidden path" heuristic could do the same thing), so if a
+future project's `lint_cmd` shows a similar "offenses only in the loop's
+worktree, never locally" gap, suspect this same class of bug before
+suspecting the project's config.
+
 ## Git hygiene for this repo
 
 - `outputs/` (`daily-review.md`, `messages.json`, `history/*.md`), `.claude/`,
