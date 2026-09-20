@@ -94,6 +94,14 @@ CUSTOM_INSTRUCTIONS_PATH = LOOP_ENGINEERING_HOME / "instructions.md"
 GITLAB_API = Path.home() / ".encore-skills" / "skills" / "gitlab-config" / "scripts" / "gitlab_api.py"
 GITLAB_CONFIG_PATH = Path.home() / ".gitlab" / "config.json"
 SLACK_CONFIG_PATH = Path.home() / ".slack" / "config.json"
+# Shipped example/default Block Kit templates, one per file, keyed by
+# filename stem - see docs/slack-templates/README.md. Always available in
+# the Block Kit Builder's dropdown alongside whatever the user has saved to
+# SLACK_CONFIG_PATH; a saved template of the same name takes precedence
+# (see render_general_settings_page/send_test_block_template) since these
+# files are never written to - saving from the UI only ever writes
+# SLACK_CONFIG_PATH.
+DEFAULT_BLOCK_TEMPLATES_DIR = LOOP_DIR / "docs" / "slack-templates"
 
 SKILLS_ROOT = Path.home() / ".encore-skills"
 SETUP_SH = LOOP_DIR / "bin" / "scripts" / "setup.sh"
@@ -2515,6 +2523,34 @@ _BLOCK_TEMPLATE_NOTIFICATION_KEYS = {
 }
 
 
+def read_default_block_templates(dir_path=None):
+    """The shipped example/default Block Kit templates under
+    docs/slack-templates/*.json - one file per template, keyed by filename
+    stem. Best-effort per file, same contract as read_slack_config: a
+    missing directory, or any file that isn't a JSON object with a
+    `blocks` list, is skipped rather than failing the whole page."""
+    if dir_path is None:
+        dir_path = DEFAULT_BLOCK_TEMPLATES_DIR
+    templates = {}
+    try:
+        paths = sorted(Path(dir_path).glob("*.json"))
+    except OSError:
+        return templates
+    for path in paths:
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict) or not isinstance(data.get("blocks"), list):
+            continue
+        templates[path.stem] = {
+            "blocks": data["blocks"],
+            "notification_key": data.get("notification_key"),
+        }
+    return templates
+
+
 def upsert_block_template(name, blocks_json, notification_key, original_name="", config_path=None):
     """Add, update, or rename one entry in ~/.slack/config.json's
     `block_templates` map. `blocks_json` is the raw JSON string the Block
@@ -2586,17 +2622,23 @@ def delete_block_template(name, config_path=None):
     return True, f"Deleted template {name}"
 
 
-def send_test_block_template(name, config_path=None):
+def send_test_block_template(name, config_path=None, defaults_dir=None):
     """Sends a template's blocks to the currently configured webhook right
     now, with {{message}} substituted for a fixed placeholder (there is no
-    real alert text at test time)."""
+    real alert text at test time). Looks up `name` in the user's saved
+    block_templates first, falling back to the shipped defaults under
+    DEFAULT_BLOCK_TEMPLATES_DIR (read_default_block_templates) so an
+    unsaved default can be tested straight from the Block Kit Builder -
+    same precedence as render_general_settings_page's merge."""
     if config_path is None:
         config_path = SLACK_CONFIG_PATH
     config = read_slack_config(config_path)
-    templates = config.get("block_templates", {})
-    if name not in templates:
+    template = config.get("block_templates", {}).get(name)
+    if template is None:
+        template = read_default_block_templates(defaults_dir).get(name)
+    if template is None:
         return False, f"Unknown template: {name}"
-    blocks = slack_notify.substitute_message(templates[name].get("blocks", []), "(test message)")
+    blocks = slack_notify.substitute_message(template.get("blocks", []), "(test message)")
     try:
         slack_notify.post_message("(test message)", blocks=blocks, config_path=config_path)
     except Exception as exc:  # noqa: BLE001 - surfaced to the user via the flash message, not raised
@@ -6931,8 +6973,16 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     # --- Notifications tab (formerly render_slack_page/GET /notifications) ---
     webhook_url = slack_config.get("webhook_url", "")
     webhook_display = _mask_secret(webhook_url) if webhook_url else "(not set)"
-    block_templates = slack_config.get("block_templates", {})
+    saved_block_templates = slack_config.get("block_templates", {})
+    default_block_templates = read_default_block_templates()
+    # Defaults first, then any saved-only extras appended after (JS object
+    # key order follows insertion order and keeps an overwritten key's
+    # original position) - a saved template of the same name overrides the
+    # shipped default's content but keeps its place in the dropdown.
+    block_templates = {**default_block_templates, **saved_block_templates}
+    default_only_names = [name for name in default_block_templates if name not in saved_block_templates]
     block_templates_json = json.dumps(block_templates).replace("<", "\\u003c")
+    default_only_names_json = json.dumps(default_only_names).replace("<", "\\u003c")
     notification_key_options = "".join(
         f"<option value='{html.escape(key)}'>{html.escape(label)}</option>"
         for key, label in _BLOCK_TEMPLATE_NOTIFICATION_KEYS.items()
@@ -6951,8 +7001,9 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
 
 <section class="card">
 <div class="section-header">{_SECTION_ICON_BLOCK_KIT_BUILDER}<h2>Block Kit Builder</h2></div>
-<p class="section-subtitle">Compose a Slack Block Kit template, optionally bind it to a real loop alert, and preview the JSON that will be sent. <code>{{{{message}}}}</code> in any text field is replaced with the real alert text when a bound template fires.</p>
+<p class="section-subtitle">Compose a Slack Block Kit template, optionally bind it to a real loop alert, and preview the JSON that will be sent. <code>{{{{message}}}}</code> in any text field is replaced with the real alert text when a bound template fires. Templates marked "(default)" ship with the app - pick one, preview or send a test message freely, and Save to make it your own (Delete is disabled until then).</p>
 <script type="application/json" id="bkb-templates-data">{block_templates_json}</script>
+<script type="application/json" id="bkb-default-only-names-data">{default_only_names_json}</script>
 <div class="block-builder">
   <div class="block-builder-row">
     <label>Template
@@ -7004,6 +7055,7 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
 <script>
 (function() {{
   var templates = JSON.parse(document.getElementById('bkb-templates-data').textContent || '{{}}');
+  var defaultOnlyNames = JSON.parse(document.getElementById('bkb-default-only-names-data').textContent || '[]');
   var templateSelect = document.getElementById('bkb-template-select');
   var nameInput = document.getElementById('bkb-name');
   var notificationKeySelect = document.getElementById('bkb-notification-key');
@@ -7219,7 +7271,8 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     var encoded = encodeURIComponent(name || '');
     deleteForm.action = '/notifications/block-templates/' + encoded + '/delete';
     testForm.action = '/notifications/block-templates/' + encoded + '/test';
-    deleteForm.querySelector('button').disabled = !name;
+    var isUnsavedDefault = defaultOnlyNames.indexOf(name) !== -1;
+    deleteForm.querySelector('button').disabled = !name || isUnsavedDefault;
     testForm.querySelector('button').disabled = !name;
   }}
 
@@ -7256,7 +7309,7 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
   Object.keys(templates).forEach(function(name) {{
     var option = document.createElement('option');
     option.value = name;
-    option.textContent = name;
+    option.textContent = defaultOnlyNames.indexOf(name) !== -1 ? name + ' (default)' : name;
     templateSelect.appendChild(option);
   }});
 

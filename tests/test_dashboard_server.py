@@ -6392,6 +6392,107 @@ def test_render_general_settings_page_includes_block_kit_builder_card(monkeypatc
     assert "id=\"bkb-templates-data\"" in output
 
 
+def test_read_default_block_templates_reads_json_files_keyed_by_stem(tmp_path):
+    (tmp_path / "gitlab-wrapup-failed.json").write_text(json.dumps({
+        "notification_key": "gitlab_wrapup_failed",
+        "blocks": [{"type": "divider"}],
+    }))
+    (tmp_path / "example-success-celebration.json").write_text(json.dumps({
+        "notification_key": None,
+        "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "{{message}}"}}],
+    }))
+    (tmp_path / "README.md").write_text("not a template")
+
+    templates = ds.read_default_block_templates(tmp_path)
+
+    assert set(templates) == {"gitlab-wrapup-failed", "example-success-celebration"}
+    assert templates["gitlab-wrapup-failed"] == {
+        "notification_key": "gitlab_wrapup_failed",
+        "blocks": [{"type": "divider"}],
+    }
+
+
+def test_read_default_block_templates_skips_malformed_files(tmp_path):
+    (tmp_path / "not-json.json").write_text("not json")
+    (tmp_path / "not-a-dict.json").write_text(json.dumps(["a", "list"]))
+    (tmp_path / "blocks-not-a-list.json").write_text(json.dumps({"blocks": "nope"}))
+    (tmp_path / "ok.json").write_text(json.dumps({"notification_key": None, "blocks": []}))
+
+    templates = ds.read_default_block_templates(tmp_path)
+
+    assert set(templates) == {"ok"}
+
+
+def test_read_default_block_templates_returns_empty_for_missing_dir(tmp_path):
+    assert ds.read_default_block_templates(tmp_path / "does-not-exist") == {}
+
+
+def test_render_general_settings_page_embeds_shipped_default_block_templates(monkeypatch, tmp_path):
+    slack_path = tmp_path / "slack.json"
+    ds.write_slack_config({"block_templates": {}}, slack_path)
+    defaults_dir = tmp_path / "defaults"
+    defaults_dir.mkdir()
+    (defaults_dir / "gitlab-wrapup-failed.json").write_text(json.dumps({
+        "notification_key": "gitlab_wrapup_failed",
+        "blocks": [{"type": "divider"}],
+    }))
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", slack_path)
+    monkeypatch.setattr(ds, "DEFAULT_BLOCK_TEMPLATES_DIR", defaults_dir)
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
+
+    output = ds.render_general_settings_page(active_tab="notifications")
+
+    assert "gitlab-wrapup-failed" in output
+    assert "gitlab_wrapup_failed" in output
+
+
+def test_render_general_settings_page_saved_template_overrides_default_of_same_name(monkeypatch, tmp_path):
+    slack_path = tmp_path / "slack.json"
+    ds.write_slack_config({"block_templates": {
+        "gitlab-wrapup-failed": {
+            "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "my custom edit"}}],
+            "notification_key": "gitlab_wrapup_failed",
+        },
+    }}, slack_path)
+    defaults_dir = tmp_path / "defaults"
+    defaults_dir.mkdir()
+    (defaults_dir / "gitlab-wrapup-failed.json").write_text(json.dumps({
+        "notification_key": "gitlab_wrapup_failed",
+        "blocks": [{"type": "divider"}],
+    }))
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", slack_path)
+    monkeypatch.setattr(ds, "DEFAULT_BLOCK_TEMPLATES_DIR", defaults_dir)
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
+
+    output = ds.render_general_settings_page(active_tab="notifications")
+
+    assert "my custom edit" in output
+
+
+def test_render_general_settings_page_marks_unsaved_defaults_for_delete_disable(monkeypatch, tmp_path):
+    slack_path = tmp_path / "slack.json"
+    ds.write_slack_config({"block_templates": {
+        "gitlab-wrapup-failed": {"blocks": [{"type": "divider"}], "notification_key": "gitlab_wrapup_failed"},
+    }}, slack_path)
+    defaults_dir = tmp_path / "defaults"
+    defaults_dir.mkdir()
+    (defaults_dir / "gitlab-wrapup-failed.json").write_text(json.dumps({
+        "notification_key": "gitlab_wrapup_failed", "blocks": [{"type": "divider"}],
+    }))
+    (defaults_dir / "example-success-celebration.json").write_text(json.dumps({
+        "notification_key": None, "blocks": [],
+    }))
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", slack_path)
+    monkeypatch.setattr(ds, "DEFAULT_BLOCK_TEMPLATES_DIR", defaults_dir)
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
+
+    output = ds.render_general_settings_page(active_tab="notifications")
+
+    assert "id=\"bkb-default-only-names-data\"" in output
+    default_only_json = output.split('id="bkb-default-only-names-data">')[1].split("</script>", 1)[0]
+    assert json.loads(default_only_json) == ["example-success-celebration"]
+
+
 def test_render_general_settings_page_embeds_existing_block_templates_as_json(monkeypatch, tmp_path):
     slack_path = tmp_path / "slack.json"
     ds.write_slack_config({"block_templates": {
@@ -6814,6 +6915,44 @@ def test_send_test_block_template_reports_post_message_failure(monkeypatch, tmp_
 
     assert ok is False
     assert "network down" in message
+
+
+def test_send_test_block_template_falls_back_to_default_template(monkeypatch, tmp_path):
+    config_path = tmp_path / "slack.json"
+    ds.write_slack_config({"block_templates": {}}, config_path)
+    defaults_dir = tmp_path / "defaults"
+    defaults_dir.mkdir()
+    (defaults_dir / "t.json").write_text(json.dumps({
+        "notification_key": None,
+        "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "{{message}}"}}],
+    }))
+    captured = {}
+    monkeypatch.setattr(ds.slack_notify, "post_message", lambda text, **kwargs: captured.update(text=text, kwargs=kwargs))
+
+    ok, message = ds.send_test_block_template("t", config_path=config_path, defaults_dir=defaults_dir)
+
+    assert ok is True
+    assert captured["kwargs"]["blocks"] == [{"type": "section", "text": {"type": "mrkdwn", "text": "(test message)"}}]
+
+
+def test_send_test_block_template_prefers_saved_over_default_of_same_name(monkeypatch, tmp_path):
+    config_path = tmp_path / "slack.json"
+    ds.write_slack_config({"block_templates": {
+        "t": {"blocks": [{"type": "divider"}], "notification_key": None},
+    }}, config_path)
+    defaults_dir = tmp_path / "defaults"
+    defaults_dir.mkdir()
+    (defaults_dir / "t.json").write_text(json.dumps({
+        "notification_key": None,
+        "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "should not be used"}}],
+    }))
+    captured = {}
+    monkeypatch.setattr(ds.slack_notify, "post_message", lambda text, **kwargs: captured.update(text=text, kwargs=kwargs))
+
+    ok, message = ds.send_test_block_template("t", config_path=config_path, defaults_dir=defaults_dir)
+
+    assert ok is True
+    assert captured["kwargs"]["blocks"] == [{"type": "divider"}]
 
 
 def test_read_custom_instructions_returns_empty_string_when_missing(tmp_path):
