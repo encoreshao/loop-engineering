@@ -18,6 +18,39 @@ def load_webhook_url(config_path=DEFAULT_CONFIG_PATH, bundle=None):
     return config["webhook_url"]
 
 
+def substitute_message(node, message):
+    """Recursively replaces every literal "{{message}}" occurrence in any
+    string value within `node` (a Block Kit blocks list, or any nested
+    dict/list/string inside it) with `message`. Used both to render a
+    template bound to a real alert and to preview/send a test message."""
+    if isinstance(node, str):
+        return node.replace("{{message}}", message)
+    if isinstance(node, list):
+        return [substitute_message(item, message) for item in node]
+    if isinstance(node, dict):
+        return {key: substitute_message(value, message) for key, value in node.items()}
+    return node
+
+
+def resolve_blocks(notification_key, message, config_path=DEFAULT_CONFIG_PATH):
+    """Best-effort, same contract as dashboard_server.read_slack_config:
+    returns None on a missing/malformed config file, a falsy
+    notification_key, or no template bound to that key - never raises,
+    since a broken saved template must not prevent the real alert text
+    from going out as plain text."""
+    if not notification_key:
+        return None
+    try:
+        with open(config_path) as f:
+            config = json.load(f)
+    except (OSError, ValueError):
+        return None
+    for template in config.get("block_templates", {}).values():
+        if template.get("notification_key") == notification_key:
+            return substitute_message(template.get("blocks", []), message)
+    return None
+
+
 def post_message(text, webhook_url=None, config_path=DEFAULT_CONFIG_PATH, bundle=None, blocks=None):
     if webhook_url is None:
         webhook_url = load_webhook_url(config_path, bundle)

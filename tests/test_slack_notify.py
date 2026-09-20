@@ -205,3 +205,67 @@ def test_main_short_help_flag_prints_usage_without_posting(monkeypatch, capsys):
 
     assert exit_code == 0
     assert "Usage" in capsys.readouterr().out
+
+
+def test_substitute_message_replaces_nested_placeholder():
+    node = {
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": "Alert: {{message}}"},
+        "list": ["{{message}}", {"deep": "{{message}} again"}],
+        "unchanged": 42,
+    }
+    result = slack_notify.substitute_message(node, "disk full")
+    assert result == {
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": "Alert: disk full"},
+        "list": ["disk full", {"deep": "disk full again"}],
+        "unchanged": 42,
+    }
+
+
+def test_resolve_blocks_returns_matching_template_with_substitution(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({
+        "webhook_url": "https://hooks.slack.com/services/FAKE",
+        "block_templates": {
+            "run-failed-alert": {
+                "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "{{message}}"}}],
+                "notification_key": "gitlab_wrapup_failed",
+            },
+            "other-template": {"blocks": [{"type": "divider"}], "notification_key": None},
+        },
+    }))
+
+    blocks = slack_notify.resolve_blocks("gitlab_wrapup_failed", "disk full", config_path=config_path)
+
+    assert blocks == [{"type": "section", "text": {"type": "mrkdwn", "text": "disk full"}}]
+
+
+def test_resolve_blocks_returns_none_when_no_template_matches(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"block_templates": {}}))
+
+    assert slack_notify.resolve_blocks("gitlab_wrapup_failed", "disk full", config_path=config_path) is None
+
+
+def test_resolve_blocks_returns_none_for_falsy_notification_key(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"block_templates": {
+        "x": {"blocks": [{"type": "divider"}], "notification_key": "gitlab_wrapup_failed"},
+    }}))
+
+    assert slack_notify.resolve_blocks(None, "disk full", config_path=config_path) is None
+    assert slack_notify.resolve_blocks("", "disk full", config_path=config_path) is None
+
+
+def test_resolve_blocks_returns_none_on_malformed_config(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text("not json")
+
+    assert slack_notify.resolve_blocks("gitlab_wrapup_failed", "disk full", config_path=config_path) is None
+
+
+def test_resolve_blocks_returns_none_on_missing_config(tmp_path):
+    config_path = tmp_path / "does-not-exist.json"
+
+    assert slack_notify.resolve_blocks("gitlab_wrapup_failed", "disk full", config_path=config_path) is None
