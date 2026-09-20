@@ -7083,7 +7083,7 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     return p;
   }}
 
-  function stringList(labelText, values, onChange) {{
+  function stringList(labelText, values, onValueChange, onStructureChange) {{
     var wrap = document.createElement('div');
     wrap.className = 'block-builder-list-field';
     var span = document.createElement('span');
@@ -7096,58 +7096,58 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
       input.type = 'text';
       input.value = v;
       input.addEventListener('input', function() {{
-        var next = values.slice(); next[i] = input.value; onChange(next);
+        var next = values.slice(); next[i] = input.value; onValueChange(next);
       }});
       row.appendChild(input);
       row.appendChild(button('\\u2715', function() {{
-        var next = values.slice(); next.splice(i, 1); onChange(next.length ? next : ['']);
+        var next = values.slice(); next.splice(i, 1); onStructureChange(next.length ? next : ['']);
       }}));
       wrap.appendChild(row);
     }});
-    wrap.appendChild(button('+ Add', function() {{ onChange(values.concat([''])); }}));
+    wrap.appendChild(button('+ Add', function() {{ onStructureChange(values.concat([''])); }}));
     return wrap;
   }}
 
-  function buttonList(elements, onChange) {{
+  function buttonList(elements, onValueChange, onStructureChange) {{
     var wrap = document.createElement('div');
     wrap.className = 'block-builder-list-field';
     elements.forEach(function(el, i) {{
       var row = document.createElement('div');
       row.className = 'block-builder-list-row';
-      row.appendChild(textInput('Label', el.text.text, function(v) {{ el.text.text = v; onChange(elements); }}));
-      row.appendChild(textInput('URL', el.url, function(v) {{ el.url = v; onChange(elements); }}));
+      row.appendChild(textInput('Label', el.text.text, function(v) {{ el.text.text = v; onValueChange(elements); }}));
+      row.appendChild(textInput('URL', el.url, function(v) {{ el.url = v; onValueChange(elements); }}));
       row.appendChild(button('\\u2715', function() {{
         var next = elements.slice(); next.splice(i, 1);
-        onChange(next.length ? next : [{{ type: 'button', text: {{ type: 'plain_text', text: '' }}, url: '' }}]);
+        onStructureChange(next.length ? next : [{{ type: 'button', text: {{ type: 'plain_text', text: '' }}, url: '' }}]);
       }}));
       wrap.appendChild(row);
     }});
     wrap.appendChild(button('+ Add button', function() {{
-      onChange(elements.concat([{{ type: 'button', text: {{ type: 'plain_text', text: '' }}, url: '' }}]));
+      onStructureChange(elements.concat([{{ type: 'button', text: {{ type: 'plain_text', text: '' }}, url: '' }}]));
     }}));
     return wrap;
   }}
 
-  function cardList(cards, onChange) {{
+  function cardList(cards, onValueChange, onStructureChange) {{
     var wrap = document.createElement('div');
     wrap.className = 'block-builder-list-field';
     cards.forEach(function(card, i) {{
       var box = document.createElement('div');
       box.className = 'block-builder-subcard';
-      box.appendChild(textInput('Hero image URL', card.hero_image.image_url, function(v) {{ card.hero_image.image_url = v; onChange(cards); }}));
-      box.appendChild(textInput('Hero image alt text', card.hero_image.alt_text, function(v) {{ card.hero_image.alt_text = v; onChange(cards); }}));
-      box.appendChild(textInput('Title', card.title.text, function(v) {{ card.title.text = v; onChange(cards); }}));
-      box.appendChild(textInput('Subtitle', card.subtitle.text, function(v) {{ card.subtitle.text = v; onChange(cards); }}));
-      box.appendChild(textArea('Body ({{{{message}}}} available)', card.body.text, function(v) {{ card.body.text = v; onChange(cards); }}));
-      box.appendChild(textInput('Button label', card.actions[0].text.text, function(v) {{ card.actions[0].text.text = v; onChange(cards); }}));
-      box.appendChild(textInput('Button URL', card.actions[0].url, function(v) {{ card.actions[0].url = v; onChange(cards); }}));
+      box.appendChild(textInput('Hero image URL', card.hero_image.image_url, function(v) {{ card.hero_image.image_url = v; onValueChange(cards); }}));
+      box.appendChild(textInput('Hero image alt text', card.hero_image.alt_text, function(v) {{ card.hero_image.alt_text = v; onValueChange(cards); }}));
+      box.appendChild(textInput('Title', card.title.text, function(v) {{ card.title.text = v; onValueChange(cards); }}));
+      box.appendChild(textInput('Subtitle', card.subtitle.text, function(v) {{ card.subtitle.text = v; onValueChange(cards); }}));
+      box.appendChild(textArea('Body ({{{{message}}}} available)', card.body.text, function(v) {{ card.body.text = v; onValueChange(cards); }}));
+      box.appendChild(textInput('Button label', card.actions[0].text.text, function(v) {{ card.actions[0].text.text = v; onValueChange(cards); }}));
+      box.appendChild(textInput('Button URL', card.actions[0].url, function(v) {{ card.actions[0].url = v; onValueChange(cards); }}));
       box.appendChild(button('\\u2715 Remove card', function() {{
         var next = cards.slice(); next.splice(i, 1);
-        onChange(next.length ? next : [defaultCarouselCard()]);
+        onStructureChange(next.length ? next : [defaultCarouselCard()]);
       }}));
       wrap.appendChild(box);
     }});
-    wrap.appendChild(button('+ Add card', function() {{ onChange(cards.concat([defaultCarouselCard()])); }}));
+    wrap.appendChild(button('+ Add card', function() {{ onStructureChange(cards.concat([defaultCarouselCard()])); }}));
     return wrap;
   }}
 
@@ -7165,16 +7165,22 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
       body.appendChild(textInput('Alt text', block.alt_text, function(v) {{ block.alt_text = v; renderPreview(); }}));
     }} else if (block.type === 'context') {{
       body.appendChild(stringList('Context text elements', block.elements.map(function(e) {{ return e.text; }}),
+        function(texts) {{ block.elements = texts.map(function(t) {{ return {{ type: 'mrkdwn', text: t }}; }}); renderPreview(); }},
         function(texts) {{ block.elements = texts.map(function(t) {{ return {{ type: 'mrkdwn', text: t }}; }}); renderBlockList(); }}));
     }} else if (block.type === 'actions') {{
-      body.appendChild(buttonList(block.elements, function(elements) {{ block.elements = elements; renderBlockList(); }}));
+      body.appendChild(buttonList(block.elements,
+        function(elements) {{ block.elements = elements; renderPreview(); }},
+        function(elements) {{ block.elements = elements; renderBlockList(); }}));
     }} else if (block.type === 'section' && block.fields) {{
       body.appendChild(stringList('Fields', block.fields.map(function(f) {{ return f.text; }}),
+        function(texts) {{ block.fields = texts.map(function(t) {{ return {{ type: 'mrkdwn', text: t }}; }}); renderPreview(); }},
         function(texts) {{ block.fields = texts.map(function(t) {{ return {{ type: 'mrkdwn', text: t }}; }}); renderBlockList(); }}));
     }} else if (block.type === 'section') {{
       body.appendChild(textArea('Text ({{{{message}}}} available)', block.text.text, function(v) {{ block.text.text = v; renderPreview(); }}));
     }} else if (block.type === 'carousel') {{
-      body.appendChild(cardList(block.elements, function(elements) {{ block.elements = elements; renderBlockList(); }}));
+      body.appendChild(cardList(block.elements,
+        function(elements) {{ block.elements = elements; renderPreview(); }},
+        function(elements) {{ block.elements = elements; renderBlockList(); }}));
     }}
     return body;
   }}
