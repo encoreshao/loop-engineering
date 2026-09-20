@@ -201,15 +201,17 @@ def _append_unified_log(text, repo_root=None, unified_log_path=None):
         f.write(text if text.endswith("\n") else text + "\n")
 
 
-def _notify_slack_best_effort(message):
+def _notify_slack_best_effort(message, notification_key=None):
     """A scheduled run has nobody watching it.
     run-topic-monitor-loop.sh's ERR trap used to be the one failure alert
     this loop had, but per-topic failures are now contained by LoopRuntime
     and never reach that trap - so failures have to announce themselves
     from here instead. Mirrors bin/gitlab_loop_runner.py's own
-    `_notify_slack_best_effort`."""
+    `_notify_slack_best_effort`, including the optional `notification_key`
+    Block Kit template lookup."""
     try:
-        slack_notify.post_message(message)
+        blocks = slack_notify.resolve_blocks(notification_key, message) if notification_key else None
+        slack_notify.post_message(message, blocks=blocks)
         return True
     except Exception as exc:  # noqa: BLE001 - an alert failing must not cascade
         print(f"topic_monitor_runner: Slack notification failed: {exc}", file=sys.stderr)
@@ -259,7 +261,8 @@ def _alert_on_incomplete_results(results):
     )
     _notify_slack_best_effort(
         f"*Topic monitor loop:* {len(incomplete)} of {len(results)} topics did not "
-        f"complete — {detail} — see outputs/loop-runs/ and logs/loop-engineering.log"
+        f"complete — {detail} — see outputs/loop-runs/ and logs/loop-engineering.log",
+        notification_key="topic_monitor_incomplete",
     )
     return incomplete
 

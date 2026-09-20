@@ -52,12 +52,61 @@ def _no_real_topic_status_writes(monkeypatch, tmp_path):
     )
 
 
+@pytest.fixture(autouse=True)
+def _no_real_block_templates(monkeypatch):
+    """Mirrors bin/gitlab_loop_runner.py's own test safety net: without
+    this, _notify_slack_best_effort's call to slack_notify.resolve_blocks
+    would read the real ~/.slack/config.json from disk."""
+    monkeypatch.setattr(tmr.slack_notify, "resolve_blocks", lambda *a, **k: None)
+
+
 def test_the_modules_safety_net_stubs_both_the_ai_cli_and_slack(slack_calls):
     """Guards the safety net itself: a test that forgets to fake Slack must
     hit the recording stub rather than the real webhook."""
     assert os.environ["PATH"] == SANITIZED_PATH
     assert tmr._notify_slack_best_effort("a message nobody should receive") is True
     assert slack_calls == ["a message nobody should receive"]
+
+
+def test_notify_slack_best_effort_passes_resolved_blocks_to_post_message(monkeypatch, slack_calls):
+    captured = {}
+    monkeypatch.setattr(
+        tmr.slack_notify, "resolve_blocks",
+        lambda notification_key, message, **kwargs: [{"type": "divider"}] if notification_key == "topic_monitor_incomplete" else None,
+    )
+
+    def fake_post_message(text, **kwargs):
+        captured["text"] = text
+        captured["blocks"] = kwargs.get("blocks")
+
+    monkeypatch.setattr(tmr.slack_notify, "post_message", fake_post_message)
+
+    assert tmr._notify_slack_best_effort("topics incomplete", notification_key="topic_monitor_incomplete") is True
+
+    assert captured == {"text": "topics incomplete", "blocks": [{"type": "divider"}]}
+
+
+def test_notify_slack_best_effort_sends_no_blocks_when_no_notification_key(slack_calls):
+    assert tmr._notify_slack_best_effort("plain alert") is True
+    assert slack_calls == ["plain alert"]
+
+
+def test_alert_on_incomplete_results_passes_topic_monitor_incomplete_key(monkeypatch):
+    from loop_result import LoopResult
+    captured = {}
+    monkeypatch.setattr(
+        tmr, "_notify_slack_best_effort",
+        lambda message, notification_key=None: captured.update(message=message, notification_key=notification_key) or True,
+    )
+    result = LoopResult(
+        loop_id="loop_stub", run_id="r_topicname", definition_name="topic-monitor",
+        final_state=tmr.LoopState.FAILED, iterations=[], stop_reason="boom",
+    )
+
+    tmr._alert_on_incomplete_results([result])
+
+    assert captured["notification_key"] == "topic_monitor_incomplete"
+    assert "r_topicname" in captured["message"]
 
 
 def _write_fake_cli(bin_dir, name, output_text="a briefing", exit_code=0):
