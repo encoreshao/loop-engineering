@@ -230,12 +230,23 @@ def _notify_slack_best_effort(message, notification_key=None):
     given, looks up a saved Block Kit template bound to it (Settings ->
     Notifications) and sends its blocks alongside the plain-text message;
     with no bound template (the default on a fresh install), this sends
-    exactly what it always has."""
+    exactly what it always has. If Slack rejects a bound template's blocks
+    (e.g. malformed JSON from a hand-edited or buggy template), retries
+    once with blocks=None so the plain-text alert still has a chance -
+    losing the alert entirely would defeat the whole point of this
+    function."""
+    blocks = slack_notify.resolve_blocks(notification_key, message) if notification_key else None
     try:
-        blocks = slack_notify.resolve_blocks(notification_key, message) if notification_key else None
         slack_notify.post_message(message, blocks=blocks)
         return True
     except Exception as exc:  # noqa: BLE001 - an alert failing must not cascade
+        if blocks:
+            try:
+                slack_notify.post_message(message)
+                return True
+            except Exception as retry_exc:  # noqa: BLE001 - same reasoning
+                print(f"gitlab_loop_runner: Slack notification failed even without blocks: {retry_exc}", file=sys.stderr)
+                return False
         print(f"gitlab_loop_runner: Slack notification failed: {exc}", file=sys.stderr)
         return False
 

@@ -6406,6 +6406,21 @@ def test_render_general_settings_page_embeds_existing_block_templates_as_json(mo
     assert "gitlab_wrapup_failed" in output
 
 
+def test_render_general_settings_page_escapes_case_variant_script_close_in_template_json(monkeypatch, tmp_path):
+    slack_path = tmp_path / "slack.json"
+    ds.write_slack_config({"block_templates": {
+        "</SCRIPT><script>alert(1)</script>": {"blocks": [{"type": "divider"}], "notification_key": None},
+    }}, slack_path)
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", slack_path)
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
+
+    output = ds.render_general_settings_page(active_tab="notifications")
+
+    assert "</SCRIPT>" not in output
+    assert "</script" not in output.lower().split('id="bkb-templates-data">')[1].split("</script>", 1)[0]
+    assert "\\u003c/SCRIPT>" in output
+
+
 def test_render_settings_page_shows_default_badge(monkeypatch, tmp_path):
     gitlab_path = tmp_path / "gitlab.json"
     gitlab_path.write_text(json.dumps({

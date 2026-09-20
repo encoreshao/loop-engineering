@@ -35,19 +35,19 @@ def substitute_message(node, message):
 def resolve_blocks(notification_key, message, config_path=DEFAULT_CONFIG_PATH):
     """Best-effort, same contract as dashboard_server.read_slack_config:
     returns None on a missing/malformed config file, a falsy
-    notification_key, or no template bound to that key - never raises,
-    since a broken saved template must not prevent the real alert text
-    from going out as plain text."""
+    notification_key, no template bound to that key, or any unexpected
+    config shape - never raises, since a broken saved template must not
+    prevent the real alert text from going out as plain text."""
     if not notification_key:
         return None
     try:
         with open(config_path) as f:
             config = json.load(f)
-    except (OSError, ValueError):
+        for template in config.get("block_templates", {}).values():
+            if template.get("notification_key") == notification_key:
+                return substitute_message(template.get("blocks", []), message)
+    except (OSError, ValueError, AttributeError, TypeError):
         return None
-    for template in config.get("block_templates", {}).values():
-        if template.get("notification_key") == notification_key:
-            return substitute_message(template.get("blocks", []), message)
     return None
 
 

@@ -269,3 +269,10 @@ def test_resolve_blocks_returns_none_on_missing_config(tmp_path):
     config_path = tmp_path / "does-not-exist.json"
 
     assert slack_notify.resolve_blocks("gitlab_wrapup_failed", "disk full", config_path=config_path) is None
+
+
+def test_resolve_blocks_returns_none_when_block_templates_has_wrong_shape(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"block_templates": "not-a-dict"}))
+
+    assert slack_notify.resolve_blocks("gitlab_wrapup_failed", "disk full", config_path=config_path) is None

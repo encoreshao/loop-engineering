@@ -6932,7 +6932,7 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     webhook_url = slack_config.get("webhook_url", "")
     webhook_display = _mask_secret(webhook_url) if webhook_url else "(not set)"
     block_templates = slack_config.get("block_templates", {})
-    block_templates_json = json.dumps(block_templates).replace("</script>", "<\\/script>")
+    block_templates_json = json.dumps(block_templates).replace("<", "\\u003c")
     notification_key_options = "".join(
         f"<option value='{html.escape(key)}'>{html.escape(label)}</option>"
         for key, label in _BLOCK_TEMPLATE_NOTIFICATION_KEYS.items()

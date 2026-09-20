@@ -208,12 +208,21 @@ def _notify_slack_best_effort(message, notification_key=None):
     and never reach that trap - so failures have to announce themselves
     from here instead. Mirrors bin/gitlab_loop_runner.py's own
     `_notify_slack_best_effort`, including the optional `notification_key`
-    Block Kit template lookup."""
+    Block Kit template lookup and the retry-without-blocks fallback when
+    Slack rejects a bound template's blocks - losing the alert entirely
+    would defeat the whole point of this function."""
+    blocks = slack_notify.resolve_blocks(notification_key, message) if notification_key else None
     try:
-        blocks = slack_notify.resolve_blocks(notification_key, message) if notification_key else None
         slack_notify.post_message(message, blocks=blocks)
         return True
     except Exception as exc:  # noqa: BLE001 - an alert failing must not cascade
+        if blocks:
+            try:
+                slack_notify.post_message(message)
+                return True
+            except Exception as retry_exc:  # noqa: BLE001 - same reasoning
+                print(f"topic_monitor_runner: Slack notification failed even without blocks: {retry_exc}", file=sys.stderr)
+                return False
         print(f"topic_monitor_runner: Slack notification failed: {exc}", file=sys.stderr)
         return False
 

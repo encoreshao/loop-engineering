@@ -115,6 +115,43 @@ def test_notify_slack_best_effort_sends_no_blocks_when_no_notification_key(slack
     assert slack_calls == ["plain alert"]
 
 
+def test_notify_slack_best_effort_retries_without_blocks_when_post_message_rejects_blocks(monkeypatch):
+    monkeypatch.setattr(
+        glr.slack_notify, "resolve_blocks",
+        lambda notification_key, message, **kwargs: [{"type": "divider"}],
+    )
+    calls = []
+
+    def fake_post_message(text, **kwargs):
+        calls.append((text, kwargs.get("blocks")))
+        if kwargs.get("blocks"):
+            raise RuntimeError("Slack rejected malformed blocks")
+
+    monkeypatch.setattr(glr.slack_notify, "post_message", fake_post_message)
+
+    assert glr._notify_slack_best_effort("wrap-up failed", notification_key="gitlab_wrapup_failed") is True
+
+    assert calls == [
+        ("wrap-up failed", [{"type": "divider"}]),
+        ("wrap-up failed", None),
+    ]
+
+
+def test_notify_slack_best_effort_does_not_retry_when_there_were_no_blocks_to_blame(monkeypatch):
+    monkeypatch.setattr(glr.slack_notify, "resolve_blocks", lambda *a, **k: None)
+    calls = []
+
+    def fake_post_message(text, **kwargs):
+        calls.append((text, kwargs.get("blocks")))
+        raise RuntimeError("webhook unreachable")
+
+    monkeypatch.setattr(glr.slack_notify, "post_message", fake_post_message)
+
+    assert glr._notify_slack_best_effort("plain alert") is False
+
+    assert calls == [("plain alert", None)]
+
+
 def test_alert_on_incomplete_results_passes_gitlab_issues_incomplete_key(monkeypatch):
     from loop_result import LoopResult
     captured = {}
