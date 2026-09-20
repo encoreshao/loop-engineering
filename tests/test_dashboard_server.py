@@ -6605,6 +6605,171 @@ def test_update_slack_webhook_blank_rejected(tmp_path):
     assert ds.read_slack_config(path)["webhook_url"] == "https://hooks.slack.com/services/original"
 
 
+def test_upsert_block_template_creates_new_template(tmp_path):
+    config_path = tmp_path / "slack.json"
+    ds.write_slack_config({"webhook_url": "https://hooks.slack.com/services/x"}, config_path)
+
+    ok, message = ds.upsert_block_template(
+        "run-failed-alert", json.dumps([{"type": "divider"}]), "gitlab_wrapup_failed",
+        config_path=config_path,
+    )
+
+    assert ok is True
+    assert "Added" in message
+    templates = ds.read_slack_config(config_path)["block_templates"]
+    assert templates["run-failed-alert"] == {
+        "blocks": [{"type": "divider"}], "notification_key": "gitlab_wrapup_failed",
+    }
+
+
+def test_upsert_block_template_rejects_blank_name(tmp_path):
+    config_path = tmp_path / "slack.json"
+
+    ok, message = ds.upsert_block_template("  ", "[]", "", config_path=config_path)
+
+    assert ok is False
+    assert "name" in message.lower()
+    assert ds.read_slack_config(config_path) == {}
+
+
+def test_upsert_block_template_rejects_invalid_blocks_json(tmp_path):
+    config_path = tmp_path / "slack.json"
+
+    ok, message = ds.upsert_block_template("t", "not json", "", config_path=config_path)
+
+    assert ok is False
+    assert ds.read_slack_config(config_path) == {}
+
+
+def test_upsert_block_template_rejects_non_list_blocks_json(tmp_path):
+    config_path = tmp_path / "slack.json"
+
+    ok, message = ds.upsert_block_template("t", json.dumps({"type": "divider"}), "", config_path=config_path)
+
+    assert ok is False
+    assert ds.read_slack_config(config_path) == {}
+
+
+def test_upsert_block_template_rejects_unknown_notification_key(tmp_path):
+    config_path = tmp_path / "slack.json"
+
+    ok, message = ds.upsert_block_template("t", "[]", "not-a-real-key", config_path=config_path)
+
+    assert ok is False
+    assert "notification key" in message.lower()
+
+
+def test_upsert_block_template_unbinds_previous_holder_of_the_same_key(tmp_path):
+    config_path = tmp_path / "slack.json"
+    ds.write_slack_config({"block_templates": {
+        "old-template": {"blocks": [{"type": "divider"}], "notification_key": "gitlab_wrapup_failed"},
+    }}, config_path)
+
+    ok, message = ds.upsert_block_template(
+        "new-template", "[]", "gitlab_wrapup_failed", config_path=config_path,
+    )
+
+    assert ok is True
+    assert "old-template" in message
+    templates = ds.read_slack_config(config_path)["block_templates"]
+    assert templates["old-template"]["notification_key"] is None
+    assert templates["new-template"]["notification_key"] == "gitlab_wrapup_failed"
+
+
+def test_upsert_block_template_renames_via_original_name(tmp_path):
+    config_path = tmp_path / "slack.json"
+    ds.write_slack_config({"block_templates": {
+        "old-name": {"blocks": [{"type": "divider"}], "notification_key": None},
+    }}, config_path)
+
+    ok, message = ds.upsert_block_template(
+        "new-name", "[]", "", original_name="old-name", config_path=config_path,
+    )
+
+    assert ok is True
+    assert "Renamed" in message
+    templates = ds.read_slack_config(config_path)["block_templates"]
+    assert "old-name" not in templates
+    assert "new-name" in templates
+
+
+def test_upsert_block_template_rejects_rename_onto_existing_name(tmp_path):
+    config_path = tmp_path / "slack.json"
+    ds.write_slack_config({"block_templates": {
+        "a": {"blocks": [], "notification_key": None},
+        "b": {"blocks": [], "notification_key": None},
+    }}, config_path)
+
+    ok, message = ds.upsert_block_template("b", "[]", "", original_name="a", config_path=config_path)
+
+    assert ok is False
+    templates = ds.read_slack_config(config_path)["block_templates"]
+    assert "a" in templates and "b" in templates
+
+
+def test_delete_block_template_removes_entry(tmp_path):
+    config_path = tmp_path / "slack.json"
+    ds.write_slack_config({"block_templates": {
+        "t": {"blocks": [], "notification_key": None},
+    }}, config_path)
+
+    ok, message = ds.delete_block_template("t", config_path=config_path)
+
+    assert ok is True
+    assert "t" not in ds.read_slack_config(config_path)["block_templates"]
+
+
+def test_delete_block_template_rejects_unknown_name(tmp_path):
+    config_path = tmp_path / "slack.json"
+    ds.write_slack_config({"block_templates": {}}, config_path)
+
+    ok, message = ds.delete_block_template("does-not-exist", config_path=config_path)
+
+    assert ok is False
+
+
+def test_send_test_block_template_substitutes_and_sends(monkeypatch, tmp_path):
+    config_path = tmp_path / "slack.json"
+    ds.write_slack_config({"block_templates": {
+        "t": {
+            "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "{{message}}"}}],
+            "notification_key": None,
+        },
+    }}, config_path)
+    captured = {}
+    monkeypatch.setattr(ds.slack_notify, "post_message", lambda text, **kwargs: captured.update(text=text, kwargs=kwargs))
+
+    ok, message = ds.send_test_block_template("t", config_path=config_path)
+
+    assert ok is True
+    assert captured["text"] == "(test message)"
+    assert captured["kwargs"]["blocks"] == [{"type": "section", "text": {"type": "mrkdwn", "text": "(test message)"}}]
+
+
+def test_send_test_block_template_rejects_unknown_name(tmp_path):
+    config_path = tmp_path / "slack.json"
+    ds.write_slack_config({"block_templates": {}}, config_path)
+
+    ok, message = ds.send_test_block_template("does-not-exist", config_path=config_path)
+
+    assert ok is False
+
+
+def test_send_test_block_template_reports_post_message_failure(monkeypatch, tmp_path):
+    config_path = tmp_path / "slack.json"
+    ds.write_slack_config({"block_templates": {"t": {"blocks": [], "notification_key": None}}}, config_path)
+
+    def raise_error(text, **kwargs):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(ds.slack_notify, "post_message", raise_error)
+
+    ok, message = ds.send_test_block_template("t", config_path=config_path)
+
+    assert ok is False
+    assert "network down" in message
+
+
 def test_read_custom_instructions_returns_empty_string_when_missing(tmp_path):
     assert ds.read_custom_instructions(tmp_path / "does-not-exist.md") == ""
 

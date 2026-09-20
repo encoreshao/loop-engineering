@@ -56,6 +56,7 @@ import loops_config
 import memory_store
 import metrics
 import project_memory
+import slack_notify
 import topic_config
 import topic_seen
 
@@ -2505,6 +2506,102 @@ def update_slack_webhook(webhook_url, config_path=None):
     config["webhook_url"] = webhook_url
     write_slack_config(config, config_path)
     return True, "Slack webhook updated"
+
+
+_BLOCK_TEMPLATE_NOTIFICATION_KEYS = {
+    "gitlab_wrapup_failed": "GitLab loop: end-of-run digest failed",
+    "gitlab_issues_incomplete": "GitLab loop: issues incomplete",
+    "topic_monitor_incomplete": "Topic monitor: topics incomplete",
+}
+
+
+def upsert_block_template(name, blocks_json, notification_key, original_name="", config_path=None):
+    """Add, update, or rename one entry in ~/.slack/config.json's
+    `block_templates` map. `blocks_json` is the raw JSON string the Block
+    Kit Builder's hidden field submits - must decode to a list.
+    `notification_key`, if non-empty, must be a key in
+    _BLOCK_TEMPLATE_NOTIFICATION_KEYS; saving it clears that key from
+    whichever other template currently holds it, since each key may be
+    bound to at most one template at a time. `original_name`, when
+    non-empty and different from `name`, renames the existing entry
+    instead of adding a second one - same convention as
+    upsert_tracked_project's own `original_alias`."""
+    if config_path is None:
+        config_path = SLACK_CONFIG_PATH
+    name = name.strip()
+    original_name = original_name.strip()
+    notification_key = notification_key.strip()
+    if not name:
+        return False, "Template name is required"
+    if notification_key and notification_key not in _BLOCK_TEMPLATE_NOTIFICATION_KEYS:
+        return False, f"Unknown notification key: {notification_key}"
+    try:
+        blocks = json.loads(blocks_json)
+    except (TypeError, ValueError):
+        return False, "Blocks JSON is invalid"
+    if not isinstance(blocks, list):
+        return False, "Blocks JSON must be a list"
+
+    config = read_slack_config(config_path)
+    templates = config.setdefault("block_templates", {})
+
+    renaming = bool(original_name) and original_name != name
+    if renaming:
+        if original_name not in templates:
+            return False, f"Unknown template: {original_name}"
+        if name in templates:
+            return False, f"Template name already in use: {name}"
+        del templates[original_name]
+
+    unbound_from = None
+    if notification_key:
+        for other_name, other in templates.items():
+            if other_name != name and other.get("notification_key") == notification_key:
+                other["notification_key"] = None
+                unbound_from = other_name
+                break
+
+    is_new = name not in templates
+    templates[name] = {"blocks": blocks, "notification_key": notification_key or None}
+    write_slack_config(config, config_path)
+
+    if renaming:
+        message = f"Renamed template {original_name} to {name}"
+    else:
+        message = f"{'Added' if is_new else 'Updated'} template {name}"
+    if unbound_from:
+        message += f" (was previously bound to '{unbound_from}')"
+    return True, message
+
+
+def delete_block_template(name, config_path=None):
+    if config_path is None:
+        config_path = SLACK_CONFIG_PATH
+    config = read_slack_config(config_path)
+    templates = config.get("block_templates", {})
+    if name not in templates:
+        return False, f"Unknown template: {name}"
+    del templates[name]
+    write_slack_config(config, config_path)
+    return True, f"Deleted template {name}"
+
+
+def send_test_block_template(name, config_path=None):
+    """Sends a template's blocks to the currently configured webhook right
+    now, with {{message}} substituted for a fixed placeholder (there is no
+    real alert text at test time)."""
+    if config_path is None:
+        config_path = SLACK_CONFIG_PATH
+    config = read_slack_config(config_path)
+    templates = config.get("block_templates", {})
+    if name not in templates:
+        return False, f"Unknown template: {name}"
+    blocks = slack_notify.substitute_message(templates[name].get("blocks", []), "(test message)")
+    try:
+        slack_notify.post_message("(test message)", blocks=blocks, config_path=config_path)
+    except Exception as exc:  # noqa: BLE001 - surfaced to the user via the flash message, not raised
+        return False, f"Test message failed: {exc}"
+    return True, f"Sent test message for template {name}"
 
 
 def read_custom_instructions(path=None):
