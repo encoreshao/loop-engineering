@@ -3274,7 +3274,7 @@ _FONT_FACE_VARS = "\n".join(
 _MATERIAL_SYMBOLS_ICON_NAMES = (
     "account_balance_wallet,add,bolt,check_circle,chevron_left,circle,delete,description,"
     "dns,edit_note,error,expand_more,extension,fact_check,folder,folder_off,forum,history,lightbulb,loop,merge,monitoring,newspaper,"
-    "open_in_new,palette,payments,save,send,settings,smart_toy,space_dashboard,speed,terminal,topic,tune,warning"
+    "open_in_new,palette,payments,save,send,settings,smart_toy,space_dashboard,speed,terminal,topic,tune,warning,widgets"
 )
 
 
@@ -4457,6 +4457,48 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
   line-height: 1.5;
   min-height: 420px;
 }}
+.block-builder {{ display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem; }}
+.block-builder-row {{ display: flex; flex-wrap: wrap; gap: 0.75rem; }}
+.block-builder-row label {{ display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; flex: 1 1 200px; }}
+.block-builder-row input, .block-builder-row select {{
+  padding: 0.4rem 0.6rem; border-radius: 8px; border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container-low); color: var(--md-on-surface);
+}}
+.block-builder-palette {{ display: flex; flex-wrap: wrap; gap: 0.4rem; }}
+.block-builder-palette button {{
+  padding: 0.35rem 0.7rem; border-radius: 999px; border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container); color: var(--md-on-surface); cursor: pointer;
+}}
+.block-builder-list {{ display: flex; flex-direction: column; gap: 0.6rem; }}
+.block-builder-card {{
+  border: 1px solid var(--md-outline-variant); border-radius: 10px; padding: 0.6rem 0.75rem;
+  background: var(--md-surface-container-low);
+}}
+.block-builder-card-header {{ display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; }}
+.block-builder-card-header strong {{ flex: 1 1 auto; text-transform: capitalize; }}
+.block-builder-card-header button {{
+  border: 1px solid var(--md-outline-variant); background: transparent; color: var(--md-on-surface);
+  border-radius: 6px; cursor: pointer; padding: 0.1rem 0.45rem;
+}}
+.block-builder-card-body {{ display: flex; flex-direction: column; gap: 0.5rem; }}
+.block-builder-field {{ display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; }}
+.block-builder-field input, .block-builder-field textarea {{
+  padding: 0.35rem 0.55rem; border-radius: 8px; border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container); color: var(--md-on-surface); font-family: inherit;
+}}
+.block-builder-list-field {{ display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.85rem; }}
+.block-builder-list-row {{ display: flex; gap: 0.4rem; align-items: center; }}
+.block-builder-list-row input {{ flex: 1 1 auto; }}
+.block-builder-subcard {{
+  border: 1px dashed var(--md-outline-variant); border-radius: 8px; padding: 0.5rem; display: flex;
+  flex-direction: column; gap: 0.4rem;
+}}
+.block-builder-note {{ color: var(--md-on-surface-variant); font-size: 0.85rem; margin: 0; }}
+.block-builder-json {{
+  background: var(--md-surface-container-lowest); border: 1px solid var(--md-outline-variant);
+  border-radius: 8px; padding: 0.75rem; overflow-x: auto; font-size: 0.8rem; max-height: 320px;
+}}
+.block-builder-actions {{ display: flex; flex-wrap: wrap; gap: 0.5rem; }}
 /* A line with exactly one field and one button: fix the button's width so
    every remaining pixel on the line goes to the field instead of the field
    sizing to its placeholder text. */
@@ -4906,6 +4948,7 @@ _SECTION_ICON_README = "<span class='material-symbols-outlined' aria-hidden='tru
 _SECTION_ICON_PREFERENCES = "<span class='material-symbols-outlined' aria-hidden='true'>palette</span>"
 _SECTION_ICON_INSTRUCTIONS = "<span class='material-symbols-outlined' aria-hidden='true'>edit_note</span>"
 _SECTION_ICON_AI_CLI = "<span class='material-symbols-outlined' aria-hidden='true'>smart_toy</span>"
+_SECTION_ICON_BLOCK_KIT_BUILDER = "<span class='material-symbols-outlined' aria-hidden='true'>widgets</span>"
 # The combined Settings page's own nav glyph - deliberately not "settings"
 # (that's the GitLab config page's icon, see _SECTION_ICON_SETTINGS just
 # above), so the two Configuration-group entries don't look identical.
@@ -6888,6 +6931,12 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     # --- Notifications tab (formerly render_slack_page/GET /notifications) ---
     webhook_url = slack_config.get("webhook_url", "")
     webhook_display = _mask_secret(webhook_url) if webhook_url else "(not set)"
+    block_templates = slack_config.get("block_templates", {})
+    block_templates_json = json.dumps(block_templates).replace("</script>", "<\\/script>")
+    notification_key_options = "".join(
+        f"<option value='{html.escape(key)}'>{html.escape(label)}</option>"
+        for key, label in _BLOCK_TEMPLATE_NOTIFICATION_KEYS.items()
+    )
     notifications_panel = f"""
 <section class="card">
 <div class="section-header">{_SECTION_ICON_SLACK}<h2>Slack</h2></div>
@@ -6898,6 +6947,322 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
 <input type='password' name='webhook_url' placeholder='paste new Slack webhook URL' required>
 <button type='submit' class='btn btn-neutral'>Save</button>
 </form>
+</section>
+
+<section class="card">
+<div class="section-header">{_SECTION_ICON_BLOCK_KIT_BUILDER}<h2>Block Kit Builder</h2></div>
+<p class="section-subtitle">Compose a Slack Block Kit template, optionally bind it to a real loop alert, and preview the JSON that will be sent. <code>{{{{message}}}}</code> in any text field is replaced with the real alert text when a bound template fires.</p>
+<script type="application/json" id="bkb-templates-data">{block_templates_json}</script>
+<div class="block-builder">
+  <div class="block-builder-row">
+    <label>Template
+      <select id="bkb-template-select"></select>
+    </label>
+    <label>Name
+      <input type="text" id="bkb-name" placeholder="e.g. run-failed-alert">
+    </label>
+    <label>Bind to notification
+      <select id="bkb-notification-key">
+        <option value="">(none)</option>
+        {notification_key_options}
+      </select>
+    </label>
+  </div>
+  <div class="block-builder-palette">
+    <button type="button" data-add-block="section">+ Section</button>
+    <button type="button" data-add-block="header">+ Header</button>
+    <button type="button" data-add-block="divider">+ Divider</button>
+    <button type="button" data-add-block="context">+ Context</button>
+    <button type="button" data-add-block="image">+ Image</button>
+    <button type="button" data-add-block="actions">+ Actions</button>
+    <button type="button" data-add-block="fields">+ Fields</button>
+    <button type="button" data-add-block="markdown">+ Markdown</button>
+    <button type="button" data-add-block="carousel">+ Carousel</button>
+  </div>
+  <div id="bkb-block-list" class="block-builder-list"></div>
+  <h3>JSON preview</h3>
+  <pre id="bkb-json-preview" class="block-builder-json"></pre>
+  <div class="block-builder-actions">
+    <form method="post" action="/notifications/block-templates" class="daemon-action-form single-field" id="bkb-save-form">
+    {csrf_input}
+    <input type="hidden" name="original_name" id="bkb-original-name" value="">
+    <input type="hidden" name="name" id="bkb-name-hidden" value="">
+    <input type="hidden" name="notification_key" id="bkb-notification-key-hidden" value="">
+    <input type="hidden" name="blocks_json" id="bkb-blocks-json" value="">
+    <button type="submit" class="btn btn-primary">Save</button>
+    </form>
+    <form method="post" action="/notifications/block-templates/placeholder/delete" id="bkb-delete-form">
+    {csrf_input}
+    <button type="submit" class="btn btn-neutral" id="bkb-delete-btn" disabled>Delete</button>
+    </form>
+    <form method="post" action="/notifications/block-templates/placeholder/test" id="bkb-test-form">
+    {csrf_input}
+    <button type="submit" class="btn btn-neutral" id="bkb-test-btn" disabled>Send test message</button>
+    </form>
+  </div>
+</div>
+<script>
+(function() {{
+  var templates = JSON.parse(document.getElementById('bkb-templates-data').textContent || '{{}}');
+  var templateSelect = document.getElementById('bkb-template-select');
+  var nameInput = document.getElementById('bkb-name');
+  var notificationKeySelect = document.getElementById('bkb-notification-key');
+  var blockList = document.getElementById('bkb-block-list');
+  var jsonPreview = document.getElementById('bkb-json-preview');
+  var originalNameHidden = document.getElementById('bkb-original-name');
+  var nameHidden = document.getElementById('bkb-name-hidden');
+  var notificationKeyHidden = document.getElementById('bkb-notification-key-hidden');
+  var blocksJsonHidden = document.getElementById('bkb-blocks-json');
+  var deleteForm = document.getElementById('bkb-delete-form');
+  var testForm = document.getElementById('bkb-test-form');
+
+  var state = {{ blocks: [] }};
+
+  function defaultCarouselCard() {{
+    return {{
+      type: 'card',
+      hero_image: {{ type: 'image', image_url: '', alt_text: '' }},
+      title: {{ type: 'mrkdwn', text: '' }},
+      subtitle: {{ type: 'mrkdwn', text: '' }},
+      body: {{ type: 'mrkdwn', text: '' }},
+      actions: [{{ type: 'button', text: {{ type: 'plain_text', text: '' }}, url: '' }}]
+    }};
+  }}
+
+  function defaultBlock(type) {{
+    if (type === 'section') return {{ type: 'section', text: {{ type: 'mrkdwn', text: '' }} }};
+    if (type === 'header') return {{ type: 'header', text: {{ type: 'plain_text', text: '' }} }};
+    if (type === 'divider') return {{ type: 'divider' }};
+    if (type === 'context') return {{ type: 'context', elements: [{{ type: 'mrkdwn', text: '' }}] }};
+    if (type === 'image') return {{ type: 'image', image_url: '', alt_text: '' }};
+    if (type === 'actions') return {{ type: 'actions', elements: [{{ type: 'button', text: {{ type: 'plain_text', text: '' }}, url: '' }}] }};
+    if (type === 'fields') return {{ type: 'section', fields: [{{ type: 'mrkdwn', text: '' }}] }};
+    if (type === 'markdown') return {{ type: 'markdown', text: '' }};
+    if (type === 'carousel') return {{ type: 'carousel', elements: [defaultCarouselCard()] }};
+    return {{ type: type }};
+  }}
+
+  function button(label, onClick) {{
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.addEventListener('click', onClick);
+    return b;
+  }}
+
+  function labelWrap(labelText, input) {{
+    var label = document.createElement('label');
+    label.className = 'block-builder-field';
+    var span = document.createElement('span');
+    span.textContent = labelText;
+    label.appendChild(span);
+    label.appendChild(input);
+    return label;
+  }}
+
+  function textInput(labelText, value, onChange) {{
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.value = value || '';
+    input.addEventListener('input', function() {{ onChange(input.value); }});
+    return labelWrap(labelText, input);
+  }}
+
+  function textArea(labelText, value, onChange) {{
+    var textarea = document.createElement('textarea');
+    textarea.value = value || '';
+    textarea.rows = 3;
+    textarea.addEventListener('input', function() {{ onChange(textarea.value); }});
+    return labelWrap(labelText, textarea);
+  }}
+
+  function note(text) {{
+    var p = document.createElement('p');
+    p.className = 'block-builder-note';
+    p.textContent = text;
+    return p;
+  }}
+
+  function stringList(labelText, values, onChange) {{
+    var wrap = document.createElement('div');
+    wrap.className = 'block-builder-list-field';
+    var span = document.createElement('span');
+    span.textContent = labelText;
+    wrap.appendChild(span);
+    values.forEach(function(v, i) {{
+      var row = document.createElement('div');
+      row.className = 'block-builder-list-row';
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.value = v;
+      input.addEventListener('input', function() {{
+        var next = values.slice(); next[i] = input.value; onChange(next);
+      }});
+      row.appendChild(input);
+      row.appendChild(button('\\u2715', function() {{
+        var next = values.slice(); next.splice(i, 1); onChange(next.length ? next : ['']);
+      }}));
+      wrap.appendChild(row);
+    }});
+    wrap.appendChild(button('+ Add', function() {{ onChange(values.concat([''])); }}));
+    return wrap;
+  }}
+
+  function buttonList(elements, onChange) {{
+    var wrap = document.createElement('div');
+    wrap.className = 'block-builder-list-field';
+    elements.forEach(function(el, i) {{
+      var row = document.createElement('div');
+      row.className = 'block-builder-list-row';
+      row.appendChild(textInput('Label', el.text.text, function(v) {{ el.text.text = v; onChange(elements); }}));
+      row.appendChild(textInput('URL', el.url, function(v) {{ el.url = v; onChange(elements); }}));
+      row.appendChild(button('\\u2715', function() {{
+        var next = elements.slice(); next.splice(i, 1);
+        onChange(next.length ? next : [{{ type: 'button', text: {{ type: 'plain_text', text: '' }}, url: '' }}]);
+      }}));
+      wrap.appendChild(row);
+    }});
+    wrap.appendChild(button('+ Add button', function() {{
+      onChange(elements.concat([{{ type: 'button', text: {{ type: 'plain_text', text: '' }}, url: '' }}]));
+    }}));
+    return wrap;
+  }}
+
+  function cardList(cards, onChange) {{
+    var wrap = document.createElement('div');
+    wrap.className = 'block-builder-list-field';
+    cards.forEach(function(card, i) {{
+      var box = document.createElement('div');
+      box.className = 'block-builder-subcard';
+      box.appendChild(textInput('Hero image URL', card.hero_image.image_url, function(v) {{ card.hero_image.image_url = v; onChange(cards); }}));
+      box.appendChild(textInput('Hero image alt text', card.hero_image.alt_text, function(v) {{ card.hero_image.alt_text = v; onChange(cards); }}));
+      box.appendChild(textInput('Title', card.title.text, function(v) {{ card.title.text = v; onChange(cards); }}));
+      box.appendChild(textInput('Subtitle', card.subtitle.text, function(v) {{ card.subtitle.text = v; onChange(cards); }}));
+      box.appendChild(textArea('Body ({{{{message}}}} available)', card.body.text, function(v) {{ card.body.text = v; onChange(cards); }}));
+      box.appendChild(textInput('Button label', card.actions[0].text.text, function(v) {{ card.actions[0].text.text = v; onChange(cards); }}));
+      box.appendChild(textInput('Button URL', card.actions[0].url, function(v) {{ card.actions[0].url = v; onChange(cards); }}));
+      box.appendChild(button('\\u2715 Remove card', function() {{
+        var next = cards.slice(); next.splice(i, 1);
+        onChange(next.length ? next : [defaultCarouselCard()]);
+      }}));
+      wrap.appendChild(box);
+    }});
+    wrap.appendChild(button('+ Add card', function() {{ onChange(cards.concat([defaultCarouselCard()])); }}));
+    return wrap;
+  }}
+
+  function renderBlockFields(block) {{
+    var body = document.createElement('div');
+    body.className = 'block-builder-card-body';
+    if (block.type === 'header') {{
+      body.appendChild(textInput('Title', block.text.text, function(v) {{ block.text.text = v; render(); }}));
+    }} else if (block.type === 'markdown') {{
+      body.appendChild(textArea('Markdown text ({{{{message}}}} available)', block.text, function(v) {{ block.text = v; render(); }}));
+    }} else if (block.type === 'divider') {{
+      body.appendChild(note('No fields.'));
+    }} else if (block.type === 'image') {{
+      body.appendChild(textInput('Image URL', block.image_url, function(v) {{ block.image_url = v; render(); }}));
+      body.appendChild(textInput('Alt text', block.alt_text, function(v) {{ block.alt_text = v; render(); }}));
+    }} else if (block.type === 'context') {{
+      body.appendChild(stringList('Context text elements', block.elements.map(function(e) {{ return e.text; }}),
+        function(texts) {{ block.elements = texts.map(function(t) {{ return {{ type: 'mrkdwn', text: t }}; }}); render(); }}));
+    }} else if (block.type === 'actions') {{
+      body.appendChild(buttonList(block.elements, function(elements) {{ block.elements = elements; render(); }}));
+    }} else if (block.type === 'section' && block.fields) {{
+      body.appendChild(stringList('Fields', block.fields.map(function(f) {{ return f.text; }}),
+        function(texts) {{ block.fields = texts.map(function(t) {{ return {{ type: 'mrkdwn', text: t }}; }}); render(); }}));
+    }} else if (block.type === 'section') {{
+      body.appendChild(textArea('Text ({{{{message}}}} available)', block.text.text, function(v) {{ block.text.text = v; render(); }}));
+    }} else if (block.type === 'carousel') {{
+      body.appendChild(cardList(block.elements, function(elements) {{ block.elements = elements; render(); }}));
+    }}
+    return body;
+  }}
+
+  function renderBlockCard(block, index) {{
+    var card = document.createElement('div');
+    card.className = 'block-builder-card';
+    var header = document.createElement('div');
+    header.className = 'block-builder-card-header';
+    var title = document.createElement('strong');
+    title.textContent = block.type;
+    header.appendChild(title);
+    header.appendChild(button('\\u25B2', function() {{ moveBlock(index, -1); }}));
+    header.appendChild(button('\\u25BC', function() {{ moveBlock(index, 1); }}));
+    header.appendChild(button('\\u2715', function() {{ removeBlock(index); }}));
+    card.appendChild(header);
+    card.appendChild(renderBlockFields(block));
+    return card;
+  }}
+
+  function moveBlock(index, delta) {{
+    var target = index + delta;
+    if (target < 0 || target >= state.blocks.length) return;
+    var tmp = state.blocks[index];
+    state.blocks[index] = state.blocks[target];
+    state.blocks[target] = tmp;
+    render();
+  }}
+
+  function removeBlock(index) {{
+    state.blocks.splice(index, 1);
+    render();
+  }}
+
+  function updateFormActions(name) {{
+    var encoded = encodeURIComponent(name || '');
+    deleteForm.action = '/notifications/block-templates/' + encoded + '/delete';
+    testForm.action = '/notifications/block-templates/' + encoded + '/test';
+    deleteForm.querySelector('button').disabled = !name;
+    testForm.querySelector('button').disabled = !name;
+  }}
+
+  function render() {{
+    blockList.innerHTML = '';
+    state.blocks.forEach(function(block, index) {{
+      blockList.appendChild(renderBlockCard(block, index));
+    }});
+    jsonPreview.textContent = JSON.stringify(state.blocks, null, 2);
+    blocksJsonHidden.value = JSON.stringify(state.blocks);
+    nameHidden.value = nameInput.value;
+    notificationKeyHidden.value = notificationKeySelect.value;
+    updateFormActions(originalNameHidden.value);
+  }}
+
+  function loadTemplate(name) {{
+    var tmpl = templates[name] || {{ blocks: [], notification_key: null }};
+    state.blocks = JSON.parse(JSON.stringify(tmpl.blocks || []));
+    nameInput.value = name === '__new__' ? '' : name;
+    originalNameHidden.value = name === '__new__' ? '' : name;
+    notificationKeySelect.value = tmpl.notification_key || '';
+    render();
+  }}
+
+  templateSelect.innerHTML = '';
+  var newOption = document.createElement('option');
+  newOption.value = '__new__';
+  newOption.textContent = '+ New template';
+  templateSelect.appendChild(newOption);
+  Object.keys(templates).forEach(function(name) {{
+    var option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    templateSelect.appendChild(option);
+  }});
+
+  document.querySelectorAll('[data-add-block]').forEach(function(btn) {{
+    btn.addEventListener('click', function() {{
+      state.blocks.push(defaultBlock(btn.getAttribute('data-add-block')));
+      render();
+    }});
+  }});
+  templateSelect.addEventListener('change', function() {{ loadTemplate(templateSelect.value); }});
+  nameInput.addEventListener('input', render);
+  notificationKeySelect.addEventListener('change', render);
+
+  loadTemplate('__new__');
+}})();
+</script>
 </section>
 """
 

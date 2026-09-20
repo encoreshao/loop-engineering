@@ -6375,6 +6375,37 @@ def test_render_general_settings_page_empty_slack_config_shows_placeholder(monke
     assert "(not set)" in output
 
 
+def test_block_kit_builder_material_symbol_name_is_registered():
+    assert "widgets" in ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
+
+
+def test_render_general_settings_page_includes_block_kit_builder_card(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "does-not-exist-slack.json")
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
+
+    output = ds.render_general_settings_page(active_tab="notifications")
+
+    assert "Block Kit Builder" in output
+    assert "data-add-block=\"section\"" in output
+    assert "data-add-block=\"carousel\"" in output
+    assert "data-add-block=\"markdown\"" in output
+    assert "id=\"bkb-templates-data\"" in output
+
+
+def test_render_general_settings_page_embeds_existing_block_templates_as_json(monkeypatch, tmp_path):
+    slack_path = tmp_path / "slack.json"
+    ds.write_slack_config({"block_templates": {
+        "run-failed-alert": {"blocks": [{"type": "divider"}], "notification_key": "gitlab_wrapup_failed"},
+    }}, slack_path)
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", slack_path)
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
+
+    output = ds.render_general_settings_page(active_tab="notifications")
+
+    assert "run-failed-alert" in output
+    assert "gitlab_wrapup_failed" in output
+
+
 def test_render_settings_page_shows_default_badge(monkeypatch, tmp_path):
     gitlab_path = tmp_path / "gitlab.json"
     gitlab_path.write_text(json.dumps({
