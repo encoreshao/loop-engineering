@@ -9504,6 +9504,37 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._redirect_with_flash(ok, message, location="/settings/general?tab=notifications")
             return
 
+        if self.path == "/notifications/block-templates":
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
+            name = form.get("name", [""])[0]
+            original_name = form.get("original_name", [""])[0]
+            notification_key = form.get("notification_key", [""])[0]
+            blocks_json = form.get("blocks_json", ["[]"])[0]
+            ok, message = upsert_block_template(name, blocks_json, notification_key, original_name=original_name)
+            self._redirect_with_flash(ok, message, location="/settings/general?tab=notifications")
+            return
+
+        if self.path.startswith("/notifications/block-templates/") and self.path.endswith("/delete"):
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            name = urllib.parse.unquote(self.path[len("/notifications/block-templates/"):-len("/delete")])
+            ok, message = delete_block_template(name)
+            self._redirect_with_flash(ok, message, location="/settings/general?tab=notifications")
+            return
+
+        if self.path.startswith("/notifications/block-templates/") and self.path.endswith("/test"):
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            name = urllib.parse.unquote(self.path[len("/notifications/block-templates/"):-len("/test")])
+            ok, message = send_test_block_template(name)
+            self._redirect_with_flash(ok, message, location="/settings/general?tab=notifications")
+            return
+
         if self.path == "/ai-cli":
             if not self._csrf_ok(body):
                 self._forbidden()

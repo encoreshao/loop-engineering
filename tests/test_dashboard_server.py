@@ -6977,6 +6977,50 @@ def test_slack_route_update_webhook_blank_rejected(monkeypatch, tmp_path):
     assert ds.read_slack_config(slack_path)["webhook_url"] == "https://hooks.slack.com/services/original"
 
 
+def test_block_templates_save_route_success(monkeypatch, tmp_path):
+    slack_path = tmp_path / "slack.json"
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", slack_path)
+
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/settings/general")
+        status, _headers, _body = _post(port, "/notifications/block-templates", {
+            "name": "run-failed-alert",
+            "original_name": "",
+            "notification_key": "gitlab_wrapup_failed",
+            "blocks_json": json.dumps([{"type": "divider"}]),
+            "csrf_token": token,
+        })
+        assert status == 303
+    templates = ds.read_slack_config(slack_path)["block_templates"]
+    assert templates["run-failed-alert"]["notification_key"] == "gitlab_wrapup_failed"
+
+
+def test_block_templates_delete_route_success(monkeypatch, tmp_path):
+    slack_path = tmp_path / "slack.json"
+    ds.write_slack_config({"block_templates": {"t": {"blocks": [], "notification_key": None}}}, slack_path)
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", slack_path)
+
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/settings/general")
+        status, _headers, _body = _post(port, "/notifications/block-templates/t/delete", {"csrf_token": token})
+        assert status == 303
+    assert "t" not in ds.read_slack_config(slack_path)["block_templates"]
+
+
+def test_block_templates_test_route_success(monkeypatch, tmp_path):
+    slack_path = tmp_path / "slack.json"
+    ds.write_slack_config({"block_templates": {"t": {"blocks": [], "notification_key": None}}}, slack_path)
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", slack_path)
+    monkeypatch.setattr(ds.slack_notify, "post_message", lambda text, **kwargs: None)
+
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/settings/general")
+        status, headers, _body = _post(port, "/notifications/block-templates/t/test", {"csrf_token": token})
+        assert status == 303
+        flash_query = _flash_from_location(headers["Location"], prefix="/settings/general?tab=notifications&")
+        assert flash_query["ok"] == ["1"]
+
+
 def test_ai_cli_material_symbol_name_is_registered():
     assert "smart_toy" in ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
 
@@ -7160,6 +7204,9 @@ def test_settings_route_delete_instance_with_space_in_alias(monkeypatch, tmp_pat
     ("/settings/gitlab/projects", {"alias": "x", "project_id": "ns/x", "instance": "a"}),
     ("/settings/gitlab/projects/x/delete", {}),
     ("/notifications/webhook", {"webhook_url": "https://hooks.slack.com/services/x"}),
+    ("/notifications/block-templates", {"name": "t", "blocks_json": "[]", "notification_key": ""}),
+    ("/notifications/block-templates/t/delete", {}),
+    ("/notifications/block-templates/t/test", {}),
     ("/settings/loop-config", {"assignee_username": "encore", "worktree_root": "/tmp/wt", "gitlab_instance": "a"}),
     ("/settings/loop-projects", {"alias": "x", "project_id": "ns/x"}),
     ("/settings/loop-projects/x/delete", {}),
