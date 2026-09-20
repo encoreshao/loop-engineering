@@ -7155,26 +7155,26 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     var body = document.createElement('div');
     body.className = 'block-builder-card-body';
     if (block.type === 'header') {{
-      body.appendChild(textInput('Title', block.text.text, function(v) {{ block.text.text = v; render(); }}));
+      body.appendChild(textInput('Title', block.text.text, function(v) {{ block.text.text = v; renderPreview(); }}));
     }} else if (block.type === 'markdown') {{
-      body.appendChild(textArea('Markdown text ({{{{message}}}} available)', block.text, function(v) {{ block.text = v; render(); }}));
+      body.appendChild(textArea('Markdown text ({{{{message}}}} available)', block.text, function(v) {{ block.text = v; renderPreview(); }}));
     }} else if (block.type === 'divider') {{
       body.appendChild(note('No fields.'));
     }} else if (block.type === 'image') {{
-      body.appendChild(textInput('Image URL', block.image_url, function(v) {{ block.image_url = v; render(); }}));
-      body.appendChild(textInput('Alt text', block.alt_text, function(v) {{ block.alt_text = v; render(); }}));
+      body.appendChild(textInput('Image URL', block.image_url, function(v) {{ block.image_url = v; renderPreview(); }}));
+      body.appendChild(textInput('Alt text', block.alt_text, function(v) {{ block.alt_text = v; renderPreview(); }}));
     }} else if (block.type === 'context') {{
       body.appendChild(stringList('Context text elements', block.elements.map(function(e) {{ return e.text; }}),
-        function(texts) {{ block.elements = texts.map(function(t) {{ return {{ type: 'mrkdwn', text: t }}; }}); render(); }}));
+        function(texts) {{ block.elements = texts.map(function(t) {{ return {{ type: 'mrkdwn', text: t }}; }}); renderBlockList(); }}));
     }} else if (block.type === 'actions') {{
-      body.appendChild(buttonList(block.elements, function(elements) {{ block.elements = elements; render(); }}));
+      body.appendChild(buttonList(block.elements, function(elements) {{ block.elements = elements; renderBlockList(); }}));
     }} else if (block.type === 'section' && block.fields) {{
       body.appendChild(stringList('Fields', block.fields.map(function(f) {{ return f.text; }}),
-        function(texts) {{ block.fields = texts.map(function(t) {{ return {{ type: 'mrkdwn', text: t }}; }}); render(); }}));
+        function(texts) {{ block.fields = texts.map(function(t) {{ return {{ type: 'mrkdwn', text: t }}; }}); renderBlockList(); }}));
     }} else if (block.type === 'section') {{
-      body.appendChild(textArea('Text ({{{{message}}}} available)', block.text.text, function(v) {{ block.text.text = v; render(); }}));
+      body.appendChild(textArea('Text ({{{{message}}}} available)', block.text.text, function(v) {{ block.text.text = v; renderPreview(); }}));
     }} else if (block.type === 'carousel') {{
-      body.appendChild(cardList(block.elements, function(elements) {{ block.elements = elements; render(); }}));
+      body.appendChild(cardList(block.elements, function(elements) {{ block.elements = elements; renderBlockList(); }}));
     }}
     return body;
   }}
@@ -7201,12 +7201,12 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     var tmp = state.blocks[index];
     state.blocks[index] = state.blocks[target];
     state.blocks[target] = tmp;
-    render();
+    renderBlockList();
   }}
 
   function removeBlock(index) {{
     state.blocks.splice(index, 1);
-    render();
+    renderBlockList();
   }}
 
   function updateFormActions(name) {{
@@ -7217,16 +7217,20 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     testForm.querySelector('button').disabled = !name;
   }}
 
-  function render() {{
-    blockList.innerHTML = '';
-    state.blocks.forEach(function(block, index) {{
-      blockList.appendChild(renderBlockCard(block, index));
-    }});
+  function renderPreview() {{
     jsonPreview.textContent = JSON.stringify(state.blocks, null, 2);
     blocksJsonHidden.value = JSON.stringify(state.blocks);
     nameHidden.value = nameInput.value;
     notificationKeyHidden.value = notificationKeySelect.value;
     updateFormActions(originalNameHidden.value);
+  }}
+
+  function renderBlockList() {{
+    blockList.innerHTML = '';
+    state.blocks.forEach(function(block, index) {{
+      blockList.appendChild(renderBlockCard(block, index));
+    }});
+    renderPreview();
   }}
 
   function loadTemplate(name) {{
@@ -7235,7 +7239,7 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     nameInput.value = name === '__new__' ? '' : name;
     originalNameHidden.value = name === '__new__' ? '' : name;
     notificationKeySelect.value = tmpl.notification_key || '';
-    render();
+    renderBlockList();
   }}
 
   templateSelect.innerHTML = '';
@@ -7253,12 +7257,12 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
   document.querySelectorAll('[data-add-block]').forEach(function(btn) {{
     btn.addEventListener('click', function() {{
       state.blocks.push(defaultBlock(btn.getAttribute('data-add-block')));
-      render();
+      renderBlockList();
     }});
   }});
   templateSelect.addEventListener('change', function() {{ loadTemplate(templateSelect.value); }});
-  nameInput.addEventListener('input', render);
-  notificationKeySelect.addEventListener('change', render);
+  nameInput.addEventListener('input', renderPreview);
+  notificationKeySelect.addEventListener('change', renderPreview);
 
   loadTemplate('__new__');
 }})();
