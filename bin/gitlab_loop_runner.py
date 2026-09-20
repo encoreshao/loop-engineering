@@ -222,13 +222,18 @@ def _emit_best_effort(event_type, run_id=None, issue_run_id=None, project=None,
         return None
 
 
-def _notify_slack_best_effort(message):
+def _notify_slack_best_effort(message, notification_key=None):
     """A scheduled run has nobody watching it. run-loop.sh's ERR trap used
     to be the one failure alert this system had, but per-issue failures are
     now contained by LoopRuntime and never reach that trap - so failures
-    have to announce themselves from here instead."""
+    have to announce themselves from here instead. `notification_key`, if
+    given, looks up a saved Block Kit template bound to it (Settings ->
+    Notifications) and sends its blocks alongside the plain-text message;
+    with no bound template (the default on a fresh install), this sends
+    exactly what it always has."""
     try:
-        slack_notify.post_message(message)
+        blocks = slack_notify.resolve_blocks(notification_key, message) if notification_key else None
+        slack_notify.post_message(message, blocks=blocks)
         return True
     except Exception as exc:  # noqa: BLE001 - an alert failing must not cascade
         print(f"gitlab_loop_runner: Slack notification failed: {exc}", file=sys.stderr)
@@ -521,7 +526,8 @@ def run_all_issues(run_id, results_dir=None, definition_path=None, repo_root=Non
         )
         _notify_slack_best_effort(
             "*Daily GitLab loop:* the end-of-run wrap-up FAILED, so today's "
-            f"digest/daily-review was NOT produced — {detail}"
+            f"digest/daily-review was NOT produced — {detail}",
+            notification_key="gitlab_wrapup_failed",
         )
 
     return results
@@ -650,7 +656,8 @@ def _alert_on_incomplete_results(results):
     )
     _notify_slack_best_effort(
         f"*Daily GitLab loop:* {len(incomplete)} of {len(results)} issues did not "
-        f"complete — {detail} — see outputs/loop-runs/ and logs/loop-engineering.log"
+        f"complete — {detail} — see outputs/loop-runs/ and logs/loop-engineering.log",
+        notification_key="gitlab_issues_incomplete",
     )
     return incomplete
 

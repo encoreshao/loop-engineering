@@ -69,6 +69,18 @@ def _all_issues_enabled_by_default(monkeypatch):
     monkeypatch.setattr(glr.issue_tracking_config, "is_issue_enabled", lambda alias, issue_iid: True)
 
 
+@pytest.fixture(autouse=True)
+def _no_real_block_templates(monkeypatch):
+    """Safe default for slack_notify.resolve_blocks, which
+    _notify_slack_best_effort now calls in-process whenever a caller
+    passes notification_key: unstubbed it reads the real
+    ~/.slack/config.json from disk - the same shape of accident the
+    slack_calls fixture above already prevents for post_message itself.
+    Returns None (no template bound) unless a test explicitly overrides
+    this, matching a fresh install's real behavior."""
+    monkeypatch.setattr(glr.slack_notify, "resolve_blocks", lambda *a, **k: None)
+
+
 def test_the_modules_safety_net_stubs_both_the_ai_cli_and_slack(slack_calls):
     """Guards the safety net itself. `_notify_slack_best_effort` calls
     slack_notify.post_message in-process, which reads the real
@@ -78,6 +90,47 @@ def test_the_modules_safety_net_stubs_both_the_ai_cli_and_slack(slack_calls):
     assert os.environ["PATH"] == SANITIZED_PATH
     assert glr._notify_slack_best_effort("a message nobody should receive") is True
     assert slack_calls == ["a message nobody should receive"]
+
+
+def test_notify_slack_best_effort_passes_resolved_blocks_to_post_message(monkeypatch, slack_calls):
+    captured = {}
+    monkeypatch.setattr(
+        glr.slack_notify, "resolve_blocks",
+        lambda notification_key, message, **kwargs: [{"type": "divider"}] if notification_key == "gitlab_wrapup_failed" else None,
+    )
+
+    def fake_post_message(text, **kwargs):
+        captured["text"] = text
+        captured["blocks"] = kwargs.get("blocks")
+
+    monkeypatch.setattr(glr.slack_notify, "post_message", fake_post_message)
+
+    assert glr._notify_slack_best_effort("wrap-up failed", notification_key="gitlab_wrapup_failed") is True
+
+    assert captured == {"text": "wrap-up failed", "blocks": [{"type": "divider"}]}
+
+
+def test_notify_slack_best_effort_sends_no_blocks_when_no_notification_key(slack_calls):
+    assert glr._notify_slack_best_effort("plain alert") is True
+    assert slack_calls == ["plain alert"]
+
+
+def test_alert_on_incomplete_results_passes_gitlab_issues_incomplete_key(monkeypatch):
+    from loop_result import LoopResult
+    captured = {}
+    monkeypatch.setattr(
+        glr, "_notify_slack_best_effort",
+        lambda message, notification_key=None: captured.update(message=message, notification_key=notification_key) or True,
+    )
+    result = LoopResult(
+        loop_id="loop_stub", run_id="r_a_1", definition_name="gitlab-issue-loop",
+        final_state=glr.LoopState.FAILED, iterations=[], stop_reason="boom",
+    )
+
+    glr._alert_on_incomplete_results([result])
+
+    assert captured["notification_key"] == "gitlab_issues_incomplete"
+    assert "r_a_1" in captured["message"]
 
 
 def _write_fake_cli(bin_dir, name, output_json=None, raw_output=None, exit_code=0):
