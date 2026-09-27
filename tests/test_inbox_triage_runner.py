@@ -317,6 +317,32 @@ def test_keychain_error_during_draft_is_reported_as_draft_failed(tmp_path):
     assert outcome["urgent"][0]["draft_failed"] is True and outcome["urgent"][0]["draft_link"] is None
 
 
+def test_unexpected_draft_exception_is_contained_and_remaining_drafts_still_run(tmp_path):
+    """A ValueError from EmailMessage (a header with a linefeed) or a
+    UnicodeEncodeError (a lone surrogate in draft_body) must not escape the
+    draft loop: labels and seen IDs are already recorded by then, so an
+    escape would discard the urgent list and never retry the skipped drafts."""
+    provider = FakeProvider([_m(1, minute=1), _m(2, minute=2)], fail_draft_on="m1",
+                            draft_exception=ValueError("Header values may not contain linefeed PRIVATE SUBJECT"))
+    outcome = _run(provider, _reply(
+        {"id": "m1", "category": "urgent", "reason": "r", "draft_body": "x"},
+        {"id": "m2", "category": "urgent", "reason": "r", "draft_body": "y"}), tmp_path)
+    assert outcome["status"] == "ok"
+    assert provider.drafts == [("m2", "y")]
+    assert [u["draft_failed"] for u in outcome["urgent"]] == [True, False]
+    assert outcome["urgent"][1]["draft_link"] == "https://mail/m2"
+    assert "PRIVATE SUBJECT" not in json.dumps(outcome)
+
+
+def test_unexpected_draft_exception_logs_only_the_class_name(tmp_path, capsys):
+    provider = FakeProvider([_m(1)], fail_draft_on="m1", draft_exception=UnicodeEncodeError(
+        "utf-8", "PRIVATE \ud800", 8, 9, "surrogates not allowed"))
+    outcome = _run(provider, _reply({"id": "m1", "category": "urgent", "reason": "r", "draft_body": "x"}), tmp_path)
+    assert outcome["status"] == "ok" and outcome["urgent"][0]["draft_failed"] is True
+    err = capsys.readouterr().err
+    assert "UnicodeEncodeError" in err and "PRIVATE" not in err
+
+
 def test_auth_expired_during_labelling_is_needs_reauth_and_records_labelled(tmp_path):
     provider = FakeProvider([_m(1, minute=1), _m(2, minute=2)], fail_label_on="m2",
                             label_exception=mail_http.AuthExpired(401, "", "http://x"))

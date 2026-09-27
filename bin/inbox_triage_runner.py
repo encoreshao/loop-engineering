@@ -228,10 +228,18 @@ def triage_inbox(inbox, config, now, provider_factory=None, token_fn=None, invok
         message = by_id[decision["id"]]
         link, draft_failed = None, False
         if decision["draft_body"]:
+            # Any exception, not just the HTTP/auth ones: labels and seen IDs
+            # are already recorded, so an escape here would throw away the
+            # urgent list and never retry the remaining drafts. EmailMessage
+            # raises ValueError for a header with a linefeed, and a lone
+            # surrogate in draft_body raises UnicodeEncodeError. Only the
+            # class name is logged - the message text can quote mail content.
             try:
                 link = provider.create_reply_draft(message, decision["draft_body"])
-            except (mail_http.MailHTTPError, mail_auth.ReauthRequired, mail_auth.KeychainError):
+            except Exception as exc:  # noqa: BLE001 - see above
                 draft_failed = True
+                print(f"inbox_triage_runner: draft for one message in {inbox['name']} failed: "
+                      f"{type(exc).__name__}", file=sys.stderr)
         rows.append({"date": message["date"], "from": message["from"], "subject": message["subject"],
                      "category": decision["category"], "reason": decision["reason"], "draft_link": link})
         if decision["category"] == "urgent":
