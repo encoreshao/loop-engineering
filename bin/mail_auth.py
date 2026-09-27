@@ -61,9 +61,9 @@ def keychain_service():
     return f"{KEYCHAIN_SERVICE}.sandbox-{digest}"
 
 
-def _security(args):
+def _security(args, stdin=None):
     try:
-        return subprocess.run(["/usr/bin/security", *args], capture_output=True, text=True,
+        return subprocess.run(["/usr/bin/security", *args], input=stdin, capture_output=True, text=True,
                               timeout=KEYCHAIN_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
         raise KeychainError("Keychain did not answer in time - is it locked?") from None
@@ -80,9 +80,25 @@ def keychain_get(account):
     raise KeychainError(f"Keychain read failed (exit {result.returncode}): {result.stderr.strip()}")
 
 
+def _security_quote(value):
+    """A double-quoted argument for `security -i`'s own command-line
+    tokenizer, which honours backslash escapes inside double quotes
+    (verified: `"a b\\"c\\\\d"` is read as `a b"c\\d`). A line break would
+    end the command and start another, so it is refused outright."""
+    if "\n" in value or "\r" in value or "\x00" in value:
+        raise KeychainError("Refusing to store a Keychain value containing a line break")
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def keychain_set(account, secret):
-    result = _security(["add-generic-password", "-U", "-s", keychain_service(), "-a", account,
-                        "-w", secret, "-T", "/usr/bin/security"])
+    """The token goes to `security -i` on stdin, never in argv: argv is
+    visible to every local user via `ps`, and Outlook rotates its refresh
+    token on every refresh, so it would be exposed over and over.
+    `security -i` exits non-zero when the command it read fails."""
+    command = " ".join(["add-generic-password", "-U", "-s", _security_quote(keychain_service()),
+                        "-a", _security_quote(account), "-w", _security_quote(secret),
+                        "-T", "/usr/bin/security"])
+    result = _security(["-i"], stdin=command + "\n")
     if result.returncode != 0:
         raise KeychainError(f"Keychain write failed (exit {result.returncode}): {result.stderr.strip()}")
 

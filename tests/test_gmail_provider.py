@@ -90,7 +90,9 @@ def test_fetch_new_filters_seen_excluded_and_sorts_oldest_first():
         messages = _provider(stub).fetch_new(since, {"seen"}, ["@spam.com"], limit=10)
         list_query = next(r["query"] for r in stub.requests if r["path"] == f"{U}/messages")
     assert [m["id"] for m in messages] == ["new1", "new2"]
-    assert list_query["q"] == [f"in:inbox is:unread after:{int(since.timestamp())}"]
+    # One second early: Gmail's after: is exclusive, so a message in the same
+    # second as the high-water mark would otherwise be skipped (seen IDs dedupe).
+    assert list_query["q"] == [f"in:inbox is:unread after:{int(since.timestamp()) - 1}"]
     assert not any(r["path"] == f"{U}/messages/seen" for r in stub.requests)
 
 

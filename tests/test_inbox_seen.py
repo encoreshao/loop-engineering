@@ -51,3 +51,22 @@ def test_default_dir_resolved_at_call_time(tmp_path, monkeypatch):
     monkeypatch.setattr(inbox_seen, "DEFAULT_STATE_DIR", tmp_path)
     inbox_seen.record("w", [{"id": "a", "date": NOW.isoformat()}], NOW)
     assert (tmp_path / "w.json").exists()
+
+
+def test_forget_deletes_only_that_inboxes_state(tmp_path):
+    from datetime import datetime, timezone
+    now = datetime(2026, 9, 27, tzinfo=timezone.utc)
+    inbox_seen.record("w", [{"id": "m1", "date": now.isoformat()}], now, state_dir=tmp_path)
+    inbox_seen.record("h", [{"id": "m2", "date": now.isoformat()}], now, state_dir=tmp_path)
+    assert inbox_seen.forget("w", state_dir=tmp_path) is True
+    assert not (tmp_path / "w.json").exists() and (tmp_path / "h.json").exists()
+    assert inbox_seen.forget("w", state_dir=tmp_path) is False
+
+
+def test_forget_default_dir_resolved_at_call_time(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    monkeypatch.setattr(inbox_seen, "DEFAULT_STATE_DIR", tmp_path)
+    now = datetime(2026, 9, 27, tzinfo=timezone.utc)
+    inbox_seen.record("w", [{"id": "m1", "date": now.isoformat()}], now)
+    inbox_seen.forget("w")
+    assert not (tmp_path / "w.json").exists()

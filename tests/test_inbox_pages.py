@@ -62,6 +62,8 @@ def test_history_list_newest_first(tmp_path):
 
 import pytest  # noqa: E402
 
+import inbox_seen  # noqa: E402
+import inbox_status  # noqa: E402
 import mail_auth  # noqa: E402
 
 
@@ -69,6 +71,8 @@ import mail_auth  # noqa: E402
 def sandbox(tmp_path, monkeypatch):
     monkeypatch.setattr(inbox_config, "DEFAULT_CONFIG_PATH", tmp_path / "inboxes.json")
     monkeypatch.setattr(inbox_config, "DEFAULT_OAUTH_PATH", tmp_path / "mail_oauth.json")
+    monkeypatch.setattr(inbox_status, "DEFAULT_STATUS_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(inbox_seen, "DEFAULT_STATE_DIR", tmp_path / "state")
     stored, deleted = {}, []
     monkeypatch.setattr(mail_auth, "keychain_set", lambda account, secret: stored.update({account: secret}))
     monkeypatch.setattr(mail_auth, "keychain_delete", lambda account: deleted.append(account))
@@ -216,8 +220,8 @@ def test_device_flow_script_shows_connected_on_success():
 
 
 def test_save_existing_inbox_keeps_custom_categories(sandbox):
-    custom = [{"key": "urgent", "label": "Urgent", "description": "today"},
-              {"key": "fyi", "label": "FYI", "description": "rest"}]
+    custom = [{"key": "urgent", "label": "Loop/Urgent", "description": "today", "draft": True},
+              {"key": "fyi", "label": "Loop/FYI", "description": "rest", "draft": False}]
     inbox_config.upsert_inbox({"name": "w", "label": "Work", "provider": "gmail", "account": "me@example.com",
                                "categories": custom}, is_new=True)
     result = inbox_pages.handle_post("/inbox/inboxes", _form(is_new="0", name="w", label="Work 2", provider="gmail",
@@ -272,3 +276,36 @@ def test_google_callback_http_error_returns_failure(sandbox, monkeypatch):
 def test_device_flow_script_clears_code_line_on_failure():
     script = inbox_pages._DEVICE_FLOW_SCRIPT
     assert "s.state === 'failed'" in script
+
+
+def test_post_actions_with_a_malformed_config_flash_an_error(sandbox):
+    (sandbox["tmp"] / "inboxes.json").write_text("{not json")
+    for path, form in (("/inbox/inboxes", _form(is_new="1", name="w", label="W", provider="gmail", account="me@example.com")),
+                       ("/inbox/inboxes/w/pause", _form()), ("/inbox/inboxes/w/delete", _form())):
+        result = inbox_pages.handle_post(path, form, "http://cb")
+        assert result["ok"] is False and "inboxes.json" in result["message"], (path, result)
+
+
+def test_delete_forgets_the_inbox_status_and_seen_state(sandbox):
+    from datetime import datetime, timezone
+    _add_inbox()
+    inbox_status.write("w", "failed", error="old")
+    inbox_status.write("other", "idle")
+    now = datetime(2026, 9, 27, tzinfo=timezone.utc)
+    inbox_seen.record("w", [{"id": "m1", "date": now.isoformat()}], now)
+    inbox_seen.record("other", [{"id": "m2", "date": now.isoformat()}], now)
+    assert inbox_pages.handle_post("/inbox/inboxes/w/delete", _form(), "http://cb")["ok"]
+    assert list(inbox_status.read()["inboxes"]) == ["other"]
+    assert inbox_seen.load("w") == {"high_water": None, "seen": {}}
+    assert not (sandbox["tmp"] / "state" / "w.json").exists()
+    assert inbox_seen.load("other")["seen"]
+
+
+def test_disconnect_keeps_status_and_seen_state(sandbox):
+    from datetime import datetime, timezone
+    _add_inbox()
+    inbox_status.write("w", "idle")
+    now = datetime(2026, 9, 27, tzinfo=timezone.utc)
+    inbox_seen.record("w", [{"id": "m1", "date": now.isoformat()}], now)
+    assert inbox_pages.handle_post("/inbox/inboxes/w/disconnect", _form(), "http://cb")["ok"]
+    assert "w" in inbox_status.read()["inboxes"] and inbox_seen.load("w")["seen"]

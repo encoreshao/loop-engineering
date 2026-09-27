@@ -9135,6 +9135,19 @@ def render_topic_settings_page(flash=None, flash_ok=True):
     return _render_shell("Topic Settings · Loop X Engineering", "topic_settings", _status_badge_markup(status), body)
 
 
+def _inbox_config_for_page():
+    """(config, error_html) for the Inbox Triage pages. A malformed
+    inboxes.json (bad JSON, or one that fails inbox_config's validation)
+    must not 500 the very pages a user would go to to find out what's
+    wrong - render with an empty config and a banner naming the file."""
+    try:
+        return inbox_config.load_config_or_empty(), ""
+    except ValueError as exc:
+        message = f"Could not load {inbox_config.DEFAULT_CONFIG_PATH} - fix or remove that file: {exc}"
+        return ({"default_categories": [dict(c) for c in inbox_config.DEFAULT_CATEGORIES], "inboxes": []},
+                f"<div class='flash flash-danger'>{html.escape(message)}</div>")
+
+
 def render_inbox_page(flash=None, flash_ok=True):
     """Inbox Triage page: read-only status for every connected inbox (see
     inbox_pages.render_inbox_body). Config/status come from inbox_config/
@@ -9152,9 +9165,8 @@ def render_inbox_page(flash=None, flash_ok=True):
 
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
 
-    body = flash_html + inbox_pages.render_inbox_body(
-        inbox_config.load_config_or_empty(), inbox_status.read(), csrf_input
-    )
+    config, config_error_html = _inbox_config_for_page()
+    body = flash_html + config_error_html + inbox_pages.render_inbox_body(config, inbox_status.read(), csrf_input)
     return _render_shell(
         "Inbox Triage · Loop X Engineering", "inbox", _status_badge_markup(status), body,
         refresh=True, refresh_note=True,
@@ -9183,8 +9195,9 @@ def render_inbox_setup_page(port, flash=None, flash_ok=True):
 
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
 
-    body = flash_html + inbox_pages.render_setup_body(
-        inbox_config.load_config_or_empty(), inbox_config.load_oauth(), csrf_input, inbox_redirect_uri(port)
+    config, config_error_html = _inbox_config_for_page()
+    body = flash_html + config_error_html + inbox_pages.render_setup_body(
+        config, inbox_config.load_oauth(), csrf_input, inbox_redirect_uri(port)
     )
     return _render_shell("Inbox Setup · Loop X Engineering", "inbox_setup", _status_badge_markup(status), body)
 

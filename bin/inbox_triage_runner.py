@@ -343,10 +343,21 @@ def send_digests(outcomes, now, post=None):
         groups.setdefault(outcome.get("slack_bundle"), []).append(outcome)
     for bundle, group in groups.items():
         text = format_digest(group, now)
+        blocks = slack_notify.resolve_blocks(notification_key="inbox_triage_digest", message=text)
+        # Best-effort, and a rejected Block Kit template must not lose the
+        # digest: retry once as plain text - same as
+        # topic_monitor_runner._notify_slack_best_effort.
         try:
-            post(text, bundle=bundle, blocks=slack_notify.resolve_blocks(notification_key="inbox_triage_digest", message=text))
-        except Exception as exc:  # best-effort, same as topic_monitor_runner._notify_slack_best_effort
-            print(f"inbox_triage_runner: Slack digest failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            post(text, bundle=bundle, blocks=blocks)
+        except Exception as exc:  # noqa: BLE001 - a digest failing must not fail the run
+            if not blocks:
+                print(f"inbox_triage_runner: Slack digest failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+                continue
+            try:
+                post(text, bundle=bundle, blocks=None)
+            except Exception as retry_exc:  # noqa: BLE001 - same reasoning
+                print(f"inbox_triage_runner: Slack digest failed even without blocks: "
+                      f"{type(retry_exc).__name__}: {retry_exc}", file=sys.stderr)
 
 
 def _mark_inbox_failed(name, reason, status_path=None):

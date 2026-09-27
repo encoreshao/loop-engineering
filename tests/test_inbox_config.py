@@ -205,8 +205,8 @@ def test_categories_for_returns_copy():
     assert inbox_config.DEFAULT_CATEGORIES[0]["label"] == original_urgent_label
 
 
-_CUSTOM_CATEGORIES = [{"key": "urgent", "label": "Urgent", "description": "Needs me today"},
-                      {"key": "fyi", "label": "FYI", "description": "Everything else"}]
+_CUSTOM_CATEGORIES = [{"key": "urgent", "label": "Loop/Urgent", "description": "Needs me today", "draft": True},
+                      {"key": "fyi", "label": "Loop/FYI", "description": "Everything else", "draft": False}]
 
 
 def test_upsert_inbox_edit_without_categories_keeps_existing(tmp_path):
@@ -228,3 +228,52 @@ def test_upsert_inbox_edit_with_explicit_categories_replaces_them(tmp_path):
     replacement = _CUSTOM_CATEGORIES[:1]
     ok, _ = inbox_config.upsert_inbox(_inbox(categories=replacement), is_new=False, config_path=path)
     assert ok and inbox_config.get_inbox("work-gmail", path)["categories"] == replacement
+
+
+_GOOD = {"key": "urgent", "label": "Loop/Urgent", "description": "today", "draft": True}
+
+
+@pytest.mark.parametrize("bad, needle", [
+    ({**_GOOD, "label": "TRASH"}, "Loop/"),
+    ({**_GOOD, "label": "SPAM"}, "Loop/"),
+    ({**_GOOD, "label": "Loop/"}, "Loop/"),
+    ({**_GOOD, "label": 5}, "Loop/"),
+    ({k: v for k, v in _GOOD.items() if k != "description"}, "description"),
+    ({k: v for k, v in _GOOD.items() if k != "draft"}, "draft"),
+    ({**_GOOD, "draft": "yes"}, "draft"),
+    ({**_GOOD, "key": ""}, "key"),
+    ("urgent", "object"),
+])
+def test_validate_inbox_rejects_malformed_custom_categories(bad, needle):
+    errors = inbox_config.validate_inbox(_inbox(categories=[bad]))
+    assert any(needle in e for e in errors), errors
+
+
+def test_validate_inbox_rejects_duplicate_category_keys():
+    errors = inbox_config.validate_inbox(_inbox(categories=[_GOOD, dict(_GOOD, label="Loop/Other")]))
+    assert any("duplicate" in e for e in errors)
+
+
+def test_validate_inbox_accepts_well_formed_custom_categories():
+    assert inbox_config.validate_inbox(_inbox(categories=_CUSTOM_CATEGORIES)) == []
+
+
+@pytest.mark.parametrize("defaults, needle", [
+    ("not a list", "default_categories"),
+    ([{"key": "fyi", "label": "Loop/FYI", "description": "x", "draft": False}], "urgent"),
+    ([{**_GOOD, "label": "UNREAD"}], "Loop/"),
+    ([{"key": "urgent", "label": "Loop/Urgent"}], "description"),
+])
+def test_load_config_validates_default_categories(tmp_path, defaults, needle):
+    path = tmp_path / "inboxes.json"
+    path.write_text(json.dumps({"default_categories": defaults, "inboxes": []}))
+    with pytest.raises(ValueError, match="default_categories") as info:
+        inbox_config.load_config(path)
+    assert needle in str(info.value)
+
+
+def test_shipped_defaults_and_template_pass_validation(tmp_path):
+    assert inbox_config.validate_categories(inbox_config.DEFAULT_CATEGORIES) == []
+    path = tmp_path / "inboxes.json"
+    path.write_text((REPO_ROOT / "config" / "inboxes.json.template").read_text())
+    inbox_config.load_config(path)

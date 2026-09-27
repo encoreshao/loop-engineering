@@ -22,6 +22,13 @@ def read(status_path=None):
     return data
 
 
+def _save(data, path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.replace(path)
+
+
 def write(name, state, status_path=None, **extra):
     if status_path is None:
         status_path = DEFAULT_STATUS_PATH
@@ -31,11 +38,21 @@ def write(name, state, status_path=None, **extra):
     entry.update(extra)
     entry["state"] = state
     entry["updated_at"] = datetime.now(timezone.utc).isoformat()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps(data, indent=2))
-    tmp.replace(path)
+    _save(data, path)
     return entry
+
+
+def remove(name, status_path=None):
+    """Drop a deleted inbox's entry, so a re-added inbox of the same name
+    starts fresh. True if there was one."""
+    if status_path is None:
+        status_path = DEFAULT_STATUS_PATH
+    path = Path(status_path)
+    data = read(path)
+    if data["inboxes"].pop(name, None) is None:
+        return False
+    _save(data, path)
+    return True
 
 
 def any_running(status_path=None):

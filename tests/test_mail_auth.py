@@ -64,16 +64,48 @@ def test_keychain_get_timeout_is_keychain_error(monkeypatch):
         mail_auth.keychain_get("work")
 
 
-def test_keychain_set_updates_and_trusts_security_binary(monkeypatch):
+def test_keychain_set_passes_the_token_on_stdin_never_argv(monkeypatch):
     fake = _FakeRun(0)
     monkeypatch.setattr(mail_auth.subprocess, "run", fake)
-    mail_auth.keychain_set("work", "secret")
-    cmd, _ = fake.calls[0]
-    assert cmd[:2] == ["/usr/bin/security", "add-generic-password"]
-    assert "-U" in cmd
-    assert cmd[cmd.index("-T") + 1] == "/usr/bin/security"
-    assert cmd[cmd.index("-w") + 1] == "secret"
-    assert cmd[cmd.index("-s") + 1] == mail_auth.keychain_service()
+    mail_auth.keychain_set("work", "s3cret-refresh-token")
+    cmd, kwargs = fake.calls[0]
+    assert cmd == ["/usr/bin/security", "-i"]
+    assert "s3cret-refresh-token" not in " ".join(cmd)
+    line = kwargs["input"]
+    assert line.endswith("\n") and line.count("\n") == 1
+    assert line.startswith("add-generic-password -U ")
+    assert f'-s "{mail_auth.keychain_service()}"' in line
+    assert '-a "work"' in line
+    assert '-w "s3cret-refresh-token"' in line
+    assert line.rstrip("\n").endswith("-T /usr/bin/security")
+
+
+@pytest.mark.parametrize("token, quoted", [
+    ('a"b', '"a\\"b"'),
+    ("a\\b", '"a\\\\b"'),
+    ("1//0g-A_b.c*d/e", '"1//0g-A_b.c*d/e"'),
+    ('\\"', '"\\\\\\""'),
+])
+def test_keychain_set_quotes_tokens_for_security_interactive_mode(monkeypatch, token, quoted):
+    fake = _FakeRun(0)
+    monkeypatch.setattr(mail_auth.subprocess, "run", fake)
+    mail_auth.keychain_set("work", token)
+    assert f"-w {quoted} -T" in fake.calls[0][1]["input"]
+
+
+def test_keychain_set_rejects_a_token_with_a_line_break(monkeypatch):
+    fake = _FakeRun(0)
+    monkeypatch.setattr(mail_auth.subprocess, "run", fake)
+    with pytest.raises(mail_auth.KeychainError):
+        mail_auth.keychain_set("work", "abc\ndelete-generic-password -s x")
+    assert fake.calls == []
+
+
+def test_keychain_set_failure_is_keychain_error_without_the_token(monkeypatch):
+    monkeypatch.setattr(mail_auth.subprocess, "run", _FakeRun(1, stderr="add-generic-password: returned 1"))
+    with pytest.raises(mail_auth.KeychainError) as info:
+        mail_auth.keychain_set("work", "s3cret")
+    assert "s3cret" not in str(info.value)
 
 
 def test_keychain_delete_ignores_missing(monkeypatch):

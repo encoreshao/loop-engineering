@@ -93,6 +93,15 @@ def extract_json_array(text):
     return data
 
 
+_ERROR_VALUE_LIMIT = 40
+
+
+def _brief(value):
+    """An AI-supplied value, safe to put in an error message: its repr,
+    bounded, since the error ends up in status, history and Slack."""
+    return trim(repr(value), _ERROR_VALUE_LIMIT)
+
+
 def parse_response(text, messages, categories):
     entries = extract_json_array(text)
     by_key = {c["key"]: c for c in categories}
@@ -102,13 +111,13 @@ def parse_response(text, messages, categories):
         if not isinstance(entry, dict):
             raise TriageResponseError("every entry must be an object")
         msg_id = entry.get("id")
-        if msg_id not in expected:
-            raise TriageResponseError(f"unknown id {msg_id!r}")
+        if not isinstance(msg_id, str) or msg_id not in expected:
+            raise TriageResponseError(f"unknown id {_brief(msg_id)}")
         if msg_id in decisions:
-            raise TriageResponseError(f"duplicate id {msg_id!r}")
+            raise TriageResponseError(f"duplicate id {_brief(msg_id)}")
         category = entry.get("category")
-        if category not in by_key:
-            raise TriageResponseError(f"unknown category {category!r} for {msg_id}")
+        if not isinstance(category, str) or category not in by_key:
+            raise TriageResponseError(f"unknown category {_brief(category)} for {msg_id}")
         reason = entry.get("reason") or ""
         if not isinstance(reason, str) or len(reason) > REASON_LIMIT:
             raise TriageResponseError(f"reason for {msg_id} must be a string of at most {REASON_LIMIT} chars")
@@ -119,7 +128,7 @@ def parse_response(text, messages, categories):
             if not isinstance(draft, str) or len(draft) > DRAFT_LIMIT:
                 raise TriageResponseError(f"draft_body for {msg_id} must be a string of at most {DRAFT_LIMIT} chars")
             if not by_key[category].get("draft"):
-                raise TriageResponseError(f"draft_body is not allowed for category {category!r} ({msg_id})")
+                raise TriageResponseError(f"draft_body is not allowed for category {_brief(category)} ({msg_id})")
         decisions[msg_id] = {"id": msg_id, "category": category, "reason": reason, "draft_body": draft}
     missing = [i for i in expected if i not in decisions]
     if missing:

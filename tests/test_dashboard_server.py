@@ -11050,6 +11050,22 @@ def test_inbox_pages_render_over_http(tmp_path, monkeypatch):
         assert info.value.code == 404
 
 
+@pytest.mark.parametrize("content", ["{not json", '{"inboxes": [{"name": "Bad Name"}]}'])
+def test_inbox_pages_show_a_malformed_config_instead_of_a_500(tmp_path, monkeypatch, content):
+    config_path = tmp_path / "inboxes.json"
+    config_path.write_text(content)
+    monkeypatch.setattr(ds.inbox_config, "DEFAULT_CONFIG_PATH", config_path)
+    monkeypatch.setattr(ds.inbox_config, "DEFAULT_OAUTH_PATH", tmp_path / "mail_oauth.json")
+    monkeypatch.setattr(ds.inbox_status, "DEFAULT_STATUS_PATH", tmp_path / "status.json")
+    for page in (ds.render_inbox_page(), ds.render_inbox_setup_page(8420)):
+        assert "flash-danger" in page
+        assert html.escape(str(config_path)) in page
+    with _running_server() as port:
+        for path in ("/inbox", "/inbox/setup"):
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=10) as resp:
+                assert resp.status == 200
+
+
 def test_render_inbox_history_page_renders_markdown_table_and_escapes_script(tmp_path, monkeypatch):
     """/inbox/history/<name> must follow the same render_markdown-in-a-
     .markdown-wrapper pattern as /history/<name> and

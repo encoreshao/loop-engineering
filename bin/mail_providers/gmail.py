@@ -90,7 +90,10 @@ class GmailProvider(BaseProvider):
         return self._call("GET", "/users/me/profile").get("emailAddress", "").strip().lower()
 
     def fetch_new(self, since, seen_ids, exclude, limit):
-        query = f"in:inbox is:unread after:{int(since.timestamp())}"
+        # One second early: after: is exclusive at one-second granularity, so a
+        # message in the same second as the high-water mark would be skipped.
+        # The seen-ID filter below drops anything already triaged.
+        query = f"in:inbox is:unread after:{int(since.timestamp()) - 1}"
         ids, page_token = [], None
         for _ in range(_LIST_PAGE_LIMIT):
             params = {"q": query, "maxResults": 100}

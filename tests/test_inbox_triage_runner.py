@@ -696,3 +696,35 @@ def test_markdown_escape_helper_neutralises_markup():
         assert raw not in escaped
     assert runner._md("- item").startswith("\\-") and runner._md("12. item").startswith("12\\.")
     assert "\x00" not in runner._md("a\x00b")
+
+
+def test_send_digests_retries_as_plain_text_when_blocks_are_rejected(monkeypatch):
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "x"}}]
+    monkeypatch.setattr(runner.slack_notify, "resolve_blocks", lambda notification_key, message: blocks)
+    posts = []
+
+    def post(text, bundle=None, blocks=None):
+        posts.append(blocks)
+        if blocks:
+            raise OSError("invalid_blocks")
+    runner.send_digests([_outcome_ok()], NOW, post=post)
+    assert posts == [blocks, None]
+
+
+def test_send_digests_does_not_retry_a_plain_text_failure(monkeypatch):
+    monkeypatch.setattr(runner.slack_notify, "resolve_blocks", lambda notification_key, message: None)
+    posts = []
+
+    def post(text, bundle=None, blocks=None):
+        posts.append(blocks)
+        raise OSError("no network")
+    runner.send_digests([_outcome_ok()], NOW, post=post)
+    assert posts == [None]
+
+
+def test_send_digests_retry_failure_does_not_raise(monkeypatch):
+    monkeypatch.setattr(runner.slack_notify, "resolve_blocks", lambda notification_key, message: [{"type": "divider"}])
+
+    def post(text, bundle=None, blocks=None):
+        raise OSError("down")
+    runner.send_digests([_outcome_ok()], NOW, post=post)

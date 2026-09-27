@@ -57,6 +57,43 @@ def sender_matches(address, patterns):
     return False
 
 
+LABEL_PREFIX = "Loop/"
+
+
+def validate_categories(categories):
+    """Errors for a category list (an inbox's own, or default_categories).
+    Every label must start with "Loop/": it is the mailbox label/category
+    the loop applies, and "only Loop/* labels are ever applied" is a safety
+    promise - a hand-edited label like TRASH, SPAM or UNREAD would
+    otherwise be applied to real mail (Gmail treats those system label
+    IDs as archive/delete/read-state changes)."""
+    if not isinstance(categories, list):
+        return ["must be a list"]
+    errors, keys = [], set()
+    for index, category in enumerate(categories):
+        where = f"category #{index + 1}"
+        if not isinstance(category, dict):
+            errors.append(f"{where} must be an object with key/label/description/draft")
+            continue
+        key = category.get("key")
+        if not isinstance(key, str) or not key.strip():
+            errors.append(f"{where} needs a non-empty key")
+        elif key in keys:
+            errors.append(f"{where}: duplicate key {key!r}")
+        else:
+            keys.add(key)
+        label = category.get("label")
+        if not isinstance(label, str) or not label.startswith(LABEL_PREFIX) or not label[len(LABEL_PREFIX):].strip():
+            errors.append(f"{where}: label must start with {LABEL_PREFIX!r} (e.g. 'Loop/Urgent')")
+        if not isinstance(category.get("description"), str):
+            errors.append(f"{where} needs a description string")
+        if not isinstance(category.get("draft"), bool):
+            errors.append(f"{where} needs draft: true or false")
+    if "urgent" not in keys:
+        errors.append("must include an 'urgent' category - VIP senders are always marked urgent")
+    return errors
+
+
 def validate_inbox(inbox):
     errors = []
     name = inbox.get("name")
@@ -75,8 +112,8 @@ def validate_inbox(inbox):
     if categories is not None:
         if not isinstance(categories, list):
             errors.append("categories must be null or a list")
-        elif not any(isinstance(c, dict) and c.get("key") == "urgent" for c in categories):
-            errors.append("categories must include an 'urgent' category - VIP senders are always marked urgent")
+        else:
+            errors += [f"categories {e}" for e in validate_categories(categories)]
     return errors
 
 
@@ -85,6 +122,9 @@ def _validate_config(data, path):
         raise ValueError(f"{path} must be a JSON object with an 'inboxes' array")
     if "default_categories" not in data:
         data["default_categories"] = [dict(c) for c in DEFAULT_CATEGORIES]
+    errors = validate_categories(data["default_categories"])
+    if errors:
+        raise ValueError(f"{path}: default_categories {'; '.join(errors)}")
     seen = set()
     for inbox in data["inboxes"]:
         errors = validate_inbox(inbox)

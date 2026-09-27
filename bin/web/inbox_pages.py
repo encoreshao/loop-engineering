@@ -20,6 +20,8 @@ import re
 from pathlib import Path
 
 import inbox_config
+import inbox_seen
+import inbox_status
 import mail_auth
 import mail_http
 
@@ -350,7 +352,16 @@ def handle_post(path, form, redirect_uri):
     """Back end for every POST under /inbox/ except /inbox/run-now (which
     dashboard_server.py handles itself). Returns {"ok", "message",
     "location"} for a flash redirect, {"redirect": url} for an off-site
-    redirect (Google sign-in), or None for an unknown path (404)."""
+    redirect (Google sign-in), or None for an unknown path (404). A
+    malformed inboxes.json (ValueError from inbox_config) is a flash
+    message naming the file, never a 500."""
+    try:
+        return _handle_post(path, form, redirect_uri)
+    except ValueError as exc:
+        return _result(False, f"Could not load {inbox_config.DEFAULT_CONFIG_PATH} - fix or remove that file: {exc}")
+
+
+def _handle_post(path, form, redirect_uri):
     if path == "/inbox/oauth-client":
         provider = _value(form, "provider")
         secret = _value(form, "client_secret")
@@ -390,6 +401,9 @@ def handle_post(path, form, redirect_uri):
     if verb == "disconnect":
         return _result(True, f"Disconnected {inbox['label']}")
     ok, message = inbox_config.delete_inbox(name)
+    if ok:
+        inbox_status.remove(name)
+        inbox_seen.forget(name)
     return _result(ok, message)
 
 

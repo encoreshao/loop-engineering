@@ -131,3 +131,21 @@ def test_apply_rules_urgent_without_draft_needs_manual_reply():
 
 def test_count_by_category():
     assert inbox_triage.count_by_category([{"category": "fyi"}, {"category": "fyi"}, {"category": "urgent"}]) == {"fyi": 2, "urgent": 1}
+
+
+@pytest.mark.parametrize("entry", [
+    {"id": "x" * 500, "category": "fyi", "reason": "r", "draft_body": None},
+    {"id": "m1", "category": "y" * 500, "reason": "r", "draft_body": None},
+])
+def test_parse_response_bounds_ai_values_in_error_messages(entry):
+    with pytest.raises(inbox_triage.TriageResponseError) as info:
+        inbox_triage.parse_response(json.dumps([entry]), [_msg(1)], CATS)
+    assert len(str(info.value)) < 120
+
+
+@pytest.mark.parametrize("field, value", [("id", ["m1"]), ("id", {"a": 1}), ("category", ["fyi"]),
+                                          ("category", {"k": "v"}), ("id", 1)])
+def test_parse_response_non_string_id_or_category_is_a_response_error(field, value):
+    entry = {"id": "m1", "category": "fyi", "reason": "r", "draft_body": None, field: value}
+    with pytest.raises(inbox_triage.TriageResponseError):
+        inbox_triage.parse_response(json.dumps([entry]), [_msg(1)], CATS)

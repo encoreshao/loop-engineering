@@ -51,3 +51,15 @@ def record(name, messages, now, state_dir=None):
     tmp.write_text(json.dumps(state, indent=2))
     tmp.replace(path)
     return state
+
+
+def forget(name, state_dir=None):
+    """Delete a deleted inbox's triage memory, so a re-added inbox of the
+    same name starts fresh (a new 48-hour first-run lookback) instead of
+    inheriting another mailbox's high-water mark. True if there was one."""
+    path = _path(name, state_dir)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return False
+    return True
