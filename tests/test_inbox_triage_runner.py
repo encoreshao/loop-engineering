@@ -24,6 +24,8 @@ def test_claude_command_disables_tools_and_mcp():
     assert "--strict-mcp-config" in cmd
     assert json.loads(cmd[cmd.index("--mcp-config") + 1]) == {"mcpServers": {}}
     assert cmd[cmd.index("--output-format") + 1] == "json"
+    assert "--no-session-persistence" in cmd
+    assert json.loads(cmd[cmd.index("--settings") + 1]) == {"disableAllHooks": True}
     assert not any("Bash" in part or "WebFetch" in part for part in cmd)
 
 
@@ -32,6 +34,7 @@ def test_codex_command_is_read_only_without_mcp_and_reads_stdin():
     assert cmd[:2] == ["codex", "exec"]
     assert cmd[cmd.index("--sandbox") + 1] == "read-only"
     assert "mcp_servers={}" in cmd
+    assert "tools.web_search=false" in cmd
     assert cmd[-1] == "-"
 
 
@@ -59,11 +62,52 @@ def test_invoke_claude_passes_prompt_on_stdin_and_parses_cost(monkeypatch, tmp_p
     assert "SECRET BODY TEXT" not in log.read_text()
 
 
+def test_invoke_runs_in_a_fresh_temp_dir_not_the_repo(monkeypatch, tmp_path):
+    monkeypatch.setattr(runner.ai_cli_config, "get_selected_cli", lambda: "claude")
+    fake = _Run(json.dumps({"result": "[]", "total_cost_usd": None, "is_error": False}))
+    monkeypatch.setattr(runner.subprocess, "run", fake)
+    runner.invoke_triage_agent("p", repo_root=tmp_path, unified_log_path=tmp_path / "l")
+    cwd = fake.calls[0][1]["cwd"]
+    assert cwd != str(tmp_path)
+    assert not Path(cwd).is_relative_to(tmp_path)
+    assert not Path(cwd).exists()  # cleaned up once invoke_triage_agent returns
+
+
 def test_invoke_claude_is_error_raises(monkeypatch, tmp_path):
     monkeypatch.setattr(runner.ai_cli_config, "get_selected_cli", lambda: "claude")
     monkeypatch.setattr(runner.subprocess, "run", _Run(json.dumps({"result": "rate limited", "is_error": True})))
     with pytest.raises(runner.TriageFailed):
         runner.invoke_triage_agent("p", repo_root=tmp_path, unified_log_path=tmp_path / "l")
+
+
+def test_invoke_claude_unparseable_envelope_raises(monkeypatch, tmp_path):
+    monkeypatch.setattr(runner.ai_cli_config, "get_selected_cli", lambda: "claude")
+    monkeypatch.setattr(runner.subprocess, "run", _Run("not json at all"))
+    log = tmp_path / "log.txt"
+    with pytest.raises(runner.TriageFailed, match="unparseable envelope"):
+        runner.invoke_triage_agent("p", repo_root=tmp_path, unified_log_path=log)
+    assert "unparseable CLI envelope" in log.read_text()
+
+
+def test_invoke_codex_returns_raw_stdout_and_no_cost(monkeypatch, tmp_path):
+    monkeypatch.setattr(runner.ai_cli_config, "get_selected_cli", lambda: "codex")
+    monkeypatch.setattr(runner.subprocess, "run", _Run("[]"))
+    log = tmp_path / "log.txt"
+    out = runner.invoke_triage_agent("p", repo_root=tmp_path, unified_log_path=log)
+    assert out == {"text": "[]", "cost_usd": None}
+    assert "codex triage call ok" in log.read_text()
+
+
+def test_invoke_timeout_logs_no_prompt_text(monkeypatch, tmp_path):
+    monkeypatch.setattr(runner.ai_cli_config, "get_selected_cli", lambda: "claude")
+    exc = subprocess.TimeoutExpired(["claude"], 900)
+    monkeypatch.setattr(runner.subprocess, "run", _Run(exc=exc))
+    log = tmp_path / "log.txt"
+    with pytest.raises(subprocess.TimeoutExpired):
+        runner.invoke_triage_agent("SECRET PROMPT TEXT", repo_root=tmp_path, timeout_seconds=900, unified_log_path=log)
+    text = log.read_text()
+    assert "timed out after 900s" in text
+    assert "SECRET PROMPT TEXT" not in text
 
 
 def test_invoke_failure_logs_no_output_content(monkeypatch, tmp_path):
