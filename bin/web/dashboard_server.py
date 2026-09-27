@@ -2828,6 +2828,7 @@ _BLOCK_TEMPLATE_NOTIFICATION_KEYS = {
     "gitlab_wrapup_failed": "GitLab loop: end-of-run digest failed",
     "gitlab_issues_incomplete": "GitLab loop: issues incomplete",
     "topic_monitor_incomplete": "Topic monitor: topics incomplete",
+    "inbox_triage_digest": "Inbox Triage: run digest",
 }
 
 

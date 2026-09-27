@@ -15,17 +15,25 @@ against it) are closed below via --no-session-persistence and --settings
 prompt is not currently closable from here."""
 import json
 import subprocess
+import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import ai_cli_config
 import inbox_config
 import inbox_seen
+import inbox_status
 import inbox_triage
 import mail_auth
 import mail_http
 import mail_providers
+import slack_notify
+from loop_definition import LoopDefinition
+from loop_runtime import LoopRuntime
+from loop_serialize import write_result
+from loop_verifiers import build_verifiers
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_DIR = REPO_ROOT / "outputs" / "inbox-triage"
@@ -231,3 +239,138 @@ def triage_inbox(inbox, config, now, provider_factory=None, token_fn=None, invok
                            "needs_manual_reply": decision["needs_manual_reply"], "draft_failed": draft_failed})
     return _outcome(inbox, "ok", counts=inbox_triage.count_by_category(decisions), urgent=urgent,
                     rows=rows, overflow=overflow, cost_usd=cost)
+
+
+DEFAULT_HISTORY_DIR = OUTPUT_DIR / "history"
+_STATUS_STATE = {"ok": "idle", "quiet": "idle", "failed": "failed", "needs_reauth": "needs_reauth"}
+
+
+def _md(text):
+    return (text or "").replace("|", "\\|").replace("\n", " ")
+
+
+def write_history(outcome, now, history_dir=None):
+    if history_dir is None:
+        history_dir = DEFAULT_HISTORY_DIR
+    path = Path(history_dir) / f"{now.date().isoformat()}-{outcome['name']}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = []
+    if not path.exists():
+        lines.append(f"# {outcome['label']} - {now.date().isoformat()}\n")
+    lines.append(f"\n## Run {now.astimezone().strftime('%H:%M')} - {outcome['status']}\n")
+    if outcome.get("error"):
+        lines.append(f"\n{_md(outcome['error'])}\n")
+    if outcome["rows"]:
+        lines.append("\n| Received | From | Subject | Category | Reason | Draft |\n|---|---|---|---|---|---|\n")
+        for row in outcome["rows"]:
+            draft = f"[draft]({row['draft_link']})" if row["draft_link"] else ""
+            lines.append(f"| {row['date'][11:16]} | {_md(row['from'])} | {_md(row['subject'])} | "
+                         f"{row['category']} | {_md(row['reason'])} | {draft} |\n")
+    elif outcome["status"] == "quiet":
+        lines.append("\nNo new mail.\n")
+    with open(path, "a") as f:
+        f.write("".join(lines))
+    return path
+
+
+def _summary_line(outcome):
+    label = outcome["label"]
+    if outcome["status"] == "quiet":
+        return f"*{label}*: no new mail"
+    if outcome["status"] == "needs_reauth":
+        return f"*{label}*: needs re-auth - reconnect it from the dashboard's Inbox Triage page"
+    if outcome["status"] == "failed":
+        return f"*{label}*: failed - {outcome['error']}"
+    counts = dict(outcome["counts"])
+    urgent, action = counts.pop("urgent", 0), counts.pop("action", 0)
+    other = sum(counts.values())
+    ready = " (drafts ready)" if any(u["draft_link"] for u in outcome["urgent"]) else ""
+    return f"*{label}*: {urgent} urgent{ready}, {action} action, {other} other"
+
+
+def format_digest(outcomes, now):
+    lines = [f"*Inbox Triage* - {now.astimezone().strftime('%Y-%m-%d %H:%M')}"]
+    for outcome in outcomes:
+        lines.append(_summary_line(outcome))
+        for item in outcome["urgent"]:
+            if item["draft_link"]:
+                note = f"<{item['draft_link']}|draft>"
+            elif item["draft_failed"]:
+                note = "draft failed - reply manually"
+            else:
+                note = "reply manually"
+            lines.append(f"    • {item['from']} - \"{item['subject']}\" ({note})")
+        if outcome.get("overflow"):
+            lines.append(f"    more waiting - over {MESSAGE_CAP} new messages, the rest are picked up next run")
+    return "\n".join(lines)
+
+
+def send_digests(outcomes, now, post=None):
+    if post is None:
+        post = slack_notify.post_message
+    groups = {}
+    for outcome in outcomes:
+        groups.setdefault(outcome.get("slack_bundle"), []).append(outcome)
+    for bundle, group in groups.items():
+        text = format_digest(group, now)
+        try:
+            post(text, bundle=bundle, blocks=slack_notify.resolve_blocks(notification_key="inbox_triage_digest", message=text))
+        except Exception as exc:  # best-effort, same as topic_monitor_runner._notify_slack_best_effort
+            print(f"inbox_triage_runner: Slack digest failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+
+def run_all_inboxes(run_id, now=None, config_path=None, definition_path=None, results_dir=None,
+                    events_dir=None, status_path=None, history_dir=None, triage=None):
+    if now is None:
+        now = datetime.now(timezone.utc)
+    if definition_path is None:
+        definition_path = DEFAULT_DEFINITION_PATH
+    if triage is None:
+        triage = triage_inbox
+    config = inbox_config.load_config(config_path)
+    definition = LoopDefinition.from_yaml(definition_path)
+    outcomes = []
+    for inbox in [i for i in config["inboxes"] if i.get("enabled", True)]:
+        inbox_status.write(inbox["name"], "running", status_path=status_path)
+        captured = {}
+
+        def agent_fn(context, inbox=inbox):
+            try:
+                captured["outcome"] = triage(inbox, config, now)
+            except Exception as exc:
+                captured["outcome"] = _outcome(inbox, "failed", f"{type(exc).__name__}: {exc}")
+            if captured["outcome"]["status"] in ("failed", "needs_reauth"):
+                raise TriageFailed(captured["outcome"]["error"])
+            return {"changed": True, "cost_usd": captured["outcome"].get("cost_usd")}
+
+        runtime = LoopRuntime(agent_fn=agent_fn, verifiers=build_verifiers(definition.verifiers, cwd=None),
+                              events_dir=events_dir)
+        write_result(runtime.start(definition, run_id=f"{run_id}_{inbox['name']}"), results_dir=results_dir)
+        outcome = {**captured.get("outcome", _outcome(inbox, "failed", "runtime stopped before triage")),
+                   "slack_bundle": inbox.get("slack_bundle")}
+        write_history(outcome, now, history_dir=history_dir)
+        inbox_status.write(inbox["name"], _STATUS_STATE[outcome["status"]], status_path=status_path,
+                           last_run_at=now.isoformat(), counts=outcome["counts"], urgent=outcome["urgent"],
+                           error=outcome["error"], overflow=outcome["overflow"])
+        outcomes.append(outcome)
+    send_digests(outcomes, now)
+    return outcomes
+
+
+def main_with_argv(argv, **kwargs):
+    if len(argv) != 1:
+        print("Usage: inbox_triage_runner.py <run_id>", file=sys.stderr)
+        return 2
+    run_all_inboxes(argv[0], **kwargs)
+    # 0 even when inboxes failed: each failure is contained, recorded in
+    # status/history, and announced in the digest - same reasoning as
+    # topic_monitor_runner.main_with_argv.
+    return 0
+
+
+def main():
+    return main_with_argv(sys.argv[1:])
+
+
+if __name__ == "__main__":
+    sys.exit(main())

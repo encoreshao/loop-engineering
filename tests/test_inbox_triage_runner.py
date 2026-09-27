@@ -359,3 +359,107 @@ def test_outcome_rows_never_contain_body_text(tmp_path):
     provider = FakeProvider([_m(1)])
     outcome = _run(provider, _reply({"id": "m1", "category": "fyi", "reason": "r", "draft_body": None}), tmp_path)
     assert "PRIVATE BODY" not in json.dumps(outcome)
+
+
+def _outcome_ok():
+    return {"name": "w", "label": "Work", "status": "ok", "counts": {"urgent": 1, "action": 2, "fyi": 3},
+            "urgent": [{"from": "Alice <a@x.com>", "subject": "Prod | down", "draft_link": "https://mail/m1",
+                        "needs_manual_reply": False, "draft_failed": False}],
+            "rows": [{"date": "2026-09-27T08:00:00+00:00", "from": "Alice <a@x.com>", "subject": "Prod | down",
+                      "category": "urgent", "reason": "outage", "draft_link": "https://mail/m1"}],
+            "overflow": False, "error": None, "cost_usd": 0.01}
+
+
+def test_write_history_appends_sections_and_escapes_pipes(tmp_path):
+    path = runner.write_history(_outcome_ok(), NOW, history_dir=tmp_path)
+    runner.write_history(_outcome_ok(), NOW.replace(hour=13), history_dir=tmp_path)
+    text = path.read_text()
+    assert path.name == "2026-09-27-w.md"
+    assert text.count("## Run ") == 2
+    assert "Prod \\| down" in text and "[draft](https://mail/m1)" in text
+
+
+def test_format_digest_covers_every_status():
+    outcomes = [
+        _outcome_ok(),
+        {**_outcome_ok(), "name": "q", "label": "Quiet", "status": "quiet", "counts": {}, "urgent": []},
+        {**_outcome_ok(), "name": "r", "label": "Home", "status": "needs_reauth", "error": "expired", "urgent": []},
+        {**_outcome_ok(), "name": "f", "label": "Side", "status": "failed", "error": "AI triage failed: x", "urgent": [],
+         "overflow": True},
+    ]
+    text = runner.format_digest(outcomes, NOW)
+    assert "*Work*: 1 urgent (drafts ready), 2 action, 3 other" in text
+    assert "Prod | down" in text
+    assert "*Quiet*: no new mail" in text
+    assert "*Home*: needs re-auth" in text
+    assert "*Side*: failed - AI triage failed: x" in text
+
+
+def test_format_digest_manual_reply_and_overflow():
+    outcome = _outcome_ok()
+    outcome["urgent"][0].update({"draft_link": None, "needs_manual_reply": True})
+    outcome["overflow"] = True
+    text = runner.format_digest([outcome], NOW)
+    assert "reply manually" in text and "more waiting" in text
+
+
+def test_send_digests_groups_by_bundle(monkeypatch):
+    posts = []
+    monkeypatch.setattr(runner.slack_notify, "resolve_blocks", lambda notification_key, message: None)
+    a = {**_outcome_ok(), "slack_bundle": None}
+    b = {**_outcome_ok(), "name": "b", "label": "B", "slack_bundle": "team"}
+    runner.send_digests([a, b], NOW, post=lambda text, bundle=None, blocks=None: posts.append((bundle, text)))
+    assert [p[0] for p in posts] == [None, "team"]
+    assert "*Work*" in posts[0][1] and "*B*" in posts[1][1]
+
+
+def test_send_digests_slack_failure_does_not_raise(monkeypatch):
+    monkeypatch.setattr(runner.slack_notify, "resolve_blocks", lambda notification_key, message: None)
+
+    def fail(text, bundle=None, blocks=None):
+        raise OSError("no network")
+    runner.send_digests([_outcome_ok()], NOW, post=fail)
+
+
+def test_run_all_inboxes_isolates_failures_and_writes_status(tmp_path, monkeypatch):
+    config_path = tmp_path / "inboxes.json"
+    config_path.write_text(json.dumps({"default_categories": CATS, "inboxes": [
+        INBOX, {**INBOX, "name": "h", "label": "Home"}, {**INBOX, "name": "off", "enabled": False}]}))
+    seen = []
+
+    def triage(inbox, config, now):
+        seen.append(inbox["name"])
+        if inbox["name"] == "w":
+            raise RuntimeError("unexpected crash")
+        return {**_outcome_ok(), "name": inbox["name"], "label": inbox["label"]}
+    digests = []
+    monkeypatch.setattr(runner, "send_digests", lambda outcomes, now, post=None: digests.append(outcomes))
+    status_path = tmp_path / "status.json"
+    outcomes = runner.run_all_inboxes("run_1", now=NOW, config_path=config_path, results_dir=tmp_path / "results",
+                                      events_dir=tmp_path / "events", status_path=status_path,
+                                      history_dir=tmp_path / "history", triage=triage)
+    assert seen == ["w", "h"]
+    assert [o["status"] for o in outcomes] == ["failed", "ok"]
+    assert "unexpected crash" in outcomes[0]["error"]
+    status = json.loads(status_path.read_text())["inboxes"]
+    assert status["w"]["state"] == "failed" and status["h"]["state"] == "idle"
+    assert status["h"]["counts"] == {"urgent": 1, "action": 2, "fyi": 3}
+    assert "PRIVATE BODY" not in status_path.read_text()
+    assert len(digests) == 1 and len(digests[0]) == 2
+    assert (tmp_path / "history" / "2026-09-27-h.md").exists()
+
+
+def test_run_all_inboxes_marks_needs_reauth(tmp_path, monkeypatch):
+    config_path = tmp_path / "inboxes.json"
+    config_path.write_text(json.dumps({"default_categories": CATS, "inboxes": [INBOX]}))
+    monkeypatch.setattr(runner, "send_digests", lambda outcomes, now, post=None: None)
+    runner.run_all_inboxes("run_1", now=NOW, config_path=config_path, results_dir=tmp_path / "r", events_dir=tmp_path / "e",
+                           status_path=tmp_path / "s.json", history_dir=tmp_path / "h",
+                           triage=lambda inbox, config, now: {**_outcome_ok(), "status": "needs_reauth", "error": "x"})
+    assert json.loads((tmp_path / "s.json").read_text())["inboxes"]["w"]["state"] == "needs_reauth"
+
+
+def test_main_with_argv_usage_and_exit_zero(monkeypatch):
+    assert runner.main_with_argv([]) == 2
+    monkeypatch.setattr(runner, "run_all_inboxes", lambda run_id, **kw: [{"status": "failed"}])
+    assert runner.main_with_argv(["run_1"]) == 0

@@ -10,6 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 RUNNER_PATHS = [
     REPO_ROOT / "bin" / "gitlab_loop_runner.py",
     REPO_ROOT / "bin" / "topic_monitor_runner.py",
+    REPO_ROOT / "bin" / "inbox_triage_runner.py",
 ]
 
 NOTIFICATION_KEY_LITERAL = re.compile(r'notification_key=["\']([a-z_]+)["\']')
