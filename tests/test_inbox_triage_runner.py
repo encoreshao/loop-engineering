@@ -153,3 +153,152 @@ def test_instructions_doc_exists_and_states_json_contract():
     text = runner.INSTRUCTIONS_PATH.read_text()
     for needle in ('"id"', '"category"', '"reason"', '"draft_body"', "JSON array", "never"):
         assert needle in text
+
+
+from datetime import datetime, timezone  # noqa: E402
+
+import inbox_seen  # noqa: E402
+import mail_auth  # noqa: E402
+import mail_http  # noqa: E402
+
+NOW = datetime(2026, 9, 27, 9, 0, tzinfo=timezone.utc)
+INBOX = {"name": "w", "label": "Work", "provider": "gmail", "account": "me@example.com", "enabled": True,
+         "urgent_brief": "", "vip_senders": [], "exclude_senders": [], "categories": None, "slack_bundle": None}
+CONFIG = {"default_categories": CATS, "inboxes": [INBOX]}
+
+
+def _m(i, sender="Alice <alice@x.com>", minute=0):
+    return {"id": f"m{i}", "thread_id": f"t{i}", "from": sender, "to": "me@example.com", "cc": "",
+            "subject": f"Subject {i}", "date": f"2026-09-27T08:{minute:02d}:00+00:00",
+            "body_text": f"PRIVATE BODY {i}", "prior_thread": [], "attachments": []}
+
+
+class FakeProvider:
+    def __init__(self, messages, address="me@example.com", fail_label_on=None, fail_draft_on=None):
+        self.messages, self.address = messages, address
+        self.fail_label_on, self.fail_draft_on = fail_label_on, fail_draft_on
+        self.labelled, self.drafts, self.fetch_args = [], [], None
+
+    def profile_address(self):
+        return self.address
+
+    def fetch_new(self, since, seen_ids, exclude, limit):
+        self.fetch_args = (since, set(seen_ids), list(exclude), limit)
+        return [m for m in self.messages if m["id"] not in seen_ids][:limit]
+
+    def ensure_labels(self, labels):
+        return {name: f"id-{name}" for name in labels}
+
+    def apply_label(self, message_id, label_id):
+        if message_id == self.fail_label_on:
+            raise mail_http.MailHTTPError(500, "", "http://x")
+        self.labelled.append((message_id, label_id))
+
+    def create_reply_draft(self, message, body):
+        if message["id"] == self.fail_draft_on:
+            raise mail_http.MailHTTPError(500, "", "http://x")
+        self.drafts.append((message["id"], body))
+        return f"https://mail/{message['id']}"
+
+
+def _reply(*decisions):
+    return lambda prompt: {"text": json.dumps(list(decisions)), "cost_usd": 0.01}
+
+
+def _run(provider, invoke, tmp_path, inbox=INBOX, token_fn=None):
+    return runner.triage_inbox(
+        inbox, CONFIG, NOW, provider_factory=lambda inbox, token, refresh: provider,
+        token_fn=token_fn or (lambda inbox: "tok"), invoke=invoke, state_dir=tmp_path, instructions="INSTR")
+
+
+def test_happy_path_labels_drafts_and_records_seen(tmp_path):
+    provider = FakeProvider([_m(1, minute=1), _m(2, minute=2)])
+    outcome = _run(provider, _reply(
+        {"id": "m1", "category": "urgent", "reason": "deadline", "draft_body": "On it"},
+        {"id": "m2", "category": "fyi", "reason": "update", "draft_body": None}), tmp_path)
+    assert outcome["status"] == "ok"
+    assert outcome["counts"] == {"urgent": 1, "fyi": 1}
+    assert provider.labelled == [("m1", "id-Loop/Urgent"), ("m2", "id-Loop/FYI")]
+    assert provider.drafts == [("m1", "On it")]
+    assert outcome["urgent"] == [{"from": "Alice <alice@x.com>", "subject": "Subject 1", "draft_link": "https://mail/m1",
+                                  "needs_manual_reply": False, "draft_failed": False}]
+    state = inbox_seen.load("w", state_dir=tmp_path)
+    assert set(state["seen"]) == {"m1", "m2"} and state["high_water"] == "2026-09-27T08:02:00+00:00"
+
+
+def test_quiet_run_makes_no_ai_call(tmp_path):
+    def boom(prompt):
+        raise AssertionError("AI must not be called with no messages")
+    outcome = _run(FakeProvider([]), boom, tmp_path)
+    assert outcome["status"] == "quiet" and outcome["counts"] == {}
+
+
+def test_cap_and_overflow(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "MESSAGE_CAP", 2)
+    provider = FakeProvider([_m(1, minute=1), _m(2, minute=2), _m(3, minute=3)])
+    outcome = _run(provider, _reply(
+        {"id": "m1", "category": "fyi", "reason": "r", "draft_body": None},
+        {"id": "m2", "category": "fyi", "reason": "r", "draft_body": None}), tmp_path)
+    assert provider.fetch_args[3] == 3
+    assert outcome["overflow"] is True and len(outcome["rows"]) == 2
+
+
+def test_account_mismatch_fails_before_fetch(tmp_path):
+    provider = FakeProvider([_m(1)], address="someone@else.com")
+    outcome = _run(provider, _reply(), tmp_path)
+    assert outcome["status"] == "failed" and "someone@else.com" in outcome["error"]
+    assert provider.fetch_args is None
+
+
+def test_reauth_required_status(tmp_path):
+    def token_fn(inbox):
+        raise mail_auth.ReauthRequired("w is not connected")
+    outcome = _run(FakeProvider([_m(1)]), _reply(), tmp_path, token_fn=token_fn)
+    assert outcome["status"] == "needs_reauth" and "not connected" in outcome["error"]
+
+
+def test_auth_expired_mid_run_is_needs_reauth(tmp_path):
+    class Expiring(FakeProvider):
+        def fetch_new(self, *a):
+            raise mail_http.AuthExpired(401, "", "http://x")
+    outcome = _run(Expiring([]), _reply(), tmp_path)
+    assert outcome["status"] == "needs_reauth"
+
+
+def test_bad_ai_output_applies_nothing_and_records_nothing(tmp_path):
+    provider = FakeProvider([_m(1)])
+    outcome = _run(provider, lambda prompt: {"text": "not json", "cost_usd": None}, tmp_path)
+    assert outcome["status"] == "failed"
+    assert provider.labelled == [] and provider.drafts == []
+    assert inbox_seen.load("w", state_dir=tmp_path)["seen"] == {}
+
+
+def test_partial_label_failure_records_only_labelled(tmp_path):
+    provider = FakeProvider([_m(1, minute=1), _m(2, minute=2)], fail_label_on="m2")
+    outcome = _run(provider, _reply(
+        {"id": "m1", "category": "fyi", "reason": "r", "draft_body": None},
+        {"id": "m2", "category": "fyi", "reason": "r", "draft_body": None}), tmp_path)
+    assert outcome["status"] == "failed"
+    assert set(inbox_seen.load("w", state_dir=tmp_path)["seen"]) == {"m1"}
+
+
+def test_draft_failure_keeps_label_and_is_reported(tmp_path):
+    provider = FakeProvider([_m(1)], fail_draft_on="m1")
+    outcome = _run(provider, _reply({"id": "m1", "category": "urgent", "reason": "r", "draft_body": "x"}), tmp_path)
+    assert outcome["status"] == "ok"
+    assert provider.labelled == [("m1", "id-Loop/Urgent")]
+    assert outcome["urgent"][0]["draft_failed"] is True and outcome["urgent"][0]["draft_link"] is None
+
+
+def test_seen_ids_and_since_passed_to_provider(tmp_path):
+    inbox_seen.record("w", [{"id": "old", "date": "2026-09-27T07:00:00+00:00"}], NOW, state_dir=tmp_path)
+    provider = FakeProvider([])
+    _run(provider, _reply(), tmp_path)
+    since, seen, exclude, _ = provider.fetch_args
+    assert since == datetime(2026, 9, 27, 7, 0, tzinfo=timezone.utc) and seen == {"old"}
+
+
+def test_outcome_rows_never_contain_body_text(tmp_path):
+    provider = FakeProvider([_m(1)])
+    outcome = _run(provider, _reply({"id": "m1", "category": "fyi", "reason": "r", "draft_body": None}), tmp_path)
+    assert "PRIVATE BODY" not in json.dumps(outcome)

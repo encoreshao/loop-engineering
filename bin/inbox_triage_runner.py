@@ -20,7 +20,12 @@ import time
 from pathlib import Path
 
 import ai_cli_config
+import inbox_config
+import inbox_seen
 import inbox_triage
+import mail_auth
+import mail_http
+import mail_providers
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_DIR = REPO_ROOT / "outputs" / "inbox-triage"
@@ -149,3 +154,80 @@ def classify(prompt, messages, categories, invoke=None):
         except inbox_triage.TriageResponseError as exc:
             last_error = str(exc)
     raise TriageFailed(last_error)
+
+
+def _outcome(inbox, status, error=None, **extra):
+    base = {"name": inbox["name"], "label": inbox.get("label", inbox["name"]), "status": status,
+            "counts": {}, "urgent": [], "rows": [], "overflow": False, "error": error, "cost_usd": None}
+    base.update(extra)
+    return base
+
+
+def triage_inbox(inbox, config, now, provider_factory=None, token_fn=None, invoke=None,
+                 state_dir=None, instructions=None):
+    if provider_factory is None:
+        provider_factory = mail_providers.get_provider
+    if token_fn is None:
+        token_fn = mail_auth.get_access_token
+    if instructions is None:
+        instructions = INSTRUCTIONS_PATH.read_text()
+    categories = inbox_config.categories_for(inbox, config)
+    labels = {c["key"]: c["label"] for c in categories}
+
+    try:
+        token = token_fn(inbox)
+        provider = provider_factory(inbox, token, lambda: token_fn(inbox))
+        address = provider.profile_address()
+        if address != inbox["account"].strip().lower():
+            return _outcome(inbox, "failed", f"Signed in as {address}, expected {inbox['account']}")
+        state = inbox_seen.load(inbox["name"], state_dir=state_dir)
+        fetched = provider.fetch_new(inbox_seen.since(state, now), set(state["seen"]),
+                                     inbox.get("exclude_senders", []), MESSAGE_CAP + 1)
+    except (mail_auth.ReauthRequired, mail_http.AuthExpired) as exc:
+        return _outcome(inbox, "needs_reauth", str(exc) or "Sign-in expired - reconnect this inbox")
+    except (mail_auth.KeychainError, mail_http.MailHTTPError) as exc:
+        return _outcome(inbox, "failed", str(exc))
+
+    overflow = len(fetched) > MESSAGE_CAP
+    messages = inbox_triage.filter_excluded(fetched[:MESSAGE_CAP], inbox.get("exclude_senders", []))
+    if not messages:
+        return _outcome(inbox, "quiet", overflow=overflow)
+
+    prompt = inbox_triage.build_prompt(instructions, inbox, categories, messages)
+    try:
+        decisions, cost = classify(prompt, messages, categories, invoke=invoke)
+    except TriageFailed as exc:
+        return _outcome(inbox, "failed", f"AI triage failed: {exc}")
+    decisions = inbox_triage.apply_rules(decisions, messages, inbox)
+    by_id = {m["id"]: m for m in messages}
+
+    labelled = []
+    try:
+        label_ids = provider.ensure_labels(sorted({labels[d["category"]] for d in decisions}))
+        for decision in decisions:
+            provider.apply_label(decision["id"], label_ids[labels[decision["category"]]])
+            labelled.append(by_id[decision["id"]])
+    except (mail_http.AuthExpired, mail_auth.ReauthRequired) as exc:
+        inbox_seen.record(inbox["name"], labelled, now, state_dir=state_dir)
+        return _outcome(inbox, "needs_reauth", str(exc) or "Sign-in expired - reconnect this inbox", cost_usd=cost)
+    except mail_http.MailHTTPError as exc:
+        inbox_seen.record(inbox["name"], labelled, now, state_dir=state_dir)
+        return _outcome(inbox, "failed", f"Labelling stopped after {len(labelled)} of {len(decisions)}: {exc}", cost_usd=cost)
+    inbox_seen.record(inbox["name"], labelled, now, state_dir=state_dir)
+
+    rows, urgent = [], []
+    for decision in decisions:
+        message = by_id[decision["id"]]
+        link, draft_failed = None, False
+        if decision["draft_body"]:
+            try:
+                link = provider.create_reply_draft(message, decision["draft_body"])
+            except (mail_http.MailHTTPError, mail_auth.ReauthRequired):
+                draft_failed = True
+        rows.append({"date": message["date"], "from": message["from"], "subject": message["subject"],
+                     "category": decision["category"], "reason": decision["reason"], "draft_link": link})
+        if decision["category"] == "urgent":
+            urgent.append({"from": message["from"], "subject": message["subject"], "draft_link": link,
+                           "needs_manual_reply": decision["needs_manual_reply"], "draft_failed": draft_failed})
+    return _outcome(inbox, "ok", counts=inbox_triage.count_by_category(decisions), urgent=urgent,
+                    rows=rows, overflow=overflow, cost_usd=cost)
