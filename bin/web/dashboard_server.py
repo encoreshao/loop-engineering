@@ -3319,6 +3319,27 @@ def trigger_topic_monitor_run(status_path=None, run_loop_path=None, loop_name="t
     return True, "Run started - check back here for progress"
 
 
+def trigger_inbox_triage_run(status_path=None, run_loop_path=None, loop_name="inbox-triage-loop"):
+    """The Inbox Triage loop's run-now: same detached run-loop-now.sh launch
+    as trigger_topic_monitor_run, refused while any inbox reads "running"
+    in outputs/inbox-triage/status.json."""
+    if run_loop_path is None:
+        run_loop_path = RUN_LOOP_NOW_SH
+    if inbox_status.any_running(status_path):
+        return False, "A run is already in progress"
+    if not Path(run_loop_path).exists():
+        return False, f"run-loop-now.sh not found at {run_loop_path}"
+    subprocess.Popen(
+        ["bash", str(run_loop_path), loop_name],
+        cwd=str(LOOP_DIR),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    return True, "Inbox triage started - check back here for results"
+
+
 def _process_alive(pid):
     """Liveness check for a run's recorded pid. Dashboard-triggered runs
     (trigger_manual_run/trigger_topic_monitor_run) are this server
@@ -10628,6 +10649,28 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_html(render_inbox_setup_page(self.server.server_address[1], flash=flash, flash_ok=flash_ok))
             return
 
+        if split.path == "/oauth/google/callback":
+            # A GET by necessity (Google redirects the browser here); its
+            # CSRF protection is the single-use, 10-minute `state` that
+            # only a CSRF-checked POST /inbox/inboxes/<name>/connect mints.
+            # The flash never carries the code or any token.
+            ok, message = inbox_pages.handle_google_callback(urllib.parse.parse_qs(split.query))
+            self._redirect_with_flash(ok, message, location="/inbox/setup")
+            return
+
+        if split.path == "/inbox/connect/status":
+            # Outlook device-code progress for the setup page's poller -
+            # inbox_pages.connect_status whitelists state/user_code/
+            # verification_uri/message, never the device_code itself.
+            name = urllib.parse.parse_qs(split.query).get("inbox", [""])[0]
+            payload = json.dumps(inbox_pages.connect_status(name)).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
         if split.path == "/inbox/history" or split.path.startswith("/inbox/history/"):
             name = None if split.path == "/inbox/history" else urllib.parse.unquote(split.path[len("/inbox/history/"):])
             page = render_inbox_history_page(name)
@@ -11285,6 +11328,35 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 # contract _run_chat_job itself upholds.
                 _chat_job_finish(reply_key, error=f"Could not start assistant thread: {exc}")
             self._send_json(200, {"reply_key": reply_key, "session": session_id})
+            return
+
+        # Inbox Triage. /inbox/run-now is matched before the generic
+        # /inbox/ prefix below; every other /inbox/... POST is dispatched
+        # to inbox_pages.handle_post only after the same CSRF check.
+        if self.path == "/inbox/run-now":
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            ok, message = trigger_inbox_triage_run()
+            self._redirect_with_flash(ok, message, location="/inbox")
+            return
+
+        if self.path.startswith("/inbox/"):
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"), keep_blank_values=True)
+            result = inbox_pages.handle_post(self.path, form, inbox_redirect_uri(self.server.server_address[1]))
+            if result is None:
+                self._not_found()
+                return
+            if "redirect" in result:
+                self.send_response(303)
+                self.send_header("Location", result["redirect"])
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            self._redirect_with_flash(result["ok"], result["message"], location=result["location"])
             return
 
         self._not_found()

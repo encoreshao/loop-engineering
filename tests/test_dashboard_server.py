@@ -11077,3 +11077,74 @@ def test_render_inbox_history_page_returns_none_for_traversal_or_missing(tmp_pat
     assert ds.render_inbox_history_page("../../etc/passwd") is None
     assert ds.render_inbox_history_page("2026-09-27-missing.md") is None
     assert ds.render_inbox_history_page("2026-09-27-w.md") is not None
+
+
+_INBOX_POST_PATHS = (
+    "/inbox/run-now", "/inbox/oauth-client", "/inbox/inboxes",
+    "/inbox/inboxes/w/connect", "/inbox/inboxes/w/disconnect", "/inbox/inboxes/w/test",
+    "/inbox/inboxes/w/pause", "/inbox/inboxes/w/delete",
+)
+
+
+def test_every_inbox_post_requires_csrf(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds.inbox_config, "DEFAULT_CONFIG_PATH", tmp_path / "inboxes.json")
+    monkeypatch.setattr(ds.inbox_config, "DEFAULT_OAUTH_PATH", tmp_path / "mail_oauth.json")
+    called = []
+    monkeypatch.setattr(ds.inbox_pages, "handle_post", lambda *a, **k: called.append(a) or {"ok": True, "message": "", "location": "/inbox"})
+    monkeypatch.setattr(ds, "trigger_inbox_triage_run", lambda *a, **k: called.append("run") or (True, ""))
+    with _running_server() as port:
+        for path in _INBOX_POST_PATHS:
+            for fields in (None, {"csrf_token": ""}, {"csrf_token": "x" * 43}):
+                status, _headers, _body = _post(port, path, fields)
+                assert status == 403, f"{path} {fields} should be forbidden"
+    assert called == []
+
+
+def test_inbox_post_with_valid_csrf_dispatches_and_redirects(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds.inbox_pages, "handle_post", lambda path, form, redirect_uri: {"ok": True, "message": "Saved", "location": "/inbox/setup"})
+    with _running_server() as port:
+        status, headers, _ = _post(port, "/inbox/inboxes", {"csrf_token": ds._CSRF_TOKEN})
+    assert status == 303 and headers["Location"].startswith("/inbox/setup?")
+
+
+def test_inbox_connect_google_redirects_offsite(monkeypatch):
+    monkeypatch.setattr(ds.inbox_pages, "handle_post", lambda path, form, redirect_uri: {"redirect": "https://accounts.google.com/o/oauth2/v2/auth?x=1"})
+    with _running_server() as port:
+        status, headers, _ = _post(port, "/inbox/inboxes/w/connect", {"csrf_token": ds._CSRF_TOKEN})
+    assert status == 303 and headers["Location"].startswith("https://accounts.google.com/")
+
+
+def test_google_callback_route_bad_state_redirects_with_error(monkeypatch):
+    with _running_server() as port:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        conn.request("GET", "/oauth/google/callback?state=bad&code=x")
+        response = conn.getresponse()
+        location = response.getheader("Location")
+        conn.close()
+    assert response.status == 303
+    assert location.startswith("/inbox/setup?") and "ok=0" in location
+
+
+def test_connect_status_route_returns_json(monkeypatch):
+    monkeypatch.setattr(ds.inbox_pages, "connect_status", lambda name: {"state": "pending", "user_code": "ABCD"})
+    with _running_server() as port:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/inbox/connect/status?inbox=w", timeout=10) as resp:
+            assert json.loads(resp.read()) == {"state": "pending", "user_code": "ABCD"}
+
+
+def test_trigger_inbox_triage_run_refuses_when_running(tmp_path, monkeypatch):
+    status_path = tmp_path / "status.json"
+    ds.inbox_status.write("w", "running", status_path=status_path)
+    ok, message = ds.trigger_inbox_triage_run(status_path=status_path, run_loop_path=tmp_path / "run-loop-now.sh")
+    assert not ok and "already" in message
+
+
+def test_trigger_inbox_triage_run_launches_detached(tmp_path, monkeypatch):
+    script = tmp_path / "run-loop-now.sh"
+    script.write_text("#!/bin/bash\n")
+    launched = []
+    monkeypatch.setattr(ds.subprocess, "Popen", lambda cmd, **kw: launched.append((cmd, kw)))
+    ok, _ = ds.trigger_inbox_triage_run(status_path=tmp_path / "status.json", run_loop_path=script)
+    assert ok
+    assert launched[0][0] == ["bash", str(script), "inbox-triage-loop"]
+    assert launched[0][1]["start_new_session"] is True

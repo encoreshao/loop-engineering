@@ -8,10 +8,20 @@ class names (.card, .pill/.pill-*, .btn/.btn-primary/.btn-neutral,
 ul.plain) rather than inventing parallel ones - see _STYLE in
 dashboard_server.py for what each one looks like. Never renders message
 bodies - status and history only ever hold sender, subject, category,
-reason, draft link."""
+reason, draft link.
+
+The action handlers at the bottom (handle_post, handle_google_callback,
+connect_status) are dashboard_server.py's POST/callback back ends: it
+does the CSRF check and routing, these do the config/Keychain/OAuth work
+and return a flash message. None of them ever puts a token, an OAuth
+code, or a Microsoft device_code into a returned message or payload."""
 import html
 import re
 from pathlib import Path
+
+import inbox_config
+import mail_auth
+import mail_http
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_HISTORY_DIR = REPO_ROOT / "outputs" / "inbox-triage" / "history"
@@ -222,6 +232,10 @@ document.querySelectorAll('.device-flow').forEach(function (box) {
       box.querySelector('.device-code').textContent = s.user_code || '';
       box.querySelector('.device-message').textContent = s.message || '';
       if (s.state === 'pending') { setTimeout(poll, 3000); }
+      if (s.state === 'connected') {
+        box.querySelector('p').hidden = true;
+        box.querySelector('.device-message').textContent = 'Connected';
+      }
     }).catch(function () {});
   }
   poll();
@@ -256,3 +270,147 @@ def read_history_file(name, history_dir=None):
     if not path.is_file():
         return None
     return path.read_text()
+
+
+# ---- Actions (POST back ends, the Google callback, device-flow status) ----
+
+# The only device-flow fields the browser ever sees. mail_auth's own
+# device_flow_status already omits device_code, but whitelisting here keeps
+# that guarantee local to the one function that feeds the JSON endpoint.
+_DEVICE_STATUS_FIELDS = ("state", "user_code", "verification_uri", "message")
+
+
+def _provider_factory():
+    import mail_providers
+    return mail_providers.get_provider
+
+
+def _value(form, key, default=""):
+    return (form.get(key) or [default])[0]
+
+
+def _split_lines(text):
+    return [line.strip() for line in (text or "").splitlines() if line.strip()]
+
+
+def _result(ok, message, location="/inbox/setup"):
+    return {"ok": ok, "message": message, "location": location}
+
+
+def store_tokens_for(inbox, tokens, provider_factory=None):
+    """Verifies the signed-in mailbox is the inbox's configured account,
+    then stores the refresh token in the Keychain. Raises
+    mail_auth.AuthFlowError (and saves nothing) on an account mismatch."""
+    if provider_factory is None:
+        provider_factory = _provider_factory()
+    address = provider_factory(inbox, tokens["access_token"]).profile_address()
+    if address != inbox["account"].strip().lower():
+        raise mail_auth.AuthFlowError(f"Signed in as {address}, expected {inbox['account']} - nothing was saved")
+    mail_auth.keychain_set(inbox["name"], tokens["refresh_token"])
+
+
+def _connect(inbox, redirect_uri):
+    oauth = inbox_config.load_oauth()
+    if inbox["provider"] == "gmail":
+        client = oauth.get("google") or {}
+        if not client.get("client_id") or not client.get("client_secret"):
+            return _result(False, "Save the Google OAuth client ID and secret first")
+        verifier, challenge = mail_auth.make_pkce()
+        state = mail_auth.create_pending_state(inbox["name"], verifier, redirect_uri)
+        return {"redirect": mail_auth.google_auth_url(client["client_id"], redirect_uri, state, challenge, inbox["account"])}
+    client_id = (oauth.get("microsoft") or {}).get("client_id")
+    if not client_id:
+        return _result(False, "Save the Microsoft app's client ID first")
+    try:
+        info = mail_auth.start_device_flow(inbox["name"], client_id,
+                                           on_success=lambda tokens: store_tokens_for(inbox, tokens))
+    except (mail_auth.AuthFlowError, mail_http.MailHTTPError) as exc:
+        return _result(False, str(exc))
+    # Only user_code goes into the flash - never info["device_code"].
+    return _result(True, f"Enter code {info['user_code']} at microsoft.com/devicelogin to finish connecting {inbox['label']}")
+
+
+def _test_connection(inbox):
+    try:
+        token = mail_auth.get_access_token(inbox)
+        address = _provider_factory()(inbox, token).profile_address()
+    except (mail_auth.ReauthRequired, mail_auth.KeychainError) as exc:
+        return _result(False, f"{inbox['label']}: {exc}")
+    except Exception as exc:  # noqa: BLE001 - network/API errors shown to the user, not raised into the handler
+        return _result(False, f"{inbox['label']}: {type(exc).__name__}: {exc}")
+    if address != inbox["account"].strip().lower():
+        return _result(False, f"{inbox['label']}: signed in as {address}, expected {inbox['account']}")
+    return _result(True, f"{inbox['label']}: connected as {address}")
+
+
+def handle_post(path, form, redirect_uri):
+    """Back end for every POST under /inbox/ except /inbox/run-now (which
+    dashboard_server.py handles itself). Returns {"ok", "message",
+    "location"} for a flash redirect, {"redirect": url} for an off-site
+    redirect (Google sign-in), or None for an unknown path (404)."""
+    if path == "/inbox/oauth-client":
+        provider = _value(form, "provider")
+        secret = _value(form, "client_secret")
+        if provider == "google" and not secret:
+            secret = (inbox_config.load_oauth().get("google") or {}).get("client_secret", "")
+        ok, message = inbox_config.save_oauth_client(provider, _value(form, "client_id"), secret)
+        return _result(ok, message)
+    if path == "/inbox/inboxes":
+        fields = {
+            "name": _value(form, "name"), "label": _value(form, "label"), "provider": _value(form, "provider"),
+            "account": _value(form, "account"), "urgent_brief": _value(form, "urgent_brief"),
+            "vip_senders": _split_lines(_value(form, "vip_senders")),
+            "exclude_senders": _split_lines(_value(form, "exclude_senders")),
+            "slack_bundle": _value(form, "slack_bundle"), "enabled": True,
+        }
+        ok, message = inbox_config.upsert_inbox(fields, is_new=_value(form, "is_new") == "1")
+        return _result(ok, message)
+    match = re.match(r"^/inbox/inboxes/([a-z0-9][a-z0-9-]*)/(connect|disconnect|test|pause|delete)$", path)
+    if not match:
+        return None
+    name, verb = match.groups()
+    try:
+        inbox = inbox_config.get_inbox(name, inbox_config.DEFAULT_CONFIG_PATH)
+    except (KeyError, FileNotFoundError):
+        return _result(False, f"No inbox named {name}")
+    if verb == "connect":
+        return _connect(inbox, redirect_uri)
+    if verb == "test":
+        return _test_connection(inbox)
+    if verb == "pause":
+        ok, message = inbox_config.set_enabled(name, not inbox.get("enabled", True))
+        return _result(ok, message, location="/inbox")
+    try:
+        mail_auth.keychain_delete(name)
+    except mail_auth.KeychainError as exc:
+        return _result(False, str(exc))
+    if verb == "disconnect":
+        return _result(True, f"Disconnected {inbox['label']}")
+    ok, message = inbox_config.delete_inbox(name)
+    return _result(ok, message)
+
+
+def handle_google_callback(query):
+    """Google's loopback redirect. The single-use `state` (minted only by
+    a CSRF-checked connect POST) is the CSRF defense. Returns (ok,
+    message); the message never contains the code or any token."""
+    if query.get("error"):
+        return False, f"Google sign-in was cancelled ({query['error'][0]})"
+    pending = mail_auth.consume_pending_state((query.get("state") or [""])[0])
+    if pending is None:
+        return False, "That sign-in link expired or was already used - click Connect again"
+    try:
+        inbox = inbox_config.get_inbox(pending["inbox"], inbox_config.DEFAULT_CONFIG_PATH)
+        client = inbox_config.load_oauth().get("google") or {}
+        tokens = mail_auth.google_exchange_code((query.get("code") or [""])[0], pending["verifier"],
+                                                pending["redirect_uri"], client)
+        store_tokens_for(inbox, tokens)
+    except (KeyError, FileNotFoundError, mail_auth.AuthFlowError, mail_auth.KeychainError,
+            mail_http.MailHTTPError) as exc:
+        return False, str(exc)
+    return True, f"Connected {inbox['label']}"
+
+
+def connect_status(inbox_name):
+    status = mail_auth.device_flow_status(inbox_name)
+    return {k: status[k] for k in _DEVICE_STATUS_FIELDS if k in status}
