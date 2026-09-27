@@ -6,13 +6,12 @@ one tool-less, MCP-less call per inbox and returns JSON decisions.
 Mirrors bin/topic_monitor_runner.py: one LoopRuntime iteration per inbox,
 failures contained per inbox, exit 0 even when an inbox fails.
 
-Known gap: codex has no verified way to disable `codex exec`'s own
-rollout/session persistence (see _cli_command's docstring for what was
-investigated and ruled out - no key was invented to paper over it).
-claude's equivalent leaks (a saved session transcript, and hooks running
-against it) are closed below via --no-session-persistence and --settings
-'{"disableAllHooks": true}'; codex's ~/.codex/sessions/ rollout of the
-prompt is not currently closable from here."""
+Claude-only: `claude -p --tools ""` gives the model no tools at all, but
+`codex exec` always gives it a shell (even --sandbox read-only can read
+files and run commands), and it has no switch to stop recording the prompt
+- i.e. the email bodies - under ~/.codex/sessions/. So when the selected
+AI CLI is codex, every inbox fails up front with CODEX_REFUSAL, before any
+mail is fetched, labelled or recorded, and no AI is invoked."""
 import contextlib
 import fcntl
 import functools
@@ -47,11 +46,15 @@ INSTRUCTIONS_PATH = REPO_ROOT / "INBOX_TRIAGE_INSTRUCTIONS.md"
 MESSAGE_CAP = 50
 
 
+CODEX_REFUSAL = ("Inbox Triage requires the Claude CLI (codex gives the model a shell) - "
+                 "switch AI CLI to Claude in Settings")
+
+
 class TriageFailed(Exception):
     pass
 
 
-def _cli_command(ai_cli):
+def _cli_command():
     """No tools and no MCP servers: without --strict-mcp-config the user's
     own claude.ai connectors (which can include a Gmail connector able to
     deliver mail) would load into this session. The prompt goes on stdin so
@@ -70,32 +73,7 @@ def _cli_command(ai_cli):
     contains the literal message "hooks are turned off in your settings
     (disableAllHooks)".
 
-    codex's own `-c tools.web_search=false` mirrors the key
-    bin/topic_monitor_runner.py's `_cli_command` already sets to `true` -
-    this loop needs the opposite, and setting it explicitly (rather than
-    relying on --help's "off by default") documents the intent the same
-    way the rest of this command does.
-
-    Known gap (codex): no equivalent of claude's --no-session-persistence
-    exists for `codex exec`. It unconditionally writes a full rollout
-    (containing the prompt) under ~/.codex/sessions/ via its
-    RolloutRecorder - confirmed by `codex exec resume --help` describing
-    resuming "a previous recorded session" (recording is therefore not
-    optional) and by the installed binary's own embedded event schema
-    carrying a `rollout_path` field on `SessionConfiguredEvent`.
-    Investigated `codex --help`, `codex exec --help`, `codex exec resume
-    --help`, and the installed binary's own embedded config-field list for
-    a disable switch: the only persistence-related config section that
-    exists, `[history]` (fields `persistence`/`max_bytes`, confirmed
-    present in the binary's own field list), governs the separate
-    ~/.codex/history.jsonl plaintext recall log used for interactive
-    message history/recall - not the rollout writer. No CODEX_* env var
-    or `-c` key for disabling the rollout recorder itself was found. No
-    key was invented to paper over this; it is an accepted residual gap on
-    the codex path until codex ships one."""
-    if ai_cli == "codex":
-        return ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check",
-                "-c", "mcp_servers={}", "-c", "tools.web_search=false", "-"]
+    There is deliberately no codex command: see the module docstring."""
     return ["claude", "-p", "--output-format", "json", "--tools", "",
             "--strict-mcp-config", "--mcp-config", json.dumps({"mcpServers": {}}),
             "--no-session-persistence", "--settings", json.dumps({"disableAllHooks": True})]
@@ -132,22 +110,21 @@ def invoke_triage_agent(prompt, repo_root=None, timeout_seconds=None, unified_lo
         repo_root = REPO_ROOT
     if timeout_seconds is None:
         timeout_seconds = _default_timeout_seconds()
-    ai_cli = ai_cli_config.get_selected_cli()
+    # Defense in depth - triage_inbox already refuses before fetching mail.
+    if ai_cli_config.get_selected_cli() != "claude":
+        raise TriageFailed(CODEX_REFUSAL)
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="inbox-triage-") as scratch_dir:
         try:
-            proc = subprocess.run(_cli_command(ai_cli), input=prompt, capture_output=True, text=True,
+            proc = subprocess.run(_cli_command(), input=prompt, capture_output=True, text=True,
                                   timeout=timeout_seconds, check=True, cwd=scratch_dir)
         except subprocess.TimeoutExpired:
-            _append_unified_log(f"{ai_cli} triage call FAILED (timed out after {timeout_seconds}s)", repo_root, unified_log_path)
+            _append_unified_log(f"claude triage call FAILED (timed out after {timeout_seconds}s)", repo_root, unified_log_path)
             raise
         except subprocess.CalledProcessError as exc:
-            _append_unified_log(f"{ai_cli} triage call FAILED (exited {exc.returncode})", repo_root, unified_log_path)
+            _append_unified_log(f"claude triage call FAILED (exited {exc.returncode})", repo_root, unified_log_path)
             raise
     elapsed = time.monotonic() - started
-    if ai_cli == "codex":
-        _append_unified_log(f"codex triage call ok ({elapsed:.1f}s)", repo_root, unified_log_path)
-        return {"text": proc.stdout, "cost_usd": None}
     try:
         envelope = json.loads(proc.stdout)
     except json.JSONDecodeError:
@@ -192,6 +169,9 @@ def triage_inbox(inbox, config, now, provider_factory=None, token_fn=None, invok
         provider_factory = mail_providers.get_provider
     if token_fn is None:
         token_fn = mail_auth.get_access_token
+    # Before any token/provider call, so under codex no mail is ever read.
+    if ai_cli_config.get_selected_cli() != "claude":
+        return _outcome(inbox, "failed", CODEX_REFUSAL)
     if instructions is None:
         instructions = INSTRUCTIONS_PATH.read_text()
     categories = inbox_config.categories_for(inbox, config)

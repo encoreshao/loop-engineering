@@ -13,12 +13,14 @@ CATS = inbox_config.DEFAULT_CATEGORIES
 
 
 @pytest.fixture(autouse=True)
-def _no_real_ai_cli(sanitized_path):
-    pass
+def _no_real_ai_cli(sanitized_path, monkeypatch):
+    # Never read the machine's real ai_cli.json; a test that needs codex
+    # selected overrides this.
+    monkeypatch.setattr(runner.ai_cli_config, "get_selected_cli", lambda: "claude")
 
 
 def test_claude_command_disables_tools_and_mcp():
-    cmd = runner._cli_command("claude")
+    cmd = runner._cli_command()
     assert cmd[:2] == ["claude", "-p"]
     assert cmd[cmd.index("--tools") + 1] == ""
     assert "--strict-mcp-config" in cmd
@@ -29,13 +31,13 @@ def test_claude_command_disables_tools_and_mcp():
     assert not any("Bash" in part or "WebFetch" in part for part in cmd)
 
 
-def test_codex_command_is_read_only_without_mcp_and_reads_stdin():
-    cmd = runner._cli_command("codex")
-    assert cmd[:2] == ["codex", "exec"]
-    assert cmd[cmd.index("--sandbox") + 1] == "read-only"
-    assert "mcp_servers={}" in cmd
-    assert "tools.web_search=false" in cmd
-    assert cmd[-1] == "-"
+def test_invoke_refuses_codex_without_running_anything(monkeypatch, tmp_path):
+    monkeypatch.setattr(runner.ai_cli_config, "get_selected_cli", lambda: "codex")
+    fake = _Run("[]")
+    monkeypatch.setattr(runner.subprocess, "run", fake)
+    with pytest.raises(runner.TriageFailed, match="requires the Claude CLI"):
+        runner.invoke_triage_agent("p", repo_root=tmp_path, unified_log_path=tmp_path / "l")
+    assert fake.calls == []
 
 
 class _Run:
@@ -89,15 +91,6 @@ def test_invoke_claude_unparseable_envelope_raises(monkeypatch, tmp_path):
     assert "unparseable CLI envelope" in log.read_text()
 
 
-def test_invoke_codex_returns_raw_stdout_and_no_cost(monkeypatch, tmp_path):
-    monkeypatch.setattr(runner.ai_cli_config, "get_selected_cli", lambda: "codex")
-    monkeypatch.setattr(runner.subprocess, "run", _Run("[]"))
-    log = tmp_path / "log.txt"
-    out = runner.invoke_triage_agent("p", repo_root=tmp_path, unified_log_path=log)
-    assert out == {"text": "[]", "cost_usd": None}
-    assert "codex triage call ok" in log.read_text()
-
-
 def test_invoke_timeout_logs_no_prompt_text(monkeypatch, tmp_path):
     monkeypatch.setattr(runner.ai_cli_config, "get_selected_cli", lambda: "claude")
     exc = subprocess.TimeoutExpired(["claude"], 900)
@@ -111,8 +104,7 @@ def test_invoke_timeout_logs_no_prompt_text(monkeypatch, tmp_path):
 
 
 def test_invoke_failure_logs_no_output_content(monkeypatch, tmp_path):
-    monkeypatch.setattr(runner.ai_cli_config, "get_selected_cli", lambda: "codex")
-    exc = subprocess.CalledProcessError(1, ["codex"], output="LEAKED BODY", stderr="LEAKED BODY")
+    exc = subprocess.CalledProcessError(1, ["claude"], output="LEAKED BODY", stderr="LEAKED BODY")
     monkeypatch.setattr(runner.subprocess, "run", _Run(exc=exc))
     log = tmp_path / "log.txt"
     with pytest.raises(subprocess.CalledProcessError):
@@ -231,6 +223,21 @@ def test_happy_path_labels_drafts_and_records_seen(tmp_path):
                                   "needs_manual_reply": False, "draft_failed": False}]
     state = inbox_seen.load("w", state_dir=tmp_path)
     assert set(state["seen"]) == {"m1", "m2"} and state["high_water"] == "2026-09-27T08:02:00+00:00"
+
+
+def test_codex_selected_fails_every_inbox_before_reading_any_mail(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner.ai_cli_config, "get_selected_cli", lambda: "codex")
+    provider = FakeProvider([_m(1)])
+    tokens = []
+
+    def boom(prompt):
+        raise AssertionError("no AI call under codex")
+    outcome = _run(provider, boom, tmp_path, token_fn=lambda inbox: tokens.append(inbox) or "tok")
+    assert outcome["status"] == "failed"
+    assert outcome["error"] == ("Inbox Triage requires the Claude CLI (codex gives the model a shell) - "
+                                "switch AI CLI to Claude in Settings")
+    assert tokens == [] and provider.fetch_args is None and provider.labelled == []
+    assert inbox_seen.load("w", state_dir=tmp_path)["seen"] == {}
 
 
 def test_quiet_run_makes_no_ai_call(tmp_path):
