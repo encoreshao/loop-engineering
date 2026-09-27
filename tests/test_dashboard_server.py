@@ -11119,6 +11119,29 @@ def test_render_markdown_honours_backslash_escapes():
     assert "<code>a\\*b</code>" in out  # no escapes inside code spans
 
 
+@pytest.mark.parametrize("source", [
+    "[click](javascript\\:alert(1))",
+    "[c](data\\:text/html,x)",
+    "[x](\\//evil.com/p)",
+    "[x](/\\/evil.com/p)",
+    "![x](javascript\\:alert(1))",
+    "![x](\\//evil.com/p.gif)",
+])
+def test_render_markdown_backslash_escape_cannot_smuggle_a_link_scheme(source):
+    """A backslash escape is stashed before links are built, so the scheme
+    check would otherwise see a placeholder where the `:` or `/` is and let
+    `javascript:`/`data:`/`//host` through once the escape is restored."""
+    out = ds.render_markdown(source, gitlab_url_prefixes={})
+    assert "<a " not in out and "<img" not in out
+    assert "href=" not in out and "src=" not in out
+
+
+def test_render_markdown_bare_url_stops_at_a_backslash_escape():
+    out = ds.render_markdown("see https://example.com/a\\\"onmouseover=x", gitlab_url_prefixes={})
+    assert '<a href="https://example.com/a"' in out
+    assert "onmouseover=x</a>" not in out
+
+
 def test_render_markdown_escaped_pipe_stays_in_its_table_cell():
     out = ds.render_markdown("| a | b |\n|---|---|\n| x \\| y | z |\n", gitlab_url_prefixes={})
     assert "<td>x | y</td><td>z</td>" in out

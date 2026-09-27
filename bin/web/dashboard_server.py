@@ -1093,7 +1093,9 @@ _MD_BOLD_RE = re.compile(r"\*\*([^*]+?)\*\*|__([^_]+?)__")
 _MD_ITALIC_RE = re.compile(r"(?<!\*)\*([^*\n]+?)\*(?!\*)|(?<!_)_([^_\n]+?)_(?!_)")
 _MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)\)")
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
-_MD_BARE_URL_RE = re.compile(r"https?://[^\s<>\"]+")
+# Stops at \x00 so a bare URL never swallows a stash placeholder (a
+# backslash escape or code span) - see _markdown_inline.
+_MD_BARE_URL_RE = re.compile(r"https?://[^\s<>\"\x00]+")
 _MD_SLUG_STRIP_RE = re.compile(r"[^\w\s-]")
 _MD_SLUG_SPACE_RE = re.compile(r"\s+")
 _MD_LINK_SCHEME_RE = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.-]*):")
@@ -1379,9 +1381,14 @@ def _markdown_inline(escaped_text, gitlab_url_prefixes=None):
 
         text = gitlab_ref_re.sub(make_gitlab_link, text)
 
+    # A URL containing a stash placeholder is never turned into a real
+    # link or image: the placeholder hides the character it stands for
+    # from _has_disallowed_link_scheme, so `javascript\:x` or `\//host`
+    # would pass the check and then be restored into the href/src. Such a
+    # link renders as the literal text it was written as instead.
     def make_image(m):
         alt, url = m.group(1), m.group(2)
-        if not _has_disallowed_link_scheme(url):
+        if "\x00" not in url and not _has_disallowed_link_scheme(url):
             return stash(f'<img src="{url}" alt="{alt}" loading="lazy">')
         return m.group(0)
 
@@ -1393,7 +1400,7 @@ def _markdown_inline(escaped_text, gitlab_url_prefixes=None):
 
     def make_link(m):
         text_part, url = m.group(1), m.group(2)
-        if not _has_disallowed_link_scheme(url):
+        if "\x00" not in url and not _has_disallowed_link_scheme(url):
             return stash(f'<a href="{url}" rel="noopener" target="_blank">{text_part}</a>')
         return m.group(0)
 
