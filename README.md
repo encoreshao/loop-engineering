@@ -301,7 +301,10 @@ The Inbox Triage loop has its own fixed safety boundary (see [`docs/tasks/inbox-
 
 - **Never sends mail.** Neither mail provider module contains a send function, and the Outlook token it obtains is scoped without `Mail.Send` — sending is impossible at the token level, not just the code level.
 - **Never archives, deletes, moves, or changes read state.** The only mailbox writes are creating `Loop/*` labels/categories, applying them, and creating reply drafts left in the mailbox's own Drafts folder.
-- **Message bodies never persist.** They exist only in memory and in the one AI call per inbox — never written to `outputs/`, logs, or the Slack digest.
+- **Only `Loop/*` labels are ever applied.** Every category label, default or custom, must start with `Loop/` — `inboxes.json` is rejected on load otherwise, so a hand-edited system label like `TRASH` or `UNREAD` can never be applied to real mail.
+- **Message bodies never persist.** They exist only in memory and in the prompt of the `claude -p` call per inbox (plus at most one retry), which keeps no session transcript — never written to `outputs/`, logs, status, or the Slack digest, which only ever get sender, subject, category, the AI's short reason, and a draft link. The AI-written reply draft is saved only in the mailbox's own Drafts folder.
+- **Inbox Triage requires the Claude CLI.** Codex always gives the model a shell and records the prompt under `~/.codex/sessions/`, so with Codex selected every inbox fails up front — before any mail is read — until the AI CLI is switched back to Claude in **Settings**.
+- **Refresh tokens live only in the macOS Keychain**, written via `security -i` with the token on stdin, never on disk in plain text or in a process's argv.
 
 
 

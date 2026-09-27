@@ -17,3 +17,14 @@ def test_task_index_and_readme_mention_the_loop():
 def test_claude_md_documents_keychain_sandbox_rule():
     text = (REPO_ROOT / "CLAUDE.md").read_text()
     assert "loop-engineering.mail" in text and "inbox_triage_runner.py" in text
+
+
+def test_docs_state_claude_only_stdin_keychain_and_loop_label_rules():
+    task = (REPO_ROOT / "docs" / "tasks" / "inbox-triage-loop.md").read_text()
+    readme = (REPO_ROOT / "README.md").read_text()
+    for text in (task, readme):
+        assert "requires the Claude CLI" in text
+        assert "security -i" in text
+        assert "must start with `Loop/`" in text
+    assert "codex exec\n  --sandbox" not in task and "Known gap" not in task
+    assert "briefly puts the token on" not in task
