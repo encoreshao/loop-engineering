@@ -92,7 +92,7 @@ def _add_inbox(provider="gmail"):
 
 def test_save_inbox_splits_lines(sandbox):
     result = _add_inbox()
-    assert result["ok"] and result["location"] == "/inbox/setup"
+    assert result["ok"] and result["location"] == "/inbox/setup?tab=inboxes"
     assert inbox_config.get_inbox("w")["vip_senders"] == ["@vip.com", "boss@x.com"]
 
 
@@ -309,3 +309,169 @@ def test_disconnect_keeps_status_and_seen_state(sandbox):
     inbox_seen.record("w", [{"id": "m1", "date": now.isoformat()}], now)
     assert inbox_pages.handle_post("/inbox/inboxes/w/disconnect", _form(), "http://cb")["ok"]
     assert "w" in inbox_status.read()["inboxes"] and inbox_seen.load("w")["seen"]
+
+
+# ---- Inbox Setup tabs / sectioned cards ----
+
+from html.parser import HTMLParser  # noqa: E402
+
+
+class _FormNesting(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.depth = 0
+        self.max_depth = 0
+        self.forms = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "form":
+            self.depth += 1
+            self.forms += 1
+            self.max_depth = max(self.max_depth, self.depth)
+
+    def handle_endtag(self, tag):
+        if tag == "form":
+            self.depth -= 1
+
+
+def _fake_select(name, options, selected, empty_label=None):
+    pairs = ([("", empty_label)] if empty_label is not None else []) + [
+        o if isinstance(o, tuple) else (o, o) for o in options]
+    items = "".join(f"<i data-value='{v}'{' sel' if v == (selected or '') else ''}>{l}</i>" for v, l in pairs)
+    return f"<div class='custom-select' data-name='{name}'>{items}</div>"
+
+
+def _setup(config=CONFIG, **kwargs):
+    return inbox_pages.render_setup_body(config, {}, CSRF, "http://127.0.0.1:1/cb", **kwargs)
+
+
+def _panel(body, key):
+    return body.split(f"data-tab-panel='{key}'")[1].split("data-tab-panel=")[0]
+
+
+def test_setup_tabs_in_order_with_icons():
+    body = _setup()
+    assert "<div data-tabs>" in body and "class='tab-list' role='tablist'" in body
+    keys = [chunk.split("'")[0] for chunk in body.split("data-tab-target='")[1:]]
+    assert keys == ["inboxes", "add", "gmail", "outlook"]
+    tab_list = body.split("class='tab-list'")[1].split("</div>")[0]
+    for label in ("Inboxes", "Add inbox", "Gmail app", "Outlook app"):
+        assert label in tab_list
+    assert "aria-hidden='true'>email</span>Inboxes" in tab_list
+    assert "aria-hidden='true'>add</span>Add inbox" in tab_list
+
+
+def _active(body):
+    return body.split("tab-button is-active' data-tab-target='")[1].split("'")[0]
+
+
+def test_setup_default_tab_is_inboxes_when_any_exist_else_gmail():
+    assert _active(_setup()) == "inboxes"
+    assert "data-tab-panel='inboxes'>" in _setup() and "data-tab-panel='gmail' hidden>" in _setup()
+    empty = {"default_categories": [], "inboxes": []}
+    assert _active(_setup(empty)) == "gmail"
+    assert "data-tab-panel='inboxes' hidden>" in _setup(empty)
+
+
+def test_setup_active_tab_param_selects_and_unknown_falls_back():
+    for key in ("inboxes", "add", "gmail", "outlook"):
+        body = _setup(active_tab=key)
+        assert _active(body) == key and f"data-tab-panel='{key}'>" in body
+    assert _active(_setup(active_tab="bogus")) == "inboxes"
+
+
+def test_setup_never_nests_forms():
+    config = {"default_categories": [], "inboxes": [INBOX, dict(INBOX, name="o", provider="outlook", label="O")]}
+    for select_html in (None, _fake_select):
+        parser = _FormNesting()
+        parser.feed(_setup(config, select_html=select_html, slack_bundles=["b1"]))
+        assert parser.forms > 0 and parser.max_depth == 1 and parser.depth == 0
+
+
+def test_setup_inbox_card_sections_and_buttons():
+    body = _panel(_setup(status={"inboxes": {"w": {"state": "needs_reauth"}}}), "inboxes")
+    assert "Work &lt;Gmail&gt;" in body and "Needs re-auth" in body
+    positions = [body.index(h) for h in (">Account<", ">Triage rules<", ">Notifications<", ">Connection<")]
+    assert positions == sorted(positions)
+    for verb in ("connect", "test", "disconnect", "delete"):
+        assert f"action='/inbox/inboxes/w/{verb}'" in body
+    assert 'data-confirm="Delete inbox Work &lt;Gmail&gt;? This removes its settings, sign-in and saved state."' in body
+    assert body.index("Save</button>") < body.index("Delete</button>")
+    save_btn = body.split("Save</button>")[0].rsplit("<button", 1)[1]
+    assert "btn-primary" in save_btn and "form='inbox-edit-w'" in save_btn
+    delete_btn = body.split("Delete</button>")[0].rsplit("<button", 1)[1]
+    assert "btn-warning" in delete_btn and "form='inbox-delete-w'" in delete_btn
+
+
+def test_setup_inbox_card_shows_paused_pill_when_disabled():
+    config = {"default_categories": [], "inboxes": [dict(INBOX, enabled=False)]}
+    body = _panel(_setup(config, status={"inboxes": {"w": {"state": "idle"}}}), "inboxes")
+    assert "Paused" in body and "Connected" in body
+
+
+def test_setup_inboxes_tab_empty_state_links_to_add():
+    body = _panel(_setup({"default_categories": [], "inboxes": []}), "inboxes")
+    assert "href='/inbox/setup?tab=add'" in body
+
+
+def test_setup_add_tab_has_editable_name_and_no_connection():
+    body = _panel(_setup(), "add")
+    assert "name='name' value=\"\" required" in body and "readonly" not in body
+    assert "Add inbox</button>" in body and ">Connection<" not in body
+    assert "after saving" in body
+    assert ">Account<" in body and ">Triage rules<" in body and ">Notifications<" in body
+
+
+def test_setup_oauth_tabs_keep_wizard_content():
+    body = _setup()
+    assert "console.cloud.google.com" in _panel(body, "gmail") and "Connect Gmail" in _panel(body, "gmail")
+    assert "entra.microsoft.com" in _panel(body, "outlook") and "Connect Outlook" in _panel(body, "outlook")
+
+
+def test_setup_provider_and_bundle_use_injected_custom_select():
+    config = {"default_categories": [], "inboxes": [dict(INBOX, provider="outlook", slack_bundle="b2")]}
+    body = _setup(config, select_html=_fake_select, slack_bundles=["b1", "b2"])
+    card = _panel(body, "inboxes")
+    assert "<select" not in card
+    assert "data-name='provider'" in card and "<i data-value='outlook' sel>Outlook</i>" in card
+    assert "<i data-value='gmail'>Gmail</i>" in card
+    assert "data-name='slack_bundle'" in card and "<i data-value='b2' sel>b2</i>" in card
+    assert "<i data-value=''>(use default webhook)</i>" in card
+    add = _panel(body, "add")
+    assert "<i data-value='' sel>(use default webhook)</i>" in add and "<i data-value='gmail' sel>Gmail</i>" in add
+
+
+def test_setup_keeps_an_unknown_saved_bundle_selectable():
+    config = {"default_categories": [], "inboxes": [dict(INBOX, slack_bundle="gone")]}
+    card = _panel(_setup(config, select_html=_fake_select, slack_bundles=["b1"]), "inboxes")
+    assert "<i data-value='gone' sel>gone</i>" in card
+
+
+def test_setup_fallback_select_without_injected_renderer():
+    card = _panel(_setup(slack_bundles=["b1"]), "inboxes")
+    assert "<select name='provider'>" in card and "<option value='gmail' selected>Gmail</option>" in card
+    assert "<select name='slack_bundle'>" in card and "<option value='' selected>(use default webhook)</option>" in card
+
+
+def test_post_locations_carry_the_tab(sandbox, monkeypatch):
+    bad_add = inbox_pages.handle_post("/inbox/inboxes", _form(is_new="1", name="Bad Name", label="", provider="gmail",
+                                                              account="x"), "http://cb")
+    assert not bad_add["ok"] and bad_add["location"] == "/inbox/setup?tab=add"
+    assert _add_inbox()["location"] == "/inbox/setup?tab=inboxes"
+    edit = inbox_pages.handle_post("/inbox/inboxes", _form(is_new="0", name="w", label="W", provider="gmail",
+                                                           account="me@example.com"), "http://cb")
+    assert edit["location"] == "/inbox/setup?tab=inboxes"
+    monkeypatch.setattr(mail_auth, "get_access_token", lambda inbox: (_ for _ in ()).throw(mail_auth.ReauthRequired("x")))
+    for verb in ("connect", "test", "disconnect"):
+        assert inbox_pages.handle_post(f"/inbox/inboxes/w/{verb}", {}, "http://cb")["location"] == "/inbox/setup?tab=inboxes"
+    google = inbox_pages.handle_post("/inbox/oauth-client", _form(provider="google", client_id="g", client_secret="s"), "http://cb")
+    assert google["location"] == "/inbox/setup?tab=gmail"
+    ms = inbox_pages.handle_post("/inbox/oauth-client", _form(provider="microsoft", client_id="m"), "http://cb")
+    assert ms["location"] == "/inbox/setup?tab=outlook"
+    assert inbox_pages.handle_post("/inbox/inboxes/w/pause", {}, "http://cb")["location"] == "/inbox"
+    assert inbox_pages.handle_post("/inbox/inboxes/w/delete", {}, "http://cb")["location"] == "/inbox/setup?tab=inboxes"
+
+
+def test_inbox_empty_state_uses_email_icon():
+    body = inbox_pages.render_inbox_body({"default_categories": [], "inboxes": []}, {"inboxes": {}}, CSRF)
+    assert "aria-hidden='true'>email</span>" in body and ">inbox</span>" not in body

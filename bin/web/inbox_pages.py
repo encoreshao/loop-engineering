@@ -71,7 +71,7 @@ def render_inbox_body(config, status, csrf_input):
     if not inboxes:
         return head + (
             "<div class='card'><div class='empty-state'>"
-            "<div class='empty-state-icon'><span class='material-symbols-outlined' aria-hidden='true'>inbox</span></div>"
+            "<div class='empty-state-icon'><span class='material-symbols-outlined' aria-hidden='true'>email</span></div>"
             "<p class='empty-state-message'>No inboxes yet. Connect Gmail or Outlook from Inbox Setup to start "
             "triaging - drafts are saved to your mailbox and never delivered automatically.</p>"
             "<a class='btn btn-primary empty-state-action' href='/inbox/setup'>"
@@ -159,66 +159,186 @@ def _lines(values):
     return e("\n".join(values or []))
 
 
-def _inbox_form(inbox, csrf_input):
-    is_new = inbox is None
-    inbox = inbox or {"name": "", "label": "", "provider": "gmail", "account": "", "urgent_brief": "",
-                       "vip_senders": [], "exclude_senders": [], "slack_bundle": None}
+_PROVIDER_OPTIONS = (("gmail", "Gmail"), ("outlook", "Outlook"))
+
+# (key, label, Material Symbols glyph) - every glyph must be in
+# dashboard_server._MATERIAL_SYMBOLS_ICON_NAMES or it renders as tofu.
+_SETUP_TABS = (
+    ("inboxes", "Inboxes", "email"),
+    ("add", "Add inbox", "add"),
+    ("gmail", "Gmail app", "settings"),
+    ("outlook", "Outlook app", "settings"),
+)
+
+
+def _plain_select(name, options, selected, empty_label=None):
+    """Fallback for render_setup_body's `select_html` - a native <select>
+    with the same (name, options, selected, empty_label) contract as
+    dashboard_server._custom_select, so this module stays testable on its
+    own without importing dashboard_server."""
+    pairs = ([("", empty_label)] if empty_label is not None else []) + [
+        o if isinstance(o, tuple) else (o, o) for o in options]
+    selected = selected or ""
+    tags = "".join(f"<option value='{e(v)}'{' selected' if v == selected else ''}>{e(l)}</option>" for v, l in pairs)
+    return f"<select name='{e(name)}'>{tags}</select>"
+
+
+def _section(title, inner):
+    return f"<div class='inbox-section'><h3>{e(title)}</h3>{inner}</div>"
+
+
+def _field(label, control):
+    """A labelled custom dropdown. A <div>, not a <label>: a label forwards
+    clicks on the dropdown's menu options back to its trigger button."""
+    return f"<div class='stack-field'><span>{label}</span>{control}</div>"
+
+
+def _inbox_fields(inbox, is_new, select_html, slack_bundles):
     readonly = "" if is_new else " readonly"
-    options = "".join(
-        f"<option value='{p}'{' selected' if inbox['provider'] == p else ''}>{p.title()}</option>"
-        for p in ("gmail", "outlook")
-    )
-    return (
-        f"<form method='POST' action='/inbox/inboxes' class='stack-form'>{csrf_input}"
-        f"<input type='hidden' name='is_new' value='{'1' if is_new else '0'}'>"
+    bundles = list(slack_bundles or [])
+    if inbox.get("slack_bundle") and inbox["slack_bundle"] not in bundles:
+        # A saved bundle since removed from gitlab.json stays selectable,
+        # so saving an unrelated field doesn't silently clear it.
+        bundles.append(inbox["slack_bundle"])
+    account = (
         f"<label>Name (slug, fixed once created) <input type='text' name='name' value=\"{e(inbox['name'])}\"{readonly} required pattern='[a-z0-9][a-z0-9-]*'></label>"
+        + _field("Provider", select_html("provider", _PROVIDER_OPTIONS, inbox["provider"]))
+        + f"<label>Account email <input type='email' name='account' value=\"{e(inbox['account'])}\" required></label>"
         f"<label>Label <input type='text' name='label' value=\"{e(inbox['label'])}\" required></label>"
-        f"<label>Provider <select name='provider'>{options}</select></label>"
-        f"<label>Account email <input type='email' name='account' value=\"{e(inbox['account'])}\" required></label>"
+    )
+    triage = (
         f"<label>What counts as urgent <textarea name='urgent_brief' rows='2'>{e(inbox.get('urgent_brief', ''))}</textarea></label>"
         f"<label>VIP senders (one per line; <code>@domain.com</code> allowed) <textarea name='vip_senders' rows='2'>{_lines(inbox.get('vip_senders'))}</textarea></label>"
         f"<label>Never send to the AI (one per line) <textarea name='exclude_senders' rows='2'>{_lines(inbox.get('exclude_senders'))}</textarea></label>"
-        f"<label>Slack bundle (blank = default webhook) <input type='text' name='slack_bundle' value=\"{e(inbox.get('slack_bundle') or '')}\"></label>"
-        f"<button type='submit' class='btn btn-primary'>{'Add inbox' if is_new else 'Save'}</button></form>"
+    )
+    notifications = _field("Slack bundle", select_html("slack_bundle", bundles, inbox.get("slack_bundle") or "",
+                                                       empty_label="(use default webhook)"))
+    return (_section("Account", account) + _section("Triage rules", triage)
+            + _section("Notifications", notifications))
+
+
+def _inbox_form(inbox, csrf_input, select_html, slack_bundles, form_id, footer=""):
+    is_new = inbox is None
+    inbox = inbox or {"name": "", "label": "", "provider": "gmail", "account": "", "urgent_brief": "",
+                      "vip_senders": [], "exclude_senders": [], "slack_bundle": None}
+    return (
+        f"<form method='POST' action='/inbox/inboxes' class='stack-form' id='{e(form_id)}'>{csrf_input}"
+        f"<input type='hidden' name='is_new' value='{'1' if is_new else '0'}'>"
+        f"{_inbox_fields(inbox, is_new, select_html, slack_bundles)}{footer}</form>"
     )
 
 
-def render_setup_body(config, oauth, csrf_input, redirect_uri):
-    parts = [
+def _state_chips(inbox, entry):
+    text, kind = _STATE_LABELS.get(entry.get("state"), ("Unknown", "pill-grey"))
+    chips = f"<span class='pill {kind}'>{e(text)}</span>"
+    if not inbox.get("enabled", True):
+        chips += " <span class='pill pill-grey'>Paused</span>"
+    return chips
+
+
+def _inbox_card(inbox, entry, csrf_input, select_html, slack_bundles):
+    """One existing inbox: the edit form (Account/Triage rules/
+    Notifications), then Connection, then a Save/Delete footer. Every
+    action button targets its own empty CSRF form via form= (the Topic
+    Settings trick), so no <form> is ever nested inside another."""
+    name = inbox["name"]
+    edit_id, delete_id = f"inbox-edit-{name}", f"inbox-delete-{name}"
+    hidden_forms = "".join(
+        f"<form method='POST' action='/inbox/inboxes/{e(name)}/{verb}' id='inbox-{verb}-{e(name)}' hidden>{csrf_input}</form>"
+        for verb in ("connect", "test", "disconnect", "delete")
+    )
+    buttons = "".join(
+        f"<button type='submit' form='inbox-{verb}-{e(name)}' class='btn btn-neutral'>{label}</button>"
+        for verb, label in (("connect", "Connect"), ("test", "Test connection"), ("disconnect", "Disconnect"))
+    )
+    device = (
+        f"<div class='device-flow' data-inbox='{e(name)}' hidden><p>Go to "
+        "<a class='device-uri' target='_blank' rel='noopener'></a> and enter "
+        "<code class='device-code'></code></p><p class='device-message section-subtitle'></p></div>"
+    ) if inbox["provider"] == "outlook" else ""
+    confirm = e(f"Delete inbox {inbox['label']}? This removes its settings, sign-in and saved state.", quote=True)
+    footer = (
+        "<div class='inbox-card-footer'>"
+        f"<button type='submit' form='{e(edit_id)}' class='btn btn-primary'>"
+        "<span class='material-symbols-outlined' aria-hidden='true'>save</span> Save</button>"
+        f"<button type='submit' form='{e(delete_id)}' class='btn btn-warning' data-confirm=\"{confirm}\">"
+        "<span class='material-symbols-outlined' aria-hidden='true'>delete</span> Delete</button>"
+        "</div>"
+    )
+    return (
+        "<div class='card'>"
+        f"<div class='section-header'><h2>{e(inbox['label'])}</h2>{_state_chips(inbox, entry)}</div>"
+        f"{_inbox_form(inbox, csrf_input, select_html, slack_bundles, edit_id)}"
+        + _section("Connection", f"<div class='daemon-action-form'>{buttons}</div>{device}")
+        + f"{footer}{hidden_forms}</div>"
+    )
+
+
+def render_setup_body(config, oauth, csrf_input, redirect_uri, status=None, select_html=None,
+                      slack_bundles=None, active_tab=None):
+    """Inbox Setup, as Settings-page-style tabs (the data-tabs markup
+    render_general_settings_page uses; _render_shell's script switches
+    them). `select_html` is dashboard_server._custom_select, injected
+    because this module can't import dashboard_server; None falls back to
+    a native <select>. `active_tab` defaults to "inboxes" when any inbox
+    exists, else "gmail" (first step of setting one up)."""
+    if select_html is None:
+        select_html = _plain_select
+    status = status or {"inboxes": {}}
+    inboxes = config.get("inboxes", [])
+    if active_tab not in {key for key, _label, _icon in _SETUP_TABS}:
+        active_tab = "inboxes" if inboxes else "gmail"
+
+    if inboxes:
+        inboxes_panel = "".join(
+            _inbox_card(inbox, status.get("inboxes", {}).get(inbox["name"], {}), csrf_input, select_html, slack_bundles)
+            for inbox in inboxes
+        )
+    else:
+        inboxes_panel = (
+            "<div class='card'><div class='empty-state'>"
+            "<div class='empty-state-icon'><span class='material-symbols-outlined' aria-hidden='true'>email</span></div>"
+            "<p class='empty-state-message'>No inboxes yet. Save the Gmail or Outlook app credentials first, then add an inbox.</p>"
+            "<a class='btn btn-primary empty-state-action' href='/inbox/setup?tab=add'>"
+            "<span class='material-symbols-outlined' aria-hidden='true'>add</span> Add inbox</a>"
+            "</div></div>"
+        )
+    add_footer = ("<div class='inbox-card-footer'><button type='submit' class='btn btn-primary'>"
+                  "<span class='material-symbols-outlined' aria-hidden='true'>add</span> Add inbox</button></div>")
+    add_panel = (
+        "<div class='card'><div class='section-header'><h2>Add an inbox</h2></div>"
+        "<p class='section-subtitle'>Connect, Test connection and Disconnect appear on the Inboxes tab after saving.</p>"
+        f"{_inbox_form(None, csrf_input, select_html, slack_bundles, 'inbox-add-form', add_footer)}</div>"
+    )
+    gmail_panel = (
+        "<div class='card'><div class='section-header'><h2>Connect Gmail</h2></div>"
+        + _google_steps(redirect_uri)
+        + _client_form("google", "Google OAuth client", oauth, csrf_input, with_secret=True) + "</div>"
+    )
+    outlook_panel = (
+        "<div class='card'><div class='section-header'><h2>Connect Outlook</h2></div>"
+        + _MICROSOFT_STEPS
+        + _client_form("microsoft", "Microsoft app", oauth, csrf_input, with_secret=False) + "</div>"
+    )
+    panels = {"inboxes": inboxes_panel, "add": add_panel, "gmail": gmail_panel, "outlook": outlook_panel}
+
+    tab_buttons = "".join(
+        f"<button type='button' class='tab-button{' is-active' if key == active_tab else ''}' "
+        f"data-tab-target='{key}' role='tab' aria-selected='{'true' if key == active_tab else 'false'}'>"
+        f"<span class='material-symbols-outlined' aria-hidden='true'>{icon}</span>{label}</button>"
+        for key, label, icon in _SETUP_TABS
+    )
+    tab_panels = "".join(
+        f"<div data-tab-panel='{key}'{'' if key == active_tab else ' hidden'}>{panels[key]}</div>"
+        for key, _label, _icon in _SETUP_TABS
+    )
+    return (
         "<div class='page-title'><h1>Inbox Setup</h1>"
         "<p class='subtitle'>Connect a Gmail or Outlook inbox for the loop to triage. "
-        "Nothing is ever sent, archived, or deleted automatically.</p></div>",
-        "<div class='card'><div class='section-header'><h2>Connect Gmail</h2></div>",
-        _google_steps(redirect_uri),
-        _client_form("google", "Google OAuth client", oauth, csrf_input, with_secret=True),
-        "</div>",
-        "<div class='card'><div class='section-header'><h2>Connect Outlook</h2></div>",
-        _MICROSOFT_STEPS,
-        _client_form("microsoft", "Microsoft app", oauth, csrf_input, with_secret=False),
-        "</div>",
-    ]
-    for inbox in config.get("inboxes", []):
-        name = inbox["name"]
-        actions = "".join(
-            _post_button(f"/inbox/inboxes/{name}/{verb}", label, csrf_input)
-            for verb, label in (("connect", "Connect"), ("test", "Test connection"),
-                                ("disconnect", "Disconnect"), ("delete", "Delete"))
-        )
-        device = (
-            f"<div class='device-flow' data-inbox='{e(name)}' hidden><p>Go to "
-            "<a class='device-uri' target='_blank' rel='noopener'></a> and enter "
-            "<code class='device-code'></code></p><p class='device-message section-subtitle'></p></div>"
-        ) if inbox["provider"] == "outlook" else ""
-        parts.append(
-            f"<div class='card'><div class='section-header'><h2>{e(inbox['label'])}</h2></div>"
-            f"{_inbox_form(inbox, csrf_input)}"
-            f"<div class='daemon-action-form'>{actions}</div>{device}</div>"
-        )
-    parts.append(
-        f"<div class='card'><div class='section-header'><h2>Add an inbox</h2></div>{_inbox_form(None, csrf_input)}</div>"
+        "Nothing is ever sent, archived, or deleted automatically.</p></div>"
+        f"<div data-tabs><div class='tab-list' role='tablist'>{tab_buttons}</div>{tab_panels}</div>"
+        + _DEVICE_FLOW_SCRIPT
     )
-    parts.append(_DEVICE_FLOW_SCRIPT)
-    return "".join(parts)
 
 
 _DEVICE_FLOW_SCRIPT = """
@@ -297,7 +417,13 @@ def _split_lines(text):
     return [line.strip() for line in (text or "").splitlines() if line.strip()]
 
 
-def _result(ok, message, location="/inbox/setup"):
+# Where an Inbox Setup action lands afterwards - the tab it came from
+# (render_setup_body reads ?tab=; _redirect_with_flash appends &flash=).
+_INBOXES_TAB = "/inbox/setup?tab=inboxes"
+_OAUTH_TABS = {"google": "/inbox/setup?tab=gmail", "microsoft": "/inbox/setup?tab=outlook"}
+
+
+def _result(ok, message, location=_INBOXES_TAB):
     return {"ok": ok, "message": message, "location": location}
 
 
@@ -368,7 +494,7 @@ def _handle_post(path, form, redirect_uri):
         if provider == "google" and not secret:
             secret = (inbox_config.load_oauth().get("google") or {}).get("client_secret", "")
         ok, message = inbox_config.save_oauth_client(provider, _value(form, "client_id"), secret)
-        return _result(ok, message)
+        return _result(ok, message, location=_OAUTH_TABS.get(provider, "/inbox/setup"))
     if path == "/inbox/inboxes":
         fields = {
             "name": _value(form, "name"), "label": _value(form, "label"), "provider": _value(form, "provider"),
@@ -377,8 +503,10 @@ def _handle_post(path, form, redirect_uri):
             "exclude_senders": _split_lines(_value(form, "exclude_senders")),
             "slack_bundle": _value(form, "slack_bundle"), "enabled": True,
         }
-        ok, message = inbox_config.upsert_inbox(fields, is_new=_value(form, "is_new") == "1")
-        return _result(ok, message)
+        is_new = _value(form, "is_new") == "1"
+        ok, message = inbox_config.upsert_inbox(fields, is_new=is_new)
+        # A failed add goes back to the Add inbox tab it was typed on.
+        return _result(ok, message, location="/inbox/setup?tab=add" if is_new and not ok else _INBOXES_TAB)
     match = re.match(r"^/inbox/inboxes/([a-z0-9][a-z0-9-]*)/(connect|disconnect|test|pause|delete)$", path)
     if not match:
         return None

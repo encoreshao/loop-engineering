@@ -2080,7 +2080,10 @@ def _custom_select(name, options, selected, empty_label=None, onchange=None):
     CSS/JS in _render_shell). The real <select> stays in the DOM, just
     hidden, so the form still submits a plain `name=value` pair - the
     trigger/listbox next to it is what the user actually sees and clicks.
-    `options` is any iterable of strings used as both value and label.
+    `options` is any iterable of strings used as both value and label,
+    or of (value, label) pairs where the shown text should differ from
+    the submitted value (e.g. Inbox Setup's ("gmail", "Gmail")); the two
+    forms can be mixed.
     `empty_label`, if given, prepends a value='' option with that label -
     used for optional selects like "(use instance default)". `onchange`,
     if given, is a raw JS expression attached to the underlying native
@@ -2089,7 +2092,9 @@ def _custom_select(name, options, selected, empty_label=None, onchange=None):
     `selectOption` script in _render_shell), so this fires exactly like a
     native <select onchange> would."""
     options = list(options)
-    pairs = ([("", empty_label)] if empty_label is not None else []) + [(v, v) for v in options]
+    pairs = ([("", empty_label)] if empty_label is not None else []) + [
+        tuple(o) if isinstance(o, (tuple, list)) else (o, o) for o in options
+    ]
     selected_value = selected or ""
     option_tags = "".join(
         f"<option value='{html.escape(v)}'{' selected' if v == selected_value else ''}>{html.escape(l)}</option>"
@@ -3715,7 +3720,7 @@ _FONT_FACE_VARS = "\n".join(
 # to this list before shipping a new icon constant that uses it.
 _MATERIAL_SYMBOLS_ICON_NAMES = (
     "account_balance_wallet,add,add_comment,arrow_upward,auto_awesome,bolt,check,check_circle,chevron_left,circle,close,content_copy,delete,description,"
-    "dns,edit,edit_note,error,expand_more,extension,fact_check,folder,folder_off,forum,history,inbox,lightbulb,loop,merge,monitoring,newspaper,"
+    "dns,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,history,lightbulb,loop,merge,monitoring,newspaper,"
     "open_in_new,palette,payments,save,send,settings,smart_toy,space_dashboard,speed,terminal,topic,tune,warning,widgets"
 )
 
@@ -5296,7 +5301,18 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
    treatment as .block-builder-field, just not scoped to the block
    builder. */
 .stack-form {{ display: flex; flex-direction: column; gap: 0.75rem; max-width: 32rem; }}
-.stack-form label {{ display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }}
+.stack-form label, .stack-form .stack-field {{ display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }}
+/* A .custom-select's own flex: 1 1 160px is meant for a row; in this
+   column it would become a 160px-tall basis. .stack-field (not <label>)
+   wraps it because a label forwards clicks on its menu options back to
+   the trigger button, reopening the menu. */
+.stack-form .custom-select {{ flex: 0 0 auto; }}
+/* Inbox Setup's per-inbox card: labelled Account / Triage rules /
+   Notifications / Connection sections, then a Save-left, Delete-right
+   footer (buttons target their forms via form=, like Topic Settings). */
+.inbox-section {{ padding-top: 0.75rem; margin-top: 0.75rem; border-top: 1px solid var(--md-outline-variant); }}
+.inbox-section:first-child {{ border-top: none; margin-top: 0; padding-top: 0; }}
+.inbox-card-footer {{ display: flex; justify-content: space-between; gap: 0.5rem; margin-top: 1rem; }}
 .stack-form input, .stack-form select, .stack-form textarea {{
   padding: 0.4rem 0.6rem; border-radius: 8px; border: 1px solid var(--md-outline-variant);
   background: var(--md-surface-container-low); color: var(--md-on-surface); font-family: inherit;
@@ -5731,7 +5747,7 @@ _SECTION_ICON_MEMORY = "<span class='material-symbols-outlined' aria-hidden='tru
 
 _SECTION_ICON_TOPIC_MONITOR = "<span class='material-symbols-outlined' aria-hidden='true'>newspaper</span>"
 
-_SECTION_ICON_INBOX = "<span class='material-symbols-outlined' aria-hidden='true'>inbox</span>"
+_SECTION_ICON_INBOX = "<span class='material-symbols-outlined' aria-hidden='true'>email</span>"
 
 _SECTION_ICON_DAEMONS = "<span class='material-symbols-outlined' aria-hidden='true'>dns</span>"
 
@@ -9188,12 +9204,18 @@ def inbox_redirect_uri(port):
     return f"http://127.0.0.1:{port}/oauth/google/callback"
 
 
-def render_inbox_setup_page(port, flash=None, flash_ok=True):
+def render_inbox_setup_page(port, flash=None, flash_ok=True, active_tab=None):
     """Inbox Setup page: the OAuth-client + per-inbox connect/test wizard
     (see inbox_pages.render_setup_body). `port` is this server's own
     listening port (self.server.server_address[1] in do_GET), needed to
-    build the Google OAuth redirect URI shown in the wizard."""
+    build the Google OAuth redirect URI shown in the wizard. `active_tab`
+    is /inbox/setup's ?tab= (inboxes/add/gmail/outlook); anything else
+    falls back to render_setup_body's own default. Passes _custom_select
+    and the Slack bundle names in (same source as
+    render_topic_settings_page) since inbox_pages can't import this
+    module."""
     status = read_status(STATUS_PATH)
+    bundles = read_gitlab_config(GITLAB_CONFIG_PATH).get("bundles", {})
 
     flash_html = ""
     if flash:
@@ -9204,7 +9226,9 @@ def render_inbox_setup_page(port, flash=None, flash_ok=True):
 
     config, config_error_html = _inbox_config_for_page()
     body = flash_html + config_error_html + inbox_pages.render_setup_body(
-        config, inbox_config.load_oauth(), csrf_input, inbox_redirect_uri(port)
+        config, inbox_config.load_oauth(), csrf_input, inbox_redirect_uri(port),
+        status=inbox_status.read(), select_html=_custom_select, slack_bundles=list(bundles),
+        active_tab=active_tab,
     )
     return _render_shell("Inbox Setup · Loop X Engineering", "inbox_setup", _status_badge_markup(status), body)
 
@@ -10711,7 +10735,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             query = urllib.parse.parse_qs(split.query)
             flash = query.get("flash", [None])[0]
             flash_ok = query.get("ok", ["1"])[0] != "0"
-            self._send_html(render_inbox_setup_page(self.server.server_address[1], flash=flash, flash_ok=flash_ok))
+            active_tab = query.get("tab", [None])[0]
+            self._send_html(render_inbox_setup_page(self.server.server_address[1], flash=flash, flash_ok=flash_ok,
+                                                    active_tab=active_tab))
             return
 
         if split.path == "/oauth/google/callback":
@@ -10720,7 +10746,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             # only a CSRF-checked POST /inbox/inboxes/<name>/connect mints.
             # The flash never carries the code or any token.
             ok, message = inbox_pages.handle_google_callback(urllib.parse.parse_qs(split.query))
-            self._redirect_with_flash(ok, message, location="/inbox/setup")
+            self._redirect_with_flash(ok, message, location="/inbox/setup?tab=inboxes")
             return
 
         if split.path == "/inbox/connect/status":

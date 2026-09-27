@@ -3099,7 +3099,7 @@ def test_nav_items_each_carry_a_material_symbols_icon():
         "topic_monitor": "newspaper",
         "topic_settings": "settings",
         "logs": "terminal",
-        "inbox": "inbox",
+        "inbox": "email",
         "inbox_setup": "settings",
     }
     for key, href, label, icon in ds._NAV_ITEMS:
@@ -11022,10 +11022,67 @@ def test_hero_title_highlights_loop_with_a_gradient(monkeypatch, tmp_path):
     assert ".chat-hero-accent { animation:" in motion_block.split("\n}\n")[0]
 
 
-def test_material_symbols_icon_names_include_inbox_and_stay_sorted():
+def test_material_symbols_icon_names_include_email_and_stay_sorted():
     names = ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
-    assert "inbox" in names
+    assert "email" in names
     assert names == sorted(names)
+    assert ">inbox</span>" not in ds._SECTION_ICON_INBOX
+
+
+def test_custom_select_accepts_value_label_pairs():
+    output = ds._custom_select("provider", [("gmail", "Gmail"), ("outlook", "Outlook")], "outlook")
+    assert "<option value='gmail'>Gmail</option>" in output
+    assert "<option value='outlook' selected>Outlook</option>" in output
+    assert "data-value='outlook'>Outlook</div>" in output
+    assert "<span class='custom-select-value'>Outlook</span>" in output
+    mixed = ds._custom_select("b", ["plain", ("v", "L")], "plain", empty_label="(none)")
+    assert "<option value='plain' selected>plain</option>" in mixed and "<option value='v'>L</option>" in mixed
+
+
+def _inbox_setup_env(tmp_path, monkeypatch, inboxes):
+    config_path = tmp_path / "inboxes.json"
+    config_path.write_text(json.dumps({"inboxes": inboxes}))
+    monkeypatch.setattr(ds.inbox_config, "DEFAULT_CONFIG_PATH", config_path)
+    monkeypatch.setattr(ds.inbox_config, "DEFAULT_OAUTH_PATH", tmp_path / "mail_oauth.json")
+    monkeypatch.setattr(ds.inbox_status, "DEFAULT_STATUS_PATH", tmp_path / "status.json")
+    gitlab_path = tmp_path / "gitlab.json"
+    gitlab_path.write_text(json.dumps({"instances": {}, "bundles": {"team": {}, "ops": {}}}))
+    monkeypatch.setattr(ds, "GITLAB_CONFIG_PATH", gitlab_path)
+
+
+_SETUP_INBOX = {"name": "w", "label": "Work", "provider": "outlook", "account": "me@example.com",
+                "slack_bundle": "ops"}
+
+
+def test_inbox_setup_page_uses_custom_select_and_tabs(tmp_path, monkeypatch):
+    _inbox_setup_env(tmp_path, monkeypatch, [_SETUP_INBOX])
+    page = ds.render_inbox_setup_page(8420)
+    assert "tab-button is-active' data-tab-target='inboxes'" in page
+    card = page.split("data-tab-panel='inboxes'")[1].split("data-tab-panel=")[0]
+    assert card.count("class='custom-select'") == 2
+    assert "<option value='outlook' selected>Outlook</option>" in card
+    assert "<option value='ops' selected>ops</option>" in card and "<option value='team'>team</option>" in card
+    assert "(use default webhook)" in card
+    assert "aria-hidden='true'>email</span>" in page
+
+
+def test_inbox_setup_page_tab_query_selects_tab(tmp_path, monkeypatch):
+    _inbox_setup_env(tmp_path, monkeypatch, [_SETUP_INBOX])
+    assert "tab-button is-active' data-tab-target='outlook'" in ds.render_inbox_setup_page(8420, active_tab="outlook")
+    _inbox_setup_env(tmp_path, monkeypatch, [])
+    assert "tab-button is-active' data-tab-target='gmail'" in ds.render_inbox_setup_page(8420)
+    with _running_server() as port:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/inbox/setup?tab=add", timeout=10) as resp:
+            assert "tab-button is-active' data-tab-target='add'" in resp.read().decode("utf-8")
+
+
+def test_google_callback_route_redirects_to_inboxes_tab():
+    with _running_server() as port:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        conn.request("GET", "/oauth/google/callback?state=bad&code=x")
+        location = conn.getresponse().getheader("Location")
+        conn.close()
+    assert location.startswith("/inbox/setup?tab=inboxes&")
 
 
 def test_nav_has_inbox_pages_in_groups():
