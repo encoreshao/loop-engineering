@@ -11,7 +11,7 @@ import inbox_config
 import inbox_triage
 from mail_providers.base import BaseProvider
 
-_LIST_PAGE_LIMIT = 5
+_LIST_PAGE_LIMIT = 20  # safety cap: 20 pages of maxResults=100
 
 
 def _header(headers, name):
@@ -99,23 +99,30 @@ class GmailProvider(BaseProvider):
             page = self._call("GET", f"/users/me/messages?{urllib.parse.urlencode(params)}")
             ids += [m["id"] for m in page.get("messages", []) if m["id"] not in seen_ids]
             page_token = page.get("nextPageToken")
-            if not page_token or len(ids) >= limit * 2:
+            if not page_token:
                 break
+        # messages.list is newest-first; walk oldest-first so a backlog
+        # larger than one page still yields the true oldest messages, not
+        # just the newest page's.
+        ids.reverse()
         messages = []
         for msg_id in ids:
+            if len(messages) >= limit:
+                break
             parsed = parse_gmail_message(self._call("GET", f"/users/me/messages/{msg_id}?format=full"))
             if inbox_config.sender_matches(inbox_config.parse_address(parsed["from"]), exclude):
                 continue
             messages.append(parsed)
         messages.sort(key=lambda m: m["date"])
-        messages = messages[:limit]
         for message in messages:
             message["prior_thread"] = self._prior_thread(message)
         return messages
 
     def _prior_thread(self, message):
         thread = self._call("GET", f"/users/me/threads/{message['thread_id']}?format=full")
-        earlier = [parse_gmail_message(m) for m in thread.get("messages", [])]
+        # Never feed the loop's own earlier drafts in this thread back to the AI.
+        earlier = [parse_gmail_message(m) for m in thread.get("messages", [])
+                   if "DRAFT" not in (m.get("labelIds") or [])]
         earlier = [m for m in earlier if m["date"] < message["date"] and m["id"] != message["id"]]
         earlier.sort(key=lambda m: m["date"])
         return [{"from": m["from"], "date": m["date"], "body_text": inbox_triage.trim(m["body_text"], inbox_triage.PRIOR_LIMIT)}
