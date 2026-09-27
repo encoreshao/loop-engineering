@@ -174,9 +174,13 @@ def _m(i, sender="Alice <alice@x.com>", minute=0):
 
 
 class FakeProvider:
-    def __init__(self, messages, address="me@example.com", fail_label_on=None, fail_draft_on=None):
+    def __init__(self, messages, address="me@example.com", fail_label_on=None, fail_draft_on=None,
+                 label_exception=None, draft_exception=None, ensure_labels_exception=None):
         self.messages, self.address = messages, address
         self.fail_label_on, self.fail_draft_on = fail_label_on, fail_draft_on
+        self.label_exception = label_exception or mail_http.MailHTTPError(500, "", "http://x")
+        self.draft_exception = draft_exception or mail_http.MailHTTPError(500, "", "http://x")
+        self.ensure_labels_exception = ensure_labels_exception
         self.labelled, self.drafts, self.fetch_args = [], [], None
 
     def profile_address(self):
@@ -187,16 +191,18 @@ class FakeProvider:
         return [m for m in self.messages if m["id"] not in seen_ids][:limit]
 
     def ensure_labels(self, labels):
+        if self.ensure_labels_exception:
+            raise self.ensure_labels_exception
         return {name: f"id-{name}" for name in labels}
 
     def apply_label(self, message_id, label_id):
         if message_id == self.fail_label_on:
-            raise mail_http.MailHTTPError(500, "", "http://x")
+            raise self.label_exception
         self.labelled.append((message_id, label_id))
 
     def create_reply_draft(self, message, body):
         if message["id"] == self.fail_draft_on:
-            raise mail_http.MailHTTPError(500, "", "http://x")
+            raise self.draft_exception
         self.drafts.append((message["id"], body))
         return f"https://mail/{message['id']}"
 
@@ -257,7 +263,7 @@ def test_reauth_required_status(tmp_path):
     assert outcome["status"] == "needs_reauth" and "not connected" in outcome["error"]
 
 
-def test_auth_expired_mid_run_is_needs_reauth(tmp_path):
+def test_auth_expired_during_fetch_is_needs_reauth(tmp_path):
     class Expiring(FakeProvider):
         def fetch_new(self, *a):
             raise mail_http.AuthExpired(401, "", "http://x")
@@ -288,6 +294,57 @@ def test_draft_failure_keeps_label_and_is_reported(tmp_path):
     assert outcome["status"] == "ok"
     assert provider.labelled == [("m1", "id-Loop/Urgent")]
     assert outcome["urgent"][0]["draft_failed"] is True and outcome["urgent"][0]["draft_link"] is None
+    assert outcome["urgent"][0]["needs_manual_reply"] is False
+
+
+def test_keychain_error_during_labelling_records_labelled_and_fails(tmp_path):
+    provider = FakeProvider([_m(1, minute=1), _m(2, minute=2)], fail_label_on="m2",
+                            label_exception=mail_auth.KeychainError("Keychain is locked"))
+    outcome = _run(provider, _reply(
+        {"id": "m1", "category": "fyi", "reason": "r", "draft_body": None},
+        {"id": "m2", "category": "fyi", "reason": "r", "draft_body": None}), tmp_path)
+    assert outcome["status"] == "failed"
+    assert provider.labelled == [("m1", "id-Loop/FYI")]
+    assert set(inbox_seen.load("w", state_dir=tmp_path)["seen"]) == {"m1"}
+
+
+def test_keychain_error_during_draft_is_reported_as_draft_failed(tmp_path):
+    provider = FakeProvider([_m(1)], fail_draft_on="m1",
+                            draft_exception=mail_auth.KeychainError("Keychain is locked"))
+    outcome = _run(provider, _reply({"id": "m1", "category": "urgent", "reason": "r", "draft_body": "x"}), tmp_path)
+    assert outcome["status"] == "ok"
+    assert provider.labelled == [("m1", "id-Loop/Urgent")]
+    assert outcome["urgent"][0]["draft_failed"] is True and outcome["urgent"][0]["draft_link"] is None
+
+
+def test_auth_expired_during_labelling_is_needs_reauth_and_records_labelled(tmp_path):
+    provider = FakeProvider([_m(1, minute=1), _m(2, minute=2)], fail_label_on="m2",
+                            label_exception=mail_http.AuthExpired(401, "", "http://x"))
+    outcome = _run(provider, _reply(
+        {"id": "m1", "category": "fyi", "reason": "r", "draft_body": None},
+        {"id": "m2", "category": "fyi", "reason": "r", "draft_body": None}), tmp_path)
+    assert outcome["status"] == "needs_reauth"
+    assert provider.labelled == [("m1", "id-Loop/FYI")]
+    assert set(inbox_seen.load("w", state_dir=tmp_path)["seen"]) == {"m1"}
+
+
+def test_ensure_labels_failure_applies_and_records_nothing(tmp_path):
+    provider = FakeProvider([_m(1)], ensure_labels_exception=mail_http.MailHTTPError(500, "", "http://x"))
+    outcome = _run(provider, _reply({"id": "m1", "category": "fyi", "reason": "r", "draft_body": None}), tmp_path)
+    assert outcome["status"] == "failed"
+    assert provider.labelled == [] and provider.drafts == []
+    assert inbox_seen.load("w", state_dir=tmp_path)["seen"] == {}
+
+
+def test_vip_sender_forced_urgent_needs_manual_reply(tmp_path):
+    vip_inbox = dict(INBOX, vip_senders=["alice@x.com"])
+    provider = FakeProvider([_m(1)])
+    outcome = _run(provider, _reply({"id": "m1", "category": "fyi", "reason": "update", "draft_body": None}),
+                  tmp_path, inbox=vip_inbox)
+    assert outcome["status"] == "ok"
+    assert outcome["counts"] == {"urgent": 1}
+    assert provider.labelled == [("m1", "id-Loop/Urgent")]
+    assert outcome["urgent"][0]["needs_manual_reply"] is True
 
 
 def test_seen_ids_and_since_passed_to_provider(tmp_path):

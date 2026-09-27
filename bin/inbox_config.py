@@ -71,8 +71,12 @@ def validate_inbox(inbox):
     for key in ("vip_senders", "exclude_senders"):
         if not isinstance(inbox.get(key, []), list):
             errors.append(f"{key} must be a list")
-    if inbox.get("categories") is not None and not isinstance(inbox.get("categories"), list):
-        errors.append("categories must be null or a list")
+    categories = inbox.get("categories")
+    if categories is not None:
+        if not isinstance(categories, list):
+            errors.append("categories must be null or a list")
+        elif not any(isinstance(c, dict) and c.get("key") == "urgent" for c in categories):
+            errors.append("categories must include an 'urgent' category - VIP senders are always marked urgent")
     return errors
 
 

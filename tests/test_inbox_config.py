@@ -69,6 +69,12 @@ def test_validate_inbox_rejects_bad_fields(overrides, fragment):
     assert any(fragment in e for e in errors)
 
 
+def test_validate_inbox_rejects_custom_categories_missing_urgent():
+    custom = [{"key": "fyi", "label": "Loop/FYI", "description": "x", "draft": False}]
+    errors = inbox_config.validate_inbox(_inbox(categories=custom))
+    assert any("urgent" in e for e in errors)
+
+
 def test_load_config_rejects_duplicate_names(tmp_path):
     path = tmp_path / "inboxes.json"
     _write(path, [_inbox(), _inbox()])

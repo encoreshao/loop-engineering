@@ -210,7 +210,7 @@ def triage_inbox(inbox, config, now, provider_factory=None, token_fn=None, invok
     except (mail_http.AuthExpired, mail_auth.ReauthRequired) as exc:
         inbox_seen.record(inbox["name"], labelled, now, state_dir=state_dir)
         return _outcome(inbox, "needs_reauth", str(exc) or "Sign-in expired - reconnect this inbox", cost_usd=cost)
-    except mail_http.MailHTTPError as exc:
+    except (mail_http.MailHTTPError, mail_auth.KeychainError) as exc:
         inbox_seen.record(inbox["name"], labelled, now, state_dir=state_dir)
         return _outcome(inbox, "failed", f"Labelling stopped after {len(labelled)} of {len(decisions)}: {exc}", cost_usd=cost)
     inbox_seen.record(inbox["name"], labelled, now, state_dir=state_dir)
@@ -222,7 +222,7 @@ def triage_inbox(inbox, config, now, provider_factory=None, token_fn=None, invok
         if decision["draft_body"]:
             try:
                 link = provider.create_reply_draft(message, decision["draft_body"])
-            except (mail_http.MailHTTPError, mail_auth.ReauthRequired):
+            except (mail_http.MailHTTPError, mail_auth.ReauthRequired, mail_auth.KeychainError):
                 draft_failed = True
         rows.append({"date": message["date"], "from": message["from"], "subject": message["subject"],
                      "category": decision["category"], "reason": decision["reason"], "draft_link": link})
