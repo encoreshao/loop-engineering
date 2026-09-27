@@ -45,6 +45,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import ai_cli_config
 import cost
 import health
+import inbox_config
+import inbox_status
 import issue_tracking_config
 import learning
 import loop_audit
@@ -59,6 +61,11 @@ import project_memory
 import slack_notify
 import topic_config
 import topic_seen
+
+# inbox_pages is bin/web/inbox_pages.py - this file's own sibling, so no
+# sys.path insert is needed for it the way the bin/-level imports above
+# need one (see the comment on sys.path.insert just above).
+import inbox_pages
 
 LOOP_DIR = Path(__file__).resolve().parent.parent.parent
 STATUS_PATH = LOOP_DIR / "outputs" / "status.json"
@@ -3635,7 +3642,7 @@ _FONT_FACE_VARS = "\n".join(
 # to this list before shipping a new icon constant that uses it.
 _MATERIAL_SYMBOLS_ICON_NAMES = (
     "account_balance_wallet,add,add_comment,arrow_upward,auto_awesome,bolt,check,check_circle,chevron_left,circle,close,content_copy,delete,description,"
-    "dns,edit,edit_note,error,expand_more,extension,fact_check,folder,folder_off,forum,history,lightbulb,loop,merge,monitoring,newspaper,"
+    "dns,edit,edit_note,error,expand_more,extension,fact_check,folder,folder_off,forum,history,inbox,lightbulb,loop,merge,monitoring,newspaper,"
     "open_in_new,palette,payments,save,send,settings,smart_toy,space_dashboard,speed,terminal,topic,tune,warning,widgets"
 )
 
@@ -4803,6 +4810,22 @@ pre.log {{
 .markdown pre code {{ background: none; border: none; padding: 0; }}
 .markdown img {{ max-width: 100%; height: auto; }}
 
+/* A saved Inbox Triage history file's raw markdown (see
+   inbox_pages.render_history_file_body) - not run through render_markdown
+   like every other history page here, since inbox_pages.py can't import
+   dashboard_server.py without a circular import, so it's shown as
+   preformatted text instead. Same visual treatment as .markdown pre. */
+.history-md {{
+  background: var(--md-surface-dim);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 6px;
+  padding: 0.85rem 1rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.85rem;
+}}
+
 ul.plain {{ list-style: none; margin: 0.35rem 0 0; padding: 0; display: grid; gap: 0.35rem; }}
 ul.plain li {{ font-size: 0.9rem; }}
 
@@ -4991,6 +5014,11 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
   border-color: var(--md-error-container);
   color: var(--md-on-error-container);
 }}
+
+/* A single inbox's last-run error (Inbox Triage page) - inline, next to
+   that inbox's own card, rather than a full-width .flash banner which
+   would read as this whole page having failed. */
+.error-text {{ color: var(--md-error); font-size: 0.85rem; margin: 0.35rem 0; }}
 
 /* Replaces the browser's native "Please fill out this field."-style
    validation bubble (unstyled OS chrome, can't be restyled with CSS) with
@@ -5203,6 +5231,34 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
 .daemon-action-form.single-field input,
 .daemon-action-form.single-field .custom-select {{ flex: 1 1 auto; min-width: 0; }}
 .daemon-action-form.single-field button[type='submit'] {{ flex: 0 0 120px; justify-content: center; }}
+
+/* Inbox Setup's per-inbox/OAuth-client forms (see inbox_pages.py's
+   _client_form/_inbox_form) - a vertically stacked form of several
+   full-width labeled fields, unlike .daemon-action-form's single
+   horizontal row of inline controls. Same input/textarea/select
+   treatment as .block-builder-field, just not scoped to the block
+   builder. */
+.stack-form {{ display: flex; flex-direction: column; gap: 0.75rem; max-width: 32rem; }}
+.stack-form label {{ display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }}
+.stack-form input, .stack-form select, .stack-form textarea {{
+  padding: 0.4rem 0.6rem; border-radius: 8px; border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container-low); color: var(--md-on-surface); font-family: inherit;
+}}
+.stack-form textarea {{ resize: vertical; }}
+
+/* Inbox Setup's numbered "how to register an OAuth app" steps (Google/
+   Microsoft) - plain ordered list, spaced like the rest of this app's
+   prose rather than the browser's cramped default list spacing. */
+.wizard-steps {{ display: flex; flex-direction: column; gap: 0.5rem; margin: 0.5rem 0; padding-left: 1.25rem; font-size: 0.85rem; }}
+
+/* Outlook's device-code sign-in flow (see _DEVICE_FLOW_SCRIPT in
+   inbox_pages.py) - hidden until the connect button's poll finds a
+   pending flow, then shows the verification URL/code inline next to
+   that inbox's own connect form instead of a popup. */
+.device-flow {{
+  margin-top: 0.5rem; padding: 0.6rem 0.75rem; border: 1px dashed var(--md-outline-variant);
+  border-radius: 8px; background: var(--md-surface-container-low);
+}}
 
 /* Custom-styled dropdown: replaces the browser's native <select> popup
    (which can't be restyled - it always renders with the OS's own menu
@@ -5618,6 +5674,8 @@ _SECTION_ICON_MEMORY = "<span class='material-symbols-outlined' aria-hidden='tru
 
 _SECTION_ICON_TOPIC_MONITOR = "<span class='material-symbols-outlined' aria-hidden='true'>newspaper</span>"
 
+_SECTION_ICON_INBOX = "<span class='material-symbols-outlined' aria-hidden='true'>inbox</span>"
+
 _SECTION_ICON_DAEMONS = "<span class='material-symbols-outlined' aria-hidden='true'>dns</span>"
 
 _SECTION_ICON_SETTINGS = "<span class='material-symbols-outlined' aria-hidden='true'>settings</span>"
@@ -5743,6 +5801,7 @@ _NAV_ITEMS = (
     ("activity", "/activity", "Activity", _SECTION_ICON_ACTIVITY),
     ("gitlab", "/gitlab", "Live GitLab", _SECTION_ICON_GITLAB),
     ("topic_monitor", "/topic-monitor", "Topic Monitor", _SECTION_ICON_TOPIC_MONITOR),
+    ("inbox", "/inbox", "Inbox Triage", _SECTION_ICON_INBOX),
     ("logs", "/logs", "Logs", _SECTION_ICON_LOGS),
     ("loop_runs", "/loop-runs", "Loop Runs", _SECTION_ICON_LOOP_RUNS),
     ("history", "/history", "Run History", _SECTION_ICON_HISTORY),
@@ -5756,6 +5815,7 @@ _NAV_ITEMS = (
     ("settings", "/settings", "GitLab Settings", _SECTION_ICON_SETTINGS),
     ("general_settings", "/settings/general", "Settings", _SECTION_ICON_GENERAL_SETTINGS),
     ("topic_settings", "/topic-monitor/settings", "Topic Settings", _SECTION_ICON_SETTINGS),
+    ("inbox_setup", "/inbox/setup", "Inbox Setup", _SECTION_ICON_SETTINGS),
     ("readme", "/readme", "README", _SECTION_ICON_README),
 )
 
@@ -5777,11 +5837,11 @@ _NAV_GROUPS = (
     # reference material, deliberately last since it's the least-visited
     # group.
     (None, ("overview",)),
-    ("Live", ("activity", "gitlab", "topic_monitor", "logs")),
+    ("Live", ("activity", "gitlab", "topic_monitor", "inbox", "logs")),
     ("History", ("loop_runs", "history")),
     ("Insights", ("analytics", "memory", "cost", "audit", "budget")),
     ("System", ("daemons", "skills")),
-    ("Configuration", ("settings", "topic_settings", "general_settings")),
+    ("Configuration", ("settings", "topic_settings", "inbox_setup", "general_settings")),
     ("Docs", ("readme",)),
 )
 _NAV_GROUP_OF = {key: label for label, keys in _NAV_GROUPS if label for key in keys}
@@ -9025,6 +9085,68 @@ def render_topic_settings_page(flash=None, flash_ok=True):
     return _render_shell("Topic Settings · Loop X Engineering", "topic_settings", _status_badge_markup(status), body)
 
 
+def render_inbox_page(flash=None, flash_ok=True):
+    """Inbox Triage page: read-only status for every connected inbox (see
+    inbox_pages.render_inbox_body). Config/status come from inbox_config/
+    inbox_status, not this dashboard's own GitLab-loop STATUS_PATH - that's
+    only read here for the shared topbar badge every page shows (see
+    _status_badge_markup)."""
+    status = read_status(STATUS_PATH)
+
+    flash_html = ""
+    if flash:
+        flash_class = "flash-success" if flash_ok else "flash-danger"
+        flash_html = f"<div class='flash {flash_class}'>{html.escape(str(flash))}</div>"
+
+    csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
+
+    body = flash_html + inbox_pages.render_inbox_body(
+        inbox_config.load_config_or_empty(), inbox_status.read(), csrf_input
+    )
+    return _render_shell("Inbox Triage · Loop X Engineering", "inbox", _status_badge_markup(status), body)
+
+
+def inbox_redirect_uri(port):
+    """The Google OAuth desktop-client loopback redirect URI this dashboard
+    process listens on for /oauth/google/callback - shown in the setup
+    wizard's Google steps. Desktop OAuth clients accept any 127.0.0.1 port
+    automatically, so this never needs to be registered anywhere."""
+    return f"http://127.0.0.1:{port}/oauth/google/callback"
+
+
+def render_inbox_setup_page(port, flash=None, flash_ok=True):
+    """Inbox Setup page: the OAuth-client + per-inbox connect/test wizard
+    (see inbox_pages.render_setup_body). `port` is this server's own
+    listening port (self.server.server_address[1] in do_GET), needed to
+    build the Google OAuth redirect URI shown in the wizard."""
+    status = read_status(STATUS_PATH)
+
+    flash_html = ""
+    if flash:
+        flash_class = "flash-success" if flash_ok else "flash-danger"
+        flash_html = f"<div class='flash {flash_class}'>{html.escape(str(flash))}</div>"
+
+    csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
+
+    body = flash_html + inbox_pages.render_setup_body(
+        inbox_config.load_config_or_empty(), inbox_config.load_oauth(), csrf_input, inbox_redirect_uri(port)
+    )
+    return _render_shell("Inbox Setup · Loop X Engineering", "inbox_setup", _status_badge_markup(status), body)
+
+
+def render_inbox_history_page(name=None):
+    """/inbox/history (name=None, the list) and /inbox/history/<name> (one
+    saved run's markdown) - both routed through do_GET, which turns a None
+    return here into a 404 (an unknown/invalid name; see
+    inbox_pages.render_history_file_body's own filename regex, which is
+    what actually rejects path traversal)."""
+    body = inbox_pages.render_history_list_body() if name is None else inbox_pages.render_history_file_body(name)
+    if body is None:
+        return None
+    status = read_status(STATUS_PATH)
+    return _render_shell("Inbox Triage history · Loop X Engineering", "inbox", _status_badge_markup(status), body)
+
+
 def render_skills_page(flash=None, flash_ok=True):
     """Skills page: every external skill (from the `encore-skills` library)
     this loop depends on, whether it's actually installed on this machine
@@ -10486,6 +10608,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_html(_render_shell(
                 title, "topic_monitor", _status_badge_markup(status), body, refresh=False, refresh_note=False
             ))
+            return
+
+        if split.path == "/inbox":
+            query = urllib.parse.parse_qs(split.query)
+            flash = query.get("flash", [None])[0]
+            flash_ok = query.get("ok", ["1"])[0] != "0"
+            self._send_html(render_inbox_page(flash=flash, flash_ok=flash_ok))
+            return
+
+        if split.path == "/inbox/setup":
+            query = urllib.parse.parse_qs(split.query)
+            flash = query.get("flash", [None])[0]
+            flash_ok = query.get("ok", ["1"])[0] != "0"
+            self._send_html(render_inbox_setup_page(self.server.server_address[1], flash=flash, flash_ok=flash_ok))
+            return
+
+        if split.path == "/inbox/history" or split.path.startswith("/inbox/history/"):
+            name = None if split.path == "/inbox/history" else urllib.parse.unquote(split.path[len("/inbox/history/"):])
+            page = render_inbox_history_page(name)
+            if page is None:
+                self._not_found()
+                return
+            self._send_html(page)
             return
 
         self._not_found()

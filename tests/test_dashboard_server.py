@@ -3099,6 +3099,8 @@ def test_nav_items_each_carry_a_material_symbols_icon():
         "topic_monitor": "newspaper",
         "topic_settings": "settings",
         "logs": "terminal",
+        "inbox": "inbox",
+        "inbox_setup": "settings",
     }
     for key, href, label, icon in ds._NAV_ITEMS:
         if key in ("notifications", "gitlab"):
@@ -11017,3 +11019,31 @@ def test_hero_title_highlights_loop_with_a_gradient(monkeypatch, tmp_path):
 
     motion_block = ds._STYLE.split("@media (prefers-reduced-motion: no-preference) {")[1]
     assert ".chat-hero-accent { animation:" in motion_block.split("\n}\n")[0]
+
+
+def test_material_symbols_icon_names_include_inbox_and_stay_sorted():
+    names = ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
+    assert "inbox" in names
+    assert names == sorted(names)
+
+
+def test_nav_has_inbox_pages_in_groups():
+    keys = {item[0]: item for item in ds._NAV_ITEMS}
+    assert keys["inbox"][1] == "/inbox" and keys["inbox_setup"][1] == "/inbox/setup"
+    assert ds._NAV_GROUP_OF["inbox"] == "Live"
+    assert ds._NAV_GROUP_OF["inbox_setup"] == "Configuration"
+
+
+def test_inbox_pages_render_over_http(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds.inbox_config, "DEFAULT_CONFIG_PATH", tmp_path / "inboxes.json")
+    monkeypatch.setattr(ds.inbox_config, "DEFAULT_OAUTH_PATH", tmp_path / "mail_oauth.json")
+    monkeypatch.setattr(ds.inbox_status, "DEFAULT_STATUS_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(ds.inbox_pages, "DEFAULT_HISTORY_DIR", tmp_path / "history")
+    with _running_server() as port:
+        for path, needle in (("/inbox", "Inbox Triage"), ("/inbox/setup", "Connect Gmail"), ("/inbox/history", "Inbox Triage history")):
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=10) as resp:
+                assert resp.status == 200
+                assert needle in resp.read().decode("utf-8")
+        with pytest.raises(urllib.error.HTTPError) as info:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/inbox/history/..%2F..%2Fsecret.md", timeout=10)
+        assert info.value.code == 404
