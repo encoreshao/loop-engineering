@@ -4810,22 +4810,6 @@ pre.log {{
 .markdown pre code {{ background: none; border: none; padding: 0; }}
 .markdown img {{ max-width: 100%; height: auto; }}
 
-/* A saved Inbox Triage history file's raw markdown (see
-   inbox_pages.render_history_file_body) - not run through render_markdown
-   like every other history page here, since inbox_pages.py can't import
-   dashboard_server.py without a circular import, so it's shown as
-   preformatted text instead. Same visual treatment as .markdown pre. */
-.history-md {{
-  background: var(--md-surface-dim);
-  border: 1px solid var(--md-outline-variant);
-  border-radius: 6px;
-  padding: 0.85rem 1rem;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 0.85rem;
-}}
-
 ul.plain {{ list-style: none; margin: 0.35rem 0 0; padding: 0; display: grid; gap: 0.35rem; }}
 ul.plain li {{ font-size: 0.9rem; }}
 
@@ -5825,8 +5809,8 @@ _NAV_GROUPS = (
     # Dashboard: the landing page, not really part of any category).
     # Live/History/Insights replaced a single 11-item "Monitor" group that
     # had grown too long to scan at a glance:
-    #   Live = the 4 pages that actually auto-refresh with live state
-    #     (activity/gitlab/topic_monitor/logs - see
+    #   Live = the 5 pages that actually auto-refresh with live state
+    #     (activity/gitlab/topic_monitor/inbox/logs - see
     #     test_render_history_page_does_not_auto_refresh's own docstring
     #     for why Run History is deliberately NOT one of these)
     #   History = archived records of past runs (loop_runs/history)
@@ -6007,8 +5991,8 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     defaults to off:
     only the pages whose data actually changes out from under a reader
     while they watch it - render_gitlab_page, render_topic_monitor_page,
-    render_activity_page, render_logs_page - pass `refresh=True,
-    refresh_note=True` explicitly. Every other page (overview, history,
+    render_activity_page, render_logs_page, render_inbox_page - pass
+    `refresh=True, refresh_note=True` explicitly. Every other page (overview, history,
     the combined Settings page, readme, memory, topic settings, skills,
     daemons, GitLab settings) is mostly static or user-edited, so a silent
     30s reload there would just interrupt reading/typing for no benefit.
@@ -9090,7 +9074,9 @@ def render_inbox_page(flash=None, flash_ok=True):
     inbox_pages.render_inbox_body). Config/status come from inbox_config/
     inbox_status, not this dashboard's own GitLab-loop STATUS_PATH - that's
     only read here for the shared topbar badge every page shows (see
-    _status_badge_markup)."""
+    _status_badge_markup). One of the "Live" group's auto-refreshing pages
+    (see _render_shell's own docstring) - a run's state/counts/urgent list
+    can change out from under a reader the same way Topic Monitor's can."""
     status = read_status(STATUS_PATH)
 
     flash_html = ""
@@ -9103,7 +9089,10 @@ def render_inbox_page(flash=None, flash_ok=True):
     body = flash_html + inbox_pages.render_inbox_body(
         inbox_config.load_config_or_empty(), inbox_status.read(), csrf_input
     )
-    return _render_shell("Inbox Triage · Loop X Engineering", "inbox", _status_badge_markup(status), body)
+    return _render_shell(
+        "Inbox Triage · Loop X Engineering", "inbox", _status_badge_markup(status), body,
+        refresh=True, refresh_note=True,
+    )
 
 
 def inbox_redirect_uri(port):
@@ -9136,13 +9125,28 @@ def render_inbox_setup_page(port, flash=None, flash_ok=True):
 
 def render_inbox_history_page(name=None):
     """/inbox/history (name=None, the list) and /inbox/history/<name> (one
-    saved run's markdown) - both routed through do_GET, which turns a None
-    return here into a 404 (an unknown/invalid name; see
-    inbox_pages.render_history_file_body's own filename regex, which is
-    what actually rejects path traversal)."""
-    body = inbox_pages.render_history_list_body() if name is None else inbox_pages.render_history_file_body(name)
-    if body is None:
-        return None
+    saved run) - both routed through do_GET, which turns a None return
+    here into a 404 (an unknown/invalid name; see
+    inbox_pages.read_history_file's own filename regex, which is what
+    actually rejects path traversal). The single-file view runs the saved
+    markdown through render_markdown inside a .markdown wrapper - the
+    same pattern /history/<name> and /topic-monitor/history/<name> use -
+    so a saved run's tables actually render as tables; inbox_pages.py
+    can't do this rendering itself without a circular import
+    (render_markdown lives in this file), so it only hands back the
+    validated raw text (read_history_file) for this function to render."""
+    if name is None:
+        body = inbox_pages.render_history_list_body()
+    else:
+        content = inbox_pages.read_history_file(name)
+        if content is None:
+            return None
+        body = (
+            f"<h1>{html.escape(name)}</h1>"
+            "<div class='grid'><div class='card'>"
+            f"<div class='markdown'>{render_markdown(content)}</div>"
+            "</div></div>"
+        )
     status = read_status(STATUS_PATH)
     return _render_shell("Inbox Triage history · Loop X Engineering", "inbox", _status_badge_markup(status), body)
 

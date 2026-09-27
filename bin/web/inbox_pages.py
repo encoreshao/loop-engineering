@@ -239,7 +239,15 @@ def render_history_list_body(history_dir=None):
     return f"<h1>Inbox Triage history</h1><div class='grid'><div class='card'><ul class='plain'>{items}</ul></div></div>"
 
 
-def render_history_file_body(name, history_dir=None):
+def read_history_file(name, history_dir=None):
+    """Validated read of one saved Inbox Triage run's raw markdown -
+    `name` must match `_HISTORY_NAME_RE` (rejects path traversal and any
+    other unexpected filename) and must exist under `history_dir`, else
+    None. Deliberately returns raw text, not rendered HTML:
+    dashboard_server.py owns rendering it (via render_markdown, same
+    .markdown-wrapped pattern as /history/<name> and
+    /topic-monitor/history/<name>) since inbox_pages.py can't import
+    dashboard_server.py without a circular import."""
     if history_dir is None:
         history_dir = DEFAULT_HISTORY_DIR
     if not _HISTORY_NAME_RE.match(name or ""):
@@ -247,7 +255,4 @@ def render_history_file_body(name, history_dir=None):
     path = Path(history_dir) / name
     if not path.is_file():
         return None
-    return (
-        f"<h1>{e(name)}</h1><div class='grid'><div class='card'>"
-        f"<pre class='history-md'>{e(path.read_text())}</pre></div></div>"
-    )
+    return path.read_text()

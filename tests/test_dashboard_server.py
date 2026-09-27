@@ -4670,8 +4670,9 @@ def test_render_history_page_lists_history_files(tmp_path, monkeypatch):
 
 
 def test_render_history_page_does_not_auto_refresh(tmp_path, monkeypatch):
-    """Only Live GitLab, Topic Monitor, Activity, and Logs auto-refresh - a
-    run history listing is a record of past runs, not live state."""
+    """Only Live GitLab, Topic Monitor, Activity, Inbox Triage, and Logs
+    auto-refresh - a run history listing is a record of past runs, not
+    live state."""
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
     history_dir = tmp_path / "history"
     history_dir.mkdir()
@@ -11047,3 +11048,32 @@ def test_inbox_pages_render_over_http(tmp_path, monkeypatch):
         with pytest.raises(urllib.error.HTTPError) as info:
             urllib.request.urlopen(f"http://127.0.0.1:{port}/inbox/history/..%2F..%2Fsecret.md", timeout=10)
         assert info.value.code == 404
+
+
+def test_render_inbox_history_page_renders_markdown_table_and_escapes_script(tmp_path, monkeypatch):
+    """/inbox/history/<name> must follow the same render_markdown-in-a-
+    .markdown-wrapper pattern as /history/<name> and
+    /topic-monitor/history/<name> (see render_inbox_history_page's own
+    docstring) - a saved run's markdown table renders as a real <table>,
+    and any raw-looking text in a cell (e.g. a hostile email subject) is
+    escaped by render_markdown before it ever reaches the page, never
+    passed through as a live tag."""
+    monkeypatch.setattr(ds.inbox_pages, "DEFAULT_HISTORY_DIR", tmp_path)
+    (tmp_path / "2026-09-27-w.md").write_text(
+        "# Work\n\n| Sender | Subject |\n|---|---|\n| a@example.com | <script>alert(1)</script> |\n"
+    )
+
+    output = ds.render_inbox_history_page("2026-09-27-w.md")
+
+    assert "<table" in output
+    assert "<script>alert(1)</script>" not in output
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in output
+
+
+def test_render_inbox_history_page_returns_none_for_traversal_or_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds.inbox_pages, "DEFAULT_HISTORY_DIR", tmp_path)
+    (tmp_path / "2026-09-27-w.md").write_text("x")
+
+    assert ds.render_inbox_history_page("../../etc/passwd") is None
+    assert ds.render_inbox_history_page("2026-09-27-missing.md") is None
+    assert ds.render_inbox_history_page("2026-09-27-w.md") is not None

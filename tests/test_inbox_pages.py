@@ -48,9 +48,9 @@ def test_setup_body_existing_inbox_name_is_readonly():
 
 def test_history_file_rejects_traversal(tmp_path):
     (tmp_path / "2026-09-27-w.md").write_text("# Work\n\n| a | b |\n")
-    assert "Work" in inbox_pages.render_history_file_body("2026-09-27-w.md", history_dir=tmp_path)
-    assert inbox_pages.render_history_file_body("../../etc/passwd", history_dir=tmp_path) is None
-    assert inbox_pages.render_history_file_body("2026-09-27-missing.md", history_dir=tmp_path) is None
+    assert "Work" in inbox_pages.read_history_file("2026-09-27-w.md", history_dir=tmp_path)
+    assert inbox_pages.read_history_file("../../etc/passwd", history_dir=tmp_path) is None
+    assert inbox_pages.read_history_file("2026-09-27-missing.md", history_dir=tmp_path) is None
 
 
 def test_history_list_newest_first(tmp_path):
