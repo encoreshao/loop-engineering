@@ -7,6 +7,7 @@ __pycache__/
 # repo entirely rather than just the previously-ignored *.log/status.json.
 outputs/daily-review.md
 outputs/messages.json
+outputs/chat-sessions.json
 outputs/*.lock
 outputs/history/*.md
 outputs/history/*.log

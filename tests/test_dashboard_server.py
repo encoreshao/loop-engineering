@@ -1205,7 +1205,7 @@ def test_dashboard_server_integration_serves_root_page():
             assert response.status == 200
             body = response.read().decode("utf-8")
             assert "Loop X Engineering" in body
-            assert "<h2>Conversation</h2>" in body
+            assert "id='activity-composer-form'" in body
     finally:
         server.shutdown()
         thread.join(timeout=5)
@@ -8473,32 +8473,69 @@ def test_render_overview_page_user_messages_still_say_you(monkeypatch, tmp_path)
     assert "<span class='k'>You</span>" in page
 
 
-def test_render_overview_page_shows_stats_section(monkeypatch, tmp_path):
+def _chat_page_env(monkeypatch, tmp_path, messages=None):
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
-    monkeypatch.setattr(ds, "MESSAGES_PATH", tmp_path / "does-not-exist-messages.json")
+    messages_path = tmp_path / "messages.json"
+    if messages is not None:
+        messages_path.write_text(json.dumps(messages))
+    monkeypatch.setattr(ds, "MESSAGES_PATH", messages_path)
     monkeypatch.setattr(ds, "HISTORY_DIR", tmp_path / "does-not-exist-history")
     monkeypatch.setattr(ds, "read_loop_projects_config", lambda *a, **k: {"projects": {"demo": {}}})
     monkeypatch.setattr(ds, "get_configured_topics", lambda *a, **k: [{"name": "ai-news"}])
 
-    page = ds.render_overview_page()
 
-    assert "dash-stats-grid" in page
-    assert "<span class='dash-stat-value'>1</span>" in page  # tracked projects
-    assert "Tracked projects" in page
-    assert "Configured topics" in page
-    assert "activity-strip" in page
-
-
-def test_render_overview_page_renames_thread_heading_to_conversation(monkeypatch, tmp_path):
-    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
-    monkeypatch.setattr(ds, "MESSAGES_PATH", tmp_path / "does-not-exist-messages.json")
-    monkeypatch.setattr(ds, "HISTORY_DIR", tmp_path / "does-not-exist-history")
-    monkeypatch.setattr(ds, "read_loop_projects_config", lambda *a, **k: {})
-    monkeypatch.setattr(ds, "get_configured_topics", lambda *a, **k: [])
+def test_render_overview_page_is_chat_only_without_stats_or_cards(monkeypatch, tmp_path):
+    _chat_page_env(monkeypatch, tmp_path)
 
     page = ds.render_overview_page()
 
-    assert "<h2>Conversation</h2>" in page
+    body = page.split("<body>", 1)[1]
+    assert "class='chat-page" in body
+    assert "dash-stats-grid" not in body
+    assert "Tracked projects" not in body
+    assert "<h2>Conversation</h2>" not in body
+
+
+def test_render_overview_page_empty_thread_shows_centered_hero(monkeypatch, tmp_path):
+    _chat_page_env(monkeypatch, tmp_path)
+
+    page = ds.render_overview_page()
+
+    assert "class='chat-page is-empty'" in page
+    assert "class='chat-hero-title'" in page
+    assert "class='chat-announce'" in page
+    assert "class='chat-hero-links'" in page
+    # The hero headline and composer are one continuous, centered block -
+    # the composer must render after the headline, not pinned elsewhere.
+    assert page.index("class='chat-hero-title'") < page.index("id='activity-composer-form'")
+
+
+def test_render_overview_page_with_messages_switches_to_session_layout(monkeypatch, tmp_path):
+    _chat_page_env(monkeypatch, tmp_path, messages=[
+        {"from": "user", "text": "hi", "timestamp": "2026-08-23T00:00:00+00:00"},
+    ])
+
+    page = ds.render_overview_page()
+
+    assert "class='chat-page'" in page
+    assert "class='chat-page is-empty'" not in page
+
+
+def test_render_overview_page_composer_has_round_send_button_and_suggestions(monkeypatch, tmp_path):
+    _chat_page_env(monkeypatch, tmp_path)
+
+    page = ds.render_overview_page()
+
+    assert "class='chat-send-btn'" in page
+    assert "arrow_upward" in page
+    assert "arrow_upward" in ds._MATERIAL_SYMBOLS_ICON_NAMES
+    assert page.count("data-chat-suggestion=") >= 2
+
+
+def test_chat_suggestion_chips_are_wired_to_fill_the_composer(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    page = ds._render_shell("Test", "overview", "", "<p>body</p>")
+    assert "[data-chat-suggestion]" in page
 
 
 def test_render_overview_page_inserts_day_separator_between_different_days(monkeypatch, tmp_path):
@@ -9549,6 +9586,8 @@ def test_activity_route_chat_appends_user_message_and_streams_a_reply(monkeypatc
     monkeypatch.setattr(ds, "MESSAGES_PATH", messages_path)
     lines = ['{"is_error":false,"result":"hello there","type":"result"}\n']
     monkeypatch.setattr(ds.subprocess, "Popen", lambda *a, **k: _FakeChatPopenProcess(lines))
+    # A first exchange asks the AI CLI for a session title - never the real one here.
+    monkeypatch.setattr(ds, "_start_chat_title_generation", lambda *a, **k: None)
 
     with _running_server() as port:
         token = _fetch_csrf_token(port, "/")
@@ -9886,11 +9925,12 @@ def test_message_brand_icon_is_sized():
     assert "color:" in icon_section or "color :" in icon_section
 
 
-def test_activity_message_list_is_bounded_and_scrollable():
-    assert "#activity-message-list" in ds._STYLE
-    section = ds._STYLE.split("#activity-message-list {")[1].split("\n}")[0]
-    assert "overflow-y: auto" in section
-    assert "max-height" in section
+def test_chat_thread_scrolls_with_the_window_not_an_inner_panel():
+    """The Dashboard's chat session reads like a chatbot thread - the page
+    itself scrolls, with the composer pinned over it - so the message list
+    must not be boxed into its own bounded scroll panel."""
+    assert "#activity-message-list {" not in ds._STYLE
+    assert "window.scrollTo(0, document.documentElement.scrollHeight)" in ds._render_shell("T", "overview", "", "")
 
 
 def test_material_symbols_icon_names_includes_monitoring():
@@ -10467,3 +10507,346 @@ def test_render_memory_page_pre_sprint_6_entry_shows_no_category_pill_or_reuse_s
 
 def test_loop_run_state_pill_class_running_is_blue():
     assert ds._loop_run_state_pill_class("running") == "pill-blue"
+
+
+def test_messages_fragment_every_message_has_copy_action_with_raw_markdown(tmp_path):
+    messages_path = tmp_path / "messages.json"
+    ds.append_message("user", "please check `demo`", messages_path)
+    ds.append_message("loop", "**done** - 2 <issues>\nnext line", messages_path)
+
+    fragment = ds.render_activity_messages_fragment(messages_path)
+
+    assert fragment.count("class='message-actions'") == 2
+    assert fragment.count("data-copy-message") == 2
+    assert "content_copy" in fragment
+    # The raw markdown rides along (escaped) so copy can put it on the
+    # clipboard as text/plain next to the rendered HTML.
+    assert 'data-raw="**done** - 2 &lt;issues&gt;\nnext line"' in fragment
+
+
+def test_messages_fragment_only_user_messages_are_editable(tmp_path):
+    messages_path = tmp_path / "messages.json"
+    ds.append_message("user", "hello", messages_path)
+    ds.append_message("loop", "hi", messages_path)
+
+    fragment = ds.render_activity_messages_fragment(messages_path)
+
+    assert fragment.count("data-edit-message") == 1
+    user_row = fragment[fragment.index("message-row-user"):fragment.index("message-row-loop")]
+    assert "data-edit-message" in user_row
+
+
+def test_message_action_icons_are_in_the_subset_font():
+    for name in ("check", "content_copy", "edit"):
+        assert name in ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
+
+
+def test_chat_script_copies_with_format_and_supports_inline_edit(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    page = ds._render_shell("T", "overview", "", "")
+    assert "ClipboardItem" in page
+    assert "'text/html'" in page
+    assert "execCommand('copy')" in page  # non-secure-context (plain http) fallback
+    assert "[data-edit-message]" in page
+    assert "message-edit-form" in page
+
+
+def _write_messages(path, entries):
+    """entries: (from, text, timestamp) or (from, text, timestamp, session)."""
+    rows = []
+    for entry in entries:
+        row = {"from": entry[0], "text": entry[1], "timestamp": entry[2]}
+        if len(entry) > 3:
+            row["session"] = entry[3]
+        rows.append(row)
+    path.write_text(json.dumps(rows))
+
+
+def test_chat_sessions_file_lives_beside_the_messages_file(tmp_path):
+    assert ds.chat_sessions_path_for(tmp_path / "messages.json") == tmp_path / "chat-sessions.json"
+
+
+def test_heuristic_chat_title_uses_first_line_without_markdown_and_truncates():
+    assert ds.heuristic_chat_title("  **Check** `demo` issues\nsecond line") == "Check demo issues"
+    long_title = ds.heuristic_chat_title("word " * 40)
+    assert len(long_title) <= 49 and long_title.endswith("…")
+    assert ds.heuristic_chat_title("   ") == "New chat"
+
+
+def test_untagged_messages_form_the_earlier_session_and_are_current_by_default(tmp_path):
+    messages_path = tmp_path / "messages.json"
+    _write_messages(messages_path, [("user", "old question", "2026-09-01T00:00:00+00:00")])
+
+    assert ds.current_chat_session_id(messages_path) == ds.LEGACY_CHAT_SESSION_ID
+    sessions = ds.list_chat_sessions(messages_path)
+    assert [s["id"] for s in sessions] == [ds.LEGACY_CHAT_SESSION_ID]
+    assert sessions[0]["title"] == "Earlier messages"
+    assert [m["text"] for m in ds.chat_session_messages(ds.LEGACY_CHAT_SESSION_ID, messages_path)] == ["old question"]
+
+
+def test_send_user_message_keeps_its_two_value_contract(tmp_path):
+    assert ds.send_user_message("hi", tmp_path / "messages.json") == (True, "Message sent")
+
+
+def test_send_without_session_creates_titled_session_and_tags_message(tmp_path):
+    messages_path = tmp_path / "messages.json"
+    ds.start_new_chat_session(messages_path)
+
+    ok, _msg, session_id = ds.send_chat_message("What is the loop doing?", messages_path, session="")
+
+    assert ok and session_id
+    assert ds.current_chat_session_id(messages_path) == session_id
+    saved = ds.read_messages(messages_path)[-1]
+    assert saved["session"] == session_id
+    assert saved["seen_by_loop"] is False  # still the loop's inbox
+    record = ds.read_chat_sessions(messages_path)["sessions"][0]
+    assert record["title"] == "What is the loop doing?"
+    assert record["title_source"] == "auto"
+
+
+def test_send_into_existing_session_continues_it_and_makes_it_current(tmp_path):
+    messages_path = tmp_path / "messages.json"
+    _ok, _msg, first = ds.send_chat_message("first chat", messages_path, session="")
+    ds.start_new_chat_session(messages_path)
+    _ok, _msg, second = ds.send_chat_message("second chat", messages_path, session="")
+
+    _ok, _msg, continued = ds.send_chat_message("back to first", messages_path, session=first)
+
+    assert continued == first and first != second
+    assert ds.current_chat_session_id(messages_path) == first
+    assert [m["text"] for m in ds.chat_session_messages(first, messages_path)] == ["first chat", "back to first"]
+
+
+def test_send_into_unknown_session_starts_a_new_one(tmp_path):
+    messages_path = tmp_path / "messages.json"
+    _ok, _msg, session_id = ds.send_chat_message("hi", messages_path, session="does-not-exist")
+    assert session_id != "does-not-exist"
+    assert ds.read_chat_sessions(messages_path)["sessions"][0]["id"] == session_id
+
+
+def test_loop_message_goes_to_current_session_or_opens_one(tmp_path):
+    messages_path = tmp_path / "messages.json"
+    _ok, _msg, session_id = ds.send_chat_message("hi", messages_path, session="")
+    ds.append_message("loop", "loop update", messages_path)
+    assert ds.read_messages(messages_path)[-1]["session"] == session_id
+
+    ds.start_new_chat_session(messages_path)
+    ds.append_message("loop", "Finished run on demo", messages_path)
+    opened = ds.read_messages(messages_path)[-1]["session"]
+    assert opened not in (session_id, None)
+    assert ds.current_chat_session_id(messages_path) == opened
+
+
+def test_list_chat_sessions_newest_activity_first_and_skips_empty(tmp_path):
+    messages_path = tmp_path / "messages.json"
+    (tmp_path / "chat-sessions.json").write_text(json.dumps({"current": None, "sessions": [
+        {"id": "a", "started_at": "2026-09-01T00:00:00+00:00", "title": "A", "title_source": "ai"},
+        {"id": "b", "started_at": "2026-09-02T00:00:00+00:00", "title": "B", "title_source": "ai"},
+        {"id": "empty", "started_at": "2026-09-03T00:00:00+00:00", "title": "E", "title_source": "auto"},
+    ]}))
+    _write_messages(messages_path, [
+        ("user", "b1", "2026-09-02T00:00:01+00:00", "b"),
+        ("user", "a1", "2026-09-05T00:00:00+00:00", "a"),
+    ])
+
+    sessions = ds.list_chat_sessions(messages_path)
+
+    assert [s["id"] for s in sessions] == ["a", "b"]
+    assert sessions[0]["last_at"] == "2026-09-05T00:00:00+00:00"
+
+
+def test_new_chat_shows_hero_and_keeps_old_session_in_history(monkeypatch, tmp_path):
+    _chat_page_env(monkeypatch, tmp_path, messages=[])
+    _ok, _msg, session_id = ds.send_chat_message("yesterday question", tmp_path / "messages.json", session="")
+    ds.start_new_chat_session()
+
+    page = ds.render_overview_page()
+
+    assert "class='chat-page is-empty'" in page
+    thread = page[page.index("id='activity-message-list'"):]
+    assert "yesterday question" not in thread
+    assert f"href='/?session={session_id}'" in page  # still listed in history
+    assert "name='session' value=''" in page
+
+
+def test_overview_can_open_any_past_session(monkeypatch, tmp_path):
+    _chat_page_env(monkeypatch, tmp_path, messages=[])
+    messages_path = tmp_path / "messages.json"
+    _ok, _msg, first = ds.send_chat_message("first chat text", messages_path, session="")
+    ds.start_new_chat_session()
+    ds.send_chat_message("second chat text", messages_path, session="")
+
+    page = ds.render_overview_page(session_id=first)
+
+    thread = page[page.index("id='activity-message-list'"):]
+    assert "first chat text" in thread
+    assert "second chat text" not in thread
+    assert f"name='session' value='{first}'" in page
+    assert f"class='chat-history-item is-active' href='/?session={first}'" in page
+
+
+def test_overview_has_history_drawer_and_toolbar(monkeypatch, tmp_path):
+    _chat_page_env(monkeypatch, tmp_path, messages=[
+        {"from": "user", "text": "hi", "timestamp": "2026-09-01T00:00:00+00:00"},
+    ])
+
+    page = ds.render_overview_page()
+
+    assert "id='chat-history'" in page
+    assert "data-chat-history-open" in page
+    assert "id='chat-history-list'" in page
+    form = page[page.index("action='/activity/new-chat'"):]
+    form = form[:form.index("</form>")]
+    assert f"value=\"{ds._CSRF_TOKEN}\"" in form
+    assert "New chat" in form
+    for name in ("add_comment", "close", "history"):
+        assert name in ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
+
+
+def test_chat_history_fragment_groups_by_day(monkeypatch, tmp_path):
+    messages_path = tmp_path / "messages.json"
+    now = datetime.now(timezone.utc)
+    (tmp_path / "chat-sessions.json").write_text(json.dumps({"current": "t", "sessions": [
+        {"id": "t", "started_at": now.isoformat(), "title": "Today <chat>", "title_source": "ai"},
+        {"id": "o", "started_at": "2025-01-01T00:00:00+00:00", "title": "Old chat", "title_source": "ai"},
+    ]}))
+    _write_messages(messages_path, [
+        ("user", "x", "2025-01-01T00:00:01+00:00", "o"),
+        ("user", "y", now.isoformat(), "t"),
+    ])
+
+    fragment = ds.render_chat_history_fragment(messages_path, active_session_id="t")
+
+    assert fragment.index(">Today<") < fragment.index("Today &lt;chat&gt;") < fragment.index(">Older<") < fragment.index("Old chat")
+
+
+def test_chat_history_fragment_empty_state(tmp_path):
+    assert "No chats yet" in ds.render_chat_history_fragment(tmp_path / "messages.json")
+
+
+def test_history_and_messages_fragment_routes_take_a_session(monkeypatch, tmp_path):
+    messages_path = tmp_path / "messages.json"
+    monkeypatch.setattr(ds, "MESSAGES_PATH", messages_path)
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    _ok, _msg, first = ds.send_chat_message("first chat text", messages_path, session="")
+    ds.start_new_chat_session()
+    ds.send_chat_message("second chat text", messages_path, session="")
+
+    with _running_server() as port:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/activity/messages/fragment?session={first}", timeout=10) as r:
+            body = r.read().decode("utf-8")
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/activity/sessions/fragment?session={first}", timeout=10) as r:
+            history = r.read().decode("utf-8")
+
+    assert "first chat text" in body and "second chat text" not in body
+    assert "is-active' href='/?session=" + first in history
+
+
+def test_new_chat_route_requires_csrf(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "MESSAGES_PATH", tmp_path / "messages.json")
+    with _running_server() as port:
+        status, _headers, _body = _post(port, "/activity/new-chat", {"csrf_token": ""})
+    assert status == 403
+    assert not (tmp_path / "chat-sessions.json").exists()
+
+
+def test_new_chat_route_clears_current_session_and_redirects_home(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    messages_path = tmp_path / "messages.json"
+    monkeypatch.setattr(ds, "MESSAGES_PATH", messages_path)
+    ds.send_chat_message("hi", messages_path, session="")
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/")
+        status, headers, _body = _post(port, "/activity/new-chat", {"csrf_token": token})
+    assert status == 303
+    assert headers["Location"] == "/"
+    assert ds.current_chat_session_id(messages_path) is None
+
+
+def test_chat_route_scopes_history_to_the_session_and_returns_its_id(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds, "UNIFIED_LOG_PATH", tmp_path / "logs" / "loop-engineering.log")
+    messages_path = tmp_path / "messages.json"
+    monkeypatch.setattr(ds, "MESSAGES_PATH", messages_path)
+    ds.send_chat_message("other session question", messages_path, session="")
+    ds.start_new_chat_session()
+    captured = {}
+    monkeypatch.setattr(ds, "build_chat_prompt", lambda text, recent: captured.setdefault("recent", recent) and text or text)
+    monkeypatch.setattr(ds, "_run_chat_job", lambda *a, **k: captured.setdefault("job", (a, k)))
+
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/")
+        status, _headers, body = _post(port, "/activity/chat", {"text": "fresh question", "session": "", "csrf_token": token})
+
+    assert status == 200
+    session_id = json.loads(body)["session"]
+    assert captured["recent"] == []
+    assert captured["job"][1]["session_id"] == session_id
+    assert ds.read_messages(messages_path)[-1]["session"] == session_id
+
+
+def test_delete_message_redirects_back_to_its_session(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    messages_path = tmp_path / "messages.json"
+    monkeypatch.setattr(ds, "MESSAGES_PATH", messages_path)
+    _ok, _msg, session_id = ds.send_chat_message("hi", messages_path, session="")
+    ts = ds.read_messages(messages_path)[0]["timestamp"]
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/")
+        status, headers, _body = _post(port, f"/activity/messages/{urllib.parse.quote(ts, safe='')}/delete", {"csrf_token": token})
+    assert status == 303
+    assert headers["Location"].startswith(f"/?session={session_id}&")
+
+
+def test_run_chat_job_saves_reply_into_session_and_requests_ai_title_once(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "UNIFIED_LOG_PATH", tmp_path / "logs" / "loop-engineering.log")
+    messages_path = tmp_path / "messages.json"
+    _ok, _msg, session_id = ds.send_chat_message("what's up?", messages_path, session="")
+    lines = ['{"is_error":false,"result":"all quiet","type":"result"}\n']
+    monkeypatch.setattr(ds.subprocess, "Popen", lambda *a, **k: _FakeChatPopenProcess(lines))
+    requested = []
+    monkeypatch.setattr(ds, "_start_chat_title_generation", lambda *a, **k: requested.append((a, k)))
+
+    key = ds._chat_job_create()
+    ds._run_chat_job(key, "hi", messages_path=messages_path, session_id=session_id)
+
+    assert ds.read_messages(messages_path)[-1] == {**ds.read_messages(messages_path)[-1], "from": "loop", "session": session_id}
+    assert len(requested) == 1
+
+    # A later exchange in the same session doesn't re-title it.
+    ds.send_chat_message("and now?", messages_path, session=session_id)
+    key = ds._chat_job_create()
+    ds._run_chat_job(key, "hi", messages_path=messages_path, session_id=session_id)
+    assert len(requested) == 1
+
+
+def test_generate_chat_title_saves_cleaned_ai_title(monkeypatch, tmp_path):
+    messages_path = tmp_path / "messages.json"
+    _ok, _msg, session_id = ds.send_chat_message("what is the loop doing right now", messages_path, session="")
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, stdout='"Loop Status Check."\n', stderr="")
+
+    monkeypatch.setattr(ds.subprocess, "run", fake_run)
+
+    ds.generate_chat_title(session_id, "what is the loop doing right now", "It is idle.", messages_path)
+
+    record = ds.read_chat_sessions(messages_path)["sessions"][0]
+    assert record["title"] == "Loop Status Check"
+    assert record["title_source"] == "ai"
+    command = calls[0][-1]
+    assert "--safe-mode" in command and "Bash" in command  # no tools for a title
+
+
+def test_generate_chat_title_failure_keeps_heuristic_title(monkeypatch, tmp_path):
+    messages_path = tmp_path / "messages.json"
+    _ok, _msg, session_id = ds.send_chat_message("check demo", messages_path, session="")
+    monkeypatch.setattr(ds.subprocess, "run", lambda argv, **k: subprocess.CompletedProcess(argv, 1, stdout="", stderr="boom"))
+
+    ds.generate_chat_title(session_id, "check demo", "ok", messages_path)
+
+    record = ds.read_chat_sessions(messages_path)["sessions"][0]
+    assert record["title"] == "check demo"
+    assert record["title_source"] == "auto"

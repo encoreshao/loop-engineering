@@ -459,7 +459,203 @@ def read_messages(path=None):
         return []
 
 
-def append_message(from_, text, path=None):
+# Dashboard chat sessions. Every message carries a "session" id; the
+# session records (id, started_at, title) live in chat-sessions.json beside
+# the messages file - never a separate global path, so anything that points
+# MESSAGES_PATH elsewhere (a test's tmp dir) carries its own sessions file
+# along instead of reading this checkout's real one. messages.json itself
+# stays one flat list, because it's also the GitLab loop's inbox
+# (pop_unseen_user_messages) - sessions only group it for display and for
+# the live assistant's context. Messages written before sessions existed
+# have no "session" field and together form LEGACY_CHAT_SESSION_ID.
+LEGACY_CHAT_SESSION_ID = "earlier"
+_LEGACY_CHAT_SESSION_TITLE = "Earlier messages"
+_CHAT_TITLE_MAX_CHARS = 48
+
+
+def chat_sessions_path_for(messages_path):
+    return Path(messages_path).parent / "chat-sessions.json"
+
+
+def _message_session_id(message):
+    return message.get("session") or LEGACY_CHAT_SESSION_ID
+
+
+def read_chat_sessions(messages_path=None):
+    """{"current": id-or-None, "sessions": [record, ...]}, plus "exists"
+    (whether the file was there at all). Best-effort like read_messages:
+    a missing or malformed file reads as no sessions."""
+    if messages_path is None:
+        messages_path = MESSAGES_PATH
+    try:
+        with open(chat_sessions_path_for(messages_path)) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {"current": None, "sessions": [], "exists": False}
+    if not isinstance(data, dict):
+        return {"current": None, "sessions": [], "exists": False}
+    sessions = [r for r in data.get("sessions", []) if isinstance(r, dict) and isinstance(r.get("id"), str)]
+    current = data.get("current") if isinstance(data.get("current"), str) else None
+    return {"current": current, "sessions": sessions, "exists": True}
+
+
+def _update_chat_sessions(mutate, messages_path=None):
+    """Read-modify-write of chat-sessions.json under an exclusive flock on
+    a sibling .lock file - same cross-process reasoning as append_message:
+    the dashboard's request/title threads and the loop's own `post-message`
+    CLI call can both open a session. `mutate(data)` edits `data` in place
+    and may return a value, which this returns."""
+    if messages_path is None:
+        messages_path = MESSAGES_PATH
+    path = chat_sessions_path_for(messages_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(Path(str(path) + ".lock"), "a+") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            data = read_chat_sessions(messages_path)
+            data.pop("exists", None)
+            result = mutate(data)
+            _atomic_write_json(data, path)
+            return result
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
+def heuristic_chat_title(text):
+    """Instant title from a session's first message - shown right away,
+    until (and unless) generate_chat_title replaces it with an AI one:
+    first non-blank line, markdown punctuation dropped, cut on a word
+    boundary."""
+    line = next((l for l in str(text).splitlines() if l.strip()), "")
+    line = re.sub(r"[*_`#>\[\]]", "", line)
+    line = re.sub(r"\s+", " ", line).strip()
+    if not line:
+        return "New chat"
+    if len(line) <= _CHAT_TITLE_MAX_CHARS:
+        return line
+    cut = line[:_CHAT_TITLE_MAX_CHARS].rsplit(" ", 1)[0].rstrip(" ,.;:-")
+    return (cut or line[:_CHAT_TITLE_MAX_CHARS]) + "…"
+
+
+def current_chat_session_id(messages_path=None):
+    """The session new messages go to. None after "New chat" (the next
+    message opens a fresh session). Before sessions existed at all (no
+    file yet), any old untagged messages are the current session, so an
+    existing thread doesn't vanish behind an empty hero on upgrade."""
+    data = read_chat_sessions(messages_path)
+    if data["exists"]:
+        return data["current"]
+    if any(not m.get("session") for m in read_messages(messages_path)):
+        return LEGACY_CHAT_SESSION_ID
+    return None
+
+
+def chat_session_exists(session_id, messages_path=None):
+    if not session_id:
+        return False
+    if session_id == LEGACY_CHAT_SESSION_ID:
+        return any(not m.get("session") for m in read_messages(messages_path))
+    return any(r["id"] == session_id for r in read_chat_sessions(messages_path)["sessions"])
+
+
+def create_chat_session(first_text, messages_path=None, now=None):
+    """Opens a new session titled heuristic_chat_title(first_text) and
+    makes it current. Returns its id."""
+    if now is None:
+        now = datetime.now(timezone.utc)
+    session_id = secrets.token_hex(6)
+
+    def mutate(data):
+        data["sessions"].append({
+            "id": session_id,
+            "started_at": now.isoformat(),
+            "title": heuristic_chat_title(first_text),
+            "title_source": "auto",
+        })
+        data["current"] = session_id
+
+    _update_chat_sessions(mutate, messages_path)
+    return session_id
+
+
+def set_current_chat_session(session_id, messages_path=None):
+    def mutate(data):
+        data["current"] = session_id
+    _update_chat_sessions(mutate, messages_path)
+
+
+def start_new_chat_session(messages_path=None):
+    """"New chat": clears the current session so the next message opens a
+    fresh one. Nothing is deleted, and no empty session record is made -
+    a session only exists once it has a message."""
+    set_current_chat_session(None, messages_path)
+
+
+def set_chat_session_title(session_id, title, source, messages_path=None):
+    def mutate(data):
+        for record in data["sessions"]:
+            if record["id"] == session_id:
+                record["title"] = title
+                record["title_source"] = source
+    _update_chat_sessions(mutate, messages_path)
+
+
+def chat_session_messages(session_id, messages_path=None):
+    if not session_id:
+        return []
+    return [m for m in read_messages(messages_path) if _message_session_id(m) == session_id]
+
+
+def list_chat_sessions(messages_path=None):
+    """Every session that has at least one message, most recent activity
+    first: [{"id", "title", "title_source", "started_at", "last_at",
+    "count"}]. The legacy untagged group is included when it has
+    messages."""
+    stats = {}
+    for m in read_messages(messages_path):
+        sid = _message_session_id(m)
+        entry = stats.setdefault(sid, {"count": 0, "first_at": "", "last_at": ""})
+        entry["count"] += 1
+        ts = str(m.get("timestamp", ""))
+        entry["first_at"] = entry["first_at"] or ts
+        entry["last_at"] = max(entry["last_at"], ts)
+    sessions = []
+    for record in read_chat_sessions(messages_path)["sessions"]:
+        entry = stats.pop(record["id"], None)
+        if entry:
+            sessions.append({
+                "id": record["id"],
+                "title": record.get("title") or "New chat",
+                "title_source": record.get("title_source", "auto"),
+                "started_at": record.get("started_at", entry["first_at"]),
+                "last_at": entry["last_at"],
+                "count": entry["count"],
+            })
+    legacy = stats.pop(LEGACY_CHAT_SESSION_ID, None)
+    if legacy:
+        sessions.append({
+            "id": LEGACY_CHAT_SESSION_ID,
+            "title": _LEGACY_CHAT_SESSION_TITLE,
+            "title_source": "ai",
+            "started_at": legacy["first_at"],
+            "last_at": legacy["last_at"],
+            "count": legacy["count"],
+        })
+    sessions.sort(key=lambda s: s["last_at"], reverse=True)
+    return sessions
+
+
+def resolve_chat_session_for_send(requested, text, messages_path=None):
+    """Which session a message being sent belongs to: the requested one if
+    it exists (continuing any past session, which also makes it current),
+    else a brand-new session titled from `text`."""
+    if chat_session_exists(requested, messages_path):
+        set_current_chat_session(requested, messages_path)
+        return requested
+    return create_chat_session(text, messages_path)
+
+
+def append_message(from_, text, path=None, session=None):
     """Appends one message with the current UTC timestamp. from_ is "user"
     or "loop". User messages start with seen_by_loop: False so a later
     pop_unseen_user_messages() call can find them; loop messages carry no
@@ -480,6 +676,10 @@ def append_message(from_, text, path=None):
     if path is None:
         path = MESSAGES_PATH
     path = Path(path)
+    if session is None:
+        # No explicit session (the loop's own `post-message` CLI call):
+        # the current one, or a fresh session if "New chat" cleared it.
+        session = current_chat_session_id(path) or create_chat_session(text, path)
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = Path(str(path) + ".lock")
     with open(lock_path, "a+") as lock_file:
@@ -493,6 +693,8 @@ def append_message(from_, text, path=None):
             }
             if from_ == "user":
                 entry["seen_by_loop"] = False
+            if session != LEGACY_CHAT_SESSION_ID:
+                entry["session"] = session
             messages.append(entry)
             _atomic_write_json(messages, path)
         finally:
@@ -606,7 +808,7 @@ def build_chat_command(prompt):
     return ["zsh", "-i", "-l", "-c", command]
 
 
-def _run_chat_job(reply_key, prompt, messages_path=None):
+def _run_chat_job(reply_key, prompt, messages_path=None, session_id=None):
     """Runs in a background thread started by POST /activity/chat.
     Spawns the claude subprocess, reads its stdout line by line through
     parse_chat_stream_line: a ("delta", text) result streams live via
@@ -686,8 +888,9 @@ def _run_chat_job(reply_key, prompt, messages_path=None):
         process.wait()
 
         if final_text and not final_is_error:
-            append_message("loop", final_text, messages_path)
+            append_message("loop", final_text, messages_path, session=session_id)
             finish_text = final_text
+            _maybe_title_chat_session(session_id, final_text, messages_path)
         else:
             finish_error = final_text or "The assistant didn't return a reply."
     except Exception as exc:
@@ -708,6 +911,81 @@ def _run_chat_job(reply_key, prompt, messages_path=None):
         else:
             append_unified_log("chat-assistant", f"reply ({ai_cli_name})", body=finish_text)
         _chat_job_finish(reply_key, error=finish_error, final_text=finish_text)
+
+
+_CHAT_TITLE_TIMEOUT_SECONDS = 60
+
+
+def _maybe_title_chat_session(session_id, reply_text, messages_path=None):
+    """After a session's first reply, asks for an AI title in the
+    background (see generate_chat_title) - once per session, and never
+    over a title that's already AI-made."""
+    if not session_id or session_id == LEGACY_CHAT_SESSION_ID:
+        return
+    record = next((r for r in read_chat_sessions(messages_path)["sessions"] if r["id"] == session_id), None)
+    if record is None or record.get("title_source") != "auto":
+        return
+    messages = chat_session_messages(session_id, messages_path)
+    if sum(1 for m in messages if m.get("from") == "loop") != 1:
+        return
+    first_user = next((m.get("text", "") for m in messages if m.get("from") == "user"), "")
+    _start_chat_title_generation(session_id, first_user, reply_text, messages_path)
+
+
+def _start_chat_title_generation(session_id, user_text, reply_text, messages_path=None):
+    threading.Thread(
+        target=generate_chat_title,
+        args=(session_id, user_text, reply_text, messages_path),
+        daemon=True,
+    ).start()
+
+
+def build_chat_title_command(user_text, reply_text):
+    """A one-shot `claude -p` that only writes text: --safe-mode for the
+    same reason as build_chat_command, and every tool disallowed, since a
+    title needs none. Wrapped in a login shell for PATH, like the chat
+    assistant itself."""
+    prompt = (
+        "Write a short title (3 to 6 words) for a chat that starts with the exchange below. "
+        "Reply with the title only - no quotes, no trailing punctuation.\n\n"
+        f"User: {str(user_text)[:1500]}\n\nAssistant: {str(reply_text)[:1500]}"
+    )
+    claude_argv = [
+        "claude", "-p",
+        "--safe-mode",
+        "--disallowedTools", "Bash Read Write Edit Grep Glob WebFetch WebSearch",
+        prompt,
+    ]
+    return ["zsh", "-i", "-l", "-c", f"timeout {_CHAT_TITLE_TIMEOUT_SECONDS} " + shlex.join(claude_argv)]
+
+
+def _clean_ai_chat_title(raw):
+    line = next((l for l in str(raw).splitlines() if l.strip()), "")
+    line = re.sub(r"^\s*title\s*:\s*", "", line, flags=re.IGNORECASE)
+    line = line.strip().strip("\"'*`").strip().rstrip(".!")
+    return heuristic_chat_title(line) if line else ""
+
+
+def generate_chat_title(session_id, user_text, reply_text, messages_path=None):
+    """Replaces a session's instant heuristic title with an AI-written one.
+    Any failure (CLI missing, non-zero exit, timeout, empty output) just
+    keeps the heuristic title - a title is never worth an error."""
+    try:
+        result = subprocess.run(
+            build_chat_title_command(user_text, reply_text),
+            cwd=str(LOOP_DIR),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=_CHAT_TITLE_TIMEOUT_SECONDS + 15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return
+    if result.returncode != 0:
+        return
+    title = _clean_ai_chat_title(result.stdout)
+    if title:
+        set_chat_session_title(session_id, title, "ai", messages_path)
 
 
 def list_run_history(history_dir=HISTORY_DIR):
@@ -2682,13 +2960,24 @@ def write_custom_instructions(text, path=None):
 
 
 def send_user_message(text, path=None):
+    ok, message, _session_id = send_chat_message(text, path)
+    return ok, message
+
+
+def send_chat_message(text, path=None, session=None):
+    """Saves a user message into a chat session (see
+    resolve_chat_session_for_send): (ok, message, session_id). `session`
+    None means "the current session, or a new one"; "" always means new."""
     if path is None:
         path = MESSAGES_PATH
     text = text.strip()
     if not text:
-        return False, "Message is required"
-    append_message("user", text, path)
-    return True, "Message sent"
+        return False, "Message is required", None
+    if session is None:
+        session = current_chat_session_id(path) or ""
+    session_id = resolve_chat_session_for_send(session, text, path)
+    append_message("user", text, path, session=session_id)
+    return True, "Message sent", session_id
 
 
 def delete_message(timestamp, path=None):
@@ -3314,8 +3603,8 @@ _FONT_FACE_VARS = "\n".join(
 # name that isn't listed here renders as tofu/missing glyph. Add a new name
 # to this list before shipping a new icon constant that uses it.
 _MATERIAL_SYMBOLS_ICON_NAMES = (
-    "account_balance_wallet,add,bolt,check_circle,chevron_left,circle,delete,description,"
-    "dns,edit_note,error,expand_more,extension,fact_check,folder,folder_off,forum,history,lightbulb,loop,merge,monitoring,newspaper,"
+    "account_balance_wallet,add,add_comment,arrow_upward,auto_awesome,bolt,check,check_circle,chevron_left,circle,close,content_copy,delete,description,"
+    "dns,edit,edit_note,error,expand_more,extension,fact_check,folder,folder_off,forum,history,lightbulb,loop,merge,monitoring,newspaper,"
     "open_in_new,palette,payments,save,send,settings,smart_toy,space_dashboard,speed,terminal,topic,tune,warning,widgets"
 )
 
@@ -3719,15 +4008,6 @@ html.collapsed .activity-composer {{ left: 64px; }}
   .activity-composer {{ left: 64px; }}
 }}
 
-/* The composer's reserved space below the Conversation card - kept in
-   sync with the composer's actual rendered height by JS (see the
-   ResizeObserver in the "activity-composer-form" IIFE below), never a
-   guessed constant. A fixed margin-bottom here drifted out of sync the
-   moment the composer's own height changed (e.g. dragging the textarea's
-   resize handle - see `resize: vertical` below - taller), silently
-   letting the fixed composer bar overlap and hide the last message(s)
-   behind it. */
-.activity-messages-grid {{ margin-bottom: 6rem; }}
 /* The Dashboard page's stats section - tracked-projects/configured-topics
    setup counts plus GitLab-loop run totals (see _gitlab_loop_stats),
    sitting above the message thread as a quick-glance summary. Kept
@@ -3774,48 +4054,198 @@ html.collapsed .activity-composer {{ left: 64px; }}
 .activity-bar-mr {{ background: var(--md-primary-container); }}
 .activity-bar-escalation {{ background: var(--md-warning-container); }}
 .activity-bar-none {{ background: none; border: 1px dashed var(--md-outline-variant); }}
-/* The message thread becomes an actual scrollable chat panel - a fixed,
-   generous viewport height instead of the whole page growing with every
-   new message - so a long conversation stays navigable the way a real
-   chat UI's thread pane does. */
-#activity-message-list {{ max-height: 60vh; overflow-y: auto; padding-right: 0.25rem; }}
-/* Pinned to the viewport bottom (not the whole thread scrolling the
-   composer out of view) so the input box is always visible without
-   scrolling - `left` matches .content-area's current margin-left,
-   including its collapsed/mobile widths above. This previously hid the
-   last message(s) behind it whenever the composer's own height changed
-   (e.g. dragging the textarea's resize handle - see `resize: vertical`
-   below - taller), because .activity-messages-grid's margin-bottom was a
-   guessed constant that didn't grow to match. That margin is now kept in
-   sync with this element's actual rendered height by a ResizeObserver
-   (see the "activity-composer-form" IIFE below), so growing the composer
-   can never overlap the thread again. */
+/* The Dashboard page is a chat-only view styled after chatbot landing
+   pages (see render_overview_page). Two layouts, switched by .is-empty
+   on .chat-page (dropped client-side on the first send):
+   - empty: a vertically centered hero - status announcement, headline,
+     one large rounded composer, quick-link pills.
+   - session: a centered reading-width thread (window scroll, not an
+     inner scroll panel) with the same composer pinned to the viewport
+     bottom. Its reserved space below the thread is kept in sync with the
+     composer's actual height by the ResizeObserver in the
+     "activity-composer-form" IIFE below, never a guessed constant - a
+     fixed margin once let the pinned composer hide the last message(s)
+     whenever its height changed. `left` matches .content-area's
+     margin-left, including the collapsed/mobile widths above. */
+.chat-page {{
+  --chat-width: 820px;
+  --chat-accent: var(--md-primary);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}}
+/* Soft blurred color fields plus a faint grid behind the whole content
+   area, derived from the theme's own primary color so every palette and
+   dark mode get a matching wash instead of hardcoded blues. */
+.chat-bg {{
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(40% 35% at 70% 12%, color-mix(in srgb, var(--chat-accent) 22%, transparent), transparent 70%),
+    radial-gradient(35% 30% at 22% 42%, color-mix(in srgb, var(--chat-accent) 14%, transparent), transparent 70%),
+    radial-gradient(45% 40% at 90% 60%, color-mix(in srgb, var(--chat-accent) 10%, transparent), transparent 70%);
+}}
+.chat-bg::after {{
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--md-outline-variant) 35%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--md-outline-variant) 35%, transparent) 1px, transparent 1px);
+  background-size: 120px 120px;
+  mask-image: linear-gradient(to bottom, #000, transparent 85%);
+  -webkit-mask-image: linear-gradient(to bottom, #000, transparent 85%);
+}}
+.chat-page > .flash, .chat-hero, .chat-thread, .chat-hero-links {{ position: relative; z-index: 1; width: 100%; max-width: var(--chat-width); }}
+.chat-hero, .chat-hero-links {{ display: none; }}
+
+.chat-page.is-empty {{ min-height: calc(100vh - 9rem); justify-content: center; padding-bottom: 6vh; }}
+.chat-page.is-empty .chat-hero {{ display: flex; flex-direction: column; align-items: center; text-align: center; gap: 1.75rem; margin-bottom: 2.25rem; }}
+.chat-page.is-empty .chat-thread {{ display: none; }}
+.chat-page.is-empty .chat-hero-links {{ display: flex; justify-content: center; flex-wrap: wrap; gap: 1rem; margin-top: 2.25rem; }}
+
+.chat-announce {{
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 34rem;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--md-on-surface);
+  text-decoration: none;
+}}
+.chat-announce:hover {{ text-decoration: underline; }}
+.chat-announce .material-symbols-outlined {{ font-size: 18px; color: var(--chat-accent); }}
+.chat-hero-title {{
+  margin: 0;
+  font-size: clamp(2.4rem, 5.5vw, 4.25rem);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+  color: var(--md-on-surface);
+}}
+
+.chat-link-pill {{
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.75rem 1.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--md-outline-variant);
+  background: color-mix(in srgb, var(--md-surface) 70%, transparent);
+  color: var(--md-on-surface);
+  font-size: 1rem;
+  font-weight: 500;
+  text-decoration: none;
+  backdrop-filter: blur(8px);
+  transition: background 150ms ease, border-color 150ms ease;
+}}
+.chat-link-pill:hover {{ background: var(--md-surface-container-high); border-color: var(--md-outline); }}
+.chat-link-pill .material-symbols-outlined {{ font-size: 20px; }}
+
 .activity-composer {{
   position: fixed;
   left: 220px;
   right: 0;
   bottom: 0;
-  background: var(--md-nav-surface);
-  border-top: 1px solid var(--md-outline-variant);
-  padding: 0.85rem 1.25rem;
   z-index: 80;
+  padding: 1.25rem 1.25rem 1rem;
+  background: linear-gradient(to top, var(--md-surface) 65%, transparent);
   transition: left 150ms ease;
 }}
-.activity-composer-inner {{ max-width: clamp(1080px, 90%, 2400px); margin: 0 auto; }}
-.activity-composer-form {{ width: 100%; flex-wrap: nowrap; align-items: flex-end; }}
-/* Overrides the generic .daemon-action-form textarea rule (flex-basis:
-   100%, its own full-width line) - the composer's textarea shares its
-   line with the Send button instead, same as the input it replaced. */
-.activity-composer-form textarea.activity-composer-input {{
-  flex: 1 1 auto;
-  min-width: 0;
-  flex-basis: auto;
-  resize: vertical;
-  min-height: calc(1.4em * 3 + 0.7rem);
-  max-height: 40vh;
-  line-height: 1.4;
+html .chat-page.is-empty .activity-composer {{
+  position: relative;
+  left: auto;
+  z-index: 1;
+  width: 100%;
+  max-width: calc(var(--chat-width) + 2.5rem);
+  background: none;
+  padding: 0 1.25rem;
 }}
-.activity-composer-form button {{ flex: 0 0 120px; width: 120px; justify-content: center; }}
+.activity-composer-inner {{ max-width: var(--chat-width, 820px); margin: 0 auto; }}
+.activity-composer-form {{
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.9rem 0.9rem 0.75rem;
+  border-radius: 24px;
+  border: 1px solid var(--md-outline-variant);
+  background: color-mix(in srgb, var(--md-surface-container-lowest) 80%, transparent);
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--chat-accent, #0B57D0) 10%, transparent);
+  backdrop-filter: blur(12px);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}}
+.activity-composer-form:focus-within {{ border-color: color-mix(in srgb, var(--md-primary) 55%, var(--md-outline-variant)); }}
+.activity-composer-form textarea.activity-composer-input {{
+  width: 100%;
+  min-height: calc(1.5em * 2);
+  max-height: 40vh;
+  padding: 0.2rem 0.35rem;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--md-on-surface);
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1.5;
+  box-shadow: none;
+}}
+.chat-page.is-empty .activity-composer-form textarea.activity-composer-input {{ min-height: calc(1.5em * 3); }}
+.activity-composer-form textarea.activity-composer-input::placeholder {{ color: var(--md-on-surface-variant); opacity: 0.8; }}
+.chat-composer-toolbar {{ display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }}
+.chat-chips {{ display: flex; flex-wrap: wrap; gap: 0.5rem; min-width: 0; }}
+.chat-chip {{
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--md-outline-variant);
+  background: transparent;
+  color: var(--md-on-surface);
+  font: inherit;
+  font-size: 0.88rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}}
+.chat-chip .material-symbols-outlined {{ font-size: 17px; }}
+.chat-chip:hover {{
+  background: color-mix(in srgb, var(--md-primary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--md-primary) 45%, transparent);
+  color: var(--md-primary);
+}}
+.chat-send-btn {{
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+  cursor: pointer;
+  transition: opacity 150ms ease, transform 150ms ease;
+}}
+.chat-send-btn:hover {{ transform: translateY(-1px); }}
+.chat-send-btn:disabled {{ opacity: 0.45; cursor: not-allowed; transform: none; }}
+.chat-send-btn .material-symbols-outlined {{ font-size: 22px; }}
+
+@media (max-width: 720px) {{
+  /* Restated here because the base .activity-composer rule above comes
+     after the shared mobile block and would otherwise win at 220px. */
+  .activity-composer {{ left: 64px; padding-left: 0.75rem; padding-right: 0.75rem; }}
+  .chat-hero-title {{ font-size: 2.2rem; }}
+  .chat-chips {{ flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }}
+  .chat-chip {{ padding: 0.35rem 0.7rem; font-size: 0.82rem; }}
+}}
 
 .page-title {{ margin: 0.25rem 0 1.5rem; }}
 .page-title h1 {{ margin-bottom: 0.35rem; }}
@@ -4054,18 +4484,140 @@ html.collapsed .activity-composer {{ left: 64px; }}
 .message-text {{ font-size: 0.9rem; }}
 .message-text.markdown > :last-child {{ margin-bottom: 0; }}
 .message-delete-form {{ margin: 0; }}
-.message-delete-form button {{
+
+/* History + New chat, reachable at any point in either layout: fixed
+   just under the topbar, right-aligned. New chat hides on the empty hero,
+   which already is a new chat. */
+.chat-toolbar {{ position: fixed; top: 4.25rem; right: 1.25rem; z-index: 85; display: flex; gap: 0.5rem; }}
+.chat-new-form {{ margin: 0; display: inline-flex; }}
+.chat-page.is-empty .chat-new-form {{ display: none; }}
+.chat-tool-btn {{
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.95rem;
+  border-radius: 999px;
+  border: 1px solid var(--md-outline-variant);
+  background: color-mix(in srgb, var(--md-surface) 80%, transparent);
+  backdrop-filter: blur(8px);
+  color: var(--md-on-surface);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+}}
+.chat-tool-btn:hover {{ background: var(--md-surface-container-high); border-color: var(--md-outline); }}
+.chat-tool-btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
+.chat-tool-btn .material-symbols-outlined {{ font-size: 18px; }}
+
+/* The history drawer slides over everything (sidebar included) from the
+   right; its list is render_chat_history_fragment. */
+.chat-history-backdrop {{ position: fixed; inset: 0; z-index: 110; background: rgba(0, 0, 0, 0.28); }}
+.chat-history-backdrop[hidden], .chat-history[hidden] {{ display: none; }}
+.chat-history {{
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 120;
+  width: min(340px, 88vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--md-surface);
+  border-left: 1px solid var(--md-outline-variant);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.12);
+}}
+.chat-history-header {{ display: flex; align-items: center; justify-content: space-between; padding: 1rem 1rem 0.5rem 1.25rem; }}
+.chat-history-header h2 {{ margin: 0; font-size: 1.05rem; }}
+#chat-history-list {{ flex: 1 1 auto; overflow-y: auto; padding: 0 0.75rem 1rem; }}
+.chat-history-group {{ margin: 1rem 0.5rem 0.35rem; font-size: 0.75rem; font-weight: 500; color: var(--md-on-surface-variant); }}
+.chat-history-item {{
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  color: var(--md-on-surface);
+  text-decoration: none;
+  font-size: 0.9rem;
+}}
+.chat-history-item:hover {{ background: var(--md-surface-container-high); }}
+.chat-history-item:hover, .chat-history-item:focus {{ text-decoration: none; }}
+.chat-history-item:focus-visible {{ outline: 2px solid var(--md-primary); outline-offset: -2px; }}
+.chat-history-item.is-active {{ background: color-mix(in srgb, var(--md-primary) 14%, transparent); color: var(--md-primary); font-weight: 500; }}
+.chat-history-title {{ flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+.chat-history-time {{ flex: 0 0 auto; font-size: 0.72rem; color: var(--md-on-surface-variant); font-weight: 400; }}
+.chat-history-empty {{ margin: 1rem 0.5rem; color: var(--md-on-surface-variant); font-size: 0.9rem; }}
+
+/* Session thread: assistant replies read as plain text beside the brand
+   mark (no bubble), user messages as soft right-aligned bubbles - the
+   usual chatbot session layout. */
+.chat-thread {{ margin-bottom: 9rem; }}
+.chat-thread .message-list {{ gap: 1.1rem; padding-top: 0.5rem; }}
+.chat-thread .message-bubble {{ max-width: 85%; box-shadow: none; }}
+.chat-thread .message-bubble-loop {{ background: none; padding-left: 0; padding-right: 0; max-width: 100%; }}
+.chat-thread .message-bubble-user {{ border-radius: 20px; background: color-mix(in srgb, var(--md-primary) 14%, var(--md-surface-container-lowest)); color: var(--md-on-surface); }}
+.chat-thread .message-text {{ font-size: 0.97rem; line-height: 1.65; }}
+/* Each message is a column: bubble, then an action bar (copy, edit on
+   your own messages, delete). The bar stays visible under replies, as in
+   chatbot UIs, but appears on hover/focus under your own messages -
+   always visible on touch screens, which have no hover. */
+.message-body {{ display: flex; flex-direction: column; min-width: 0; }}
+.message-row-user .message-body {{ align-items: flex-end; max-width: 85%; }}
+.message-row-loop .message-body {{ align-items: flex-start; flex: 1 1 auto; }}
+.chat-thread .message-body .message-bubble {{ max-width: 100%; }}
+.message-actions {{ display: flex; align-items: center; gap: 0.1rem; margin-top: 0.2rem; transition: opacity 150ms ease; }}
+.message-row-user .message-actions {{ opacity: 0; }}
+.message-row-user:hover .message-actions,
+.message-row-user:focus-within .message-actions {{ opacity: 1; }}
+@media (hover: none) {{ .message-row-user .message-actions {{ opacity: 1; }} }}
+.message-action-btn {{
   background: none;
   border: none;
   cursor: pointer;
   color: var(--md-on-surface-variant);
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  padding: 0.3rem;
-  border-radius: 50%;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  transition: background 150ms ease, color 150ms ease;
 }}
-.message-delete-form button:hover {{ background: var(--md-surface-container-highest); color: var(--md-error); }}
-.message-delete-form .material-symbols-outlined {{ font-size: 18px; }}
+.message-action-btn:hover {{ background: var(--md-surface-container-high); color: var(--md-on-surface); }}
+.message-delete-form .message-action-btn:hover {{ color: var(--md-error); }}
+.message-action-btn.is-done {{ color: var(--md-primary); }}
+.message-action-btn .material-symbols-outlined {{ font-size: 18px; }}
+.message-row.is-editing .message-body {{ width: 85%; }}
+.message-row.is-editing .message-bubble,
+.message-row.is-editing .message-actions {{ display: none; }}
+.message-edit-form {{
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--md-primary) 55%, var(--md-outline-variant));
+  background: var(--md-surface-container-lowest);
+}}
+.message-edit-input {{
+  width: 100%;
+  min-height: 3em;
+  max-height: 40vh;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--md-on-surface);
+  font: inherit;
+  font-size: 0.97rem;
+  line-height: 1.6;
+}}
+.message-edit-actions {{ display: flex; justify-content: flex-end; gap: 0.5rem; }}
+.chat-thread > p {{ display: none; }}
+
 
 pre.log {{
   background: var(--md-surface-dim);
@@ -4890,7 +5442,6 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
   .loading-dots span:nth-child(2) {{ animation-delay: 0.2s; }}
   .loading-dots span:nth-child(3) {{ animation-delay: 0.4s; }}
   @keyframes loading-dots-fade {{ 0%, 80%, 100% {{ opacity: 0; }} 40% {{ opacity: 1; }} }}
-  #activity-message-list {{ scroll-behavior: smooth; }}
 }}
 """
 
@@ -5559,11 +6110,34 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     var list = document.getElementById('activity-message-list');
     if (!form || !list) return;
 
+    // The Dashboard thread scrolls with the window (see .chat-thread),
+    // not inside its own panel, so "bottom" means the page's bottom.
+    var chatPage = document.querySelector('.chat-page');
     function scrollToBottom() {{
-      list.scrollTop = list.scrollHeight;
+      window.scrollTo(0, document.documentElement.scrollHeight);
     }}
     // Open on the most recent messages, not the top of a long thread.
-    scrollToBottom();
+    if (!chatPage || !chatPage.classList.contains('is-empty')) scrollToBottom();
+
+    // Suggestion chips pre-fill the composer rather than sending, so a
+    // chip like "Run an issue" can never kick off a real run by itself -
+    // the user still reviews/completes the text and presses send.
+    var composerTextarea = form.querySelector("[name='text']");
+    function autoGrow() {{
+      if (!composerTextarea) return;
+      composerTextarea.style.height = 'auto';
+      composerTextarea.style.height = composerTextarea.scrollHeight + 'px';
+    }}
+    if (composerTextarea) composerTextarea.addEventListener('input', autoGrow);
+    form.querySelectorAll('[data-chat-suggestion]').forEach(function(chip) {{
+      chip.addEventListener('click', function() {{
+        if (!composerTextarea) return;
+        composerTextarea.value = chip.getAttribute('data-chat-suggestion');
+        autoGrow();
+        composerTextarea.focus();
+        composerTextarea.setSelectionRange(composerTextarea.value.length, composerTextarea.value.length);
+      }});
+    }});
 
     // .activity-composer is pinned to the viewport bottom (see that CSS
     // rule) so the input box is always visible without scrolling - this
@@ -5577,7 +6151,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     var messagesGrid = document.querySelector('.activity-messages-grid');
     if (composer && messagesGrid) {{
       var syncComposerSpacing = function() {{
-        messagesGrid.style.marginBottom = (composer.offsetHeight + 16) + 'px';
+        messagesGrid.style.marginBottom = (composer.offsetHeight + 24) + 'px';
       }};
       syncComposerSpacing();
       if (window.ResizeObserver) {{
@@ -5617,14 +6191,127 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     // it in wholesale, once the message it's waiting on is actually saved
     // (see the two call sites below: right after the user's own message
     // is persisted, and again once the reply finishes streaming).
+    // Which chat session this page is showing - '' for a new chat until
+    // the server assigns an id on the first send (see POST /activity/chat).
+    var sessionInput = form.querySelector("input[name='session']");
+    function sessionQuery() {{
+      return '?session=' + encodeURIComponent(sessionInput ? sessionInput.value : '');
+    }}
+    // The history drawer's list: refreshed after sends so a new session
+    // shows up, and again a little later for its AI title, which is
+    // generated in the background after the first reply.
+    function refreshHistory() {{
+      var historyList = document.getElementById('chat-history-list');
+      if (!historyList) return;
+      fetch('/activity/sessions/fragment' + sessionQuery())
+        .then(function(response) {{ return response.text(); }})
+        .then(function(responseHtml) {{ historyList.innerHTML = responseHtml; }});
+    }}
+
     function refreshMessageList() {{
-      return fetch('/activity/messages/fragment')
+      return fetch('/activity/messages/fragment' + sessionQuery())
         .then(function(response) {{ return response.text(); }})
         .then(function(responseHtml) {{
           list.innerHTML = responseHtml;
           scrollToBottom();
         }});
     }}
+
+    // Per-message actions, delegated on the list because
+    // refreshMessageList swaps its whole innerHTML after every send.
+    // Copy writes the rendered HTML (text/html, so pasting into Slack/Docs
+    // keeps bold, lists, code) alongside the raw markdown (text/plain,
+    // from data-raw). navigator.clipboard only exists in a secure context -
+    // a dashboard reached over plain http through nginx has none - so the
+    // fallback selects a rendered copy and uses execCommand('copy'), which
+    // still carries the formatting.
+    function copyMessage(textEl) {{
+      var raw = textEl.getAttribute('data-raw') || textEl.innerText;
+      var richHtml = textEl.innerHTML;
+      if (navigator.clipboard && window.ClipboardItem && window.isSecureContext) {{
+        return navigator.clipboard.write([new ClipboardItem({{
+          'text/html': new Blob([richHtml], {{ type: 'text/html' }}),
+          'text/plain': new Blob([raw], {{ type: 'text/plain' }})
+        }})]);
+      }}
+      return new Promise(function(resolve, reject) {{
+        var holder = document.createElement('div');
+        holder.innerHTML = richHtml;
+        holder.style.position = 'fixed';
+        holder.style.left = '-9999px';
+        document.body.appendChild(holder);
+        var range = document.createRange();
+        range.selectNodeContents(holder);
+        var selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        var ok = false;
+        try {{ ok = document.execCommand('copy'); }} catch (e) {{}}
+        selection.removeAllRanges();
+        holder.remove();
+        ok ? resolve() : reject();
+      }});
+    }}
+
+    function flashIcon(button, iconName) {{
+      var icon = button.querySelector('.material-symbols-outlined');
+      if (!icon) return;
+      var original = icon.textContent;
+      icon.textContent = iconName;
+      button.classList.add('is-done');
+      setTimeout(function() {{ icon.textContent = original; button.classList.remove('is-done'); }}, 1500);
+    }}
+
+    // Editing a sent message re-asks: the edited text goes out through
+    // the composer's normal submit path (live reply and all) as a new
+    // turn, and the original stays in the thread untouched.
+    function openEditor(row) {{
+      var bubble = row.querySelector('.message-bubble');
+      var textEl = row.querySelector('.message-text');
+      if (!bubble || !textEl || row.querySelector('.message-edit-form')) return;
+      row.classList.add('is-editing');
+      var editor = document.createElement('form');
+      editor.className = 'message-edit-form';
+      editor.innerHTML =
+        "<textarea class='message-edit-input' aria-label='Edit message'></textarea>" +
+        "<div class='message-edit-actions'>" +
+        "<button type='button' class='btn btn-neutral' data-edit-cancel>Cancel</button>" +
+        "<button type='submit' class='btn btn-primary'>Send</button>" +
+        "</div>";
+      var editInput = editor.querySelector('textarea');
+      editInput.value = textEl.getAttribute('data-raw') || textEl.innerText;
+      bubble.after(editor);
+      function close() {{ editor.remove(); row.classList.remove('is-editing'); }}
+      function grow() {{ editInput.style.height = 'auto'; editInput.style.height = editInput.scrollHeight + 'px'; }}
+      editInput.addEventListener('input', grow);
+      editInput.addEventListener('keydown', function(ev) {{
+        if (ev.key === 'Escape') {{ close(); }}
+        if (ev.key === 'Enter' && !ev.shiftKey) {{ ev.preventDefault(); editor.requestSubmit ? editor.requestSubmit() : editor.dispatchEvent(new Event('submit', {{ cancelable: true }})); }}
+      }});
+      editor.querySelector('[data-edit-cancel]').addEventListener('click', close);
+      editor.addEventListener('submit', function(ev) {{
+        ev.preventDefault();
+        var edited = editInput.value.trim();
+        if (!edited) return;
+        close();
+        composerTextarea.value = edited;
+        form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event('submit', {{ cancelable: true }}));
+      }});
+      grow();
+      editInput.focus();
+      editInput.setSelectionRange(editInput.value.length, editInput.value.length);
+    }}
+
+    list.addEventListener('click', function(ev) {{
+      var copyBtn = ev.target.closest('[data-copy-message]');
+      if (copyBtn) {{
+        var textEl = copyBtn.closest('.message-row').querySelector('.message-text');
+        copyMessage(textEl).then(function() {{ flashIcon(copyBtn, 'check'); }}, function() {{ flashIcon(copyBtn, 'error'); }});
+        return;
+      }}
+      var editBtn = ev.target.closest('[data-edit-message]');
+      if (editBtn) openEditor(editBtn.closest('.message-row'));
+    }});
 
     var composerInput = form.querySelector("[name='text']");
     if (composerInput) {{
@@ -5647,8 +6334,12 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
       if (!text) return;
       var csrfToken = form.querySelector("input[name='csrf_token']").value;
 
+      // First message of an empty thread: leave the centered hero for
+      // the session layout (thread + composer pinned to the bottom).
+      if (chatPage) chatPage.classList.remove('is-empty');
       appendBubble('message-bubble-user', "<span class='k'>You</span>", text);
       input.value = '';
+      autoGrow();
       button.disabled = true;
 
       function appendPendingLoopBubble() {{
@@ -5679,7 +6370,15 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
       // stream mid-reply - cleared on every terminal path below (the
       // request itself failing, and the stream's own done/error events).
       window.__loopChatStreaming = true;
-      function stopStreamingFlag() {{ window.__loopChatStreaming = false; }}
+      // A reply still streaming is saved once it finishes - after a "New
+      // chat" marker set meanwhile - so it would surface in the new
+      // session. Starting a new chat waits until the reply is done.
+      var newChatBtn = document.querySelector('.chat-new-btn');
+      if (newChatBtn) newChatBtn.disabled = true;
+      function stopStreamingFlag() {{
+        window.__loopChatStreaming = false;
+        if (newChatBtn) newChatBtn.disabled = false;
+      }}
 
       function startStream(replyKey) {{
         var source = new EventSource('/activity/chat-stream?reply_key=' + encodeURIComponent(replyKey));
@@ -5699,6 +6398,9 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
           // rendering and a delete button immediately, instead of only
           // after a full page reload.
           refreshMessageList();
+          refreshHistory();
+          setTimeout(refreshHistory, 8000);
+          setTimeout(refreshHistory, 20000);
         }});
         source.addEventListener('error', function(ev) {{
           var message = 'Something went wrong - try again.';
@@ -5737,6 +6439,12 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
           // the entire list from disk, which necessarily discards the
           // pending loop bubble above too, so a fresh one is re-appended
           // right after for the still-in-flight reply.
+          if (sessionInput && result.data.session && sessionInput.value !== result.data.session) {{
+            sessionInput.value = result.data.session;
+            // A reload or a shared link reopens this same session.
+            history.replaceState(null, '', '/?session=' + encodeURIComponent(result.data.session));
+          }}
+          refreshHistory();
           refreshMessageList().then(function() {{
             pending = appendPendingLoopBubble();
             pendingTextEl = pending.textEl;
@@ -5750,6 +6458,34 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
           button.disabled = false;
           stopStreamingFlag();
         }});
+    }});
+  }});
+}})();
+(function() {{
+  // Chat history drawer on the Dashboard. Deferred for the same reason as
+  // the composer script: this <script> is emitted in <head>.
+  document.addEventListener('DOMContentLoaded', function() {{
+    var drawer = document.getElementById('chat-history');
+    var opener = document.querySelector('[data-chat-history-open]');
+    var backdrop = document.querySelector('.chat-history-backdrop');
+    if (!drawer || !opener || !backdrop) return;
+    function setOpen(open) {{
+      drawer.hidden = !open;
+      backdrop.hidden = !open;
+      opener.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) {{
+        var target = drawer.querySelector('.chat-history-item.is-active') || drawer.querySelector('.chat-history-item') || drawer.querySelector('[data-chat-history-close]');
+        if (target) target.focus();
+      }} else {{
+        opener.focus();
+      }}
+    }}
+    opener.addEventListener('click', function() {{ setOpen(drawer.hidden); }});
+    document.querySelectorAll('[data-chat-history-close]').forEach(function(el) {{
+      el.addEventListener('click', function() {{ setOpen(false); }});
+    }});
+    document.addEventListener('keydown', function(ev) {{
+      if (ev.key === 'Escape' && !drawer.hidden) setOpen(false);
     }});
   }});
 }})();
@@ -6054,7 +6790,7 @@ def _dashboard_stats_html(stats, projects_count, topics_count):
 """
 
 
-def render_activity_messages_fragment(messages_path=None):
+def render_activity_messages_fragment(messages_path=None, session_id=None):
     """The Conversation section's message thread content (everything that
     goes inside '#activity-message-list'): day separators, each bubble's
     markdown-rendered text (render_markdown) and its delete form. This is
@@ -6070,7 +6806,11 @@ def render_activity_messages_fragment(messages_path=None):
     this same fragment client-side is what closes that gap."""
     if messages_path is None:
         messages_path = MESSAGES_PATH
-    messages = read_messages(messages_path)
+    # One chat session's messages (None: the current session; "": none,
+    # i.e. a new chat that has no messages yet).
+    if session_id is None:
+        session_id = current_chat_session_id(messages_path)
+    messages = chat_session_messages(session_id, messages_path)
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
 
     message_rows = []
@@ -6102,17 +6842,32 @@ def render_activity_messages_fragment(messages_path=None):
             "<span class='k'>You</span>" if is_user
             else f"<span class='k' aria-label='Loop X'>{_MESSAGE_BRAND_ICON}</span>"
         )
+        # Copy puts both the rendered HTML and this raw markdown (data-raw)
+        # on the clipboard; edit (user messages only) pre-fills an inline
+        # editor with it - see the "activity-composer-form" IIFE.
+        edit_html = (
+            "<button type='button' class='message-action-btn' data-edit-message aria-label='Edit message' title='Edit'>"
+            "<span class='material-symbols-outlined' aria-hidden='true'>edit</span></button>"
+            if is_user else ""
+        )
         message_rows.append(
             f"<li class='{row_classes}'>"
+            "<div class='message-body'>"
             f"<div class='message-bubble {'message-bubble-user' if is_user else 'message-bubble-loop'}'>"
             f"<div class='message-meta'>{who_html}<span class='message-time'>{html.escape(relative_time)}</span></div>"
-            f"<div class='message-text markdown'>{render_markdown(text)}</div>"
+            f"<div class='message-text markdown' data-raw=\"{html.escape(text, quote=True)}\">{render_markdown(text)}</div>"
             "</div>"
+            "<div class='message-actions'>"
+            "<button type='button' class='message-action-btn' data-copy-message aria-label='Copy message' title='Copy'>"
+            "<span class='material-symbols-outlined' aria-hidden='true'>content_copy</span></button>"
+            f"{edit_html}"
             f"<form method='post' action='/activity/messages/{timestamp_url_safe}/delete' class='message-delete-form'>"
             f"{csrf_input}"
-            f"<button type='submit' aria-label='Delete message' data-confirm=\"{delete_confirm}\">"
+            f"<button type='submit' class='message-action-btn' aria-label='Delete message' title='Delete' data-confirm=\"{delete_confirm}\">"
             "<span class='material-symbols-outlined' aria-hidden='true'>delete</span></button>"
             "</form>"
+            "</div>"
+            "</div>"
             "</li>"
         )
     if message_rows:
@@ -6120,68 +6875,162 @@ def render_activity_messages_fragment(messages_path=None):
     return "<p>(no messages yet)</p>"
 
 
-def render_overview_page(flash=None, flash_ok=True):
-    """The dashboard's home page: a stats-at-a-glance section (see
-    _dashboard_stats_html) above a two-way async message thread with the
-    GitLab loop. You can send a message anytime; the loop reads unseen ones
-    at the start of its next issue (see pop_unseen_user_messages, called by
-    the `read-messages` CLI subcommand) and may reply here. This is NOT
-    real-time chat: the loop is still a scheduled, one-shot process
-    (run-loop.sh), not a persistent one - see LOOPX_INSTRUCTIONS.md for
-    exactly when it checks. A separate live chat assistant (/activity/chat,
+_CHAT_HISTORY_GROUPS = ("Today", "Yesterday", "Previous 7 days", "Previous 30 days", "Older")
+
+
+def _chat_history_group(last_at, today):
+    day = _message_date(last_at)
+    if day is None:
+        return "Older"
+    age = (today - day).days
+    if age <= 0:
+        return "Today"
+    if age == 1:
+        return "Yesterday"
+    if age <= 7:
+        return "Previous 7 days"
+    if age <= 30:
+        return "Previous 30 days"
+    return "Older"
+
+
+def render_chat_history_fragment(messages_path=None, active_session_id=None):
+    """The chat history drawer's list (everything inside
+    '#chat-history-list'): every session with messages, most recent
+    activity first, grouped by day like chatbot sidebars. Served again by
+    '/activity/sessions/fragment' so the composer script can refresh it
+    after a send - a new session appearing, or its AI title landing."""
+    sessions = list_chat_sessions(messages_path)
+    if not sessions:
+        return "<p class='chat-history-empty'>No chats yet</p>"
+    today = datetime.now(timezone.utc).date()
+    grouped = {}
+    for session in sessions:
+        grouped.setdefault(_chat_history_group(session["last_at"], today), []).append(session)
+    parts = []
+    for group in _CHAT_HISTORY_GROUPS:
+        if group not in grouped:
+            continue
+        parts.append(f"<h3 class='chat-history-group'>{group}</h3>")
+        for session in grouped[group]:
+            is_active = session["id"] == active_session_id
+            active = " is-active" if is_active else ""
+            current_attr = " aria-current='page'" if is_active else ""
+            href = "/?session=" + urllib.parse.quote(session["id"], safe="")
+            parts.append(
+                f"<a class='chat-history-item{active}' href='{html.escape(href, quote=True)}'{current_attr}>"
+                f"<span class='chat-history-title'>{html.escape(session['title'])}</span>"
+                f"<span class='chat-history-time'>{html.escape(_relative_time(session['last_at']))}</span>"
+                "</a>"
+            )
+    return "".join(parts)
+
+
+_CHAT_SUGGESTIONS = (
+    ("monitoring", "Loop status", "What is the loop doing right now?"),
+    ("history", "Latest run", "Summarize the latest GitLab run review."),
+    ("bolt", "Run an issue", "Run this GitLab issue now: "),
+)
+
+
+def render_overview_page(flash=None, flash_ok=True, session_id=None):
+    """The dashboard's home page: a chat-only view of the two-way message
+    thread with the GitLab loop, styled after chatbot landing pages. With
+    no messages yet it's a centered hero (status announcement, headline,
+    one large composer, quick links); once any message exists it becomes a
+    chat session - a centered thread with the composer pinned to the
+    bottom. The switch is the `is-empty` class on .chat-page, which the
+    composer script also drops client-side on the first send, so the
+    layout changes without a reload.
+
+    You can send a message anytime; the loop reads unseen ones at the start
+    of its next issue (see pop_unseen_user_messages, called by the
+    `read-messages` CLI subcommand) and may reply here. This is NOT
+    real-time chat with the loop itself: the loop is still a scheduled,
+    one-shot process - see LOOPX_INSTRUCTIONS.md for exactly when it
+    checks. A separate live chat assistant (/activity/chat,
     /activity/chat-stream) also replies inline in the same thread, right
     away, independent of the loop itself.
 
     `flash`/`flash_ok` carry a POST-redirect-GET result from sending or
     deleting a message (/activity/messages, /activity/messages/<ts>/delete)."""
     status = read_status(STATUS_PATH)
-
-    stats = _gitlab_loop_stats()
-    projects_count = len(read_loop_projects_config().get("projects", []))
-    topics_count = len(get_configured_topics())
-    stats_html = _dashboard_stats_html(stats, projects_count, topics_count)
+    # `session_id` opens a past session (/?session=<id>); otherwise the
+    # current one. Unknown ids fall back to a new, empty chat.
+    if session_id is not None:
+        viewing = session_id if chat_session_exists(session_id, MESSAGES_PATH) else ""
+    else:
+        viewing = current_chat_session_id(MESSAGES_PATH) or ""
+    is_empty = not chat_session_messages(viewing, MESSAGES_PATH)
+    if is_empty:
+        viewing = ""
 
     flash_html = ""
     if flash:
         flash_class = "flash-success" if flash_ok else "flash-danger"
         flash_html = f"<div class='flash {flash_class}'>{html.escape(str(flash))}</div>"
 
-    messages_html = f"<div id='activity-message-list'>{render_activity_messages_fragment(MESSAGES_PATH)}</div>"
+    messages_html = f"<div id='activity-message-list'>{render_activity_messages_fragment(MESSAGES_PATH, viewing)}</div>"
+    history_html = render_chat_history_fragment(MESSAGES_PATH, active_session_id=viewing or None)
 
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
+    session_input = f"<input type='hidden' name='session' value='{html.escape(viewing, quote=True)}'>"
 
-    message_form = f"""
-<div class="activity-composer">
-<div class="activity-composer-inner">
-<form method='post' action='/activity/messages' class='daemon-action-form activity-composer-form' id='activity-composer-form'>
+    announce_text = f"GitLab loop: {_state_label(status)}"
+    updated_at = status.get("updated_at")
+    if updated_at:
+        announce_text += f" · updated {_relative_time(str(updated_at))}"
+
+    suggestions_html = "".join(
+        f"<button type='button' class='chat-chip' data-chat-suggestion=\"{html.escape(prompt, quote=True)}\">"
+        f"<span class='material-symbols-outlined' aria-hidden='true'>{icon}</span>{html.escape(label)}</button>"
+        for icon, label, prompt in _CHAT_SUGGESTIONS
+    )
+
+    body = f"""
+<div class='chat-page{" is-empty" if is_empty else ""}'>
+<div class='chat-bg' aria-hidden='true'></div>
+<div class='chat-toolbar'>
+<button type='button' class='chat-tool-btn' data-chat-history-open aria-controls='chat-history' aria-expanded='false'><span class='material-symbols-outlined' aria-hidden='true'>history</span>History</button>
+<form method='post' action='/activity/new-chat' class='chat-new-form'>
 {csrf_input}
-<textarea name='text' class='activity-composer-input' rows='3' placeholder='Message the loop - a live assistant replies right away' required></textarea>
-<button type='submit' class='btn btn-neutral'><span class='material-symbols-outlined' aria-hidden='true'>send</span> Send</button>
+<button type='submit' class='chat-tool-btn chat-new-btn'><span class='material-symbols-outlined' aria-hidden='true'>add_comment</span>New chat</button>
+</form>
+</div>
+<div class='chat-history-backdrop' data-chat-history-close hidden></div>
+<aside class='chat-history' id='chat-history' aria-label='Chat history' hidden>
+<div class='chat-history-header'>
+<h2>Chats</h2>
+<button type='button' class='message-action-btn' data-chat-history-close aria-label='Close history'><span class='material-symbols-outlined' aria-hidden='true'>close</span></button>
+</div>
+<div id='chat-history-list'>{history_html}</div>
+</aside>
+{flash_html}
+<div class='chat-hero'>
+<a class='chat-announce' href='/activity'><span class='material-symbols-outlined' aria-hidden='true'>auto_awesome</span>{html.escape(announce_text)} &rarr;</a>
+<h1 class='chat-hero-title'>Into the Loop</h1>
+</div>
+<div class='chat-thread activity-messages-grid'>
+{messages_html}
+</div>
+<div class='activity-composer'>
+<div class='activity-composer-inner'>
+<form method='post' action='/activity/messages' class='activity-composer-form' id='activity-composer-form'>
+{csrf_input}
+{session_input}
+<textarea name='text' class='activity-composer-input' rows='2' placeholder='Ask the loop anything, or paste a GitLab issue link' aria-label='Message the loop' required></textarea>
+<div class='chat-composer-toolbar'>
+<div class='chat-chips'>{suggestions_html}</div>
+<button type='submit' class='chat-send-btn' aria-label='Send'><span class='material-symbols-outlined' aria-hidden='true'>arrow_upward</span></button>
+</div>
 </form>
 </div>
 </div>
-"""
-
-    body = f"""
-<div class="page-title">
-<h1>Dashboard</h1>
-<p class="subtitle">A quick-glance summary, plus a place to message the loop - a live assistant replies right away.</p>
+<div class='chat-hero-links'>
+<a class='chat-link-pill' href='/activity'><span class='material-symbols-outlined' aria-hidden='true'>bolt</span>Loop activity</a>
+<a class='chat-link-pill' href='/gitlab'><span class='material-symbols-outlined' aria-hidden='true'>merge</span>Live GitLab</a>
 </div>
-
-{flash_html}
-
-<div class="grid">
-{stats_html}
 </div>
-
-<div class="grid activity-messages-grid">
-<section class="card">
-<div class="section-header">{_SECTION_ICON_ACTIVITY}<h2>Conversation</h2></div>
-{messages_html}
-</section>
-</div>
-
-{message_form}
 """
     return _render_shell("Dashboard · Loop X Engineering", "overview", _status_badge_markup(status), body)
 
@@ -9288,11 +10137,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
             query = urllib.parse.parse_qs(split.query)
             flash = query.get("flash", [None])[0]
             flash_ok = query.get("ok", ["1"])[0] != "0"
-            self._send_html(render_overview_page(flash=flash, flash_ok=flash_ok))
+            session_id = query.get("session", [None])[0]
+            self._send_html(render_overview_page(flash=flash, flash_ok=flash_ok, session_id=session_id))
             return
 
         if split.path == "/activity/messages/fragment":
-            self._send_html(render_activity_messages_fragment())
+            query = urllib.parse.parse_qs(split.query)
+            self._send_html(render_activity_messages_fragment(session_id=query.get("session", [None])[0]))
+            return
+
+        if split.path == "/activity/sessions/fragment":
+            query = urllib.parse.parse_qs(split.query)
+            self._send_html(render_chat_history_fragment(active_session_id=query.get("session", [None])[0]))
             return
 
         if split.path == "/history":
@@ -10029,10 +10885,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not self._csrf_ok(body):
                 self._forbidden()
                 return
-            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
+            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"), keep_blank_values=True)
             text = form.get("text", [""])[0]
-            ok, message = send_user_message(text, MESSAGES_PATH)
-            self._redirect_with_flash(ok, message, location="/")
+            ok, message, session_id = send_chat_message(text, MESSAGES_PATH, session=form.get("session", [None])[0])
+            location = "/?session=" + urllib.parse.quote(session_id, safe="") if session_id else "/"
+            self._redirect_with_flash(ok, message, location=location)
             return
 
         if self.path.startswith("/activity/messages/") and self.path.endswith("/delete"):
@@ -10040,21 +10897,40 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._forbidden()
                 return
             timestamp = urllib.parse.unquote(self.path[len("/activity/messages/"):-len("/delete")])
+            # Back to the session the message was in, not whichever is current.
+            target = next((m for m in read_messages(MESSAGES_PATH) if m.get("timestamp") == timestamp), None)
             ok, message = delete_message(timestamp, MESSAGES_PATH)
-            self._redirect_with_flash(ok, message, location="/")
+            location = "/?session=" + urllib.parse.quote(_message_session_id(target), safe="") if target else "/"
+            self._redirect_with_flash(ok, message, location=location)
+            return
+
+        if self.path == "/activity/new-chat":
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            start_new_chat_session()
+            # Plain redirect, no flash: landing back on the empty hero is
+            # the confirmation.
+            self.send_response(303)
+            self.send_header("Location", "/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
             return
 
         if self.path == "/activity/chat":
             if not self._csrf_ok(body):
                 self._forbidden()
                 return
-            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
+            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"), keep_blank_values=True)
             text = form.get("text", [""])[0]
-            recent = read_messages(MESSAGES_PATH)[-_CHAT_MESSAGE_HISTORY_LIMIT:]
-            ok, message = send_user_message(text, MESSAGES_PATH)
+            ok, message, session_id = send_chat_message(text, MESSAGES_PATH, session=form.get("session", [None])[0])
             if not ok:
                 self._send_json(400, {"error": message})
                 return
+            # Context is this session only, minus the message just saved -
+            # a new chat really starts fresh, and a reopened one picks up
+            # where it left off.
+            recent = chat_session_messages(session_id, MESSAGES_PATH)[:-1][-_CHAT_MESSAGE_HISTORY_LIMIT:]
             # Logged as its own "question" entry, distinct from _run_chat_job's
             # own "turn started"/"reply"/"error" entries for the same turn, so
             # the Logs page shows what was actually asked - written right here
@@ -10063,7 +10939,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             append_unified_log("chat-assistant", "question", body=text.strip())
             reply_key = _chat_job_create()
             prompt = build_chat_prompt(text.strip(), recent)
-            thread = threading.Thread(target=_run_chat_job, args=(reply_key, prompt), daemon=True)
+            thread = threading.Thread(
+                target=_run_chat_job, args=(reply_key, prompt), kwargs={"session_id": session_id}, daemon=True
+            )
             try:
                 thread.start()
             except RuntimeError as exc:
@@ -10076,7 +10954,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 # it here guarantees the same "always eventually done"
                 # contract _run_chat_job itself upholds.
                 _chat_job_finish(reply_key, error=f"Could not start assistant thread: {exc}")
-            self._send_json(200, {"reply_key": reply_key})
+            self._send_json(200, {"reply_key": reply_key, "session": session_id})
             return
 
         self._not_found()
