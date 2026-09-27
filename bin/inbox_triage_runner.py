@@ -13,6 +13,8 @@ claude's equivalent leaks (a saved session transcript, and hooks running
 against it) are closed below via --no-session-persistence and --settings
 '{"disableAllHooks": true}'; codex's ~/.codex/sessions/ rollout of the
 prompt is not currently closable from here."""
+import contextlib
+import fcntl
 import functools
 import json
 import signal
@@ -262,6 +264,7 @@ def triage_inbox(inbox, config, now, provider_factory=None, token_fn=None, invok
 
 
 DEFAULT_HISTORY_DIR = OUTPUT_DIR / "history"
+DEFAULT_LOCK_PATH = OUTPUT_DIR / "run.lock"
 _STATUS_STATE = {"ok": "idle", "quiet": "idle", "failed": "failed", "needs_reauth": "needs_reauth"}
 
 
@@ -385,8 +388,43 @@ def _run_one_inbox(inbox, config, now, run_id, definition, triage, results_dir, 
     return outcome
 
 
+@contextlib.contextmanager
+def _exclusive_run_lock(lock_path):
+    """Yields True while this process holds an exclusive, non-blocking
+    flock on lock_path, False (immediately) if another run holds it. The
+    kernel drops the lock when the holder exits, however it exits, so a
+    killed run can never leave it stuck."""
+    path = Path(lock_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
 def run_all_inboxes(run_id, now=None, config_path=None, definition_path=None, results_dir=None,
-                    events_dir=None, status_path=None, history_dir=None, triage=None):
+                    events_dir=None, status_path=None, history_dir=None, triage=None, lock_path=None):
+    """One lock for the whole run: the scheduler and the dashboard's run-now
+    can both launch a run, and two overlapping runs would each draft replies
+    to the same not-yet-recorded messages. A second run exits at once."""
+    if lock_path is None:
+        lock_path = DEFAULT_LOCK_PATH
+    with _exclusive_run_lock(lock_path) as acquired:
+        if not acquired:
+            print("inbox_triage_runner: another Inbox Triage run is already running - exiting", file=sys.stderr)
+            return []
+        return _run_all_inboxes_locked(run_id, now, config_path, definition_path, results_dir,
+                                       events_dir, status_path, history_dir, triage)
+
+
+def _run_all_inboxes_locked(run_id, now, config_path, definition_path, results_dir,
+                            events_dir, status_path, history_dir, triage):
     if now is None:
         now = datetime.now(timezone.utc)
     if definition_path is None:

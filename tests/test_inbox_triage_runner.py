@@ -464,7 +464,8 @@ def test_run_all_inboxes_isolates_failures_and_writes_status(tmp_path, monkeypat
     status_path = tmp_path / "status.json"
     outcomes = runner.run_all_inboxes("run_1", now=NOW, config_path=config_path, results_dir=tmp_path / "results",
                                       events_dir=tmp_path / "events", status_path=status_path,
-                                      history_dir=tmp_path / "history", triage=triage)
+                                      history_dir=tmp_path / "history", triage=triage,
+                                      lock_path=tmp_path / "run.lock")
     assert seen == ["w", "h"]
     assert [o["status"] for o in outcomes] == ["failed", "ok"]
     assert "unexpected crash" in outcomes[0]["error"]
@@ -481,7 +482,7 @@ def test_run_all_inboxes_marks_needs_reauth(tmp_path, monkeypatch):
     config_path.write_text(json.dumps({"default_categories": CATS, "inboxes": [INBOX]}))
     monkeypatch.setattr(runner, "send_digests", lambda outcomes, now, post=None: None)
     runner.run_all_inboxes("run_1", now=NOW, config_path=config_path, results_dir=tmp_path / "r", events_dir=tmp_path / "e",
-                           status_path=tmp_path / "s.json", history_dir=tmp_path / "h",
+                           status_path=tmp_path / "s.json", history_dir=tmp_path / "h", lock_path=tmp_path / "run.lock",
                            triage=lambda inbox, config, now: {**_outcome_ok(), "status": "needs_reauth", "error": "x"})
     assert json.loads((tmp_path / "s.json").read_text())["inboxes"]["w"]["state"] == "needs_reauth"
 
@@ -504,7 +505,7 @@ def _run_all(tmp_path, **kwargs):
     return runner.run_all_inboxes("run_1", now=NOW, config_path=_two_inbox_config(tmp_path),
                                   results_dir=tmp_path / "results", events_dir=tmp_path / "events",
                                   status_path=tmp_path / "status.json", history_dir=tmp_path / "history",
-                                  **kwargs)
+                                  lock_path=tmp_path / "run.lock", **kwargs)
 
 
 def _states(tmp_path):
@@ -623,3 +624,37 @@ def test_invoke_default_timeout_comes_from_the_loop_definition(monkeypatch, tmp_
     monkeypatch.setattr(runner.subprocess, "run", fake)
     runner.invoke_triage_agent("p", repo_root=tmp_path, unified_log_path=tmp_path / "l")
     assert fake.calls[0][1]["timeout"] == 180
+
+
+def test_second_run_while_lock_is_held_does_no_triage(tmp_path, monkeypatch, capsys):
+    import fcntl
+    digests = []
+    monkeypatch.setattr(runner, "send_digests", lambda outcomes, now, post=None: digests.append(outcomes))
+    lock_path = tmp_path / "run.lock"
+    with open(lock_path, "w") as holder:
+        fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+        def triage(inbox, config, now):
+            raise AssertionError("must not triage while another run holds the lock")
+        assert _run_all(tmp_path, triage=triage) == []
+    assert digests == [] and not (tmp_path / "status.json").exists()
+    assert "already running" in capsys.readouterr().err
+    # released: the next run proceeds
+    assert len(_run_all(tmp_path)) == 2
+
+
+def test_lock_is_released_after_a_run(tmp_path, monkeypatch):
+    import fcntl
+    monkeypatch.setattr(runner, "send_digests", lambda outcomes, now, post=None: None)
+    _run_all(tmp_path)
+    with open(tmp_path / "run.lock", "w") as probe:
+        fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)  # would raise BlockingIOError if still held
+
+
+def test_default_lock_path_is_resolved_at_call_time(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "send_digests", lambda outcomes, now, post=None: None)
+    monkeypatch.setattr(runner, "DEFAULT_LOCK_PATH", tmp_path / "moved" / "run.lock")
+    runner.run_all_inboxes("run_1", now=NOW, config_path=_two_inbox_config(tmp_path), results_dir=tmp_path / "r",
+                           events_dir=tmp_path / "e", status_path=tmp_path / "s.json", history_dir=tmp_path / "h",
+                           triage=lambda inbox, config, now: {**_outcome_ok(), "name": inbox["name"]})
+    assert (tmp_path / "moved" / "run.lock").exists()
