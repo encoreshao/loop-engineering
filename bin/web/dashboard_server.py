@@ -1085,7 +1085,10 @@ _MD_FENCE_RE = re.compile(r"^```")
 _MD_TABLE_ROW_RE = re.compile(r"^\|(.+)\|\s*$")
 _MD_TABLE_SEP_RE = re.compile(r"^\|(?:\s*:?-+:?\s*\|)+\s*$")
 
-_MD_CODE_SPAN_RE = re.compile(r"`([^`]+)`")
+# CommonMark-style backslash escape (any ASCII punctuation), scanned in the
+# same left-to-right pass as code spans so an escaped backtick never opens
+# a code span and a backslash inside a code span stays literal.
+_MD_ESCAPE_OR_CODE_SPAN_RE = re.compile(r"\\([!-/:-@\[-`{-~])|`([^`]+)`")
 _MD_BOLD_RE = re.compile(r"\*\*([^*]+?)\*\*|__([^_]+?)__")
 _MD_ITALIC_RE = re.compile(r"(?<!\*)\*([^*\n]+?)\*(?!\*)|(?<!_)_([^_\n]+?)_(?!_)")
 _MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)\)")
@@ -1123,8 +1126,22 @@ def _slugify_heading(text):
 
 def _split_table_row(line):
     """"| a | b |" -> ["a", "b"] - strip the outer pipes then split on the
-    rest, trimming each cell's surrounding whitespace."""
-    return [cell.strip() for cell in line.strip()[1:-1].split("|")]
+    rest, trimming each cell's surrounding whitespace. A backslash-escaped
+    pipe (`\\|`) is cell text, not a separator - it's kept, escape and
+    all, for _markdown_inline to unescape - so a history row whose
+    (escaped) email subject contains a `|` keeps its columns aligned."""
+    cells, current, chars = [], [], iter(line.strip()[1:-1])
+    for ch in chars:
+        if ch == "\\":
+            current.append(ch)
+            current.append(next(chars, ""))
+        elif ch == "|":
+            cells.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    cells.append("".join(current))
+    return [cell.strip() for cell in cells]
 
 
 _MD_H2_RE = re.compile(r"^##\s+(.*)$")
@@ -1339,7 +1356,17 @@ def _markdown_inline(escaped_text, gitlab_url_prefixes=None):
         stashes.append(html_fragment)
         return f"\x00{len(stashes) - 1}\x00"
 
-    text = _MD_CODE_SPAN_RE.sub(lambda m: stash(f"<code>{m.group(1)}</code>"), escaped_text)
+    # A backslash escape stashes its one character as plain text, so no
+    # later pass (links, images, bare URLs, bold/italic, gitlab refs) can
+    # treat it as syntax - this is how inbox_triage_runner._md makes
+    # untrusted email text render literally. On pre-escaped input, `\\<`
+    # arrives as `\\&lt;`: stashing the `&` alone still restores `&lt;`.
+    def escape_or_code(m):
+        if m.group(1) is not None:
+            return stash(m.group(1))
+        return stash(f"<code>{m.group(2)}</code>")
+
+    text = _MD_ESCAPE_OR_CODE_SPAN_RE.sub(escape_or_code, escaped_text)
 
     if gitlab_url_prefixes:
         gitlab_ref_re = re.compile(

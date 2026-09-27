@@ -658,3 +658,34 @@ def test_default_lock_path_is_resolved_at_call_time(tmp_path, monkeypatch):
                            events_dir=tmp_path / "e", status_path=tmp_path / "s.json", history_dir=tmp_path / "h",
                            triage=lambda inbox, config, now: {**_outcome_ok(), "name": inbox["name"]})
     assert (tmp_path / "moved" / "run.lock").exists()
+
+
+_HOSTILE_SUBJECT = "<!channel> <https://evil.example|Open draft> & ![p](https://tracker/p.gif) [Open draft](https://evil)"
+
+
+def test_format_digest_escapes_untrusted_text_for_slack():
+    outcome = _outcome_ok()
+    outcome["label"] = "Work <!here>"
+    outcome["urgent"][0].update({"from": "Mallory <m@x.com> <!everyone>", "subject": _HOSTILE_SUBJECT})
+    failed = {**_outcome_ok(), "name": "f", "label": "Side", "status": "failed", "urgent": [],
+              "error": "AI triage failed: unknown id '<!channel>'"}
+    text = runner.format_digest([outcome, failed], NOW)
+    assert "<!channel>" not in text and "<!here>" not in text and "<!everyone>" not in text
+    assert "<https://evil.example|" not in text
+    assert "&lt;!channel&gt; &lt;https://evil.example|Open draft&gt; &amp;" in text
+    assert "Mallory &lt;m@x.com&gt;" in text
+    assert "*Work &lt;!here&gt;*" in text
+    assert "<https://mail/m1|draft>" in text  # our own draft link stays a real Slack link
+
+
+def test_slack_escape_helper():
+    assert runner._slack_escape("a & <b> c") == "a &amp; &lt;b&gt; c"
+    assert runner._slack_escape(None) == ""
+
+
+def test_markdown_escape_helper_neutralises_markup():
+    escaped = runner._md("*b* _i_ `c` [t](u) ![a](u) | # https://x \\ <y>\nnext")
+    for raw in ("*b*", "_i_", "`c`", "[t](u)", "![a](u)", " | ", "https://", "\n"):
+        assert raw not in escaped
+    assert runner._md("- item").startswith("\\-") and runner._md("12. item").startswith("12\\.")
+    assert "\x00" not in runner._md("a\x00b")

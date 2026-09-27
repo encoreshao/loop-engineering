@@ -17,6 +17,7 @@ import contextlib
 import fcntl
 import functools
 import json
+import re
 import signal
 import subprocess
 import sys
@@ -268,8 +269,34 @@ DEFAULT_LOCK_PATH = OUTPUT_DIR / "run.lock"
 _STATUS_STATE = {"ok": "idle", "quiet": "idle", "failed": "failed", "needs_reauth": "needs_reauth"}
 
 
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+_MD_SPECIAL_RE = re.compile(r"([\\`*_\[\]!|#<>])")
+_MD_BULLET_RE = re.compile(r"^(\s*)([-+])(?=\s)")
+_MD_ORDERED_RE = re.compile(r"^(\s*\d+)\.")
+
+
 def _md(text):
-    return (text or "").replace("|", "\\|").replace("\n", " ")
+    """Untrusted text (sender, subject, AI reason, error) -> markdown that
+    dashboard_server.render_markdown shows literally: every metacharacter
+    it honours is backslash-escaped (render_markdown's backslash escapes
+    stash the character as plain text, so `![p](url)` can't become a
+    tracking-pixel <img>, `[text](url)` a spoofed link, `a|b` an extra
+    table cell), `://` is broken up so a bare URL isn't auto-linked, a
+    leading list marker can't start a list, and newlines/control chars
+    (including the renderer's own \\x00 stash marker) become spaces.
+    Links the loop writes itself (draft links) are built outside this."""
+    text = _CONTROL_CHARS_RE.sub(" ", text or "")
+    text = _MD_SPECIAL_RE.sub(r"\\\1", text).replace("://", "\\://")
+    # "- x" / "+ x" -> backslash before the marker; "12. x" -> backslash before the dot.
+    text = _MD_BULLET_RE.sub(r"\1\\\2", text)
+    return _MD_ORDERED_RE.sub(r"\1\\.", text)
+
+
+def _slack_escape(text):
+    """Untrusted text -> Slack mrkdwn that can't ping (`<!channel>`) or
+    spoof a link (`<https://evil|Open draft>`): Slack's own required
+    escaping of & < > (its control characters)."""
+    return (text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def write_history(outcome, now, history_dir=None):
@@ -297,13 +324,13 @@ def write_history(outcome, now, history_dir=None):
 
 
 def _summary_line(outcome):
-    label = outcome["label"]
+    label = _slack_escape(outcome["label"])
     if outcome["status"] == "quiet":
         return f"*{label}*: no new mail"
     if outcome["status"] == "needs_reauth":
         return f"*{label}*: needs re-auth - reconnect it from the dashboard's Inbox Triage page"
     if outcome["status"] == "failed":
-        return f"*{label}*: failed - {outcome['error']}"
+        return f"*{label}*: failed - {_slack_escape(outcome['error'])}"
     counts = dict(outcome["counts"])
     urgent, action = counts.pop("urgent", 0), counts.pop("action", 0)
     other = sum(counts.values())
@@ -322,7 +349,7 @@ def format_digest(outcomes, now):
                 note = "draft failed - reply manually"
             else:
                 note = "reply manually"
-            lines.append(f"    • {item['from']} - \"{item['subject']}\" ({note})")
+            lines.append(f"    • {_slack_escape(item['from'])} - \"{_slack_escape(item['subject'])}\" ({note})")
         if outcome.get("overflow"):
             lines.append(f"    more waiting - over {MESSAGE_CAP} new messages, the rest are picked up next run")
     return "\n".join(lines)

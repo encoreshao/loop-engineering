@@ -11070,6 +11070,44 @@ def test_render_inbox_history_page_renders_markdown_table_and_escapes_script(tmp
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in output
 
 
+def test_inbox_history_renders_hostile_mail_text_literally(tmp_path, monkeypatch):
+    """A crafted subject/sender must not become an <img> (a tracking pixel
+    loaded by just opening /inbox/history) or a spoofed link; the loop's own
+    draft link stays a real link, and a | in a subject stays in its cell."""
+    import inbox_triage_runner
+    outcome = {"name": "w", "label": "Work", "status": "ok", "counts": {}, "urgent": [], "overflow": False,
+               "error": "unknown id '![e](https://tracker/e.gif)'", "cost_usd": None,
+               "rows": [{"date": "2026-09-27T08:00:00+00:00",
+                         "from": "*Boss* <`x`@example.com>",
+                         "subject": "![p](https://tracker/p.gif) [Open draft](https://evil) a|b _i_ https://bare.example",
+                         "category": "urgent", "reason": "**now** \\ done", "draft_link": "https://mail/d1"}]}
+    path = inbox_triage_runner.write_history(outcome, datetime(2026, 9, 27, 9, 0, tzinfo=timezone.utc), history_dir=tmp_path)
+    monkeypatch.setattr(ds.inbox_pages, "DEFAULT_HISTORY_DIR", tmp_path)
+    output = ds.render_inbox_history_page(path.name)
+    body = output.split("<div class='markdown'>")[1]
+    assert "<img" not in body
+    assert "https://evil" not in body.replace("[Open draft](https://evil)", "")
+    assert re.findall(r"<a [^>]*href=\"([^\"]+)\"", body) == ["https://mail/d1"]
+    for tag in ("<strong>", "<em>", "<code>"):
+        assert tag not in body
+    assert "![p](https://tracker/p.gif) [Open draft](https://evil) a|b _i_ https://bare.example" in body
+    assert "*Boss* &lt;`x`@example.com&gt;" in body and "**now** \\ done" in body
+    row = body.split("<tbody>")[1].split("</tr>")[0]
+    assert row.count("<td>") == 6
+
+
+def test_render_markdown_honours_backslash_escapes():
+    out = ds.render_markdown("\\*not em\\* \\[t\\](x.md) \\!\\[i\\](p.gif) `a\\*b`", gitlab_url_prefixes={})
+    assert "<em>" not in out and "<a " not in out and "<img" not in out
+    assert "*not em* [t](x.md) ![i](p.gif)" in out
+    assert "<code>a\\*b</code>" in out  # no escapes inside code spans
+
+
+def test_render_markdown_escaped_pipe_stays_in_its_table_cell():
+    out = ds.render_markdown("| a | b |\n|---|---|\n| x \\| y | z |\n", gitlab_url_prefixes={})
+    assert "<td>x | y</td><td>z</td>" in out
+
+
 def test_render_inbox_history_page_returns_none_for_traversal_or_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(ds.inbox_pages, "DEFAULT_HISTORY_DIR", tmp_path)
     (tmp_path / "2026-09-27-w.md").write_text("x")
