@@ -11148,3 +11148,11 @@ def test_trigger_inbox_triage_run_launches_detached(tmp_path, monkeypatch):
     assert ok
     assert launched[0][0] == ["bash", str(script), "inbox-triage-loop"]
     assert launched[0][1]["start_new_session"] is True
+
+
+def test_inbox_post_unknown_path_with_valid_csrf_is_404(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds.inbox_config, "DEFAULT_CONFIG_PATH", tmp_path / "inboxes.json")
+    monkeypatch.setattr(ds.inbox_config, "DEFAULT_OAUTH_PATH", tmp_path / "mail_oauth.json")
+    with _running_server() as port:
+        status, _headers, _body = _post(port, "/inbox/nope", {"csrf_token": ds._CSRF_TOKEN})
+    assert status == 404

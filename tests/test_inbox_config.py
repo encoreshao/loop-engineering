@@ -203,3 +203,28 @@ def test_categories_for_returns_copy():
     cats[0]["label"] = "CORRUPTED"
 
     assert inbox_config.DEFAULT_CATEGORIES[0]["label"] == original_urgent_label
+
+
+_CUSTOM_CATEGORIES = [{"key": "urgent", "label": "Urgent", "description": "Needs me today"},
+                      {"key": "fyi", "label": "FYI", "description": "Everything else"}]
+
+
+def test_upsert_inbox_edit_without_categories_keeps_existing(tmp_path):
+    path = tmp_path / "inboxes.json"
+    inbox_config.upsert_inbox(_inbox(categories=_CUSTOM_CATEGORIES), is_new=True, config_path=path)
+    fields = _inbox(label="Edited")
+    del fields["categories"]
+    ok, _ = inbox_config.upsert_inbox(fields, is_new=False, config_path=path)
+    assert ok
+    saved = inbox_config.get_inbox("work-gmail", path)
+    assert saved["label"] == "Edited" and saved["categories"] == _CUSTOM_CATEGORIES
+
+
+def test_upsert_inbox_edit_with_explicit_categories_replaces_them(tmp_path):
+    path = tmp_path / "inboxes.json"
+    inbox_config.upsert_inbox(_inbox(categories=_CUSTOM_CATEGORIES), is_new=True, config_path=path)
+    ok, _ = inbox_config.upsert_inbox(_inbox(categories=None), is_new=False, config_path=path)
+    assert ok and inbox_config.get_inbox("work-gmail", path)["categories"] is None
+    replacement = _CUSTOM_CATEGORIES[:1]
+    ok, _ = inbox_config.upsert_inbox(_inbox(categories=replacement), is_new=False, config_path=path)
+    assert ok and inbox_config.get_inbox("work-gmail", path)["categories"] == replacement

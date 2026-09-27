@@ -10796,8 +10796,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         # page open in another tab could otherwise trigger these. The real
         # defense is the per-process _CSRF_TOKEN, which only ever appears in
         # pages this server renders and which a cross-origin page cannot read.
-        # Anything that doesn't match one of these two exact shapes falls
-        # through to the same 404 do_GET uses - no other routes exist here.
+        # Every route below checks the token first; anything that matches
+        # none of them falls through to the same 404 do_GET uses (an unknown
+        # /inbox/... path gets the CSRF check first, then that same 404).
         #
         # The body is read unconditionally and up front: a request body left
         # unread would desync a keep-alive connection for the next request.

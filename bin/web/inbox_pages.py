@@ -232,9 +232,11 @@ document.querySelectorAll('.device-flow').forEach(function (box) {
       box.querySelector('.device-code').textContent = s.user_code || '';
       box.querySelector('.device-message').textContent = s.message || '';
       if (s.state === 'pending') { setTimeout(poll, 3000); }
-      if (s.state === 'connected') {
+      if (s.state === 'connected' || s.state === 'failed') {
+        // The code is spent either way - drop the stale "Go to ... enter code" line.
         box.querySelector('p').hidden = true;
-        box.querySelector('.device-message').textContent = 'Connected';
+        box.querySelector('.device-message').textContent =
+          s.state === 'connected' ? 'Connected' : (s.message || 'Sign-in failed - click Connect again');
       }
     }).catch(function () {});
   }
@@ -326,8 +328,9 @@ def _connect(inbox, redirect_uri):
                                            on_success=lambda tokens: store_tokens_for(inbox, tokens))
     except (mail_auth.AuthFlowError, mail_http.MailHTTPError) as exc:
         return _result(False, str(exc))
-    # Only user_code goes into the flash - never info["device_code"].
-    return _result(True, f"Enter code {info['user_code']} at microsoft.com/devicelogin to finish connecting {inbox['label']}")
+    # Only user_code/verification_uri go into the flash - never info["device_code"].
+    uri = info.get("verification_uri") or "microsoft.com/devicelogin"
+    return _result(True, f"Enter code {info['user_code']} at {uri} to finish connecting {inbox['label']}")
 
 
 def _test_connection(inbox):
@@ -405,7 +408,9 @@ def handle_google_callback(query):
         tokens = mail_auth.google_exchange_code((query.get("code") or [""])[0], pending["verifier"],
                                                 pending["redirect_uri"], client)
         store_tokens_for(inbox, tokens)
-    except (KeyError, FileNotFoundError, mail_auth.AuthFlowError, mail_auth.KeychainError,
+    # ValueError: get_provider's "Unknown provider", e.g. the inbox's provider
+    # was changed while this sign-in was pending.
+    except (KeyError, ValueError, FileNotFoundError, mail_auth.AuthFlowError, mail_auth.KeychainError,
             mail_http.MailHTTPError) as exc:
         return False, str(exc)
     return True, f"Connected {inbox['label']}"

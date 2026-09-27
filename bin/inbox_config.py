@@ -174,6 +174,11 @@ def upsert_inbox(fields, is_new, config_path=None):
         if inbox["name"] not in existing:
             return False, "Inbox names cannot be renamed after creation - delete and re-add instead"
         inbox["enabled"] = existing[inbox["name"]].get("enabled", True)
+        # A form save that doesn't carry categories at all (the dashboard's
+        # inbox form has no categories field) must not wipe hand-configured
+        # ones; an explicit "categories" key (list or None) still wins.
+        if "categories" not in fields:
+            inbox["categories"] = existing[inbox["name"]].get("categories")
         config["inboxes"] = [inbox if i["name"] == inbox["name"] else i for i in config["inboxes"]]
     _write_json(config, config_path)
     return True, f"Saved inbox {inbox['label']}"

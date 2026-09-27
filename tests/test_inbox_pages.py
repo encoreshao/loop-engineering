@@ -213,3 +213,62 @@ def test_google_callback_message_never_carries_tokens_or_code(sandbox, monkeypat
 def test_device_flow_script_shows_connected_on_success():
     assert "s.state === 'connected'" in inbox_pages._DEVICE_FLOW_SCRIPT
     assert "Connected" in inbox_pages._DEVICE_FLOW_SCRIPT
+
+
+def test_save_existing_inbox_keeps_custom_categories(sandbox):
+    custom = [{"key": "urgent", "label": "Urgent", "description": "today"},
+              {"key": "fyi", "label": "FYI", "description": "rest"}]
+    inbox_config.upsert_inbox({"name": "w", "label": "Work", "provider": "gmail", "account": "me@example.com",
+                               "categories": custom}, is_new=True)
+    result = inbox_pages.handle_post("/inbox/inboxes", _form(is_new="0", name="w", label="Work 2", provider="gmail",
+                                                             account="me@example.com"), "http://cb")
+    assert result["ok"], result
+    saved = inbox_config.get_inbox("w")
+    assert saved["label"] == "Work 2" and saved["categories"] == custom
+
+
+def test_connect_outlook_message_uses_verification_uri(sandbox, monkeypatch):
+    _add_inbox("outlook")
+    inbox_config.save_oauth_client("microsoft", "mid")
+    monkeypatch.setattr(mail_auth, "start_device_flow",
+                        lambda name, client_id, on_success: {"user_code": "ABCD", "device_code": "SECRET-DC",
+                                                             "verification_uri": "https://login.example/device"})
+    result = inbox_pages.handle_post("/inbox/inboxes/w/connect", {}, "http://cb")
+    assert "https://login.example/device" in result["message"] and "SECRET-DC" not in result["message"]
+    monkeypatch.setattr(mail_auth, "start_device_flow", lambda name, client_id, on_success: {"user_code": "ABCD"})
+    assert "microsoft.com/devicelogin" in inbox_pages.handle_post("/inbox/inboxes/w/connect", {}, "http://cb")["message"]
+
+
+def test_google_callback_provider_changed_returns_failure(sandbox, monkeypatch):
+    _add_inbox()
+    inbox_config.save_oauth_client("google", "gid", "s")
+    state = mail_auth.create_pending_state("w", "ver", "http://cb")
+    monkeypatch.setattr(mail_auth, "google_exchange_code", lambda code, verifier, redirect_uri, client: {"access_token": "at", "refresh_token": "rt"})
+
+    def factory(inbox, token, refresh=None):
+        raise ValueError("Unknown provider 'outlook'")
+
+    monkeypatch.setattr(inbox_pages, "_provider_factory", lambda: factory)
+    ok, message = inbox_pages.handle_google_callback({"state": [state], "code": ["c"]})
+    assert not ok and "provider" in message.lower()
+    assert sandbox["stored"] == {}
+
+
+def test_google_callback_http_error_returns_failure(sandbox, monkeypatch):
+    import mail_http
+    _add_inbox()
+    inbox_config.save_oauth_client("google", "gid", "s")
+    state = mail_auth.create_pending_state("w", "ver", "http://cb")
+
+    def exchange(code, verifier, redirect_uri, client):
+        raise mail_http.MailHTTPError(None, "", "https://oauth2.googleapis.com/token")
+
+    monkeypatch.setattr(mail_auth, "google_exchange_code", exchange)
+    ok, message = inbox_pages.handle_google_callback({"state": [state], "code": ["c"]})
+    assert not ok and "oauth2.googleapis.com" in message
+    assert sandbox["stored"] == {}
+
+
+def test_device_flow_script_clears_code_line_on_failure():
+    script = inbox_pages._DEVICE_FLOW_SCRIPT
+    assert "s.state === 'failed'" in script
