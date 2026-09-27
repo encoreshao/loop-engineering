@@ -1054,13 +1054,44 @@ def test_default_accent_keeps_the_sidebar_neutral_and_mode_aware():
     assert "--md-nav-on-surface: var(--md-on-surface-variant);" in rule
 
 
-def test_sidebar_and_topbar_use_the_accent_nav_surface_token():
+def test_sidebar_and_topbar_use_a_translucent_accent_nav_surface():
+    """The sidebar/topbar stay tinted by the accent's --md-nav-surface,
+    but translucent (plus a backdrop blur) so the shared .app-bg wash
+    shows through them the same way it does behind page content."""
     assert ".sidebar {" in ds._STYLE
     sidebar_rule = ds._STYLE.split(".sidebar {")[1].split("}")[0]
-    assert "background: var(--md-nav-surface);" in sidebar_rule
+    assert "color-mix(in srgb, var(--md-nav-surface)" in sidebar_rule
+    assert "backdrop-filter:" in sidebar_rule
 
     topbar_rule = ds._STYLE.split(".topbar {")[1].split("}")[0]
-    assert "background: var(--md-nav-surface);" in topbar_rule
+    assert "color-mix(in srgb, var(--md-nav-surface)" in topbar_rule
+    assert "backdrop-filter:" in topbar_rule
+
+
+def test_sidebar_and_topbar_paint_the_shared_page_grid():
+    """The blur/tint on the sidebar and topbar would hide the page's grid
+    lines, so both paint the same grid themselves - same line token, same
+    cell size, viewport-fixed so their lines line up with the page's."""
+    for selector in (".sidebar {", ".topbar {"):
+        rule = ds._STYLE.split(selector)[1].split("}")[0]
+        assert "var(--app-grid-lines)" in rule
+        assert "var(--app-grid-size) var(--app-grid-size)" in rule
+        assert "background-attachment: fixed" in rule
+
+    grid_rule = ds._STYLE.split(".app-bg::after {")[1].split("}")[0]
+    assert "var(--app-grid-lines)" in grid_rule
+    assert "var(--app-grid-size) var(--app-grid-size)" in grid_rule
+    assert "--app-grid-size: 16px;" in ds._STYLE
+
+
+def test_every_page_renders_the_shared_app_background():
+    """The Dashboard's gradient/grid background lives in _render_shell,
+    so every page (not just the Dashboard) gets it - exactly once."""
+    page = ds._render_shell("Settings", "settings", "", "<p>hi</p>")
+    assert page.count("class=\"app-bg\"") == 1
+    app_bg_rule = ds._STYLE.split(".app-bg {")[1].split("}")[0]
+    assert "position: fixed;" in app_bg_rule
+    assert "z-index: -1;" in app_bg_rule
 
 
 def test_active_nav_item_does_not_collide_with_an_accent_tinted_sidebar():
@@ -10952,3 +10983,37 @@ def test_history_drawer_reopens_after_a_delete_redirect(tmp_path, monkeypatch):
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
     page = ds._render_shell("T", "overview", "", "")
     assert "params.get('history') === '1'" in page
+
+
+def test_collapsed_sidebar_shows_a_styled_tooltip_on_nav_icon_hover():
+    """When the sidebar is collapsed (or on the narrow rail), hovering or
+    focusing a nav icon shows its label in a fixed-position tooltip
+    beside it - fixed so .sidebar/.sidebar-nav's overflow can't clip it.
+    The script moves each link's native `title` into aria-label so the
+    browser's own tooltip doesn't double up with it."""
+    page = ds._render_shell("Settings", "settings", "", "<p>hi</p>")
+    assert "<div class=\"nav-tooltip\" id=\"nav-tooltip\" role=\"tooltip\" hidden></div>" in page
+    assert "classList.contains('collapsed')" in page.split('id="nav-tooltip"')[1]
+    assert "removeAttribute('title')" in page
+    assert "setAttribute('aria-label'" in page
+
+    rule = ds._STYLE.split(".nav-tooltip {")[1].split("}")[0]
+    assert "position: fixed;" in rule
+    assert "pointer-events: none;" in rule
+
+
+def test_hero_title_highlights_loop_with_a_gradient(monkeypatch, tmp_path):
+    """The Dashboard hero's key word gets a clipped gradient fill; the
+    slow sheen animation on it is decorative, so it must stay gated
+    behind prefers-reduced-motion: no-preference."""
+    _chat_page_env(monkeypatch, tmp_path)
+    page = ds.render_overview_page()
+    assert "<h1 class='chat-hero-title'>Into the <span class='chat-hero-accent'>Loop</span></h1>" in page
+
+    rule = ds._STYLE.split(".chat-hero-accent {")[1].split("}")[0]
+    assert "linear-gradient(" in rule
+    assert "background-clip: text;" in rule
+    assert "-webkit-text-fill-color: transparent;" in rule
+
+    motion_block = ds._STYLE.split("@media (prefers-reduced-motion: no-preference) {")[1]
+    assert ".chat-hero-accent { animation:" in motion_block.split("\n}\n")[0]

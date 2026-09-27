@@ -3883,7 +3883,11 @@ button:focus-visible,
   left: 0;
   width: 220px;
   height: 100vh;
-  background: var(--md-nav-surface);
+  background: var(--app-grid-lines), color-mix(in srgb, var(--md-nav-surface) 78%, transparent);
+  background-size: var(--app-grid-size) var(--app-grid-size), auto;
+  background-attachment: fixed;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border-right: 1px solid var(--md-outline-variant);
   display: flex;
   flex-direction: column;
@@ -3975,7 +3979,11 @@ button:focus-visible,
   position: sticky;
   top: 0;
   z-index: 90;
-  background: var(--md-nav-surface);
+  background: var(--app-grid-lines), color-mix(in srgb, var(--md-nav-surface) 78%, transparent);
+  background-size: var(--app-grid-size) var(--app-grid-size), auto;
+  background-attachment: fixed;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--md-outline-variant);
   padding: 0.75rem 1.25rem;
   display: flex;
@@ -4026,6 +4034,26 @@ html.collapsed .sidebar-top {{
   gap: 0.4rem;
 }}
 html.collapsed .activity-composer {{ left: 64px; }}
+
+/* Label bubble shown beside a nav icon on hover/focus while the sidebar is
+   the 64px icon rail (collapsed, or forced narrow below 720px) - see the
+   "nav-tooltip" script in _render_shell. position: fixed so the sidebar's
+   own overflow (.sidebar, .sidebar-nav, .sidebar-nav a all clip) can't cut
+   it off; the script positions it from the link's bounding rect. */
+.nav-tooltip {{
+  position: fixed;
+  z-index: 200;
+  pointer-events: none;
+  transform: translateY(-50%);
+  padding: 0.35rem 0.7rem;
+  border-radius: 8px;
+  background: var(--md-on-surface);
+  color: var(--md-surface);
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}}
 
 @media (max-width: 720px) {{
   .sidebar {{ width: 64px; }}
@@ -4105,29 +4133,40 @@ html.collapsed .activity-composer {{ left: 64px; }}
   flex-direction: column;
   align-items: center;
 }}
-/* Soft blurred color fields plus a faint grid behind the whole content
-   area, derived from the theme's own primary color so every palette and
-   dark mode get a matching wash instead of hardcoded blues. */
-.chat-bg {{
+/* Soft blurred color fields plus a faint grid behind every page (rendered
+   once by _render_shell), derived from the theme's own primary color so
+   every palette and dark mode get a matching wash instead of hardcoded
+   blues. z-index -1 paints it above the body's own background but below
+   all page content without giving .content-area a stacking context of its
+   own (which would trap the chat history drawer beneath the sidebar). The
+   sidebar and topbar are translucent + blurred so it shows through them. */
+/* The grid is shared with .sidebar/.topbar, which paint it themselves
+   (their tint + blur would otherwise hide .app-bg's lines) - both use
+   background-attachment: fixed so every line starts from the viewport
+   origin and lines up across the nav/page seams. Defined on :root so
+   --md-outline-variant resolves per color mode. */
+:root {{
+  --app-grid-size: 16px;
+  --app-grid-lines:
+    linear-gradient(color-mix(in srgb, var(--md-outline-variant) 22%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--md-outline-variant) 22%, transparent) 1px, transparent 1px);
+}}
+.app-bg {{
   position: fixed;
   inset: 0;
-  z-index: 0;
+  z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(40% 35% at 70% 12%, color-mix(in srgb, var(--chat-accent) 22%, transparent), transparent 70%),
-    radial-gradient(35% 30% at 22% 42%, color-mix(in srgb, var(--chat-accent) 14%, transparent), transparent 70%),
-    radial-gradient(45% 40% at 90% 60%, color-mix(in srgb, var(--chat-accent) 10%, transparent), transparent 70%);
+    radial-gradient(40% 35% at 70% 12%, color-mix(in srgb, var(--md-primary) 22%, transparent), transparent 70%),
+    radial-gradient(35% 30% at 22% 42%, color-mix(in srgb, var(--md-primary) 14%, transparent), transparent 70%),
+    radial-gradient(45% 40% at 90% 60%, color-mix(in srgb, var(--md-primary) 10%, transparent), transparent 70%);
 }}
-.chat-bg::after {{
+.app-bg::after {{
   content: "";
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(color-mix(in srgb, var(--md-outline-variant) 35%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--md-outline-variant) 35%, transparent) 1px, transparent 1px);
-  background-size: 120px 120px;
-  mask-image: linear-gradient(to bottom, #000, transparent 85%);
-  -webkit-mask-image: linear-gradient(to bottom, #000, transparent 85%);
+  background-image: var(--app-grid-lines);
+  background-size: var(--app-grid-size) var(--app-grid-size);
 }}
 .chat-page > .flash, .chat-hero, .chat-thread, .chat-hero-links {{ position: relative; z-index: 1; width: 100%; max-width: var(--chat-width); }}
 .chat-hero, .chat-hero-links {{ display: none; }}
@@ -4156,6 +4195,24 @@ html.collapsed .activity-composer {{ left: 64px; }}
   letter-spacing: 0.01em;
   line-height: 1.1;
   color: var(--md-on-surface);
+}}
+/* The hero's key word: a clipped gradient fill derived from the theme's
+   primary (drifting through violet and teal), so it reads as the focal
+   point without hardcoding one palette. background-size 200% leaves room
+   for the slow sheen in the prefers-reduced-motion block; without motion
+   it simply rests on the first half of the gradient. */
+.chat-hero-accent {{
+  font-weight: 500;
+  background: linear-gradient(110deg,
+    var(--md-primary) 0%,
+    color-mix(in srgb, var(--md-primary) 45%, #8B5CF6) 35%,
+    color-mix(in srgb, var(--md-primary) 40%, #14B8A6) 65%,
+    var(--md-primary) 100%);
+  background-size: 200% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: var(--md-primary);
 }}
 
 .chat-link-pill {{
@@ -5478,6 +5535,8 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
 @keyframes md-spin-ccw {{ to {{ transform: rotate(-360deg); }} }}
 
 @media (prefers-reduced-motion: no-preference) {{
+  .chat-hero-accent {{ animation: chat-hero-sheen 9s ease-in-out infinite alternate; }}
+  @keyframes chat-hero-sheen {{ 0% {{ background-position: 0% 50%; }} 100% {{ background-position: 100% 50%; }} }}
   .topbar-progress-bar.is-active::before {{ animation: topbar-progress-slide 1.6s linear infinite; }}
   @keyframes topbar-progress-slide {{ 0% {{ left: -50%; }} 100% {{ left: 100%; }} }}
   /* Each dot fades in and out in turn (staggered via animation-delay) -
@@ -6749,6 +6808,8 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
 </head>
 <body>
 
+<div class="app-bg" aria-hidden="true"></div>
+
 <div class="field-error-bubble" id="field-error-bubble" hidden>
 <span class="material-symbols-outlined" aria-hidden="true">error</span>
 <span class="field-error-bubble-text"></span>
@@ -6781,6 +6842,40 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
 {body_html}
 </div>
 </main>
+
+<div class="nav-tooltip" id="nav-tooltip" role="tooltip" hidden></div>
+<script>
+(function() {{
+  // Styled replacement for the nav links' native title tooltip, shown only
+  // while the sidebar is the icon rail (labels hidden). The title moves to
+  // aria-label so the link keeps its accessible name once .nav-label is
+  // display:none, and the browser's own tooltip doesn't double up.
+  var tip = document.getElementById('nav-tooltip');
+  var rail = window.matchMedia('(max-width: 720px)');
+  function isRail() {{ return document.documentElement.classList.contains('collapsed') || rail.matches; }}
+  function show(link) {{
+    if (!isRail()) return;
+    var rect = link.getBoundingClientRect();
+    tip.textContent = link.getAttribute('aria-label');
+    tip.style.left = (rect.right + 10) + 'px';
+    tip.style.top = (rect.top + rect.height / 2) + 'px';
+    tip.hidden = false;
+  }}
+  function hide() {{ tip.hidden = true; }}
+  document.querySelectorAll('.sidebar-nav a[title]').forEach(function(link) {{
+    link.setAttribute('aria-label', link.getAttribute('title'));
+    link.removeAttribute('title');
+    link.addEventListener('mouseenter', function() {{ show(link); }});
+    link.addEventListener('focus', function() {{ show(link); }});
+    link.addEventListener('mouseleave', hide);
+    link.addEventListener('blur', hide);
+  }});
+  var nav = document.querySelector('.sidebar-nav');
+  if (nav) nav.addEventListener('scroll', hide);
+  var toggle = document.querySelector('.sidebar-toggle');
+  if (toggle) toggle.addEventListener('click', hide);
+}})();
+</script>
 
 </body>
 </html>
@@ -7057,7 +7152,6 @@ def render_overview_page(flash=None, flash_ok=True, session_id=None):
 
     body = f"""
 <div class='chat-page{" is-empty" if is_empty else ""}'>
-<div class='chat-bg' aria-hidden='true'></div>
 <div class='chat-toolbar'>
 <button type='button' class='chat-tool-btn' data-chat-history-open aria-controls='chat-history' aria-expanded='false'><span class='material-symbols-outlined' aria-hidden='true'>history</span>History</button>
 <form method='post' action='/activity/new-chat' class='chat-new-form'>
@@ -7076,7 +7170,7 @@ def render_overview_page(flash=None, flash_ok=True, session_id=None):
 {flash_html}
 <div class='chat-hero'>
 <a class='chat-announce' href='/activity'><span class='material-symbols-outlined' aria-hidden='true'>auto_awesome</span>{html.escape(announce_text)} &rarr;</a>
-<h1 class='chat-hero-title'>Into the Loop</h1>
+<h1 class='chat-hero-title'>Into the <span class='chat-hero-accent'>Loop</span></h1>
 </div>
 <div class='chat-thread activity-messages-grid'>
 {messages_html}
