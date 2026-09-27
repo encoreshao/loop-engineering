@@ -63,7 +63,7 @@ def keychain_service():
 
 def _security(args):
     try:
-        return subprocess.run(["security", *args], capture_output=True, text=True,
+        return subprocess.run(["/usr/bin/security", *args], capture_output=True, text=True,
                               timeout=KEYCHAIN_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
         raise KeychainError("Keychain did not answer in time - is it locked?") from None
@@ -181,6 +181,10 @@ _MS_POLL_ERRORS = {
     "expired_token": "expired", "bad_verification_code": "expired",
     "authorization_declined": "declined",
 }
+# Statuses that indicate a transient blip (rate limit, network error, or a
+# 5xx from Microsoft) rather than an actual poll outcome - one blip shouldn't
+# end a 15-minute device-code flow, so these are treated as "pending" too.
+_MS_POLL_TRANSIENT_STATUSES = {None, 429, 500, 502, 503, 504}
 
 
 def ms_poll_once(client_id, device_code, token_url=None):
@@ -195,6 +199,8 @@ def ms_poll_once(client_id, device_code, token_url=None):
         mapped = _MS_POLL_ERRORS.get(_oauth_error(exc))
         if mapped:
             return mapped, None
+        if exc.status in _MS_POLL_TRANSIENT_STATUSES:
+            return "pending", None
         raise AuthFlowError(f"Microsoft sign-in failed ({_oauth_error(exc) or exc.status})") from None
     return "success", tokens
 
@@ -245,8 +251,8 @@ def start_device_flow(inbox_name, client_id, on_success, run_in_background=None,
             sleep(interval)
             try:
                 outcome, tokens = ms_poll_once(client_id, info["device_code"])
-            except AuthFlowError as exc:
-                _set_flow(inbox_name, state="failed", message=str(exc))
+            except Exception as exc:  # noqa: BLE001 - any failure here must not kill the poll thread silently
+                _set_flow(inbox_name, state="failed", message=str(exc) or type(exc).__name__)
                 return
             if outcome == "pending":
                 continue
@@ -256,8 +262,8 @@ def start_device_flow(inbox_name, client_id, on_success, run_in_background=None,
             if outcome == "success":
                 try:
                     on_success(tokens)
-                except (AuthFlowError, KeychainError) as exc:
-                    _set_flow(inbox_name, state="failed", message=str(exc))
+                except Exception as exc:  # noqa: BLE001 - same as above: report, don't crash the thread
+                    _set_flow(inbox_name, state="failed", message=str(exc) or type(exc).__name__)
                     return
                 _set_flow(inbox_name, state="connected", message="Connected")
                 return

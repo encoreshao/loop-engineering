@@ -43,8 +43,9 @@ def test_keychain_get_found_missing_and_error(monkeypatch):
     monkeypatch.setattr(mail_auth.subprocess, "run", fake)
     assert mail_auth.keychain_get("work") == "refresh-tok"
     cmd, kwargs = fake.calls[0]
-    assert cmd[:2] == ["security", "find-generic-password"]
+    assert cmd[:2] == ["/usr/bin/security", "find-generic-password"]
     assert ["-a", "work"] == cmd[cmd.index("-a"):cmd.index("-a") + 2]
+    assert cmd[cmd.index("-s") + 1] == mail_auth.keychain_service()
     assert "-w" in cmd and kwargs["timeout"] == 10
 
     monkeypatch.setattr(mail_auth.subprocess, "run", _FakeRun(44, "", "could not be found"))
@@ -68,10 +69,11 @@ def test_keychain_set_updates_and_trusts_security_binary(monkeypatch):
     monkeypatch.setattr(mail_auth.subprocess, "run", fake)
     mail_auth.keychain_set("work", "secret")
     cmd, _ = fake.calls[0]
-    assert cmd[:2] == ["security", "add-generic-password"]
+    assert cmd[:2] == ["/usr/bin/security", "add-generic-password"]
     assert "-U" in cmd
     assert cmd[cmd.index("-T") + 1] == "/usr/bin/security"
     assert cmd[cmd.index("-w") + 1] == "secret"
+    assert cmd[cmd.index("-s") + 1] == mail_auth.keychain_service()
 
 
 def test_keychain_delete_ignores_missing(monkeypatch):
@@ -152,6 +154,20 @@ def test_ms_poll_once_error_mapping(error, expected):
         assert mail_auth.ms_poll_once("mid", "dc", token_url=stub.base_url + "/token") == (expected, None)
 
 
+@pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
+def test_ms_poll_once_transient_http_error_is_pending(status):
+    with StubServer() as stub:
+        stub.add("POST", "/token", status=status, body={"error": "server_error"})
+        assert mail_auth.ms_poll_once("mid", "dc", token_url=stub.base_url + "/token") == ("pending", None)
+
+
+def test_ms_poll_once_unmappable_error_raises_auth_flow_error():
+    with StubServer() as stub:
+        stub.add("POST", "/token", status=400, body={"error": "invalid_client"})
+        with pytest.raises(mail_auth.AuthFlowError):
+            mail_auth.ms_poll_once("mid", "dc", token_url=stub.base_url + "/token")
+
+
 def test_ms_poll_once_success_and_refresh_rotation():
     with StubServer() as stub:
         stub.add("POST", "/token", body={"access_token": "at", "refresh_token": "rt"})
@@ -187,6 +203,32 @@ def test_start_device_flow_on_success_failure_is_reported(monkeypatch):
                                 sleep=lambda s: None, now=lambda: 0)
     status = mail_auth.device_flow_status("home")
     assert status["state"] == "failed" and "other@x.com" in status["message"]
+
+
+def test_start_device_flow_poll_unexpected_error_is_reported(monkeypatch):
+    monkeypatch.setattr(mail_auth, "ms_start_device_code", lambda client_id: {
+        "device_code": "dc", "user_code": "X", "verification_uri": "u", "interval": 1, "expires_in": 900})
+
+    def boom(client_id, device_code):
+        raise ValueError("network exploded")
+    monkeypatch.setattr(mail_auth, "ms_poll_once", boom)
+    mail_auth.start_device_flow("home", "mid", on_success=lambda tokens: None,
+                                run_in_background=lambda fn: fn(), sleep=lambda s: None, now=lambda: 0)
+    status = mail_auth.device_flow_status("home")
+    assert status["state"] == "failed" and "network exploded" in status["message"]
+
+
+def test_start_device_flow_on_success_unexpected_error_is_reported(monkeypatch):
+    monkeypatch.setattr(mail_auth, "ms_start_device_code", lambda client_id: {
+        "device_code": "dc", "user_code": "X", "verification_uri": "u", "interval": 1, "expires_in": 900})
+    monkeypatch.setattr(mail_auth, "ms_poll_once", lambda client_id, device_code: ("success", {}))
+
+    def fail(tokens):
+        raise KeyError("refresh_token")
+    mail_auth.start_device_flow("home", "mid", on_success=fail, run_in_background=lambda fn: fn(),
+                                sleep=lambda s: None, now=lambda: 0)
+    status = mail_auth.device_flow_status("home")
+    assert status["state"] == "failed"
 
 
 def test_device_flow_status_unknown():
