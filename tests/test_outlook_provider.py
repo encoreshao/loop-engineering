@@ -63,7 +63,42 @@ def test_fetch_new_filter_prefer_header_and_prior_thread():
     assert messages[0]["prior_thread"][0]["body_text"] == "earlier"
     assert "isRead eq false" in list_req["query"]["$filter"][0]
     assert "receivedDateTime ge 2026-09-25T00:00:00Z" in list_req["query"]["$filter"][0]
+    # Graph requires the $orderby property to also be the leading clause of
+    # $filter, in the same order, or it rejects the request with a 400
+    # InefficientFilter - receivedDateTime must come first.
+    assert list_req["query"]["$filter"][0].startswith("receivedDateTime ge ")
     assert 'outlook.body-content-type="text"' in list_req["headers"].get("Prefer", "")
+
+
+def test_fetch_new_follows_odata_next_link_past_an_all_excluded_page():
+    """Controller review: if the first page is entirely seen/excluded
+    senders, fetch_new must follow @odata.nextLink rather than returning
+    nothing and silently stalling forever."""
+    since = datetime(2026, 9, 25, 0, 0, tzinfo=timezone.utc)
+    with StubServer() as stub:
+        stub.add("GET", f"{V}/mailFolders/inbox/messages", body={
+            "value": [_raw("bot1", sender="x@spam.com"), _raw("bot2", sender="y@spam.com")],
+            "@odata.nextLink": stub.base_url + "/v1.0/next-page",
+        })
+        stub.add("GET", "/v1.0/next-page", body={"value": [_raw("m1", when="2026-09-27T07:00:00Z")]})
+        stub.add("GET", f"{V}/messages", body={"value": []})
+        messages = _provider(stub).fetch_new(since, set(), ["@spam.com"], limit=1)
+        next_page_req = next(r for r in stub.requests if r["path"] == "/v1.0/next-page")
+    assert [m["id"] for m in messages] == ["m1"]
+    assert 'outlook.body-content-type="text"' in next_page_req["headers"].get("Prefer", "")
+
+
+def test_fetch_new_returns_oldest_limit_when_more_qualify():
+    since = datetime(2026, 9, 25, 0, 0, tzinfo=timezone.utc)
+    with StubServer() as stub:
+        stub.add("GET", f"{V}/mailFolders/inbox/messages", body={"value": [
+            _raw("m1", when="2026-09-27T06:00:00Z"),
+            _raw("m2", when="2026-09-27T07:00:00Z"),
+            _raw("m3", when="2026-09-27T08:00:00Z"),
+        ]})
+        stub.add("GET", f"{V}/messages", body={"value": []})
+        messages = _provider(stub).fetch_new(since, set(), [], limit=2)
+    assert [m["id"] for m in messages] == ["m1", "m2"]
 
 
 def test_prior_thread_skips_draft_messages():

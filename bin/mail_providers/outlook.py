@@ -11,6 +11,7 @@ from mail_providers.base import BaseProvider
 
 _PREFER_TEXT = {"Prefer": 'outlook.body-content-type="text"'}
 _SELECT = "id,conversationId,from,toRecipients,ccRecipients,subject,receivedDateTime,body,hasAttachments,internetMessageId"
+_LIST_PAGE_LIMIT = 20  # safety cap: 20 pages of $top=100, mirroring Gmail's own list-page cap
 
 
 def _person(entry):
@@ -59,23 +60,36 @@ class OutlookProvider(BaseProvider):
     def fetch_new(self, since, seen_ids, exclude, limit):
         since_utc = since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         params = {
-            "$filter": f"isRead eq false and receivedDateTime ge {since_utc}",
+            # Graph rejects $orderby on a property that isn't also the
+            # leading clause of $filter, in the same order (400
+            # InefficientFilter) - receivedDateTime must come first here.
+            "$filter": f"receivedDateTime ge {since_utc} and isRead eq false",
             "$orderby": "receivedDateTime asc",
-            "$top": str(min(100, limit + len(seen_ids) + 20)),
+            "$top": "100",
             "$select": _SELECT,
         }
-        page = self._call("GET", f"/me/mailFolders/inbox/messages?{urllib.parse.urlencode(params, quote_via=urllib.parse.quote)}",
-                          headers=_PREFER_TEXT)
+        url = f"/me/mailFolders/inbox/messages?{urllib.parse.urlencode(params, quote_via=urllib.parse.quote)}"
         messages = []
-        for raw in page.get("value", []):
-            if raw["id"] in seen_ids:
-                continue
-            parsed = parse_graph_message(raw)
-            if inbox_config.sender_matches(inbox_config.parse_address(parsed["from"]), exclude):
-                continue
-            messages.append(parsed)
+        for _ in range(_LIST_PAGE_LIMIT):
+            page = self._call("GET", url, headers=_PREFER_TEXT)
+            for raw in page.get("value", []):
+                if raw["id"] in seen_ids:
+                    continue
+                parsed = parse_graph_message(raw)
+                if inbox_config.sender_matches(inbox_config.parse_address(parsed["from"]), exclude):
+                    continue
+                messages.append(parsed)
+                if len(messages) >= limit:
+                    break
+            if len(messages) >= limit:
+                break
+            next_link = page.get("@odata.nextLink")
+            if not next_link:
+                break
+            # @odata.nextLink is an absolute URL; BaseProvider._call passes
+            # it straight through instead of prefixing the base URL.
+            url = next_link
         messages.sort(key=lambda m: m["date"])
-        messages = messages[:limit]
         for message in messages:
             if message.pop("_has_attachments", False):
                 atts = self._call("GET", f"/me/messages/{message['id']}/attachments?$select=name")
