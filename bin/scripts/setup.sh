@@ -27,6 +27,7 @@ fi
 SKIP_SKILLS_INSTALL=0
 CONFIG_PATH="$HOME/.loop-engineering/projects.json"
 TOPICS_CONFIG_PATH="$HOME/.loop-engineering/topics.json"
+INBOXES_CONFIG_PATH="$HOME/.loop-engineering/inboxes.json"
 AI_CLI_CONFIG_PATH="$HOME/.loop-engineering/ai_cli.json"
 LOOPS_CONFIG_PATH="$HOME/.loop-engineering/loops.json"
 STATE_PATH="$HOME/.loop-engineering/loop_scheduler_state.json"
@@ -89,6 +90,15 @@ else
   mkdir -p "$(dirname "$TOPICS_CONFIG_PATH")"
   cp "$LOOP_DIR/config/topics.json.template" "$TOPICS_CONFIG_PATH"
   echo "${C_YELLOW}    Edit it now: which topics to monitor, and what counts as notable for each (only needed for the topic monitor loop).${C_RESET}"
+fi
+
+if [ -f "$INBOXES_CONFIG_PATH" ]; then
+  echo "${C_BLUE}==> $INBOXES_CONFIG_PATH already exists, leaving it alone${C_RESET}"
+else
+  echo "${C_BLUE}==> Creating $INBOXES_CONFIG_PATH from the template${C_RESET}"
+  mkdir -p "$(dirname "$INBOXES_CONFIG_PATH")"
+  cp "$LOOP_DIR/config/inboxes.json.template" "$INBOXES_CONFIG_PATH"
+  echo "${C_YELLOW}    Only needed for the Inbox Triage loop - connect mailboxes from the dashboard's Inbox Triage setup page.${C_RESET}"
 fi
 
 if [ -f "$AI_CLI_CONFIG_PATH" ]; then

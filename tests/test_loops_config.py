@@ -7,6 +7,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin"))
 import loops_config as lc
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
 
 def _write_registry(path, entries):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -271,3 +273,12 @@ def test_set_schedule_unknown_loop_returns_false_without_writing(tmp_path):
 
     assert ok is False
     assert config_path.read_text() == before
+
+
+def test_template_registers_inbox_triage_loop_disabled():
+    entries = json.loads((REPO_ROOT / "config" / "loops.json.template").read_text())
+    entry = next(e for e in entries if e["name"] == "inbox-triage-loop")
+    assert entry["entry_point"] == "bin.inbox_triage_runner"
+    assert entry["enabled"] is False
+    assert entry["schedule"] == {"frequency": "weekly", "weekdays": [1, 2, 3, 4, 5], "hour": 9, "minute": 0}
+    assert entry["log_suffix"] == "-inbox-triage-loop"

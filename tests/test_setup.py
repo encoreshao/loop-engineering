@@ -150,3 +150,31 @@ def test_setup_leaves_existing_ai_cli_config_untouched(tmp_path):
     run_setup("--config-path", str(projects_path), "--ai-cli-config-path", str(ai_cli_path))
 
     assert ai_cli_path.read_text() == '{"cli": "codex"}'
+
+
+def test_setup_creates_inboxes_config_from_template_when_missing(tmp_path):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    env = {**os.environ, "HOME": str(fake_home)}
+    projects_path = tmp_path / "projects.json"
+
+    run_setup("--config-path", str(projects_path), env=env)
+
+    inboxes_path = fake_home / ".loop-engineering" / "inboxes.json"
+    template_path = Path(__file__).resolve().parent.parent / "config" / "inboxes.json.template"
+    assert inboxes_path.exists()
+    assert inboxes_path.read_bytes() == template_path.read_bytes()
+
+
+def test_setup_leaves_existing_inboxes_config_untouched(tmp_path):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    env = {**os.environ, "HOME": str(fake_home)}
+    projects_path = tmp_path / "projects.json"
+    inboxes_path = fake_home / ".loop-engineering" / "inboxes.json"
+    inboxes_path.parent.mkdir(parents=True, exist_ok=True)
+    inboxes_path.write_text('{"already": "configured"}')
+
+    run_setup("--config-path", str(projects_path), env=env)
+
+    assert inboxes_path.read_text() == '{"already": "configured"}'

@@ -26,6 +26,13 @@ ACTION_RISK_LEVELS = {
     "run_tests": RiskLevel.L1_LOCAL_MUTATION,
     "research_topic": RiskLevel.L1_LOCAL_MUTATION,
     "write_briefing": RiskLevel.L1_LOCAL_MUTATION,
+    "read_mailbox": RiskLevel.L0_READ_ONLY,
+    "classify_messages": RiskLevel.L0_READ_ONLY,
+    "label_messages": RiskLevel.L2_EXTERNAL_CHANGE,
+    "create_reply_drafts": RiskLevel.L2_EXTERNAL_CHANGE,
+    # Declared only so it is explicitly irreversible: the Inbox Triage loop
+    # never declares it, and its provider modules contain no send call.
+    "send_email": RiskLevel.L3_IRREVERSIBLE,
     "create_merge_request": RiskLevel.L2_EXTERNAL_CHANGE,
     "create_mr": RiskLevel.L2_EXTERNAL_CHANGE,
     "post_public_comment": RiskLevel.L2_EXTERNAL_CHANGE,
