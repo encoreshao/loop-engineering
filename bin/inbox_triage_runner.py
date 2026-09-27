@@ -13,7 +13,9 @@ claude's equivalent leaks (a saved session transcript, and hooks running
 against it) are closed below via --no-session-persistence and --settings
 '{"disableAllHooks": true}'; codex's ~/.codex/sessions/ rollout of the
 prompt is not currently closable from here."""
+import functools
 import json
+import signal
 import subprocess
 import sys
 import tempfile
@@ -105,7 +107,15 @@ def _append_unified_log(text, repo_root, unified_log_path):
         f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] inbox-triage: {text}\n")
 
 
-def invoke_triage_agent(prompt, repo_root=None, timeout_seconds=900, unified_log_path=None):
+def _default_timeout_seconds(definition_path=None):
+    """Per-inbox AI subprocess bound, from loop.yaml's
+    stop_conditions.max_runtime_minutes (the spec's per-inbox budget)."""
+    if definition_path is None:
+        definition_path = DEFAULT_DEFINITION_PATH
+    return LoopDefinition.from_yaml(definition_path).stop_conditions.max_runtime_minutes * 60
+
+
+def invoke_triage_agent(prompt, repo_root=None, timeout_seconds=None, unified_log_path=None):
     """The one AI subprocess boundary - tests monkeypatch this (or
     subprocess.run). Only exit status, timing, and error class are logged:
     stdout/stderr can echo message content, which must never persist.
@@ -117,6 +127,8 @@ def invoke_triage_agent(prompt, repo_root=None, timeout_seconds=900, unified_log
     kept only to resolve the default unified log path (unchanged)."""
     if repo_root is None:
         repo_root = REPO_ROOT
+    if timeout_seconds is None:
+        timeout_seconds = _default_timeout_seconds()
     ai_cli = ai_cli_config.get_selected_cli()
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="inbox-triage-") as scratch_dir:
@@ -145,9 +157,9 @@ def invoke_triage_agent(prompt, repo_root=None, timeout_seconds=900, unified_log
     return {"text": envelope.get("result", ""), "cost_usd": envelope.get("total_cost_usd")}
 
 
-def classify(prompt, messages, categories, invoke=None):
+def classify(prompt, messages, categories, invoke=None, timeout_seconds=None):
     if invoke is None:
-        invoke = invoke_triage_agent
+        invoke = functools.partial(invoke_triage_agent, timeout_seconds=timeout_seconds)
     total_cost, last_error = None, None
     for _attempt in range(2):
         try:
@@ -172,7 +184,7 @@ def _outcome(inbox, status, error=None, **extra):
 
 
 def triage_inbox(inbox, config, now, provider_factory=None, token_fn=None, invoke=None,
-                 state_dir=None, instructions=None):
+                 state_dir=None, instructions=None, timeout_seconds=None):
     if provider_factory is None:
         provider_factory = mail_providers.get_provider
     if token_fn is None:
@@ -203,7 +215,7 @@ def triage_inbox(inbox, config, now, provider_factory=None, token_fn=None, invok
 
     prompt = inbox_triage.build_prompt(instructions, inbox, categories, messages)
     try:
-        decisions, cost = classify(prompt, messages, categories, invoke=invoke)
+        decisions, cost = classify(prompt, messages, categories, invoke=invoke, timeout_seconds=timeout_seconds)
     except TriageFailed as exc:
         return _outcome(inbox, "failed", f"AI triage failed: {exc}")
     decisions = inbox_triage.apply_rules(decisions, messages, inbox)
@@ -327,42 +339,96 @@ def send_digests(outcomes, now, post=None):
             print(f"inbox_triage_runner: Slack digest failed: {type(exc).__name__}: {exc}", file=sys.stderr)
 
 
+def _mark_inbox_failed(name, reason, status_path=None):
+    """Write this inbox's terminal `failed` state ourselves when the normal
+    end-of-inbox write never happened - mirrors
+    topic_monitor_runner._mark_topic_failed. trigger_inbox_triage_run
+    refuses a new run while an inbox reads "running", so an inbox left at
+    "running" (a raise in write_result/write_history, a PolicyViolationError
+    from LoopRuntime.start, SIGTERM from run-loop-now.sh's `timeout`) would
+    otherwise latch there. Best-effort: failing to record a failure must
+    not take down the rest of the run."""
+    try:
+        inbox_status.write(name, "failed", status_path=status_path, error=reason)
+        return True
+    except Exception as exc:  # noqa: BLE001 - see docstring
+        print(f"inbox_triage_runner: writing failed status for {name} failed: {type(exc).__name__}", file=sys.stderr)
+        return False
+
+
+def _run_one_inbox(inbox, config, now, run_id, definition, triage, results_dir, events_dir, history_dir):
+    captured = {}
+
+    def agent_fn(context):
+        try:
+            captured["outcome"] = triage(inbox, config, now)
+        except Exception as exc:
+            captured["outcome"] = _outcome(inbox, "failed", f"{type(exc).__name__}: {exc}")
+        if captured["outcome"]["status"] in ("failed", "needs_reauth"):
+            raise TriageFailed(captured["outcome"]["error"])
+        return {"changed": True, "cost_usd": captured["outcome"].get("cost_usd")}
+
+    try:
+        runtime = LoopRuntime(agent_fn=agent_fn, verifiers=build_verifiers(definition.verifiers, cwd=None),
+                              events_dir=events_dir)
+        write_result(runtime.start(definition, run_id=f"{run_id}_{inbox['name']}"), results_dir=results_dir)
+    except Exception as exc:  # noqa: BLE001 - e.g. PolicyViolationError; a triage result, if any, is kept
+        print(f"inbox_triage_runner: loop runtime for {inbox['name']} failed: {type(exc).__name__}", file=sys.stderr)
+        if "outcome" not in captured:
+            captured["outcome"] = _outcome(inbox, "failed", f"Loop runtime error: {type(exc).__name__}")
+    outcome = {**captured.get("outcome", _outcome(inbox, "failed", "runtime stopped before triage")),
+               "slack_bundle": inbox.get("slack_bundle")}
+    try:
+        write_history(outcome, now, history_dir=history_dir)
+    except Exception as exc:  # noqa: BLE001 - history is observability; the status write still has to happen
+        print(f"inbox_triage_runner: writing history for {inbox['name']} failed: {type(exc).__name__}", file=sys.stderr)
+    return outcome
+
+
 def run_all_inboxes(run_id, now=None, config_path=None, definition_path=None, results_dir=None,
                     events_dir=None, status_path=None, history_dir=None, triage=None):
     if now is None:
         now = datetime.now(timezone.utc)
     if definition_path is None:
         definition_path = DEFAULT_DEFINITION_PATH
-    if triage is None:
-        triage = triage_inbox
     config = inbox_config.load_config(config_path)
     definition = LoopDefinition.from_yaml(definition_path)
+    if triage is None:
+        triage = functools.partial(triage_inbox,
+                                   timeout_seconds=definition.stop_conditions.max_runtime_minutes * 60)
     outcomes = []
     for inbox in [i for i in config["inboxes"] if i.get("enabled", True)]:
-        inbox_status.write(inbox["name"], "running", status_path=status_path)
-        captured = {}
-
-        def agent_fn(context, inbox=inbox):
-            try:
-                captured["outcome"] = triage(inbox, config, now)
-            except Exception as exc:
-                captured["outcome"] = _outcome(inbox, "failed", f"{type(exc).__name__}: {exc}")
-            if captured["outcome"]["status"] in ("failed", "needs_reauth"):
-                raise TriageFailed(captured["outcome"]["error"])
-            return {"changed": True, "cost_usd": captured["outcome"].get("cost_usd")}
-
-        runtime = LoopRuntime(agent_fn=agent_fn, verifiers=build_verifiers(definition.verifiers, cwd=None),
-                              events_dir=events_dir)
-        write_result(runtime.start(definition, run_id=f"{run_id}_{inbox['name']}"), results_dir=results_dir)
-        outcome = {**captured.get("outcome", _outcome(inbox, "failed", "runtime stopped before triage")),
-                   "slack_bundle": inbox.get("slack_bundle")}
-        write_history(outcome, now, history_dir=history_dir)
-        inbox_status.write(inbox["name"], _STATUS_STATE[outcome["status"]], status_path=status_path,
-                           last_run_at=now.isoformat(), counts=outcome["counts"], urgent=outcome["urgent"],
-                           error=outcome["error"], overflow=outcome["overflow"])
+        outcome, terminal_written = None, False
+        try:
+            inbox_status.write(inbox["name"], "running", status_path=status_path)
+            outcome = _run_one_inbox(inbox, config, now, run_id, definition, triage,
+                                     results_dir, events_dir, history_dir)
+            inbox_status.write(inbox["name"], _STATUS_STATE[outcome["status"]], status_path=status_path,
+                               last_run_at=now.isoformat(), counts=outcome["counts"], urgent=outcome["urgent"],
+                               error=outcome["error"], overflow=outcome["overflow"])
+            terminal_written = True
+        except Exception as exc:  # noqa: BLE001 - contained per inbox, like every other failure here
+            reason = f"Run stopped unexpectedly ({type(exc).__name__})"
+            print(f"inbox_triage_runner: {inbox['name']}: {reason}", file=sys.stderr)
+            if outcome is None:
+                outcome = {**_outcome(inbox, "failed", reason), "slack_bundle": inbox.get("slack_bundle")}
+        finally:
+            # Also runs on SystemExit (SIGTERM, see _raise_on_sigterm) and
+            # KeyboardInterrupt, which then propagate.
+            if not terminal_written:
+                _mark_inbox_failed(inbox["name"], "Run was interrupted before this inbox finished",
+                                   status_path=status_path)
         outcomes.append(outcome)
     send_digests(outcomes, now)
     return outcomes
+
+
+def _raise_on_sigterm(signum, frame):
+    """run-loop-now.sh's `timeout` stops a run with SIGTERM, whose default
+    action kills Python without running any `finally`. Raising SystemExit
+    instead lets run_all_inboxes write the interrupted inbox's terminal
+    status (and subprocess.run kill the AI child) on the way out."""
+    raise SystemExit(128 + signum)
 
 
 def main_with_argv(argv, **kwargs):
@@ -377,6 +443,7 @@ def main_with_argv(argv, **kwargs):
 
 
 def main():
+    signal.signal(signal.SIGTERM, _raise_on_sigterm)
     return main_with_argv(sys.argv[1:])
 
 

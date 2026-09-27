@@ -11132,11 +11132,74 @@ def test_connect_status_route_returns_json(monkeypatch):
             assert json.loads(resp.read()) == {"state": "pending", "user_code": "ABCD"}
 
 
-def test_trigger_inbox_triage_run_refuses_when_running(tmp_path, monkeypatch):
+def _inbox_trigger_env(tmp_path, monkeypatch, loop_state=None, pid=None, configured=("w",)):
+    """A status file with inbox "w" at running, a loop-level status file
+    (run-loop-now.sh's own) in the given state, and an inboxes.json listing
+    `configured`. Returns trigger kwargs plus the list Popen launches land in."""
     status_path = tmp_path / "status.json"
     ds.inbox_status.write("w", "running", status_path=status_path)
-    ok, message = ds.trigger_inbox_triage_run(status_path=status_path, run_loop_path=tmp_path / "run-loop-now.sh")
-    assert not ok and "already" in message
+    loop_status_path = tmp_path / "loop-status.json"
+    if loop_state is not None:
+        extra = {"pid": pid} if pid is not None else {}
+        ds.write_status(loop_state, loop_status_path, **extra)
+    config_path = tmp_path / "inboxes.json"
+    config_path.write_text(json.dumps({"inboxes": [
+        {"name": n, "label": n, "provider": "gmail", "account": f"{n}@example.com"} for n in configured]}))
+    script = tmp_path / "run-loop-now.sh"
+    script.write_text("#!/bin/bash\n")
+    launched = []
+    monkeypatch.setattr(ds.subprocess, "Popen", lambda cmd, **kw: launched.append(cmd))
+    kwargs = {"status_path": status_path, "run_loop_path": script, "loop_status_path": loop_status_path,
+              "config_path": config_path}
+    return kwargs, launched
+
+
+def _dead_pid():
+    proc = subprocess.Popen(["true"])
+    proc.wait()
+    return proc.pid
+
+
+def test_trigger_inbox_triage_run_refuses_when_running(tmp_path, monkeypatch):
+    kwargs, launched = _inbox_trigger_env(tmp_path, monkeypatch, loop_state="running", pid=os.getpid())
+    ok, message = ds.trigger_inbox_triage_run(**kwargs)
+    assert not ok and "already" in message and launched == []
+
+
+def test_trigger_inbox_triage_run_ignores_running_inbox_when_loop_is_idle(tmp_path, monkeypatch):
+    kwargs, launched = _inbox_trigger_env(tmp_path, monkeypatch, loop_state="idle")
+    ok, _ = ds.trigger_inbox_triage_run(**kwargs)
+    assert ok and len(launched) == 1
+
+
+def test_trigger_inbox_triage_run_ignores_running_inbox_when_loop_pid_is_dead(tmp_path, monkeypatch):
+    kwargs, launched = _inbox_trigger_env(tmp_path, monkeypatch, loop_state="running", pid=_dead_pid())
+    ok, _ = ds.trigger_inbox_triage_run(**kwargs)
+    assert ok and len(launched) == 1
+
+
+def test_trigger_inbox_triage_run_ignores_running_inbox_when_loop_never_ran(tmp_path, monkeypatch):
+    kwargs, launched = _inbox_trigger_env(tmp_path, monkeypatch, loop_state=None)
+    ok, _ = ds.trigger_inbox_triage_run(**kwargs)
+    assert ok and len(launched) == 1
+
+
+def test_trigger_inbox_triage_run_ignores_running_entry_for_an_unconfigured_inbox(tmp_path, monkeypatch):
+    kwargs, launched = _inbox_trigger_env(tmp_path, monkeypatch, loop_state="running", pid=os.getpid(),
+                                          configured=("other",))
+    ok, _ = ds.trigger_inbox_triage_run(**kwargs)
+    assert ok and len(launched) == 1
+
+
+def test_trigger_inbox_triage_run_default_loop_status_is_the_inbox_loops_own(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(ds, "read_status", lambda path=None: seen.append(path) or {"state": "idle"})
+    monkeypatch.setattr(ds.subprocess, "Popen", lambda cmd, **kw: None)
+    script = tmp_path / "run-loop-now.sh"
+    script.write_text("#!/bin/bash\n")
+    ds.trigger_inbox_triage_run(status_path=tmp_path / "s.json", run_loop_path=script,
+                                config_path=tmp_path / "inboxes.json")
+    assert seen == [ds.status_path_for_loop("inbox-triage-loop")]
 
 
 def test_trigger_inbox_triage_run_launches_detached(tmp_path, monkeypatch):
@@ -11144,7 +11207,9 @@ def test_trigger_inbox_triage_run_launches_detached(tmp_path, monkeypatch):
     script.write_text("#!/bin/bash\n")
     launched = []
     monkeypatch.setattr(ds.subprocess, "Popen", lambda cmd, **kw: launched.append((cmd, kw)))
-    ok, _ = ds.trigger_inbox_triage_run(status_path=tmp_path / "status.json", run_loop_path=script)
+    ok, _ = ds.trigger_inbox_triage_run(status_path=tmp_path / "status.json", run_loop_path=script,
+                                        loop_status_path=tmp_path / "loop-status.json",
+                                        config_path=tmp_path / "inboxes.json")
     assert ok
     assert launched[0][0] == ["bash", str(script), "inbox-triage-loop"]
     assert launched[0][1]["start_new_session"] is True

@@ -158,6 +158,7 @@ def test_instructions_doc_exists_and_states_json_contract():
 from datetime import datetime, timezone  # noqa: E402
 
 import inbox_seen  # noqa: E402
+import loop_policy  # noqa: E402
 import mail_auth  # noqa: E402
 import mail_http  # noqa: E402
 
@@ -489,3 +490,136 @@ def test_main_with_argv_usage_and_exit_zero(monkeypatch):
     assert runner.main_with_argv([]) == 2
     monkeypatch.setattr(runner, "run_all_inboxes", lambda run_id, **kw: [{"status": "failed"}])
     assert runner.main_with_argv(["run_1"]) == 0
+
+
+def _two_inbox_config(tmp_path):
+    config_path = tmp_path / "inboxes.json"
+    config_path.write_text(json.dumps({"default_categories": CATS, "inboxes": [
+        INBOX, {**INBOX, "name": "h", "label": "Home"}]}))
+    return config_path
+
+
+def _run_all(tmp_path, **kwargs):
+    kwargs.setdefault("triage", lambda inbox, config, now: {**_outcome_ok(), "name": inbox["name"], "label": inbox["label"]})
+    return runner.run_all_inboxes("run_1", now=NOW, config_path=_two_inbox_config(tmp_path),
+                                  results_dir=tmp_path / "results", events_dir=tmp_path / "events",
+                                  status_path=tmp_path / "status.json", history_dir=tmp_path / "history",
+                                  **kwargs)
+
+
+def _states(tmp_path):
+    return {k: v["state"] for k, v in json.loads((tmp_path / "status.json").read_text())["inboxes"].items()}
+
+
+def test_write_history_failure_still_writes_terminal_status_and_continues(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "send_digests", lambda outcomes, now, post=None: None)
+
+    def broken_history(outcome, now, history_dir=None):
+        if outcome["name"] == "w":
+            raise OSError("disk full")
+        return None
+    monkeypatch.setattr(runner, "write_history", broken_history)
+    outcomes = _run_all(tmp_path)
+    assert _states(tmp_path) == {"w": "idle", "h": "idle"}
+    assert [o["name"] for o in outcomes] == ["w", "h"]
+    assert outcomes[0]["urgent"]  # the triage result survives a history-write failure
+
+
+def test_runtime_start_failure_marks_inbox_failed_not_running(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "send_digests", lambda outcomes, now, post=None: None)
+
+    class PolicyBlocked:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self, definition, run_id):
+            raise loop_policy.PolicyViolationError([])
+    monkeypatch.setattr(runner, "LoopRuntime", PolicyBlocked)
+    outcomes = _run_all(tmp_path)
+    assert _states(tmp_path) == {"w": "failed", "h": "failed"}
+    assert all(o["status"] == "failed" for o in outcomes)
+    assert "PolicyViolationError" in outcomes[0]["error"]
+
+
+def test_status_write_failure_is_contained_per_inbox(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "send_digests", lambda outcomes, now, post=None: None)
+    real_write = runner.inbox_status.write
+
+    def flaky_write(name, state, status_path=None, **extra):
+        if name == "w" and state == "idle":
+            raise OSError("disk full")
+        return real_write(name, state, status_path=status_path, **extra)
+    monkeypatch.setattr(runner.inbox_status, "write", flaky_write)
+    outcomes = _run_all(tmp_path)
+    assert _states(tmp_path) == {"w": "failed", "h": "idle"}
+    assert len(outcomes) == 2
+
+
+def test_interrupt_mid_inbox_writes_failed_then_propagates(tmp_path, monkeypatch):
+    """SIGTERM from run-loop-now.sh's `timeout` is turned into SystemExit by
+    main()'s handler; the inbox being triaged must not latch at running."""
+    monkeypatch.setattr(runner, "send_digests", lambda outcomes, now, post=None: None)
+
+    def killed(inbox, config, now):
+        raise SystemExit(143)
+    with pytest.raises(SystemExit):
+        _run_all(tmp_path, triage=killed)
+    states = json.loads((tmp_path / "status.json").read_text())["inboxes"]
+    assert states["w"]["state"] == "failed" and states["w"]["error"]
+    assert "h" not in states
+
+
+def test_sigterm_handler_raises_system_exit():
+    with pytest.raises(SystemExit) as info:
+        runner._raise_on_sigterm(15, None)
+    assert info.value.code == 143
+
+
+def test_main_installs_sigterm_handler(monkeypatch):
+    installed = {}
+    monkeypatch.setattr(runner.signal, "signal", lambda sig, handler: installed.update({sig: handler}))
+    monkeypatch.setattr(runner, "main_with_argv", lambda argv: 0)
+    runner.main()
+    assert installed[runner.signal.SIGTERM] is runner._raise_on_sigterm
+
+
+def _definition_with_runtime(tmp_path, minutes):
+    text = runner.DEFAULT_DEFINITION_PATH.read_text().replace("max_runtime_minutes: 15", f"max_runtime_minutes: {minutes}")
+    path = tmp_path / "loop.yaml"
+    path.write_text(text)
+    return path
+
+
+def test_run_all_inboxes_derives_ai_timeout_from_loop_definition(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "send_digests", lambda outcomes, now, post=None: None)
+    seen = []
+
+    def fake_triage_inbox(inbox, config, now, timeout_seconds=None, **kwargs):
+        seen.append(timeout_seconds)
+        return {**_outcome_ok(), "name": inbox["name"], "label": inbox["label"]}
+    monkeypatch.setattr(runner, "triage_inbox", fake_triage_inbox)
+    _run_all(tmp_path, triage=None, definition_path=_definition_with_runtime(tmp_path, 7))
+    assert seen == [420, 420]
+
+
+def test_triage_inbox_threads_timeout_to_the_ai_call(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_invoke(prompt, timeout_seconds=None, **kwargs):
+        calls.append(timeout_seconds)
+        return {"text": json.dumps([{"id": "m1", "category": "fyi", "reason": "r", "draft_body": None}]), "cost_usd": None}
+    monkeypatch.setattr(runner, "invoke_triage_agent", fake_invoke)
+    provider = FakeProvider([_m(1)])
+    outcome = runner.triage_inbox(INBOX, CONFIG, NOW, provider_factory=lambda inbox, token, refresh: provider,
+                                  token_fn=lambda inbox: "tok", state_dir=tmp_path, instructions="I",
+                                  timeout_seconds=321)
+    assert outcome["status"] == "ok" and calls == [321]
+
+
+def test_invoke_default_timeout_comes_from_the_loop_definition(monkeypatch, tmp_path):
+    monkeypatch.setattr(runner.ai_cli_config, "get_selected_cli", lambda: "claude")
+    monkeypatch.setattr(runner, "DEFAULT_DEFINITION_PATH", _definition_with_runtime(tmp_path, 3))
+    fake = _Run(json.dumps({"result": "[]", "total_cost_usd": None, "is_error": False}))
+    monkeypatch.setattr(runner.subprocess, "run", fake)
+    runner.invoke_triage_agent("p", repo_root=tmp_path, unified_log_path=tmp_path / "l")
+    assert fake.calls[0][1]["timeout"] == 180

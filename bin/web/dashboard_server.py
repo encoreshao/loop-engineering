@@ -3319,13 +3319,30 @@ def trigger_topic_monitor_run(status_path=None, run_loop_path=None, loop_name="t
     return True, "Run started - check back here for progress"
 
 
-def trigger_inbox_triage_run(status_path=None, run_loop_path=None, loop_name="inbox-triage-loop"):
+def trigger_inbox_triage_run(status_path=None, run_loop_path=None, loop_name="inbox-triage-loop",
+                             loop_status_path=None, config_path=None):
     """The Inbox Triage loop's run-now: same detached run-loop-now.sh launch
-    as trigger_topic_monitor_run, refused while any inbox reads "running"
-    in outputs/inbox-triage/status.json."""
+    as trigger_topic_monitor_run, refused while a configured inbox reads
+    "running" in outputs/inbox-triage/status.json AND the loop-level status
+    run-loop-now.sh writes (status_path_for_loop(loop_name), which carries
+    the run's pid) says that run is still alive. An inbox entry left at
+    "running" by a run that was killed outright (SIGKILL, a crash before
+    the runner's own terminal write) is stale, not a reason to disable
+    "Run now" forever - same pid check stop_topic_loop uses."""
     if run_loop_path is None:
         run_loop_path = RUN_LOOP_NOW_SH
-    if inbox_status.any_running(status_path):
+    if loop_status_path is None:
+        loop_status_path = status_path_for_loop(loop_name)
+    loop_status = read_status(loop_status_path)
+    pid = loop_status.get("pid")
+    loop_live = loop_status.get("state") == "running" and pid is not None and _process_alive(pid)
+    try:
+        configured = {i["name"] for i in inbox_config.load_config_or_empty(config_path)["inboxes"]}
+    except ValueError:  # malformed inboxes.json - the page shows that error; a run would fail on it too
+        configured = set()
+    running = [name for name, entry in inbox_status.read(status_path)["inboxes"].items()
+               if entry.get("state") == "running" and name in configured]
+    if running and loop_live:
         return False, "A run is already in progress"
     if not Path(run_loop_path).exists():
         return False, f"run-loop-now.sh not found at {run_loop_path}"
