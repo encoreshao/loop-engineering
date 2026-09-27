@@ -10850,3 +10850,105 @@ def test_generate_chat_title_failure_keeps_heuristic_title(monkeypatch, tmp_path
     record = ds.read_chat_sessions(messages_path)["sessions"][0]
     assert record["title"] == "check demo"
     assert record["title_source"] == "auto"
+
+
+def test_delete_chat_session_removes_only_its_messages_and_record(tmp_path):
+    messages_path = tmp_path / "messages.json"
+    _ok, _msg, keep = ds.send_chat_message("keep me", messages_path, session="")
+    ds.start_new_chat_session(messages_path)
+    _ok, _msg, drop = ds.send_chat_message("drop me", messages_path, session="")
+    ds.append_message("loop", "reply to drop", messages_path, session=drop)
+
+    ok, _message = ds.delete_chat_session(drop, messages_path)
+
+    assert ok
+    assert [m["text"] for m in ds.read_messages(messages_path)] == ["keep me"]
+    assert [r["id"] for r in ds.read_chat_sessions(messages_path)["sessions"]] == [keep]
+    assert ds.current_chat_session_id(messages_path) is None  # it was current
+
+
+def test_delete_chat_session_keeps_current_when_deleting_another(tmp_path):
+    messages_path = tmp_path / "messages.json"
+    _ok, _msg, old = ds.send_chat_message("old", messages_path, session="")
+    ds.start_new_chat_session(messages_path)
+    _ok, _msg, current = ds.send_chat_message("current", messages_path, session="")
+
+    ds.delete_chat_session(old, messages_path)
+
+    assert ds.current_chat_session_id(messages_path) == current
+
+
+def test_delete_legacy_chat_session_removes_untagged_messages_only(tmp_path):
+    messages_path = tmp_path / "messages.json"
+    _write_messages(messages_path, [
+        ("user", "legacy", "2026-09-01T00:00:00+00:00"),
+        ("user", "tagged", "2026-09-02T00:00:00+00:00", "abc"),
+    ])
+
+    ok, _message = ds.delete_chat_session(ds.LEGACY_CHAT_SESSION_ID, messages_path)
+
+    assert ok
+    assert [m["text"] for m in ds.read_messages(messages_path)] == ["tagged"]
+
+
+def test_delete_unknown_chat_session_is_not_found(tmp_path):
+    assert ds.delete_chat_session("nope", tmp_path / "messages.json") == (False, "Chat not found")
+
+
+def test_chat_history_items_have_confirmed_delete_forms(tmp_path):
+    messages_path = tmp_path / "messages.json"
+    _ok, _msg, session_id = ds.send_chat_message("hello", messages_path, session="")
+
+    fragment = ds.render_chat_history_fragment(messages_path, active_session_id=session_id)
+
+    form = fragment[fragment.index(f"action='/activity/sessions/{session_id}/delete'"):]
+    form = form[:form.index("</form>")]
+    assert f"value=\"{ds._CSRF_TOKEN}\"" in form
+    assert f"name='viewing' value='{session_id}'" in form
+    assert "data-confirm=" in form
+    assert "aria-label='Delete chat hello'" in form
+
+
+def test_delete_chat_session_route_requires_csrf(monkeypatch, tmp_path):
+    messages_path = tmp_path / "messages.json"
+    monkeypatch.setattr(ds, "MESSAGES_PATH", messages_path)
+    _ok, _msg, session_id = ds.send_chat_message("hello", messages_path, session="")
+    with _running_server() as port:
+        status, _headers, _body = _post(port, f"/activity/sessions/{session_id}/delete", {"csrf_token": ""})
+    assert status == 403
+    assert len(ds.read_messages(messages_path)) == 1
+
+
+def test_delete_viewed_chat_session_route_lands_on_new_chat_with_history_open(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    messages_path = tmp_path / "messages.json"
+    monkeypatch.setattr(ds, "MESSAGES_PATH", messages_path)
+    _ok, _msg, session_id = ds.send_chat_message("hello", messages_path, session="")
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/")
+        status, headers, _body = _post(port, f"/activity/sessions/{session_id}/delete",
+                                       {"csrf_token": token, "viewing": session_id})
+    assert status == 303
+    assert headers["Location"].startswith("/?history=1&")
+    assert ds.read_messages(messages_path) == []
+
+
+def test_delete_other_chat_session_route_returns_to_the_viewed_one(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    messages_path = tmp_path / "messages.json"
+    monkeypatch.setattr(ds, "MESSAGES_PATH", messages_path)
+    _ok, _msg, old = ds.send_chat_message("old", messages_path, session="")
+    ds.start_new_chat_session()
+    _ok, _msg, viewing = ds.send_chat_message("viewing", messages_path, session="")
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/")
+        status, headers, _body = _post(port, f"/activity/sessions/{old}/delete",
+                                       {"csrf_token": token, "viewing": viewing})
+    assert status == 303
+    assert headers["Location"].startswith(f"/?session={viewing}&history=1&")
+
+
+def test_history_drawer_reopens_after_a_delete_redirect(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    page = ds._render_shell("T", "overview", "", "")
+    assert "params.get('history') === '1'" in page

@@ -645,6 +645,36 @@ def list_chat_sessions(messages_path=None):
     return sessions
 
 
+def delete_chat_session(session_id, messages_path=None):
+    """Deletes a whole chat session: its messages (under the same
+    messages-file flock as append_message) and its record. If it was the
+    current session, the next message starts a new one. Deleting the
+    legacy "Earlier messages" group removes the untagged messages. Like
+    deleting a single message, this also drops any of its user messages
+    the loop hasn't read yet - that's the user's explicit call."""
+    if messages_path is None:
+        messages_path = MESSAGES_PATH
+    if not chat_session_exists(session_id, messages_path):
+        return False, "Chat not found"
+    path = Path(messages_path)
+    with open(Path(str(path) + ".lock"), "a+") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            remaining = [m for m in read_messages(path) if _message_session_id(m) != session_id]
+            _atomic_write_json(remaining, path)
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+    def mutate(data):
+        data["sessions"] = [r for r in data["sessions"] if r["id"] != session_id]
+        if data["current"] == session_id:
+            data["current"] = None
+
+    if session_id != LEGACY_CHAT_SESSION_ID or read_chat_sessions(messages_path)["exists"]:
+        _update_chat_sessions(mutate, messages_path)
+    return True, "Chat deleted"
+
+
 def resolve_chat_session_for_send(requested, text, messages_path=None):
     """Which session a message being sent belongs to: the requested one if
     it exists (continuing any past session, which also makes it current),
@@ -4532,6 +4562,21 @@ html .chat-page.is-empty .activity-composer {{
 .chat-history-header h2 {{ margin: 0; font-size: 1.05rem; }}
 #chat-history-list {{ flex: 1 1 auto; overflow-y: auto; padding: 0 0.75rem 1rem; }}
 .chat-history-group {{ margin: 1rem 0.5rem 0.35rem; font-size: 0.75rem; font-weight: 500; color: var(--md-on-surface-variant); }}
+/* Each chat row: the link plus a delete button that shows on hover or
+   keyboard focus (always on touch screens), like chatbot sidebars. */
+.chat-history-row {{ position: relative; display: flex; align-items: center; }}
+.chat-history-row .chat-history-item {{ flex: 1 1 auto; min-width: 0; }}
+.chat-history-delete-form {{ position: absolute; right: 0.3rem; margin: 0; opacity: 0; transition: opacity 150ms ease; }}
+.chat-history-row:hover .chat-history-delete-form,
+.chat-history-row:focus-within .chat-history-delete-form {{ opacity: 1; }}
+.chat-history-row:hover .chat-history-time,
+.chat-history-row:focus-within .chat-history-time {{ visibility: hidden; }}
+.chat-history-delete-form .message-action-btn {{ background: var(--md-surface-container-high); }}
+.chat-history-delete-form .message-action-btn:hover {{ color: var(--md-error); }}
+@media (hover: none) {{
+  .chat-history-delete-form {{ position: static; opacity: 1; }}
+  .chat-history-row .chat-history-time {{ visibility: visible; }}
+}}
 .chat-history-item {{
   display: flex;
   align-items: baseline;
@@ -6481,6 +6526,16 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
       }}
     }}
     opener.addEventListener('click', function() {{ setOpen(drawer.hidden); }});
+    // After deleting a chat the redirect carries history=1: reopen the
+    // drawer so deleting several in a row doesn't mean reopening it each
+    // time, then drop the param so a reload doesn't pop it open again.
+    var params = new URLSearchParams(window.location.search);
+    if (params.get('history') === '1') {{
+      setOpen(true);
+      params.delete('history');
+      var query = params.toString();
+      history.replaceState(null, '', window.location.pathname + (query ? '?' + query : ''));
+    }}
     document.querySelectorAll('[data-chat-history-close]').forEach(function(el) {{
       el.addEventListener('click', function() {{ setOpen(false); }});
     }});
@@ -6904,6 +6959,8 @@ def render_chat_history_fragment(messages_path=None, active_session_id=None):
     if not sessions:
         return "<p class='chat-history-empty'>No chats yet</p>"
     today = datetime.now(timezone.utc).date()
+    csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
+    viewing_input = f"<input type='hidden' name='viewing' value='{html.escape(active_session_id or '', quote=True)}'>"
     grouped = {}
     for session in sessions:
         grouped.setdefault(_chat_history_group(session["last_at"], today), []).append(session)
@@ -6916,12 +6973,23 @@ def render_chat_history_fragment(messages_path=None, active_session_id=None):
             is_active = session["id"] == active_session_id
             active = " is-active" if is_active else ""
             current_attr = " aria-current='page'" if is_active else ""
-            href = "/?session=" + urllib.parse.quote(session["id"], safe="")
+            quoted_id = urllib.parse.quote(session["id"], safe="")
+            href = "/?session=" + quoted_id
+            title = session["title"]
+            confirm = html.escape(f"Delete the chat \u201c{title}\u201d? Its messages will be removed.", quote=True)
             parts.append(
+                "<div class='chat-history-row'>"
                 f"<a class='chat-history-item{active}' href='{html.escape(href, quote=True)}'{current_attr}>"
-                f"<span class='chat-history-title'>{html.escape(session['title'])}</span>"
+                f"<span class='chat-history-title'>{html.escape(title)}</span>"
                 f"<span class='chat-history-time'>{html.escape(_relative_time(session['last_at']))}</span>"
                 "</a>"
+                f"<form method='post' action='/activity/sessions/{html.escape(quoted_id, quote=True)}/delete' class='chat-history-delete-form'>"
+                f"{csrf_input}{viewing_input}"
+                f"<button type='submit' class='message-action-btn' aria-label='Delete chat {html.escape(title, quote=True)}'"
+                f" title='Delete chat' data-confirm=\"{confirm}\">"
+                "<span class='material-symbols-outlined' aria-hidden='true'>delete</span></button>"
+                "</form>"
+                "</div>"
             )
     return "".join(parts)
 
@@ -10901,6 +10969,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
             target = next((m for m in read_messages(MESSAGES_PATH) if m.get("timestamp") == timestamp), None)
             ok, message = delete_message(timestamp, MESSAGES_PATH)
             location = "/?session=" + urllib.parse.quote(_message_session_id(target), safe="") if target else "/"
+            self._redirect_with_flash(ok, message, location=location)
+            return
+
+        if self.path.startswith("/activity/sessions/") and self.path.endswith("/delete"):
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            session_id = urllib.parse.unquote(self.path[len("/activity/sessions/"):-len("/delete")])
+            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
+            viewing = form.get("viewing", [""])[0]
+            ok, message = delete_chat_session(session_id, MESSAGES_PATH)
+            # Back where the user was, history drawer reopened (see
+            # history=1 in the drawer script) - or a new chat if the
+            # deleted session was the one on screen.
+            if viewing and viewing != session_id:
+                location = "/?session=" + urllib.parse.quote(viewing, safe="") + "&history=1"
+            else:
+                location = "/?history=1"
             self._redirect_with_flash(ok, message, location=location)
             return
 
