@@ -53,6 +53,8 @@ Reusable, cross-run lessons (fix patterns, gotchas) get recorded per issue as ma
 
 A second, independent loop (`run-loop-now.sh topic-loop`) watches arbitrary topics on the wider web instead of GitLab — see [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md).
 
+A third loop (`run-loop-now.sh inbox-triage-loop`) triages Gmail and Outlook inboxes: it categorises each new unread message into a `Loop/*` label, drafts (never sends) a threaded reply to anything urgent, and reports via a Slack digest and the dashboard's **Inbox Triage** page — see [`docs/tasks/inbox-triage-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/inbox-triage-loop.md).
+
 ## Requirements
 
 - macOS (the schedule and the dashboard both run as `launchd` agents)
@@ -149,6 +151,8 @@ Two more config files live outside this tree entirely, editable from the dashboa
 | `~/.loop-engineering/projects.json`   | Which projects to track, their local checkout paths, target branch, install/lint/test commands, your GitLab username, and the worktree scratch directory (`worktree_root`, defaults to `~/.loop-engineering/worktrees`) | Dashboard **GitLab Settings** page's "Tracked Projects" section, or copy [`config/projects.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/projects.json.template) by hand, or let `bin/scripts/setup.sh` do it |
 | ↳ per-project `instance` (optional)   | Overrides the top-level `gitlab_instance` for one project — set this when your projects span more than one GitLab instance. Falls back to `gitlab_instance` when omitted.                                               | Same file, per project entry — see the template's `harbor` example                                                                                                            |
 | `~/.loop-engineering/topics.json`     | Which topics to monitor and what counts as notable for each one (topic monitor loop only)                                                                                                                               | Copy [`config/topics.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/topics.json.template) by hand, or let `bin/scripts/setup.sh` do it                                                                |
+| `~/.loop-engineering/inboxes.json`    | Which mailboxes to triage (provider, account, categories, VIP/excluded senders, Slack bundle) and the shared default category set (Inbox Triage loop only)                                                              | Dashboard's **Inbox Setup** page (`/inbox/setup`), or let `bin/scripts/setup.sh` scaffold it from [`config/inboxes.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/inboxes.json.template)               |
+| `~/.loop-engineering/mail_oauth.json` | The Gmail/Outlook OAuth app's own client ID (and, for Google, client secret) — a one-time app-registration step, not a per-mailbox credential                                                                           | Dashboard's **Inbox Setup** page                                                                                                                                                     |
 | `~/.loop-engineering/loops.json`      | The registry of scheduled loops: each entry's name, schedule (weekdays/hour/minute), entry point module, timeout, and per-loop knobs — read by `bin/loops_config.py`, polled by `bin/loop_scheduler.py`                 | Copy [`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template) by hand, or let `bin/scripts/setup.sh` do it                                                                  |
 | `~/.loop-engineering/loop_scheduler_state.json` | Per-loop last-attempted date, so the scheduler never runs the same loop twice in a day — not something you hand-edit                                                                                            | Written automatically by `bin/loop_scheduler.py`; seeded with today's date for every registered loop by `bin/scripts/setup.sh` so enabling the scheduler doesn't fire an immediate run |
 | `~/.loop-engineering/instructions.md` | Your own free-text instructions, read by the loop at the start of every run                                                                                                                                             | Dashboard **Settings** page's Instructions tab                                                                                                                               |
@@ -292,6 +296,12 @@ Fixed, and does not loosen with time or repeated success (see [`docs/tasks/gitla
 - No arbitrary shell, no dependency upgrades, no reading `.env`/credentials/SSH keys — only the command allow-list in `LOOPX_INSTRUCTIONS.md`.
 - Issues are processed one at a time, sequentially, never in parallel.
 - A verification failure on the same issue is never retried within a run — it escalates via a GitLab comment instead.
+
+The Inbox Triage loop has its own fixed safety boundary (see [`docs/tasks/inbox-triage-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/inbox-triage-loop.md)):
+
+- **Never sends mail.** Neither mail provider module contains a send function, and the Outlook token it obtains is scoped without `Mail.Send` — sending is impossible at the token level, not just the code level.
+- **Never archives, deletes, moves, or changes read state.** The only mailbox writes are creating `Loop/*` labels/categories, applying them, and creating reply drafts left in the mailbox's own Drafts folder.
+- **Message bodies never persist.** They exist only in memory and in the one AI call per inbox — never written to `outputs/`, logs, or the Slack digest.
 
 
 

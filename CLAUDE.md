@@ -14,8 +14,11 @@ dashboard and tooling around it; follow them without being asked.
 `bin/*.py` — the loop's own small Python CLI helpers (`loop_config.py`,
 `slack_notify.py`, `list_assigned_issues.py`, `track_new_comments.py`,
 `project_memory.py`, `memory_store.py`, `loop_scheduler.py`,
-`loops_config.py`). `bin/web/` — the dashboard web server
-(`dashboard_server.py`) alone. `bin/scripts/` — one-shot shell scripts
+`loops_config.py`, `inbox_config.py`, `inbox_triage.py`,
+`inbox_triage_runner.py`, `inbox_seen.py`, `inbox_status.py`,
+`mail_auth.py`, `mail_http.py`, and the `mail_providers/` package). `bin/web/`
+— the dashboard web server (`dashboard_server.py`, `inbox_pages.py`) alone.
+`bin/scripts/` — one-shot shell scripts
 (`setup.sh`, `setup-nginx.sh`, `uninstall.sh`, `new_worktree.sh`,
 `open_merge_request.sh`). Moving a script between these means updating, in
 the same change: any `LOOP_DIR`/`sys.path` self-location math inside the
@@ -65,6 +68,11 @@ why it must always be set before running anything in dev/verification.
 because events are per-checkout run history (same category as
 `outputs/daily-review.md`/`outputs/history/`), not per-machine config
 like `projects.json`.
+`bin/mail_auth.py`'s Keychain service (`loop-engineering.mail`) is
+suffixed `.sandbox-<hash>` whenever `LOOP_ENGINEERING_HOME` is set, so a
+sandboxed run (including `bin/inbox_triage_runner.py`) can never read or
+overwrite the real mailbox tokens — tests must still monkeypatch
+`subprocess.run`/`keychain_*` rather than touch any Keychain at all.
 Run this way, `dashboard_server.py` is a plain foreground process — no
 `launchd`, no `KeepAlive` — kill it whenever you're done. Same idea for the
 loop scripts themselves (`run-loop-now.sh`, `bin/*.py`): run them with
