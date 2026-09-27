@@ -79,7 +79,8 @@ def validate_inbox(inbox):
 def _validate_config(data, path):
     if not isinstance(data, dict) or not isinstance(data.get("inboxes"), list):
         raise ValueError(f"{path} must be a JSON object with an 'inboxes' array")
-    data.setdefault("default_categories", DEFAULT_CATEGORIES)
+    if "default_categories" not in data:
+        data["default_categories"] = [dict(c) for c in DEFAULT_CATEGORIES]
     seen = set()
     for inbox in data["inboxes"]:
         errors = validate_inbox(inbox)
@@ -108,11 +109,14 @@ def load_config_or_empty(config_path=None):
     try:
         return load_config(config_path)
     except FileNotFoundError:
-        return {"default_categories": DEFAULT_CATEGORIES, "inboxes": []}
+        return {"default_categories": [dict(c) for c in DEFAULT_CATEGORIES], "inboxes": []}
 
 
 def categories_for(inbox, config):
-    return inbox.get("categories") or config.get("default_categories") or DEFAULT_CATEGORIES
+    result = inbox.get("categories") or config.get("default_categories") or DEFAULT_CATEGORIES
+    if result is DEFAULT_CATEGORIES:
+        return [dict(c) for c in DEFAULT_CATEGORIES]
+    return result
 
 
 def get_inbox(name, config_path=None):

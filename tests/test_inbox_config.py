@@ -164,3 +164,36 @@ def test_sender_matches_exact_and_domain():
     assert inbox_config.sender_matches("x@client.com", ["@client.com"])
     assert not inbox_config.sender_matches("x@notclient.com", ["@client.com"])
     assert not inbox_config.sender_matches("", ["@client.com"])
+
+
+def test_default_categories_not_aliased_in_config(tmp_path):
+    """Verify DEFAULT_CATEGORIES is copied, not aliased, so mutations don't leak."""
+    original_urgent_label = inbox_config.DEFAULT_CATEGORIES[0]["label"]
+
+    path = tmp_path / "inboxes.json"
+    _write(path, [_inbox()])
+    config = inbox_config.load_config(path)
+    config["default_categories"][0]["label"] = "CORRUPTED"
+
+    assert inbox_config.DEFAULT_CATEGORIES[0]["label"] == original_urgent_label
+
+
+def test_default_categories_not_aliased_in_empty_config(tmp_path):
+    """Verify load_config_or_empty returns a copy of DEFAULT_CATEGORIES."""
+    original_urgent_label = inbox_config.DEFAULT_CATEGORIES[0]["label"]
+
+    config = inbox_config.load_config_or_empty(tmp_path / "nope.json")
+    config["default_categories"][0]["label"] = "CORRUPTED"
+
+    assert inbox_config.DEFAULT_CATEGORIES[0]["label"] == original_urgent_label
+
+
+def test_categories_for_returns_copy():
+    """Verify categories_for's fallback returns a copy of DEFAULT_CATEGORIES."""
+    original_urgent_label = inbox_config.DEFAULT_CATEGORIES[0]["label"]
+    config = {"default_categories": inbox_config.DEFAULT_CATEGORIES, "inboxes": []}
+
+    cats = inbox_config.categories_for(_inbox(), config)
+    cats[0]["label"] = "CORRUPTED"
+
+    assert inbox_config.DEFAULT_CATEGORIES[0]["label"] == original_urgent_label
