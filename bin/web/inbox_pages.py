@@ -80,45 +80,89 @@ def render_inbox_body(config, status, csrf_input):
         )
 
     run_now = _post_button("/inbox/run-now", "Run now", csrf_input, "btn-primary")
+    count = len(inboxes)
     cards = [
-        "<div class='card'><div class='section-header'><h2>Inboxes</h2></div>"
-        f"<p class='section-subtitle'>Trigger a triage pass for every connected inbox right now, outside its normal schedule.</p>"
-        f"<div class='daemon-action-form'>{run_now}</div></div>"
+        "<div class='card'><div class='inbox-card-head'><div>"
+        f"<h2>Inboxes <span class='inbox-count'>{count}</span></h2>"
+        "<p class='section-subtitle'>Trigger a triage pass for every connected inbox right now, "
+        "outside its normal schedule.</p></div>"
+        f"<div class='daemon-action-form'>{run_now}</div></div></div>"
     ]
     for inbox in inboxes:
-        entry = status.get("inboxes", {}).get(inbox["name"], {})
-        counts = ", ".join(f"{e(str(k))} {v}" for k, v in (entry.get("counts") or {}).items()) or "none yet"
-        urgent_entries = entry.get("urgent") or []
-        if urgent_entries:
-            items = []
-            for item in urgent_entries:
-                if item.get("draft_link"):
-                    action_html = f"<a href=\"{e(item['draft_link'])}\" target='_blank' rel='noopener'>Open draft &#8599;</a>"
-                elif item.get("draft_failed"):
-                    action_html = "draft failed - reply manually"
-                else:
-                    action_html = "reply manually"
-                items.append(
-                    f"<li><span class='k'>{e(item.get('from', ''))}</span>"
-                    f"{e(item.get('subject', ''))} &middot; {action_html}</li>"
-                )
-            urgent_html = f"<ul class='field-list'>{''.join(items)}</ul>"
-        else:
-            urgent_html = "<p class='section-subtitle'>Nothing urgent in the last run.</p>"
-        error_html = f"<p class='error-text'>{e(str(entry['error']))}</p>" if entry.get("error") else ""
-        pause_label = "Resume" if not inbox.get("enabled", True) else "Pause"
-        pause_button = _post_button(f"/inbox/inboxes/{inbox['name']}/pause", pause_label, csrf_input)
-        cards.append(
-            "<div class='card'>"
-            f"<div class='section-header'><h2>{e(inbox['label'])}</h2>{_chip(inbox, entry)}</div>"
-            f"<p class='section-subtitle'>{e(inbox['account'])} &middot; {e(inbox['provider'].title())} &middot; "
-            f"last run {e(str(entry.get('last_run_at') or 'never'))}</p>"
-            f"<p>Categories: {counts}</p>{error_html}"
-            f"<h3>Urgent</h3>{urgent_html}"
-            f"<div class='daemon-action-form'>{pause_button}</div>"
-            "</div>"
+        cards.append(_inbox_status_card(inbox, status.get("inboxes", {}).get(inbox["name"], {}), csrf_input))
+    return head + "<div class='grid'>" + "".join(cards) + "</div>"
+
+
+def _format_run_time(value):
+    """ISO timestamp -> "YYYY-MM-DD HH:MM" (seconds/offset dropped); any
+    other string is shown as-is."""
+    if not value:
+        return None
+    text = str(value)
+    if len(text) >= 16 and text[10] == "T":
+        return f"{text[:10]} {text[11:16]}"
+    return text
+
+
+def _category_label(key):
+    if str(key).lower() == "fyi":
+        return "FYI"
+    return str(key).replace("_", " ").replace("-", " ").strip().capitalize()
+
+
+def _inbox_status_card(inbox, entry, csrf_input):
+    """One inbox on the Inbox Triage page: label/state/Pause header, an
+    account meta line, category counts as tiles, then the Urgent list."""
+    pause_label = "Resume" if not inbox.get("enabled", True) else "Pause"
+    pause_button = _post_button(f"/inbox/inboxes/{inbox['name']}/pause", pause_label, csrf_input)
+    last_run = _format_run_time(entry.get("last_run_at"))
+    meta = f"{e(inbox['account'])} &middot; {e(inbox['provider'].title())} &middot; " + (
+        f"last run {e(last_run)}" if last_run else "not run yet")
+
+    counts = entry.get("counts") or {}
+    if counts:
+        tiles = "".join(
+            f"<div class='inbox-stat'><span class='inbox-stat-value'>{e(str(v))}</span>"
+            f"<span class='inbox-stat-label'>{e(_category_label(k))}</span></div>"
+            for k, v in counts.items()
         )
-    return head + "".join(cards)
+        counts_html = f"<div class='inbox-stats'>{tiles}</div>"
+    else:
+        counts_html = "<p class='section-subtitle'>No triage runs yet - counts per category appear after the first run.</p>"
+
+    urgent_entries = entry.get("urgent") or []
+    if urgent_entries:
+        items = []
+        for item in urgent_entries:
+            if item.get("draft_link"):
+                action_html = (f"<a class='btn btn-neutral' href=\"{e(item['draft_link'])}\" target='_blank' "
+                               "rel='noopener'>Open draft &#8599;</a>")
+            elif item.get("draft_failed"):
+                action_html = "<span class='pill pill-red'>Draft failed - reply manually</span>"
+            else:
+                action_html = "<span class='pill pill-grey'>Reply manually</span>"
+            items.append(
+                "<li><div class='inbox-urgent-text'>"
+                f"<span class='inbox-urgent-subject'>{e(item.get('subject', ''))}</span>"
+                f"<span class='inbox-urgent-from'>{e(item.get('from', ''))}</span></div>"
+                f"{action_html}</li>"
+            )
+        urgent_html = f"<ul class='inbox-urgent-list'>{''.join(items)}</ul>"
+    else:
+        urgent_html = "<p class='section-subtitle'>Nothing urgent in the last run.</p>"
+    error_html = f"<div class='flash flash-danger'>{e(str(entry['error']))}</div>" if entry.get("error") else ""
+
+    return (
+        "<div class='card'>"
+        "<div class='inbox-card-head'><div>"
+        f"<div class='section-header'><h2>{e(inbox['label'])}</h2>{_chip(inbox, entry)}</div>"
+        f"<p class='section-subtitle'>{meta}</p></div>"
+        f"<div class='daemon-action-form'>{pause_button}</div></div>"
+        f"{error_html}"
+        f"<div class='inbox-section'><h3>Categories</h3>{counts_html}</div>"
+        f"<div class='inbox-section'><h3>Urgent <span class='inbox-count'>{len(urgent_entries)}</span></h3>{urgent_html}</div>"
+        "</div>"
+    )
 
 
 def _google_steps(redirect_uri):

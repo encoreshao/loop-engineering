@@ -8,6 +8,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin"))
 import loops_config as lc
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+_REAL_TEMPLATE_PATH = lc.TEMPLATE_PATH
+
+
+@pytest.fixture(autouse=True)
+def _no_template_backfill(tmp_path, monkeypatch):
+    # Keep the exact-registry tests below independent of whatever loops
+    # the real config/loops.json.template happens to register today.
+    monkeypatch.setattr(lc, "TEMPLATE_PATH", tmp_path / "no-template.json")
 
 
 def _write_registry(path, entries):
@@ -282,3 +290,42 @@ def test_template_registers_inbox_triage_loop_disabled():
     assert entry["enabled"] is False
     assert entry["schedule"] == {"frequency": "weekly", "weekdays": [1, 2, 3, 4, 5], "hour": 9, "minute": 0}
     assert entry["log_suffix"] == "-inbox-triage-loop"
+
+
+def test_list_loops_backfills_template_loops_missing_from_an_older_registry(tmp_path):
+    # An install whose loops.json predates a newly shipped loop (e.g.
+    # inbox-triage-loop) must still see it, or run-loop-now.sh fails with
+    # "No loop named ... in the loops registry".
+    config_path = tmp_path / "loops.json"
+    template_path = tmp_path / "template.json"
+    existing = [{"name": "gitlab-loop", "entry_point": "bin.gitlab_loop_runner", "enabled": False}]
+    _write_registry(config_path, existing)
+    _write_registry(template_path, [
+        {"name": "gitlab-loop", "entry_point": "bin.gitlab_loop_runner", "enabled": True},
+        {"name": "inbox-triage-loop", "entry_point": "bin.inbox_triage_runner", "enabled": False},
+    ])
+
+    loops = lc.list_loops(config_path=config_path, template_path=template_path)
+
+    assert [l["name"] for l in loops] == ["gitlab-loop", "inbox-triage-loop"]
+    assert loops[0]["enabled"] is False  # the user's own entry wins
+    assert lc.get_loop("inbox-triage-loop", config_path=config_path, template_path=template_path)["entry_point"] == "bin.inbox_triage_runner"
+
+
+def test_set_enabled_persists_a_backfilled_template_loop(tmp_path, monkeypatch):
+    config_path = tmp_path / "loops.json"
+    template_path = tmp_path / "template.json"
+    _write_registry(config_path, [{"name": "gitlab-loop", "entry_point": "bin.gitlab_loop_runner"}])
+    _write_registry(template_path, [{"name": "inbox-triage-loop", "entry_point": "bin.inbox_triage_runner", "enabled": False}])
+    monkeypatch.setattr(lc, "TEMPLATE_PATH", template_path)
+
+    ok, _ = lc.set_enabled("inbox-triage-loop", True, config_path=config_path)
+
+    assert ok is True
+    saved = json.loads(config_path.read_text())
+    assert [e["name"] for e in saved] == ["gitlab-loop", "inbox-triage-loop"]
+    assert saved[1]["enabled"] is True
+
+
+def test_real_template_is_used_by_default():
+    assert _REAL_TEMPLATE_PATH == REPO_ROOT / "config" / "loops.json.template"

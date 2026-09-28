@@ -475,3 +475,22 @@ def test_post_locations_carry_the_tab(sandbox, monkeypatch):
 def test_inbox_empty_state_uses_email_icon():
     body = inbox_pages.render_inbox_body({"default_categories": [], "inboxes": []}, {"inboxes": {}}, CSRF)
     assert "aria-hidden='true'>email</span>" in body and ">inbox</span>" not in body
+
+
+def test_inbox_body_spaces_cards_in_a_grid_and_shows_counts_as_tiles():
+    status = {"inboxes": {"w": {"state": "ok", "last_run_at": "2026-09-28T09:00:12",
+                                "counts": {"needs_reply": 5, "fyi": 14},
+                                "urgent": [{"from": "a@x.com", "subject": "S1", "draft_failed": True},
+                                           {"from": "b@x.com", "subject": "S2"}]}}}
+    body = inbox_pages.render_inbox_body(CONFIG, status, CSRF)
+    assert "<div class='grid'>" in body
+    assert body.count("class='inbox-stat'") == 2
+    assert "<span class='inbox-stat-value'>5</span><span class='inbox-stat-label'>Needs reply</span>" in body
+    assert "Urgent <span class='inbox-count'>2</span>" in body
+    assert "inbox-stat-label'>FYI</span>" in body
+    assert "2026-09-28 09:00" in body and "T09:00:12" not in body
+
+
+def test_inbox_body_no_counts_yet_says_so():
+    body = inbox_pages.render_inbox_body(CONFIG, {"inboxes": {}}, CSRF)
+    assert "No triage runs yet" in body and "last run never" not in body

@@ -5313,6 +5313,27 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
 .inbox-section {{ padding-top: 0.75rem; margin-top: 0.75rem; border-top: 1px solid var(--md-outline-variant); }}
 .inbox-section:first-child {{ border-top: none; margin-top: 0; padding-top: 0; }}
 .inbox-card-footer {{ display: flex; justify-content: space-between; gap: 0.5rem; margin-top: 1rem; }}
+/* Inbox Triage page's status cards: title block left, actions right
+   (wraps under on narrow screens), category counts as small tiles, and
+   each urgent message as subject-over-sender with its action at the end. */
+.inbox-card-head {{ display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 0.75rem 1.5rem; }}
+.inbox-card-head .section-header {{ margin-bottom: 0.25rem; }}
+.inbox-card-head .section-subtitle {{ margin: 0; }}
+.inbox-card-head + .inbox-section, .inbox-card-head + .flash {{ margin-top: 1rem; }}
+.inbox-section h3 {{ margin: 0 0 0.6rem; font-size: 0.95rem; }}
+.inbox-count {{ display: inline-block; min-width: 1.4rem; padding: 0 0.4rem; margin-left: 0.25rem; border-radius: 999px;
+  background: var(--md-surface-container-high); color: var(--md-on-surface-variant); font-size: 0.75rem; font-weight: 500; text-align: center; vertical-align: middle; }}
+.inbox-stats {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: 0.75rem; }}
+.inbox-stat {{ display: flex; flex-direction: column; gap: 0.15rem; padding: 0.75rem 1rem; border-radius: 10px;
+  background: var(--md-surface-container-lowest, var(--md-surface)); border: 1px solid var(--md-outline-variant); }}
+.inbox-stat-value {{ font-size: 1.5rem; font-weight: 500; line-height: 1.2; font-variant-numeric: tabular-nums; }}
+.inbox-stat-label {{ font-size: 0.8rem; color: var(--md-on-surface-variant); }}
+.inbox-urgent-list {{ list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }}
+.inbox-urgent-list li {{ display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem;
+  padding: 0.75rem 1rem; border-radius: 10px; background: var(--md-surface-container-lowest, var(--md-surface)); border: 1px solid var(--md-outline-variant); }}
+.inbox-urgent-text {{ display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; flex: 1 1 16rem; }}
+.inbox-urgent-subject {{ font-weight: 500; overflow-wrap: anywhere; }}
+.inbox-urgent-from {{ font-size: 0.8rem; color: var(--md-on-surface-variant); overflow-wrap: anywhere; }}
 .stack-form input, .stack-form select, .stack-form textarea {{
   padding: 0.4rem 0.6rem; border-radius: 8px; border: 1px solid var(--md-outline-variant);
   background: var(--md-surface-container-low); color: var(--md-on-surface); font-family: inherit;

@@ -26,14 +26,24 @@ _VALID_LOOP_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 # the real, possibly-live ~/.loop-engineering.
 LOOP_ENGINEERING_HOME = Path(os.environ.get("LOOP_ENGINEERING_HOME", str(Path.home() / ".loop-engineering")))
 DEFAULT_CONFIG_PATH = LOOP_ENGINEERING_HOME / "loops.json"
+# Every loop this checkout ships. An existing loops.json is never
+# overwritten by setup.sh, so a loop added to the template after install
+# (inbox-triage-loop, for one) would otherwise stay unregistered forever.
+TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "config" / "loops.json.template"
 
 
-def list_loops(config_path=None):
-    """The full registry as a list of dicts, in file order. Raises
-    FileNotFoundError with a helpful message if the config doesn't exist
-    yet - same convention as loop_config.load_config."""
+def list_loops(config_path=None, template_path=None):
+    """The full registry as a list of dicts, in file order, followed by any
+    template loop not yet in the user's file (their own entries always
+    win - a backfilled loop keeps the template's defaults, disabled if the
+    template ships it disabled, until the user changes it; set_enabled /
+    set_schedule then persist it). Raises FileNotFoundError with a helpful
+    message if the config doesn't exist yet - same convention as
+    loop_config.load_config."""
     if config_path is None:
         config_path = DEFAULT_CONFIG_PATH
+    if template_path is None:
+        template_path = TEMPLATE_PATH
     path = Path(config_path)
     if not path.exists():
         raise FileNotFoundError(
@@ -41,10 +51,23 @@ def list_loops(config_path=None):
             f"there (bin/scripts/setup.sh does this automatically)."
         )
     with open(path) as f:
-        return json.load(f)
+        loops = json.load(f)
+    return loops + _missing_template_loops(loops, template_path)
 
 
-def get_loop(name, config_path=None):
+def _missing_template_loops(loops, template_path):
+    """Template entries whose name isn't in `loops`. A missing or unreadable
+    template just means nothing to backfill."""
+    try:
+        with open(template_path) as f:
+            template = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+    names = {loop.get("name") for loop in loops}
+    return [entry for entry in template if entry.get("name") not in names]
+
+
+def get_loop(name, config_path=None, template_path=None):
     """One registry entry by name. Raises KeyError if no loop with that
     name is registered, or ValueError if `name` isn't safe to embed in a
     file path (see _VALID_LOOP_NAME_RE above)."""
@@ -53,7 +76,7 @@ def get_loop(name, config_path=None):
             f"Invalid loop name {name!r} - loop names may only contain "
             f"letters, digits, '.', '_', and '-'."
         )
-    for loop in list_loops(config_path):
+    for loop in list_loops(config_path, template_path):
         if loop["name"] == name:
             return loop
     raise KeyError(f"No loop named {name!r} in the loops registry")
