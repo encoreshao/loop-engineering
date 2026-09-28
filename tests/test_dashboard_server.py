@@ -7870,6 +7870,59 @@ def test_chat_tool_run_now_topic_monitor_refuses_when_already_running(tmp_path):
     assert result == {"ok": False, "message": "A run is already in progress"}
 
 
+def test_chat_tool_inbox_status_summarizes_each_configured_inbox(tmp_path):
+    config_path = tmp_path / "inboxes.json"
+    config_path.write_text(json.dumps({"inboxes": [
+        {"name": "w", "label": "Work", "provider": "gmail", "account": "me@example.com", "enabled": False},
+    ]}))
+    status_path = tmp_path / "status.json"
+    status_path.write_text(json.dumps({"inboxes": {"w": {
+        "state": "ok", "last_run_at": "2026-09-28T09:00:00", "counts": {"urgent": 1, "fyi": 3},
+        "urgent": [{"from": "a@x.com", "subject": "Sign today", "draft_link": "https://mail/1", "draft_failed": False}],
+    }}}))
+
+    result = ds._chat_tool_inbox_status(inbox_config_path=config_path, inbox_status_path=status_path)
+
+    assert result == {"inboxes": [{
+        "name": "w", "label": "Work", "provider": "gmail", "account": "me@example.com", "enabled": False,
+        "state": "ok", "last_run_at": "2026-09-28T09:00:00", "counts": {"urgent": 1, "fyi": 3}, "error": None,
+        "urgent": [{"from": "a@x.com", "subject": "Sign today", "has_draft": True, "draft_failed": False}],
+    }]}
+
+
+def test_chat_tool_inbox_status_with_no_config_returns_empty_list(tmp_path):
+    result = ds._chat_tool_inbox_status(inbox_config_path=tmp_path / "missing.json",
+                                        inbox_status_path=tmp_path / "status.json")
+    assert result == {"inboxes": []}
+
+
+def test_dispatch_chat_tool_inbox_status_prints_json(capsys, monkeypatch):
+    monkeypatch.setattr(ds, "_chat_tool_inbox_status", lambda: {"inboxes": []})
+    ds._dispatch_chat_tool("inbox-status", [])
+    assert json.loads(capsys.readouterr().out) == {"inboxes": []}
+
+
+def test_chat_tool_run_now_inbox_triage_refuses_when_already_running(tmp_path, monkeypatch):
+    status_path = tmp_path / "status-inbox-triage-loop.json"
+    status_path.write_text(json.dumps({"state": "running", "pid": 4242}))
+    monkeypatch.setattr(ds, "_process_alive", lambda pid: True)
+    result = ds._chat_tool_run_now(
+        "inbox-triage", inbox_loop_status_path=status_path, inbox_run_loop_path=tmp_path / "run-loop-now.sh",
+    )
+    assert result == {"ok": False, "message": "A run is already in progress"}
+
+
+def test_chat_assistant_prompt_lists_inbox_actions():
+    assert "inbox-status" in ds._CHAT_ASSISTANT_SYSTEM_PROMPT
+    assert "run-now inbox-triage" in ds._CHAT_ASSISTANT_SYSTEM_PROMPT
+
+
+def test_overview_page_has_inbox_triage_suggestion_chip(monkeypatch, tmp_path):
+    _chat_page_env(monkeypatch, tmp_path)
+    page = ds.render_overview_page()
+    assert "aria-hidden='true'>email</span>Inbox triage</button>" in page
+
+
 def test_chat_tool_run_now_unknown_kind_returns_error():
     result = ds._chat_tool_run_now("not-a-real-kind")
     assert "error" in result
