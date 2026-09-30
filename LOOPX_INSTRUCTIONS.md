@@ -82,7 +82,34 @@ For each project alias and each issue in that project's list, in order — never
 
 Slack messages in this file use Slack's own `mrkdwn` syntax — bold is `*text*` and a link is `<url|link text>` — **not** GitHub-flavored markdown (`**text**`, `[text](url)`), which Slack does not render. `slack_notify.py` posts a plain `{"text": ...}` payload, which Slack renders as `mrkdwn` automatically, so the formatting lives entirely in the message strings written below. Keep it that way when editing them.
 
-**GitLab comment style.** Every comment posted straight to a GitLab issue — the answer in "Answer directly", the question in "Escalate: needs clarification", the report in "Escalate: verification failed" — exists for exactly one of two reasons: it states a decided next action (what you did, what you need, or what happens next), grounded in the full issue background and every message on it, not just the latest one; or it shares progress with the team. Either way it must be short, plain, and easy to read on first pass: 2-4 sentences, one idea per sentence, leading with the decision or update itself rather than a long lead-in. Long, multi-clause sentences and restating context the reader already has just make the comment harder to act on — cut them.
+**GitLab comment style.** Every comment posted straight to a GitLab issue — the answer in "Answer directly", the question in "Escalate: needs clarification", the report in "Escalate: verification failed" — exists for exactly one of two reasons: it states a decided next action (what you did, what you need, or what happens next), grounded in the full issue background and every message on it, not just the latest one; or it shares progress with the team. Either way it must be easy to scan on first pass, so it is always structured GitLab markdown, never one dense paragraph:
+
+- Open with one short line stating the decision or update itself (e.g. "Two decisions are needed before I can continue.").
+- Then split the rest into short sections under bold labels (`**What's done**`, `**Needs your decision**`, `**Blocked on**`, `**Next step**`, …), one fact or question per bullet. Choose labels to match the outcome: a fix that didn't land is reported as **Problem** / **Blocked on**, never as "remains". Omit a section that doesn't apply rather than padding it.
+- When asking for a decision, number the questions, give each one a bold short title, and list the concrete options as sub-bullets so the reader can answer with "1: A, 2: B".
+- Keep each bullet to one sentence, use `code` for identifiers, and link issues/MRs as `#123` / `!456`. Don't restate context the reader already has.
+- A genuine one-line answer to a one-line question may stay a single line — don't inflate a yes/no into headers.
+
+Example (the shape to aim for):
+
+```markdown
+Two decisions are needed before I can write code for the remaining items.
+
+**1. Scheduled normalizer worker**
+- Re-run `PortfolioNormalizer` only for investors whose `organization_funding_rounds` changed since the last run, or for every investor?
+- How often should it run?
+
+**2. Same-stage funding rounds**
+- !1364 (#1293) now keys funding rounds by the source's own round ID, which may already fix the 7RIDGE → Digital Asset series_e/series_f case once its backfill runs.
+- Options:
+  - A. Move the `organization_portfolio_companies` unique key from (investor, company, stage) to the funding round itself now.
+  - B. Wait until the !1364 backfill has run, then re-check.
+
+**Manual step (unchanged)**
+- The one-off prod re-run of `PortfolioNormalizer` stays manual.
+```
+
+Pass the body to `post-issue-comment` as a single-quoted shell argument with real line breaks inside it (write any literal `'` as `'\''`). Single quotes stop the shell from expanding the backticks and `$` that markdown uses; a double-quoted body would run every `` `code` `` span as a command.
 
 Also run `python3 <loop_dir>/bin/project_memory.py get <instance> <project_id>` (legacy lessons) and `python3 <loop_dir>/bin/memory_store.py list <alias>` (file-based task memory, one entry per issue previously recorded) once per alias, using that alias's own `instance` from `project <alias>` above. Read both, merged, before analyzing any issue on that project — a lesson recorded before this repo moved to file-based memory is exactly as relevant as one recorded yesterday; it often shortcuts step 3 below.
 
