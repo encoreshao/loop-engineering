@@ -16,7 +16,8 @@ dashboard and tooling around it; follow them without being asked.
 `project_memory.py`, `memory_store.py`, `loop_scheduler.py`,
 `loops_config.py`, `inbox_config.py`, `inbox_triage.py`,
 `inbox_triage_runner.py`, `inbox_seen.py`, `inbox_status.py`,
-`mail_auth.py`, `mail_http.py`, and the `mail_providers/` package). `bin/web/`
+`mail_auth.py`, `mail_http.py`, `i18n.py` with its `locales/` catalogs, and the
+`mail_providers/` package). `bin/web/`
 — the dashboard web server (`dashboard_server.py`, `inbox_pages.py`) alone.
 `bin/scripts/` — one-shot shell scripts
 (`setup.sh`, `setup-nginx.sh`, `uninstall.sh`, `new_worktree.sh`,
@@ -183,6 +184,21 @@ Every `POST` handler in `do_POST` starts with `self._csrf_ok(body)` (403 via
 per-process secret embedded only in pages this server itself renders —
 never weaken this to "POST-only," which is not a real CSRF defense (see
 the comment above `do_POST`).
+
+## Every new UI string goes through `_t()`
+
+The dashboard is translated into Japanese, Simplified Chinese, and French
+(`bin/i18n.py`; the topbar's translate-icon menu sets a `loop_lang` cookie,
+falling back to `Accept-Language`, then English). Wrap every new
+user-visible string in `bin/web/*.py` as `_t("English text")` — always a
+literal first argument, with `{placeholders}` + kwargs for dynamic parts —
+and add the same key to `bin/locales/ja.json`, `zh.json`, and `fr.json`.
+`tests/test_i18n.py` fails on any `_t()` literal missing from a catalog or
+any placeholder mismatch. Translations contain apostrophes (French), so
+anything inside an HTML attribute must be `html.escape(_t(...))`, and text
+inside JS must be `json.dumps(_t(...))`. Never translate at import time
+(module-level label tables) — translate at render time with `i18n.t(var)`,
+since the language is per request thread.
 
 ## Adding a Material Symbols icon
 

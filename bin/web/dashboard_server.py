@@ -45,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import ai_cli_config
 import cost
 import health
+import i18n
 import inbox_config
 import inbox_status
 import issue_tracking_config
@@ -66,6 +67,12 @@ import topic_seen
 # sys.path insert is needed for it the way the bin/-level imports above
 # need one (see the comment on sys.path.insert just above).
 import inbox_pages
+
+# Translates a UI string into the current request thread's language (see
+# bin/i18n.py and DashboardHandler._apply_language). Always called with a
+# literal English string so tests/test_i18n.py can check every one of them
+# has an entry in each bin/locales/<lang>.json catalog.
+_t = i18n.t
 
 LOOP_DIR = Path(__file__).resolve().parent.parent.parent
 STATUS_PATH = LOOP_DIR / "outputs" / "status.json"
@@ -666,7 +673,7 @@ def delete_chat_session(session_id, messages_path=None):
     if messages_path is None:
         messages_path = MESSAGES_PATH
     if not chat_session_exists(session_id, messages_path):
-        return False, "Chat not found"
+        return False, _t("Chat not found")
     path = Path(messages_path)
     with open(Path(str(path) + ".lock"), "a+") as lock_file:
         fcntl.flock(lock_file, fcntl.LOCK_EX)
@@ -683,7 +690,7 @@ def delete_chat_session(session_id, messages_path=None):
 
     if session_id != LEGACY_CHAT_SESSION_ID or read_chat_sessions(messages_path)["exists"]:
         _update_chat_sessions(mutate, messages_path)
-    return True, "Chat deleted"
+    return True, _t("Chat deleted")
 
 
 def resolve_chat_session_for_send(requested, text, messages_path=None):
@@ -1074,12 +1081,12 @@ def delete_history_file(name, history_dir=None):
         history_dir = HISTORY_DIR
     safe_name = Path(name).name
     if not safe_name.endswith(".md"):
-        return False, f"Invalid history filename: {name!r}"
+        return False, _t("Invalid history filename: {name}", name=repr(name))
     path = Path(history_dir) / safe_name
     if not path.exists() or not path.is_file():
-        return False, f"{safe_name} not found"
+        return False, _t("{name} not found", name=safe_name)
     path.unlink()
-    return True, f"Deleted {safe_name}"
+    return True, _t("Deleted {name}", name=safe_name)
 
 
 _MD_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
@@ -2007,17 +2014,17 @@ def upsert_tracked_project(alias, project_id, local_path, target_branch, install
     project_id = project_id.strip()
     instance = instance.strip()
     if not alias:
-        return False, "Project alias is required"
+        return False, _t("Project alias is required")
     if not project_id:
-        return False, "Project ID is required"
+        return False, _t("Project ID is required")
     config = read_loop_projects_config(config_path)
     projects = config.setdefault("projects", {})
     renaming = bool(original_alias) and original_alias != alias
     if renaming:
         if original_alias not in projects:
-            return False, f"Unknown project: {original_alias}"
+            return False, _t("Unknown project: {name}", name=original_alias)
         if alias in projects:
-            return False, f"Project alias already in use: {alias}"
+            return False, _t("Project alias already in use: {name}", name=alias)
         del projects[original_alias]
     is_new = alias not in projects
     entry = {
@@ -2033,8 +2040,8 @@ def upsert_tracked_project(alias, project_id, local_path, target_branch, install
     projects[alias] = entry
     write_loop_projects_config(config, config_path)
     if renaming:
-        return True, f"Renamed project {original_alias} to {alias}"
-    return True, f"{'Added' if is_new else 'Updated'} project {alias}"
+        return True, _t("Renamed project {old} to {new}", old=original_alias, new=alias)
+    return True, (_t("Added project {name}", name=alias) if is_new else _t("Updated project {name}", name=alias))
 
 
 def delete_tracked_project(alias, config_path=None):
@@ -2042,10 +2049,10 @@ def delete_tracked_project(alias, config_path=None):
         config_path = loop_config.DEFAULT_CONFIG_PATH
     config = read_loop_projects_config(config_path)
     if alias not in config.get("projects", {}):
-        return False, f"Unknown project: {alias}"
+        return False, _t("Unknown project: {name}", name=alias)
     del config["projects"][alias]
     write_loop_projects_config(config, config_path)
-    return True, f"Deleted project {alias}"
+    return True, _t("Deleted project {name}", name=alias)
 
 
 def update_loop_project_settings(assignee_username, worktree_root, gitlab_instance,
@@ -2063,19 +2070,19 @@ def update_loop_project_settings(assignee_username, worktree_root, gitlab_instan
     worktree_root = worktree_root.strip()
     gitlab_instance = gitlab_instance.strip()
     if not assignee_username:
-        return False, "GitLab username is required"
+        return False, _t("GitLab username is required")
     if not worktree_root:
-        return False, "Worktree root is required"
+        return False, _t("Worktree root is required")
     gitlab_config = read_gitlab_config(gitlab_config_path)
     if gitlab_instance not in gitlab_config.get("instances", {}):
-        return False, f"Unknown instance: {gitlab_instance}"
+        return False, _t("Unknown instance: {name}", name=gitlab_instance)
     config = read_loop_projects_config(config_path)
     config["assignee_username"] = assignee_username
     config["worktree_root"] = worktree_root
     config["gitlab_instance"] = gitlab_instance
     config.setdefault("projects", {})
     write_loop_projects_config(config, config_path)
-    return True, "Updated project settings"
+    return True, _t("Updated project settings")
 
 
 def _custom_select(name, options, selected, empty_label=None, onchange=None):
@@ -2525,10 +2532,10 @@ def enable_daemon(filename, launchd_dir=LAUNCHD_DIR, launch_agents_dir=None, run
     runner = _resolve_runner(runner)
     safe_name = Path(filename).name
     if not safe_name.endswith(".plist"):
-        return False, f"Invalid plist filename: {filename!r}"
+        return False, _t("Invalid plist filename: {name}", name=repr(filename))
     src = Path(launchd_dir) / safe_name
     if not src.exists():
-        return False, f"{safe_name} not found in {launchd_dir}"
+        return False, _t("{name} not found in {directory}", name=safe_name, directory=launchd_dir)
     dest = _installed_plist_path(safe_name, launch_agents_dir)
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(src, dest)
@@ -2538,11 +2545,11 @@ def enable_daemon(filename, launchd_dir=LAUNCHD_DIR, launch_agents_dir=None, run
         )
     except Exception as e:
         dest.unlink(missing_ok=True)
-        return False, f"launchctl load failed to run: {e}"
+        return False, _t("launchctl load failed to run: {error}", error=e)
     if result.returncode != 0:
         dest.unlink(missing_ok=True)
-        return False, (result.stderr.strip() or f"launchctl load exited {result.returncode}")
-    return True, f"Loaded {safe_name}"
+        return False, (result.stderr.strip() or _t("launchctl load exited {code}", code=result.returncode))
+    return True, _t("Loaded {name}", name=safe_name)
 
 
 def disable_daemon(filename, launchd_dir=LAUNCHD_DIR, launch_agents_dir=None, runner=None):
@@ -2566,21 +2573,21 @@ def disable_daemon(filename, launchd_dir=LAUNCHD_DIR, launch_agents_dir=None, ru
     runner = _resolve_runner(runner)
     safe_name = Path(filename).name
     if not safe_name.endswith(".plist"):
-        return False, f"Invalid plist filename: {filename!r}"
+        return False, _t("Invalid plist filename: {name}", name=repr(filename))
     if not (Path(launchd_dir) / safe_name).exists():
-        return False, f"{safe_name} is not a known project daemon"
+        return False, _t("{name} is not a known project daemon", name=safe_name)
     dest = _installed_plist_path(safe_name, launch_agents_dir)
     if not dest.exists():
-        return True, f"{safe_name} was not loaded"
+        return True, _t("{name} was not loaded", name=safe_name)
     try:
         result = runner(
             ["launchctl", "unload", "-w", str(dest)], capture_output=True, text=True, timeout=10,
         )
     except Exception as e:
-        return False, f"launchctl unload failed to run: {e}"
+        return False, _t("launchctl unload failed to run: {error}", error=e)
     if result.returncode != 0:
-        return False, (result.stderr.strip() or f"launchctl unload exited {result.returncode}")
-    return True, f"Unloaded {safe_name}"
+        return False, (result.stderr.strip() or _t("launchctl unload exited {code}", code=result.returncode))
+    return True, _t("Unloaded {name}", name=safe_name)
 
 
 def build_calendar_interval(hour, minute, weekdays, day_of_month=None):
@@ -2628,14 +2635,14 @@ def update_daemon_schedule(filename, hour, minute, weekdays, day_of_month=None, 
     runner = _resolve_runner(runner)
     safe_name = Path(filename).name
     if not safe_name.endswith(".plist"):
-        return False, f"Invalid plist filename: {filename!r}"
+        return False, _t("Invalid plist filename: {name}", name=repr(filename))
     src = Path(launchd_dir) / safe_name
     if not src.exists():
-        return False, f"{safe_name} not found in {launchd_dir}"
+        return False, _t("{name} not found in {directory}", name=safe_name, directory=launchd_dir)
     if not (0 <= hour <= 23 and 0 <= minute <= 59):
-        return False, "Hour must be 0-23 and minute must be 0-59"
+        return False, _t("Hour must be 0-23 and minute must be 0-59")
     if day_of_month is not None and not (1 <= day_of_month <= 31):
-        return False, "Day of month must be 1-31"
+        return False, _t("Day of month must be 1-31")
 
     with open(src, "rb") as f:
         data = plistlib.load(f)
@@ -2645,23 +2652,24 @@ def update_daemon_schedule(filename, hour, minute, weekdays, day_of_month=None, 
 
     dest = _installed_plist_path(safe_name, launch_agents_dir)
     if not dest.exists():
-        return True, f"Updated schedule for {safe_name}"
+        return True, _t("Updated schedule for {name}", name=safe_name)
 
     previous_dest_bytes = dest.read_bytes()
     shutil.copyfile(src, dest)
 
     label = data.get("Label")
     if label is None or label not in _loaded_by_label(launchctl_output):
-        return True, (
-            f"Updated schedule for {safe_name} (it is currently disabled — "
-            "the new schedule takes effect once re-enabled)"
+        return True, _t(
+            "Updated schedule for {name} (it is currently disabled — "
+            "the new schedule takes effect once re-enabled)",
+            name=safe_name,
         )
 
     try:
         runner(["launchctl", "unload", "-w", str(dest)], capture_output=True, text=True, timeout=10)
         load_result = runner(["launchctl", "load", "-w", str(dest)], capture_output=True, text=True, timeout=10)
     except Exception as e:
-        return False, f"Schedule saved, but reloading launchd failed to run: {e}"
+        return False, _t("Schedule saved, but reloading launchd failed to run: {error}", error=e)
     if load_result.returncode != 0:
         # The unload already took the daemon down. Put back exactly the
         # plist launchd was running and load that, so a rejected new
@@ -2673,15 +2681,17 @@ def update_daemon_schedule(filename, hour, minute, weekdays, day_of_month=None, 
         except Exception:
             restore = None
         if restore is not None and restore.returncode == 0:
-            return False, (
-                f"Schedule saved, but launchctl load failed: {reason} — "
-                f"restored and reloaded the previous schedule for {safe_name}"
+            return False, _t(
+                "Schedule saved, but launchctl load failed: {reason} — "
+                "restored and reloaded the previous schedule for {name}",
+                reason=reason, name=safe_name,
             )
-        return False, (
-            f"Schedule saved, but launchctl load failed: {reason} — "
-            f"{safe_name} is now stopped; re-enable it from the Daemons page"
+        return False, _t(
+            "Schedule saved, but launchctl load failed: {reason} — "
+            "{name} is now stopped; re-enable it from the Daemons page",
+            reason=reason, name=safe_name,
         )
-    return True, f"Updated schedule for {safe_name} and reloaded it"
+    return True, _t("Updated schedule for {name} and reloaded it", name=safe_name)
 
 
 def set_default_gitlab_instance(instance, config_path=None):
@@ -2689,10 +2699,10 @@ def set_default_gitlab_instance(instance, config_path=None):
         config_path = GITLAB_CONFIG_PATH
     config = read_gitlab_config(config_path)
     if instance not in config.get("instances", {}):
-        return False, f"Unknown instance: {instance}"
+        return False, _t("Unknown instance: {name}", name=instance)
     config["default"] = instance
     write_gitlab_config(config, config_path)
-    return True, f"Default instance set to {instance}"
+    return True, _t("Default instance set to {name}", name=instance)
 
 
 def upsert_gitlab_instance(alias, url, token, config_path=None):
@@ -2702,20 +2712,20 @@ def upsert_gitlab_instance(alias, url, token, config_path=None):
     url = url.strip()
     token = token.strip()
     if not alias:
-        return False, "Instance name is required"
+        return False, _t("Instance name is required")
     if not url:
-        return False, "URL is required"
+        return False, _t("URL is required")
     config = read_gitlab_config(config_path)
     instances = config.setdefault("instances", {})
     is_new = alias not in instances
     if is_new and not token:
-        return False, "Token is required for a new instance"
+        return False, _t("Token is required for a new instance")
     entry = dict(instances.get(alias, {}))
     entry["url"] = url
     entry["token"] = token if token else entry.get("token", "")
     instances[alias] = entry
     write_gitlab_config(config, config_path)
-    return True, f"{'Added' if is_new else 'Updated'} instance {alias}"
+    return True, (_t("Added instance {name}", name=alias) if is_new else _t("Updated instance {name}", name=alias))
 
 
 def delete_gitlab_instance(alias, config_path=None):
@@ -2723,21 +2733,25 @@ def delete_gitlab_instance(alias, config_path=None):
         config_path = GITLAB_CONFIG_PATH
     config = read_gitlab_config(config_path)
     if alias not in config.get("instances", {}):
-        return False, f"Unknown instance: {alias}"
+        return False, _t("Unknown instance: {name}", name=alias)
     if config.get("default") == alias:
-        return False, f"Cannot delete {alias}: it is the default instance"
+        return False, _t("Cannot delete {name}: it is the default instance", name=alias)
     referencing_projects = [p for p, proj in config.get("projects", {}).items() if proj.get("instance") == alias]
     referencing_bundles = [b for b, bundle in config.get("bundles", {}).items() if bundle.get("instance") == alias]
     if referencing_projects or referencing_bundles:
-        parts = []
+        projects_text = ", ".join(referencing_projects)
+        bundles_text = ", ".join(referencing_bundles)
+        if referencing_projects and referencing_bundles:
+            return False, _t(
+                "Cannot delete {name}: still used by project(s) {projects} and bundle(s) {bundles}",
+                name=alias, projects=projects_text, bundles=bundles_text,
+            )
         if referencing_projects:
-            parts.append(f"project(s) {', '.join(referencing_projects)}")
-        if referencing_bundles:
-            parts.append(f"bundle(s) {', '.join(referencing_bundles)}")
-        return False, f"Cannot delete {alias}: still used by {' and '.join(parts)}"
+            return False, _t("Cannot delete {name}: still used by project(s) {projects}", name=alias, projects=projects_text)
+        return False, _t("Cannot delete {name}: still used by bundle(s) {bundles}", name=alias, bundles=bundles_text)
     del config["instances"][alias]
     write_gitlab_config(config, config_path)
-    return True, f"Deleted instance {alias}"
+    return True, _t("Deleted instance {name}", name=alias)
 
 
 def upsert_gitlab_project(alias, project_id, instance, bundle="", config_path=None):
@@ -2748,18 +2762,21 @@ def upsert_gitlab_project(alias, project_id, instance, bundle="", config_path=No
     instance = instance.strip()
     bundle = bundle.strip()
     if not alias:
-        return False, "Project alias is required"
+        return False, _t("Project alias is required")
     if not project_id:
-        return False, "Project ID is required"
+        return False, _t("Project ID is required")
     config = read_gitlab_config(config_path)
     if instance not in config.get("instances", {}):
-        return False, f"Unknown instance: {instance}"
+        return False, _t("Unknown instance: {name}", name=instance)
     if bundle:
         bundle_entry = config.get("bundles", {}).get(bundle)
         if bundle_entry is None:
-            return False, f"Unknown bundle: {bundle}"
+            return False, _t("Unknown bundle: {name}", name=bundle)
         if bundle_entry.get("instance") != instance:
-            return False, f"Bundle {bundle} is for instance {bundle_entry.get('instance')}, not {instance}"
+            return False, _t(
+                "Bundle {name} is for instance {bundle_instance}, not {instance}",
+                name=bundle, bundle_instance=bundle_entry.get("instance"), instance=instance,
+            )
     projects = config.setdefault("projects", {})
     is_new = alias not in projects
     entry = dict(projects.get(alias, {}))
@@ -2771,7 +2788,7 @@ def upsert_gitlab_project(alias, project_id, instance, bundle="", config_path=No
         entry.pop("bundle", None)
     projects[alias] = entry
     write_gitlab_config(config, config_path)
-    return True, f"{'Added' if is_new else 'Updated'} project {alias}"
+    return True, (_t("Added project {name}", name=alias) if is_new else _t("Updated project {name}", name=alias))
 
 
 def delete_gitlab_project(alias, config_path=None):
@@ -2779,10 +2796,10 @@ def delete_gitlab_project(alias, config_path=None):
         config_path = GITLAB_CONFIG_PATH
     config = read_gitlab_config(config_path)
     if alias not in config.get("projects", {}):
-        return False, f"Unknown project: {alias}"
+        return False, _t("Unknown project: {name}", name=alias)
     del config["projects"][alias]
     write_gitlab_config(config, config_path)
-    return True, f"Deleted project {alias}"
+    return True, _t("Deleted project {name}", name=alias)
 
 
 def upsert_access_bundle(name, instance, token, webhook_url="", gitlab_config_path=None, slack_config_path=None):
@@ -2800,20 +2817,20 @@ def upsert_access_bundle(name, instance, token, webhook_url="", gitlab_config_pa
     token = token.strip()
     webhook_url = webhook_url.strip()
     if not name:
-        return False, "Bundle name is required"
+        return False, _t("Bundle name is required")
     gitlab_config = read_gitlab_config(gitlab_config_path)
     if instance not in gitlab_config.get("instances", {}):
-        return False, f"Unknown instance: {instance}"
+        return False, _t("Unknown instance: {name}", name=instance)
     bundles = gitlab_config.setdefault("bundles", {})
     is_new = name not in bundles
     if is_new and not token:
-        return False, "Token is required for a new bundle"
+        return False, _t("Token is required for a new bundle")
     if not is_new and bundles[name].get("instance") != instance:
         referencing = [p for p, proj in gitlab_config.get("projects", {}).items() if proj.get("bundle") == name]
         if referencing:
-            return False, (
-                f"Cannot change instance for bundle {name}: still used by "
-                f"project(s) {', '.join(referencing)}"
+            return False, _t(
+                "Cannot change instance for bundle {name}: still used by project(s) {projects}",
+                name=name, projects=", ".join(referencing),
             )
     entry = dict(bundles.get(name, {}))
     entry["instance"] = instance
@@ -2826,7 +2843,7 @@ def upsert_access_bundle(name, instance, token, webhook_url="", gitlab_config_pa
         slack_config.setdefault("bundle_webhooks", {})[name] = webhook_url
         write_slack_config(slack_config, slack_config_path)
 
-    return True, f"{'Added' if is_new else 'Updated'} bundle {name}"
+    return True, (_t("Added bundle {name}", name=name) if is_new else _t("Updated bundle {name}", name=name))
 
 
 def delete_access_bundle(name, gitlab_config_path=None, slack_config_path=None):
@@ -2836,10 +2853,10 @@ def delete_access_bundle(name, gitlab_config_path=None, slack_config_path=None):
         slack_config_path = SLACK_CONFIG_PATH
     gitlab_config = read_gitlab_config(gitlab_config_path)
     if name not in gitlab_config.get("bundles", {}):
-        return False, f"Unknown bundle: {name}"
+        return False, _t("Unknown bundle: {name}", name=name)
     referencing = [p for p, proj in gitlab_config.get("projects", {}).items() if proj.get("bundle") == name]
     if referencing:
-        return False, f"Cannot delete {name}: still used by project(s) {', '.join(referencing)}"
+        return False, _t("Cannot delete {name}: still used by project(s) {projects}", name=name, projects=", ".join(referencing))
     del gitlab_config["bundles"][name]
     write_gitlab_config(gitlab_config, gitlab_config_path)
 
@@ -2848,7 +2865,7 @@ def delete_access_bundle(name, gitlab_config_path=None, slack_config_path=None):
         del slack_config["bundle_webhooks"][name]
         write_slack_config(slack_config, slack_config_path)
 
-    return True, f"Deleted bundle {name}"
+    return True, _t("Deleted bundle {name}", name=name)
 
 
 def clear_bundle_webhook(name, slack_config_path=None):
@@ -2856,10 +2873,10 @@ def clear_bundle_webhook(name, slack_config_path=None):
         slack_config_path = SLACK_CONFIG_PATH
     slack_config = read_slack_config(slack_config_path)
     if name not in slack_config.get("bundle_webhooks", {}):
-        return False, f"No Slack webhook override set for bundle {name}"
+        return False, _t("No Slack webhook override set for bundle {name}", name=name)
     del slack_config["bundle_webhooks"][name]
     write_slack_config(slack_config, slack_config_path)
-    return True, f"Cleared Slack webhook override for bundle {name}"
+    return True, _t("Cleared Slack webhook override for bundle {name}", name=name)
 
 
 def update_slack_webhook(webhook_url, config_path=None):
@@ -2867,11 +2884,11 @@ def update_slack_webhook(webhook_url, config_path=None):
         config_path = SLACK_CONFIG_PATH
     webhook_url = webhook_url.strip()
     if not webhook_url:
-        return False, "Webhook URL is required"
+        return False, _t("Webhook URL is required")
     config = read_slack_config(config_path)
     config["webhook_url"] = webhook_url
     write_slack_config(config, config_path)
-    return True, "Slack webhook updated"
+    return True, _t("Slack webhook updated")
 
 
 _BLOCK_TEMPLATE_NOTIFICATION_KEYS = {
@@ -2927,15 +2944,15 @@ def upsert_block_template(name, blocks_json, notification_key, original_name="",
     original_name = original_name.strip()
     notification_key = notification_key.strip()
     if not name:
-        return False, "Template name is required"
+        return False, _t("Template name is required")
     if notification_key and notification_key not in _BLOCK_TEMPLATE_NOTIFICATION_KEYS:
-        return False, f"Unknown notification key: {notification_key}"
+        return False, _t("Unknown notification key: {key}", key=notification_key)
     try:
         blocks = json.loads(blocks_json)
     except (TypeError, ValueError):
-        return False, "Blocks JSON is invalid"
+        return False, _t("Blocks JSON is invalid")
     if not isinstance(blocks, list):
-        return False, "Blocks JSON must be a list"
+        return False, _t("Blocks JSON must be a list")
 
     config = read_slack_config(config_path)
     templates = config.setdefault("block_templates", {})
@@ -2943,9 +2960,9 @@ def upsert_block_template(name, blocks_json, notification_key, original_name="",
     renaming = bool(original_name) and original_name != name
     if renaming:
         if original_name not in templates:
-            return False, f"Unknown template: {original_name}"
+            return False, _t("Unknown template: {name}", name=original_name)
         if name in templates:
-            return False, f"Template name already in use: {name}"
+            return False, _t("Template name already in use: {name}", name=name)
         del templates[original_name]
 
     unbound_from = None
@@ -2961,11 +2978,11 @@ def upsert_block_template(name, blocks_json, notification_key, original_name="",
     write_slack_config(config, config_path)
 
     if renaming:
-        message = f"Renamed template {original_name} to {name}"
+        message = _t("Renamed template {old} to {new}", old=original_name, new=name)
     else:
-        message = f"{'Added' if is_new else 'Updated'} template {name}"
+        message = _t("Added template {name}", name=name) if is_new else _t("Updated template {name}", name=name)
     if unbound_from:
-        message += f" (was previously bound to '{unbound_from}')"
+        message = _t("{message} (was previously bound to '{name}')", message=message, name=unbound_from)
     return True, message
 
 
@@ -2975,10 +2992,10 @@ def delete_block_template(name, config_path=None):
     config = read_slack_config(config_path)
     templates = config.get("block_templates", {})
     if name not in templates:
-        return False, f"Unknown template: {name}"
+        return False, _t("Unknown template: {name}", name=name)
     del templates[name]
     write_slack_config(config, config_path)
-    return True, f"Deleted template {name}"
+    return True, _t("Deleted template {name}", name=name)
 
 
 def send_test_block_template(name, config_path=None, defaults_dir=None):
@@ -2996,13 +3013,13 @@ def send_test_block_template(name, config_path=None, defaults_dir=None):
     if template is None:
         template = read_default_block_templates(defaults_dir).get(name)
     if template is None:
-        return False, f"Unknown template: {name}"
+        return False, _t("Unknown template: {name}", name=name)
     blocks = slack_notify.substitute_message(template.get("blocks", []), "(test message)")
     try:
         slack_notify.post_message("(test message)", blocks=blocks, config_path=config_path)
     except Exception as exc:  # noqa: BLE001 - surfaced to the user via the flash message, not raised
-        return False, f"Test message failed: {exc}"
-    return True, f"Sent test message for template {name}"
+        return False, _t("Test message failed: {error}", error=exc)
+    return True, _t("Sent test message for template {name}", name=name)
 
 
 def read_custom_instructions(path=None):
@@ -3037,7 +3054,7 @@ def write_custom_instructions(text, path=None):
     except BaseException:
         os.unlink(tmp.name)
         raise
-    return True, "Instructions saved"
+    return True, _t("Instructions saved")
 
 
 def send_user_message(text, path=None):
@@ -3053,12 +3070,12 @@ def send_chat_message(text, path=None, session=None):
         path = MESSAGES_PATH
     text = text.strip()
     if not text:
-        return False, "Message is required", None
+        return False, _t("Message is required"), None
     if session is None:
         session = current_chat_session_id(path) or ""
     session_id = resolve_chat_session_for_send(session, text, path)
     append_message("user", text, path, session=session_id)
-    return True, "Message sent", session_id
+    return True, _t("Message sent"), session_id
 
 
 def delete_message(timestamp, path=None):
@@ -3071,9 +3088,9 @@ def delete_message(timestamp, path=None):
     messages = read_messages(path)
     remaining = [m for m in messages if m.get("timestamp") != timestamp]
     if len(remaining) == len(messages):
-        return False, "Message not found"
+        return False, _t("Message not found")
     _atomic_write_json(remaining, path)
-    return True, "Message deleted"
+    return True, _t("Message deleted")
 
 
 def _chat_tool_status(status_path=None, topic_status_path=None,
@@ -3358,9 +3375,9 @@ def trigger_manual_run(status_path=None, run_loop_path=None, loop_name="gitlab-l
         run_loop_path = RUN_LOOP_NOW_SH
     status = read_status(status_path)
     if status.get("state") == "running":
-        return False, "A run is already in progress"
+        return False, _t("A run is already in progress")
     if not run_loop_path.exists():
-        return False, f"run-loop-now.sh not found at {run_loop_path}"
+        return False, _t("run-loop-now.sh not found at {path}", path=run_loop_path)
     subprocess.Popen(
         ["bash", str(run_loop_path), loop_name],
         cwd=str(LOOP_DIR),
@@ -3369,7 +3386,7 @@ def trigger_manual_run(status_path=None, run_loop_path=None, loop_name="gitlab-l
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
-    return True, "Run started - check back here for progress"
+    return True, _t("Run started - check back here for progress")
 
 
 def trigger_topic_monitor_run(status_path=None, run_loop_path=None, loop_name="topic-loop"):
@@ -3386,9 +3403,9 @@ def trigger_topic_monitor_run(status_path=None, run_loop_path=None, loop_name="t
         run_loop_path = RUN_LOOP_NOW_SH
     topics = read_topic_status(status_path).get("topics", {})
     if any(entry.get("state") == "running" for entry in topics.values()):
-        return False, "A run is already in progress"
+        return False, _t("A run is already in progress")
     if not run_loop_path.exists():
-        return False, f"run-loop-now.sh not found at {run_loop_path}"
+        return False, _t("run-loop-now.sh not found at {path}", path=run_loop_path)
     subprocess.Popen(
         ["bash", str(run_loop_path), loop_name],
         cwd=str(LOOP_DIR),
@@ -3397,7 +3414,7 @@ def trigger_topic_monitor_run(status_path=None, run_loop_path=None, loop_name="t
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
-    return True, "Run started - check back here for progress"
+    return True, _t("Run started - check back here for progress")
 
 
 def trigger_inbox_triage_run(status_path=None, run_loop_path=None, loop_name="inbox-triage-loop"):
@@ -3425,9 +3442,9 @@ def trigger_inbox_triage_run(status_path=None, run_loop_path=None, loop_name="in
     loop_status = read_status(status_path)
     pid = loop_status.get("pid")
     if loop_status.get("state") == "running" and pid is not None and _process_alive(pid):
-        return False, "A run is already in progress"
+        return False, _t("A run is already in progress")
     if not Path(run_loop_path).exists():
-        return False, f"run-loop-now.sh not found at {run_loop_path}"
+        return False, _t("run-loop-now.sh not found at {path}", path=run_loop_path)
     subprocess.Popen(
         ["bash", str(run_loop_path), loop_name],
         cwd=str(LOOP_DIR),
@@ -3436,7 +3453,7 @@ def trigger_inbox_triage_run(status_path=None, run_loop_path=None, loop_name="in
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
-    return True, "Inbox triage started - check back here for results"
+    return True, _t("Inbox triage started - check back here for results")
 
 
 def _process_alive(pid):
@@ -3505,15 +3522,15 @@ def stop_gitlab_loop(status_path=None):
         status_path = STATUS_PATH
     status = read_status(status_path)
     if status.get("state") != "running":
-        return False, "No run is currently in progress"
+        return False, _t("No run is currently in progress")
     pid = status.get("pid")
     stale = pid is None or not _process_alive(pid)
     if not stale:
         _kill_process_group(pid)
     write_status("stopped", status_path)
     if stale:
-        return True, "Cleared a stale running state (no active process found)"
-    return True, "Run stopped"
+        return True, _t("Cleared a stale running state (no active process found)")
+    return True, _t("Run stopped")
 
 
 def stop_topic_loop(status_path=None, topic_status_path=None):
@@ -3537,7 +3554,7 @@ def stop_topic_loop(status_path=None, topic_status_path=None):
     topics = read_topic_status(topic_status_path)["topics"]
     running_topics = [name for name, entry in topics.items() if entry.get("state") == "running"]
     if status.get("state") != "running" and not running_topics:
-        return False, "No run is currently in progress"
+        return False, _t("No run is currently in progress")
     pid = status.get("pid")
     stale = pid is None or not _process_alive(pid)
     if not stale:
@@ -3546,8 +3563,8 @@ def stop_topic_loop(status_path=None, topic_status_path=None):
     for name in running_topics:
         write_topic_status(name, "stopped", topic_status_path)
     if stale:
-        return True, "Cleared a stale running state (no active process found)"
-    return True, "Run stopped"
+        return True, _t("Cleared a stale running state (no active process found)")
+    return True, _t("Run stopped")
 
 
 def trigger_skills_install(status_path=None, setup_script_path=None, log_path=None, daemon_label=None):
@@ -3575,9 +3592,9 @@ def trigger_skills_install(status_path=None, setup_script_path=None, log_path=No
 
     status = read_status(status_path)
     if status.get("state") == "installing":
-        return False, "A setup is already in progress"
+        return False, _t("A setup is already in progress")
     if not setup_script_path.exists():
-        return False, f"setup.sh not found at {setup_script_path}"
+        return False, _t("setup.sh not found at {path}", path=setup_script_path)
 
     this_script = Path(__file__).resolve()
     command = (
@@ -3599,7 +3616,7 @@ def trigger_skills_install(status_path=None, setup_script_path=None, log_path=No
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
-    return True, "Setup started in the background - the dashboard will restart automatically when it's done"
+    return True, _t("Setup started in the background - the dashboard will restart automatically when it's done")
 
 
 def _today_log_tail(lines=30):
@@ -3763,7 +3780,7 @@ _FONT_FACE_VARS = "\n".join(
 _MATERIAL_SYMBOLS_ICON_NAMES = (
     "account_balance_wallet,add,add_comment,arrow_upward,auto_awesome,bolt,check,check_circle,chevron_left,circle,close,content_copy,delete,description,"
     "dns,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,history,lightbulb,loop,merge,monitoring,newspaper,"
-    "open_in_new,palette,payments,save,send,settings,smart_toy,space_dashboard,speed,terminal,topic,tune,warning,widgets"
+    "open_in_new,palette,payments,save,send,settings,smart_toy,space_dashboard,speed,terminal,topic,translate,tune,warning,widgets"
 )
 
 
@@ -4154,6 +4171,66 @@ button:focus-visible,
 
 .header-right {{ display: flex; align-items: center; gap: 0.65rem; }}
 .refresh-note {{ font-size: 0.75rem; color: var(--md-nav-on-surface); white-space: nowrap; }}
+
+/* Topbar language switcher (see lang_switch_html in _render_shell): a
+   translate-icon button opening a small menu of the languages bin/i18n.py
+   supports. Picking one sets the loop_lang cookie and reloads - the server
+   renders every page in that language, nothing is translated client-side. */
+.lang-switch {{ position: relative; flex-shrink: 0; }}
+.lang-switch-trigger {{
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  height: 32px;
+  padding: 0 0.5rem;
+  border: none;
+  border-radius: 16px;
+  background: none;
+  color: var(--md-nav-on-surface);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}}
+.lang-switch-trigger .material-symbols-outlined {{ font-size: 20px; }}
+.lang-switch-trigger:hover,
+.lang-switch.is-open .lang-switch-trigger {{ background: var(--md-nav-active-surface); color: var(--md-nav-active-on-surface); }}
+.lang-switch-trigger:focus-visible {{ outline: 2px solid var(--md-primary); outline-offset: 2px; }}
+.lang-switch-menu {{
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 100;
+  min-width: 10rem;
+  padding: 0.25rem;
+  background: var(--md-surface-container);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+}}
+.lang-switch-menu[hidden] {{ display: none; }}
+.lang-switch-option {{
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--md-on-surface);
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}}
+.lang-switch-option .material-symbols-outlined {{ font-size: 16px; visibility: hidden; color: var(--md-primary); }}
+.lang-switch-option[aria-checked='true'] {{ color: var(--md-primary); font-weight: 500; }}
+.lang-switch-option[aria-checked='true'] .material-symbols-outlined {{ visibility: visible; }}
+.lang-switch-option:hover,
+.lang-switch-option:focus-visible {{ background: var(--md-surface-container-high); outline: none; }}
 
 html.collapsed {{ --shell-left: 64px; }}
 html.collapsed .sidebar {{ width: 64px; }}
@@ -5910,13 +5987,13 @@ def _progress_text(status):
     current_issue = status.get("current_issue")
     current_step = status.get("current_step")
     if state == "running" and current_step:
-        step_label = _STEP_LABELS.get(current_step, current_step)
+        step_label = i18n.t(_STEP_LABELS.get(current_step, current_step))
         if current_issue:
-            return f"Processing {current_issue} — {step_label}"
+            return _t("Processing {issue} — {step}", issue=current_issue, step=step_label)
         return step_label
     if state == "running":
-        return "Starting up"
-    return "Idle"
+        return _t("Starting up")
+    return _t("Idle")
 
 
 def _topic_monitor_progress_text(topic_status, topics):
@@ -5934,9 +6011,9 @@ def _topic_monitor_progress_text(topic_status, topics):
     for name, entry in topic_status.items():
         if entry.get("state") == "running":
             step = entry.get("current_step")
-            step_label = _STEP_LABELS.get(step, step) if step else "Starting up"
+            step_label = i18n.t(_STEP_LABELS.get(step, step)) if step else _t("Starting up")
             return f"{step_label} — {labels.get(name, name)}"
-    return "Idle"
+    return _t("Idle")
 
 
 def _status_badge(state):
@@ -6015,6 +6092,7 @@ def _nav_link(key, href, label, icon, active_page):
     `.nav-label` is hidden, so the link stays identifiable via a native
     tooltip."""
     cls = " class='active'" if key == active_page else ""
+    label = html.escape(i18n.t(label))
     return (
         f"<a href='{href}' title='{label}'{cls}>"
         f"<span class='nav-icon'>{icon}</span><span class='nav-label'>{label}</span></a>"
@@ -6030,7 +6108,7 @@ def _state_label(status):
     state = status.get("state", "unknown")
     if state == "running":
         return _progress_text(status)
-    return state.replace("_", " ").title() if isinstance(state, str) else str(state)
+    return i18n.t(state.replace("_", " ").title()) if isinstance(state, str) else str(state)
 
 
 def _status_badge_markup(status):
@@ -6059,7 +6137,7 @@ def _run_now_action_html(action, confirm_text, csrf_input, disabled_hint_html=No
         return f"""
 <div class='run-now-action'>
 <button type='button' class='btn btn-primary' disabled>
-<span class='material-symbols-outlined' aria-hidden='true'>bolt</span> Run now
+<span class='material-symbols-outlined' aria-hidden='true'>bolt</span> {html.escape(_t('Run now'))}
 </button>
 <p class='run-now-hint'>{disabled_hint_html}</p>
 </div>
@@ -6070,7 +6148,7 @@ def _run_now_action_html(action, confirm_text, csrf_input, disabled_hint_html=No
 <form method='post' action='{action}' class='daemon-action-form'>
 {csrf_input}
 <button type='submit' class='btn btn-primary' data-confirm="{confirm_attr}">
-<span class='material-symbols-outlined' aria-hidden='true'>bolt</span> Run now
+<span class='material-symbols-outlined' aria-hidden='true'>bolt</span> {html.escape(_t('Run now'))}
 </button>
 </form>
 </div>
@@ -6091,7 +6169,7 @@ def _stop_action_html(action, confirm_text, csrf_input):
 <form method='post' action='{action}' class='daemon-action-form'>
 {csrf_input}
 <button type='submit' class='btn btn-warning' data-confirm="{confirm_attr}">
-<span class='material-symbols-outlined' aria-hidden='true'>warning</span> Stop
+<span class='material-symbols-outlined' aria-hidden='true'>warning</span> {html.escape(_t('Stop'))}
 </button>
 </form>
 </div>
@@ -6126,20 +6204,20 @@ def _sidebar_html(active_page):
     items_by_key = {item[0]: item for item in _NAV_ITEMS}
     group_blocks = []
     for label, keys in _NAV_GROUPS:
-        label_html = f"<p class='sidebar-group-label'>{html.escape(label)}</p>" if label else ""
+        label_html = f"<p class='sidebar-group-label'>{html.escape(i18n.t(label))}</p>" if label else ""
         links_html = "".join(_nav_link(*items_by_key[key], active_page) for key in keys)
         group_blocks.append(f"{label_html}{links_html}")
     nav_html = "".join(group_blocks)
     return (
         "<div class='sidebar-top'>"
         f"<a class='brand' href='/'>{_BRAND_MARK_ICON}<span class='brand-name'>Loop X</span></a>"
-        "<button type='button' class='sidebar-toggle' aria-label='Toggle sidebar' "
+        f"<button type='button' class='sidebar-toggle' aria-label='{html.escape(_t('Toggle sidebar'))}' "
         "onclick=\"document.documentElement.classList.toggle('collapsed');"
         "localStorage.setItem('loop-dashboard-sidebar', "
         "document.documentElement.classList.contains('collapsed') ? '1' : '0')\">"
         f"{_SIDEBAR_TOGGLE_ICON}</button>"
         "</div>"
-        f"<nav class='sidebar-nav' aria-label='Pages'>{nav_html}</nav>"
+        f"<nav class='sidebar-nav' aria-label='{html.escape(_t('Pages'))}'>{nav_html}</nav>"
     )
 
 
@@ -6199,7 +6277,32 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     ai_cli_badge_html = (
         f"<a class='pill pill-grey' href='/settings/general?tab=ai-cli'>{_SECTION_ICON_AI_CLI}{html.escape(ai_cli_name)}</a>"
     )
-    refresh_html = "<span class='refresh-note' id='refresh-note-text'>auto-refreshes every 30s</span>" if refresh_note else ""
+    refresh_html = (
+        f"<span class='refresh-note' id='refresh-note-text'>{html.escape(_t('auto-refreshes every {interval}', interval='30s'))}</span>"
+        if refresh_note else ""
+    )
+    # Every caller passes "<Page> · Loop X Engineering"; the page part is
+    # the same English label its nav item uses, so it translates through
+    # the same catalog entry.
+    page_title, sep, product = title.partition(" · ")
+    title = f"{i18n.t(page_title)}{sep}{product}"
+    current_lang = i18n.get_language()
+    lang_options_html = "".join(
+        f"<button type='button' role='menuitemradio' class='lang-switch-option' data-lang='{code}' "
+        f"aria-checked='{'true' if code == current_lang else 'false'}' lang='{i18n.html_lang(code)}'>"
+        f"<span class='material-symbols-outlined' aria-hidden='true'>check</span>{html.escape(name)}</button>"
+        for code, name in i18n.LANGUAGE_NAMES.items()
+    )
+    language_label = html.escape(_t("Language"))
+    lang_switch_html = (
+        "<div class='lang-switch' id='lang-switch'>"
+        f"<button type='button' class='lang-switch-trigger' aria-haspopup='menu' aria-expanded='false' "
+        f"aria-label='{language_label}' title='{language_label}'>"
+        "<span class='material-symbols-outlined' aria-hidden='true'>translate</span>"
+        f"<span class='lang-switch-code'>{current_lang.upper()}</span></button>"
+        f"<div class='lang-switch-menu' role='menu' aria-label='{language_label}' hidden>{lang_options_html}</div>"
+        "</div>"
+    )
     refresh_schedule_script = ""
     if refresh:
         # Auto-refresh interval (see render_general_settings_page's
@@ -6254,11 +6357,11 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     var refreshSeconds = parseInt(localStorage.getItem('loop-dashboard-refresh-interval'), 10) || 30;
     var labels = {5: '5s', 11: '11s', 30: '30s', 60: '1 min', 300: '5 min'};
     var el = document.getElementById('refresh-note-text');
-    if (el) el.textContent = 'auto-refreshes every ' + (labels[refreshSeconds] || (refreshSeconds + 's'));
+    if (el) el.textContent = __REFRESH_TEMPLATE__.replace('{interval}', labels[refreshSeconds] || (refreshSeconds + 's'));
   });
-})();"""
+})();""".replace("__REFRESH_TEMPLATE__", json.dumps(_t("auto-refreshes every {interval}")))
     return f"""<!doctype html>
-<html>
+<html lang="{i18n.html_lang(current_lang)}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -6501,7 +6604,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
       li.className = 'message-row ' + (className === 'message-bubble-user' ? 'message-row-user' : 'message-row-loop');
       li.innerHTML =
         "<div class='message-bubble " + className + "'>" +
-        "<div class='message-meta'>" + whoHtml + "<span class='message-time'>just now</span></div>" +
+        "<div class='message-meta'>" + whoHtml + "<span class='message-time'>" + {json.dumps(html.escape(_t("just now")))} + "</span></div>" +
         "<div class='message-text'></div>" +
         "</div>";
       li.querySelector('.message-text').textContent = text;
@@ -6601,10 +6704,10 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
       var editor = document.createElement('form');
       editor.className = 'message-edit-form';
       editor.innerHTML =
-        "<textarea class='message-edit-input' aria-label='Edit message'></textarea>" +
+        "<textarea class='message-edit-input' aria-label='" + {json.dumps(html.escape(_t("Edit message")))} + "'></textarea>" +
         "<div class='message-edit-actions'>" +
-        "<button type='button' class='btn btn-neutral' data-edit-cancel>Cancel</button>" +
-        "<button type='submit' class='btn btn-primary'>Send</button>" +
+        "<button type='button' class='btn btn-neutral' data-edit-cancel>" + {json.dumps(html.escape(_t("Cancel")))} + "</button>" +
+        "<button type='submit' class='btn btn-primary'>" + {json.dumps(html.escape(_t("Send")))} + "</button>" +
         "</div>";
       var editInput = editor.querySelector('textarea');
       editInput.value = textEl.getAttribute('data-raw') || textEl.innerText;
@@ -6665,7 +6768,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
       // First message of an empty thread: leave the centered hero for
       // the session layout (thread + composer pinned to the bottom).
       if (chatPage) chatPage.classList.remove('is-empty');
-      appendBubble('message-bubble-user', "<span class='k'>You</span>", text);
+      appendBubble('message-bubble-user', "<span class='k'>" + {json.dumps(html.escape(_t("You")))} + "</span>", text);
       input.value = '';
       autoGrow();
       button.disabled = true;
@@ -6731,7 +6834,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
           setTimeout(refreshHistory, 20000);
         }});
         source.addEventListener('error', function(ev) {{
-          var message = 'Something went wrong - try again.';
+          var message = {json.dumps(_t("Something went wrong - try again."))};
           try {{ message = JSON.parse(ev.data) || message; }} catch (e) {{}}
           if (accumulated === '') {{
             pendingTextEl.textContent = message;
@@ -6741,7 +6844,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
             // answer that will simply vanish on the next reload (nothing
             // partial was ever saved via append_message), so this marks
             // it visibly rather than leaving the bubble unchanged.
-            pendingTextEl.textContent = accumulated + ' (reply interrupted)';
+            pendingTextEl.textContent = accumulated + ' ' + {json.dumps(_t("(reply interrupted)"))};
           }}
           spinner.remove();
           button.disabled = false;
@@ -6754,7 +6857,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
         .then(function(response) {{ return response.json().then(function(data) {{ return {{ ok: response.ok, data: data }}; }}); }})
         .then(function(result) {{
           if (!result.ok) {{
-            pendingTextEl.textContent = result.data.error || 'Something went wrong.';
+            pendingTextEl.textContent = result.data.error || {json.dumps(_t("Something went wrong."))};
             spinner.remove();
             button.disabled = false;
             stopStreamingFlag();
@@ -6781,7 +6884,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
           }});
         }})
         .catch(function() {{
-          pendingTextEl.textContent = 'Something went wrong - try again.';
+          pendingTextEl.textContent = {json.dumps(_t("Something went wrong - try again."))};
           spinner.remove();
           button.disabled = false;
           stopStreamingFlag();
@@ -6832,7 +6935,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     var bubble = document.getElementById('field-error-bubble');
     if (!bubble) return;
     var text = bubble.querySelector('.field-error-bubble-text');
-    if (text) text.textContent = field.validationMessage || 'Please fill out this field.';
+    if (text) text.textContent = field.validationMessage || {json.dumps(_t("Please fill out this field."))};
     var rect = field.getBoundingClientRect();
     bubble.style.left = rect.left + 'px';
     bubble.style.top = (rect.bottom + 6) + 'px';
@@ -6910,7 +7013,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
       .then(function(response) {{ return response.text(); }})
       .then(function(html) {{ el.innerHTML = html; }})
       .catch(function() {{
-        el.innerHTML = "<p class='inline-error'><span class='material-symbols-outlined' aria-hidden='true'>error</span> Couldn't load this section.</p>";
+        el.innerHTML = "<p class='inline-error'><span class='material-symbols-outlined' aria-hidden='true'>error</span> " + {json.dumps(html.escape(_t("Couldn't load this section."), quote=False))} + "</p>";
       }});
   }}
   // Exposed globally so _render_shell's lazy_refresh auto-refresh timer
@@ -7017,7 +7120,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
         if (button) {{
           button.className = 'switch ' + (enabled ? 'is-on' : 'is-off');
           button.setAttribute('aria-checked', enabled ? 'true' : 'false');
-          var label = enabled ? ('Stop tracking #' + issueIid) : ('Track #' + issueIid + ' again');
+          var label = (enabled ? {json.dumps(_t("Stop tracking #{iid}"))} : {json.dumps(_t("Track #{iid} again"))}).replace('{{iid}}', issueIid);
           button.setAttribute('aria-label', label);
           button.setAttribute('title', label);
         }}
@@ -7041,8 +7144,8 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
 <div class="confirm-dialog-icon"><span class="material-symbols-outlined" aria-hidden="true">error</span></div>
 <p class="confirm-dialog-message"></p>
 <div class="confirm-dialog-actions">
-<button type="button" class="btn btn-neutral" data-confirm-cancel>Cancel</button>
-<button type="button" class="btn btn-warning" data-confirm-ok>Confirm</button>
+<button type="button" class="btn btn-neutral" data-confirm-cancel>{html.escape(_t("Cancel"))}</button>
+<button type="button" class="btn btn-warning" data-confirm-ok>{html.escape(_t("Confirm"))}</button>
 </div>
 </dialog>
 
@@ -7058,6 +7161,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
 {ai_cli_badge_html}
 {status_badge_html}
 {refresh_html}
+{lang_switch_html}
 </div>
 </div>
 <div class="main-scroll" id="main-scroll">
@@ -7068,6 +7172,50 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
 </main>
 
 <div class="nav-tooltip" id="nav-tooltip" role="tooltip" hidden></div>
+<script>
+(function() {{
+  // Topbar language switcher - see lang_switch_html and .lang-switch.
+  var root = document.getElementById('lang-switch');
+  if (!root) return;
+  var trigger = root.querySelector('.lang-switch-trigger');
+  var menu = root.querySelector('.lang-switch-menu');
+  var options = Array.prototype.slice.call(menu.querySelectorAll('.lang-switch-option'));
+  function setOpen(open) {{
+    menu.hidden = !open;
+    root.classList.toggle('is-open', open);
+    trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) {{
+      var current = menu.querySelector("[aria-checked='true']") || options[0];
+      current.focus();
+    }}
+  }}
+  trigger.addEventListener('click', function(event) {{
+    event.stopPropagation();
+    setOpen(menu.hidden);
+  }});
+  options.forEach(function(option, index) {{
+    option.addEventListener('click', function() {{
+      document.cookie = '{i18n.COOKIE_NAME}=' + option.getAttribute('data-lang') + '; path=/; max-age=31536000; samesite=lax';
+      // replace(), not reload(): reload() is reserved as the marker for the
+      // auto-refresh timer (see test_render_shell_omits_auto_refresh_by_default).
+      location.replace(location.href);
+    }});
+    option.addEventListener('keydown', function(event) {{
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {{
+        event.preventDefault();
+        var step = event.key === 'ArrowDown' ? 1 : -1;
+        options[(index + step + options.length) % options.length].focus();
+      }}
+    }});
+  }});
+  document.addEventListener('click', function(event) {{
+    if (!menu.hidden && !root.contains(event.target)) setOpen(false);
+  }});
+  document.addEventListener('keydown', function(event) {{
+    if (event.key === 'Escape' && !menu.hidden) {{ setOpen(false); trigger.focus(); }}
+  }});
+}})();
+</script>
 <script>
 (function() {{
   // Styled replacement for the nav links' native title tooltip, shown only
@@ -7125,7 +7273,7 @@ def _activity_strip_html(strip):
     for day in strip:
         outcome = day["outcome"]
         css_class = f"activity-bar-{outcome}" if outcome else "activity-bar-none"
-        title = f"{day['date']} – {_ACTIVITY_STRIP_OUTCOME_LABEL[outcome]}"
+        title = f"{day['date']} – {i18n.t(_ACTIVITY_STRIP_OUTCOME_LABEL[outcome])}"
         bars.append(f"<span class='activity-bar {css_class}' title=\"{html.escape(title)}\"></span>")
     return f"<div class='activity-strip'>{''.join(bars)}</div>"
 
@@ -7137,12 +7285,12 @@ def _dashboard_stats_html(stats, projects_count, topics_count):
     at the Dashboard should answer without a click to Live GitLab,
     Memory, or Run History."""
     tiles = (
-        ("folder", "Tracked projects", projects_count),
-        ("topic", "Configured topics", topics_count),
-        ("history", "Runs logged", stats["runs"]),
-        ("merge", "MRs opened", stats["mrs_opened"]),
-        ("warning", "Escalations", stats["escalations"]),
-        ("forum", "Answered directly", stats["answered"]),
+        ("folder", _t("Tracked projects"), projects_count),
+        ("topic", _t("Configured topics"), topics_count),
+        ("history", _t("Runs logged"), stats["runs"]),
+        ("merge", _t("MRs opened"), stats["mrs_opened"]),
+        ("warning", _t("Escalations"), stats["escalations"]),
+        ("forum", _t("Answered directly"), stats["answered"]),
     )
     tiles_html = "".join(
         "<div class='dash-stat-tile'>"
@@ -7154,10 +7302,10 @@ def _dashboard_stats_html(stats, projects_count, topics_count):
     )
     return f"""
 <section class="card">
-<div class="section-header">{_SECTION_ICON_OVERVIEW}<h2>Overview</h2></div>
+<div class="section-header">{_SECTION_ICON_OVERVIEW}<h2>{html.escape(_t('Overview'))}</h2></div>
 <div class="dash-stats-grid">{tiles_html}</div>
 <div class="dash-activity-strip-row">
-<span class="dash-activity-strip-label">Last 7 days</span>
+<span class="dash-activity-strip-label">{html.escape(_t('Last 7 days'))}</span>
 {_activity_strip_html(stats["strip"])}
 </div>
 </section>
@@ -7197,7 +7345,7 @@ def render_activity_messages_fragment(messages_path=None, session_id=None):
         timestamp = str(m.get("timestamp", ""))
         relative_time = _relative_time(timestamp)
         timestamp_url_safe = urllib.parse.quote(timestamp, safe="")
-        delete_confirm = html.escape("Delete this message?", quote=True)
+        delete_confirm = html.escape(_t("Delete this message?"), quote=True)
 
         day = _message_date(timestamp)
         if day is not None and day != last_day:
@@ -7213,14 +7361,14 @@ def render_activity_messages_fragment(messages_path=None, session_id=None):
         last_sender = is_user
 
         who_html = (
-            "<span class='k'>You</span>" if is_user
+            f"<span class='k'>{html.escape(_t('You'))}</span>" if is_user
             else f"<span class='k' aria-label='Loop X'>{_MESSAGE_BRAND_ICON}</span>"
         )
         # Copy puts both the rendered HTML and this raw markdown (data-raw)
         # on the clipboard; edit (user messages only) pre-fills an inline
         # editor with it - see the "activity-composer-form" IIFE.
         edit_html = (
-            "<button type='button' class='message-action-btn' data-edit-message aria-label='Edit message' title='Edit'>"
+            f"<button type='button' class='message-action-btn' data-edit-message aria-label='{html.escape(_t('Edit message'))}' title='{html.escape(_t('Edit'))}'>"
             "<span class='material-symbols-outlined' aria-hidden='true'>edit</span></button>"
             if is_user else ""
         )
@@ -7232,12 +7380,12 @@ def render_activity_messages_fragment(messages_path=None, session_id=None):
             f"<div class='message-text markdown' data-raw=\"{html.escape(text, quote=True)}\">{render_markdown(text)}</div>"
             "</div>"
             "<div class='message-actions'>"
-            "<button type='button' class='message-action-btn' data-copy-message aria-label='Copy message' title='Copy'>"
+            f"<button type='button' class='message-action-btn' data-copy-message aria-label='{html.escape(_t('Copy message'))}' title='{html.escape(_t('Copy'))}'>"
             "<span class='material-symbols-outlined' aria-hidden='true'>content_copy</span></button>"
             f"{edit_html}"
             f"<form method='post' action='/activity/messages/{timestamp_url_safe}/delete' class='message-delete-form'>"
             f"{csrf_input}"
-            f"<button type='submit' class='message-action-btn' aria-label='Delete message' title='Delete' data-confirm=\"{delete_confirm}\">"
+            f"<button type='submit' class='message-action-btn' aria-label='{html.escape(_t('Delete message'))}' title='{html.escape(_t('Delete'))}' data-confirm=\"{delete_confirm}\">"
             "<span class='material-symbols-outlined' aria-hidden='true'>delete</span></button>"
             "</form>"
             "</div>"
@@ -7246,7 +7394,7 @@ def render_activity_messages_fragment(messages_path=None, session_id=None):
         )
     if message_rows:
         return f"<ul class='message-list'>{''.join(message_rows)}</ul>"
-    return "<p>(no messages yet)</p>"
+    return "<p>" + html.escape(_t("(no messages yet)")) + "</p>"
 
 
 _CHAT_HISTORY_GROUPS = ("Today", "Yesterday", "Previous 7 days", "Previous 30 days", "Older")
@@ -7276,7 +7424,7 @@ def render_chat_history_fragment(messages_path=None, active_session_id=None):
     after a send - a new session appearing, or its AI title landing."""
     sessions = list_chat_sessions(messages_path)
     if not sessions:
-        return "<p class='chat-history-empty'>No chats yet</p>"
+        return "<p class='chat-history-empty'>" + html.escape(_t("No chats yet")) + "</p>"
     today = datetime.now(timezone.utc).date()
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
     viewing_input = f"<input type='hidden' name='viewing' value='{html.escape(active_session_id or '', quote=True)}'>"
@@ -7287,7 +7435,7 @@ def render_chat_history_fragment(messages_path=None, active_session_id=None):
     for group in _CHAT_HISTORY_GROUPS:
         if group not in grouped:
             continue
-        parts.append(f"<h3 class='chat-history-group'>{group}</h3>")
+        parts.append(f"<h3 class='chat-history-group'>{html.escape(i18n.t(group))}</h3>")
         for session in grouped[group]:
             is_active = session["id"] == active_session_id
             active = " is-active" if is_active else ""
@@ -7295,7 +7443,7 @@ def render_chat_history_fragment(messages_path=None, active_session_id=None):
             quoted_id = urllib.parse.quote(session["id"], safe="")
             href = "/?session=" + quoted_id
             title = session["title"]
-            confirm = html.escape(f"Delete the chat \u201c{title}\u201d? Its messages will be removed.", quote=True)
+            confirm = html.escape(_t("Delete the chat \u201c{title}\u201d? Its messages will be removed.", title=title), quote=True)
             parts.append(
                 "<div class='chat-history-row'>"
                 f"<a class='chat-history-item{active}' href='{html.escape(href, quote=True)}'{current_attr}>"
@@ -7304,8 +7452,8 @@ def render_chat_history_fragment(messages_path=None, active_session_id=None):
                 "</a>"
                 f"<form method='post' action='/activity/sessions/{html.escape(quoted_id, quote=True)}/delete' class='chat-history-delete-form'>"
                 f"{csrf_input}{viewing_input}"
-                f"<button type='submit' class='message-action-btn' aria-label='Delete chat {html.escape(title, quote=True)}'"
-                f" title='Delete chat' data-confirm=\"{confirm}\">"
+                f"<button type='submit' class='message-action-btn' aria-label='{html.escape(_t('Delete chat {title}', title=title), quote=True)}'"
+                f" title='{html.escape(_t('Delete chat'))}' data-confirm=\"{confirm}\">"
                 "<span class='material-symbols-outlined' aria-hidden='true'>delete</span></button>"
                 "</form>"
                 "</div>"
@@ -7364,38 +7512,39 @@ def render_overview_page(flash=None, flash_ok=True, session_id=None):
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
     session_input = f"<input type='hidden' name='session' value='{html.escape(viewing, quote=True)}'>"
 
-    announce_text = f"GitLab loop: {_state_label(status)}"
+    announce_text = _t("GitLab loop: {state}", state=_state_label(status))
     updated_at = status.get("updated_at")
     if updated_at:
-        announce_text += f" · updated {_relative_time(str(updated_at))}"
+        announce_text += " · " + _t("updated {when}", when=_relative_time(str(updated_at)))
 
     suggestions_html = "".join(
         f"<button type='button' class='chat-chip' data-chat-suggestion=\"{html.escape(prompt, quote=True)}\">"
-        f"<span class='material-symbols-outlined' aria-hidden='true'>{icon}</span>{html.escape(label)}</button>"
+        f"<span class='material-symbols-outlined' aria-hidden='true'>{icon}</span>{html.escape(i18n.t(label))}</button>"
         for icon, label, prompt in _CHAT_SUGGESTIONS
     )
 
+    hero_title_html = _t("Into the {loop}", loop="<span class='chat-hero-accent'>Loop</span>")
     body = f"""
 <div class='chat-page{" is-empty" if is_empty else ""}'>
 <div class='chat-toolbar'>
-<button type='button' class='chat-tool-btn' data-chat-history-open aria-controls='chat-history' aria-expanded='false'><span class='material-symbols-outlined' aria-hidden='true'>history</span>History</button>
+<button type='button' class='chat-tool-btn' data-chat-history-open aria-controls='chat-history' aria-expanded='false'><span class='material-symbols-outlined' aria-hidden='true'>history</span>{html.escape(_t('History'))}</button>
 <form method='post' action='/activity/new-chat' class='chat-new-form'>
 {csrf_input}
-<button type='submit' class='chat-tool-btn chat-new-btn'><span class='material-symbols-outlined' aria-hidden='true'>add_comment</span>New chat</button>
+<button type='submit' class='chat-tool-btn chat-new-btn'><span class='material-symbols-outlined' aria-hidden='true'>add_comment</span>{html.escape(_t('New chat'))}</button>
 </form>
 </div>
 <div class='chat-history-backdrop' data-chat-history-close hidden></div>
-<aside class='chat-history' id='chat-history' aria-label='Chat history' hidden>
+<aside class='chat-history' id='chat-history' aria-label='{html.escape(_t('Chat history'))}' hidden>
 <div class='chat-history-header'>
-<h2>Chats</h2>
-<button type='button' class='message-action-btn' data-chat-history-close aria-label='Close history'><span class='material-symbols-outlined' aria-hidden='true'>close</span></button>
+<h2>{html.escape(_t('Chats'))}</h2>
+<button type='button' class='message-action-btn' data-chat-history-close aria-label='{html.escape(_t('Close history'))}'><span class='material-symbols-outlined' aria-hidden='true'>close</span></button>
 </div>
 <div id='chat-history-list'>{history_html}</div>
 </aside>
 {flash_html}
 <div class='chat-hero'>
 <a class='chat-announce' href='/activity'><span class='material-symbols-outlined' aria-hidden='true'>auto_awesome</span>{html.escape(announce_text)} &rarr;</a>
-<h1 class='chat-hero-title'>Into the <span class='chat-hero-accent'>Loop</span></h1>
+<h1 class='chat-hero-title'>{hero_title_html}</h1>
 </div>
 <div class='chat-thread activity-messages-grid'>
 {messages_html}
@@ -7405,17 +7554,17 @@ def render_overview_page(flash=None, flash_ok=True, session_id=None):
 <form method='post' action='/activity/messages' class='activity-composer-form' id='activity-composer-form'>
 {csrf_input}
 {session_input}
-<textarea name='text' class='activity-composer-input' rows='2' placeholder='Ask the loop anything, or paste a GitLab issue link' aria-label='Message the loop' required></textarea>
+<textarea name='text' class='activity-composer-input' rows='2' placeholder='{html.escape(_t('Ask the loop anything, or paste a GitLab issue link'))}' aria-label='{html.escape(_t('Message the loop'))}' required></textarea>
 <div class='chat-composer-toolbar'>
 <div class='chat-chips'>{suggestions_html}</div>
-<button type='submit' class='chat-send-btn' aria-label='Send'><span class='material-symbols-outlined' aria-hidden='true'>arrow_upward</span></button>
+<button type='submit' class='chat-send-btn' aria-label='{html.escape(_t('Send'))}'><span class='material-symbols-outlined' aria-hidden='true'>arrow_upward</span></button>
 </div>
 </form>
 </div>
 </div>
 <div class='chat-hero-links'>
-<a class='chat-link-pill' href='/activity'><span class='material-symbols-outlined' aria-hidden='true'>bolt</span>Loop activity</a>
-<a class='chat-link-pill' href='/gitlab'><span class='material-symbols-outlined' aria-hidden='true'>merge</span>Live GitLab</a>
+<a class='chat-link-pill' href='/activity'><span class='material-symbols-outlined' aria-hidden='true'>bolt</span>{html.escape(_t('Loop activity'))}</a>
+<a class='chat-link-pill' href='/gitlab'><span class='material-symbols-outlined' aria-hidden='true'>merge</span>{html.escape(_t('Live GitLab'))}</a>
 </div>
 </div>
 """
@@ -7430,7 +7579,7 @@ def _history_entry_html(name, detail_href, delete_href, overview, tags, csrf_inp
     identical, only the routes differ."""
     safe_name = html.escape(name)
     tags_html = "".join(f"<span class='pill pill-grey'>{html.escape(t)}</span>" for t in tags)
-    delete_confirm = html.escape(f"Delete {name}? This can't be undone.", quote=True)
+    delete_confirm = html.escape(_t("Delete {name}? This can't be undone.", name=name), quote=True)
     return f"""
 <div class='history-entry'>
 <div class='history-entry-header'>
@@ -7438,7 +7587,7 @@ def _history_entry_html(name, detail_href, delete_href, overview, tags, csrf_inp
 <span class='pill-row'>{tags_html}</span>
 <form method='post' action='{delete_href}' class='daemon-action-form'>
 {csrf_input}
-<button type='submit' class='btn btn-warning history-delete-btn' data-confirm="{delete_confirm}" aria-label="Delete {safe_name}">
+<button type='submit' class='btn btn-warning history-delete-btn' data-confirm="{delete_confirm}" aria-label="{html.escape(_t('Delete {name}', name=name))}">
 <span class='material-symbols-outlined' aria-hidden='true'>delete</span></button>
 </form>
 </div>
@@ -7468,7 +7617,7 @@ def render_history_page():
             name, f"/history/{safe_name}", f"/history/{safe_name}/delete",
             extract_history_overview(content), gitlab_history_tags(content), csrf_input,
         ))
-    gitlab_items = "".join(gitlab_entries) or "<p>(none yet)</p>"
+    gitlab_items = "".join(gitlab_entries) or "<p>" + html.escape(_t("(none yet)")) + "</p>"
 
     topic_entries = []
     for name in list_topic_history(None, TOPIC_MONITOR_HISTORY_DIR):
@@ -7478,24 +7627,24 @@ def render_history_page():
             name, f"/topic-monitor/history/{safe_name}", f"/topic-monitor/history/{safe_name}/delete",
             extract_history_overview(content), topic_history_tags(name, content), csrf_input,
         ))
-    topic_items = "".join(topic_entries) or "<p>(none yet)</p>"
+    topic_items = "".join(topic_entries) or "<p>" + html.escape(_t("(none yet)")) + "</p>"
 
     body = f"""
 <div class="page-title">
-<h1>Run History</h1>
-<p class="subtitle">Every archived run report, most recent first.</p>
+<h1>{html.escape(_t('Run History'))}</h1>
+<p class="subtitle">{html.escape(_t('Every archived run report, most recent first.'))}</p>
 </div>
 
 <div class="grid">
 <section class="card">
-<div class="section-header">{_SECTION_ICON_HISTORY}<h2>GitLab Loop</h2></div>
+<div class="section-header">{_SECTION_ICON_HISTORY}<h2>{html.escape(_t('GitLab Loop'))}</h2></div>
 {gitlab_items}
 </section>
 </div>
 
 <div class="grid">
 <section class="card">
-<div class="section-header">{_SECTION_ICON_TOPIC_MONITOR}<h2>Topic Monitor</h2></div>
+<div class="section-header">{_SECTION_ICON_TOPIC_MONITOR}<h2>{html.escape(_t('Topic Monitor'))}</h2></div>
 {topic_items}
 </section>
 </div>
@@ -7543,13 +7692,13 @@ def render_loop_runs_page():
     paths = list(reversed(loop_serialize.list_results(results_dir=LOOP_RUNS_DIR)))
 
     if not paths:
-        body = """
+        body = f"""
 <div class="page-title">
-<h1>Loop Runs</h1>
-<p class="subtitle">Every recorded LoopRuntime run, most recent first.</p>
+<h1>{html.escape(_t('Loop Runs'))}</h1>
+<p class="subtitle">{html.escape(_t('Every recorded LoopRuntime run, most recent first.'))}</p>
 </div>
 <div class="grid"><section class="card">
-<p>No runs yet - run <code>bin/loop_cli.py run &lt;loop.yaml&gt;</code> to produce one.</p>
+<p>{_t('No runs yet - run {command} to produce one.', command='<code>bin/loop_cli.py run &lt;loop.yaml&gt;</code>')}</p>
 </section></div>
 """
         return _render_shell("Loop Runs · Loop X Engineering", "loop_runs", _status_badge_markup(status), body)
@@ -7565,22 +7714,22 @@ def render_loop_runs_page():
 <a href='/loop-runs/{run_href}'><strong>{html.escape(data['definition_name'])}</strong></a>
 <div class='pill-row'><span class='pill {pill_class}'>{html.escape(data['final_state'])}</span></div>
 </div>
-<p class='history-entry-overview'>run_id: {html.escape(data['run_id'])} &middot; {len(data['iterations'])} iteration(s) &middot; stop_reason: {html.escape(data['stop_reason'])}</p>
+<p class='history-entry-overview'>run_id: {html.escape(data['run_id'])} &middot; {html.escape(_t('{count} iteration(s)', count=len(data['iterations'])))} &middot; stop_reason: {html.escape(data['stop_reason'])}</p>
 </div>
 """)
 
     summary = loop_serialize.summarize_results(results_dir=LOOP_RUNS_DIR)
     body = f"""
 <div class="page-title">
-<h1>Loop Runs</h1>
-<p class="subtitle">Every recorded LoopRuntime run, most recent first.</p>
+<h1>{html.escape(_t('Loop Runs'))}</h1>
+<p class="subtitle">{html.escape(_t('Every recorded LoopRuntime run, most recent first.'))}</p>
 </div>
 
 {_loop_runs_overview_html(summary)}
 
 <div class="grid">
 <section class="card">
-<div class="section-header">{_SECTION_ICON_LOOP_RUNS}<h2>Runs</h2></div>
+<div class="section-header">{_SECTION_ICON_LOOP_RUNS}<h2>{html.escape(_t('Runs'))}</h2></div>
 {"".join(rows)}
 </section>
 </div>
@@ -7614,11 +7763,11 @@ def _loop_runs_overview_html(summary):
         return f"{value:.4g}" if value is not None else "—"
 
     tiles = (
-        ("history", "Total Runs", summary["total_runs"]),
-        ("check_circle", "Success Rate", _pct(summary["success_rate"])),
-        ("warning", "Escalation Rate", _pct(summary["escalation_rate"])),
-        ("bolt", "Average Cost", _cost(summary["average_cost_usd"])),
-        ("speed", "Loop Efficiency Score", _score(summary["efficiency_score"])),
+        ("history", _t("Total Runs"), summary["total_runs"]),
+        ("check_circle", _t("Success Rate"), _pct(summary["success_rate"])),
+        ("warning", _t("Escalation Rate"), _pct(summary["escalation_rate"])),
+        ("bolt", _t("Average Cost"), _cost(summary["average_cost_usd"])),
+        ("speed", _t("Loop Efficiency Score"), _score(summary["efficiency_score"])),
     )
     tiles_html = "".join(
         "<div class='dash-stat-tile'>"
@@ -7632,7 +7781,7 @@ def _loop_runs_overview_html(summary):
 <div class="grid">
 <section class="card">
 <div class="dash-stats-grid">{tiles_html}</div>
-<p class="subtitle">Average duration: not tracked yet - LoopResult has no start/finish timestamp.</p>
+<p class="subtitle">{html.escape(_t('Average duration: not tracked yet - LoopResult has no start/finish timestamp.'))}</p>
 </section>
 </div>
 """
@@ -7660,10 +7809,10 @@ def render_loop_run_detail_page(run_id):
         verifier_items = "".join(
             f"<li>{'✓' if v['passed'] else '✗'} {html.escape(v['name'])}</li>"
             for v in iteration["verification_results"]
-        ) or "<li>(no verifiers configured)</li>"
+        ) or "<li>" + html.escape(_t("(no verifiers configured)")) + "</li>"
         iteration_blocks.append(f"""
 <section class="card">
-<h3>Iteration {iteration['iteration']}: {html.escape(iteration['state'])}</h3>
+<h3>{html.escape(_t('Iteration {number}', number=iteration['iteration']))}: {html.escape(iteration['state'])}</h3>
 <ul>{verifier_items}</ul>
 </section>
 """)
@@ -7677,7 +7826,7 @@ def render_loop_run_detail_page(run_id):
 <div class="grid">
 <section class="card">
 <div class='pill-row'><span class='pill {pill_class}'>{html.escape(data['final_state'])}</span></div>
-<p>Stop reason: {html.escape(data['stop_reason'])}</p>
+<p>{html.escape(_t('Stop reason: {reason}', reason=data['stop_reason']))}</p>
 </section>
 </div>
 
@@ -7704,13 +7853,13 @@ def render_audit_page(loops_dir=None):
     paths = sorted(loops_dir.glob("*/loop.yaml")) if loops_dir.exists() else []
 
     if not paths:
-        body = """
+        body = f"""
 <div class="page-title">
-<h1>Audit</h1>
-<p class="subtitle">Loop Ready Score for every loop definition under loops/.</p>
+<h1>{html.escape(_t('Audit'))}</h1>
+<p class="subtitle">{html.escape(_t('Loop Ready Score for every loop definition under loops/.'))}</p>
 </div>
 <div class="grid"><section class="card">
-<p>No loop definitions found under loops/.</p>
+<p>{html.escape(_t('No loop definitions found under loops/.'))}</p>
 </section></div>
 """
         return _render_shell("Audit · Loop X Engineering", "audit", _status_badge_markup(status), body)
@@ -7726,15 +7875,15 @@ def render_audit_page(loops_dir=None):
             f"&mdash; {html.escape(check.detail)}</li>"
             for check in report.checks
         )
-        score_text = f"{report.score:.0f} / 100" if report.score is not None else "N/A"
+        score_text = f"{report.score:.0f} / 100" if report.score is not None else _t("N/A")
         partial_note = (
-            f"<p class='subtitle'>Partial - missing: {html.escape(', '.join(report.missing_components))}</p>"
+            f"<p class='subtitle'>{html.escape(_t('Partial - missing: {components}', components=', '.join(report.missing_components)))}</p>"
             if report.is_partial else ""
         )
         cards.append(f"""
 <section class="card">
 <div class="section-header">{_SECTION_ICON_AUDIT}<h2>{html.escape(definition.name)}</h2></div>
-<p>Loop Ready Score: <strong>{score_text}</strong></p>
+<p>{_t('Loop Ready Score: {score}', score='<strong>' + html.escape(score_text) + '</strong>')}</p>
 {partial_note}
 <ul class='plain'>{check_items}</ul>
 </section>
@@ -7742,8 +7891,8 @@ def render_audit_page(loops_dir=None):
 
     body = f"""
 <div class="page-title">
-<h1>Audit</h1>
-<p class="subtitle">Loop Ready Score for every loop definition under loops/.</p>
+<h1>{html.escape(_t('Audit'))}</h1>
+<p class="subtitle">{html.escape(_t('Loop Ready Score for every loop definition under loops/.'))}</p>
 </div>
 
 <div class="grid">
@@ -7759,7 +7908,7 @@ def _budget_dimension_tile_html(icon, label, dimension):
     used = dimension.get("used", dimension.get("used_seconds", dimension.get("used_usd")))
     limit = dimension.get("limit", dimension.get("limit_seconds", dimension.get("limit_usd")))
     pill_class = _three_state_pill_class(dimension.get("status", ""))
-    value = f"{used} / {limit}" if limit is not None else f"{used} / — (no limit configured)"
+    value = f"{used} / {limit}" if limit is not None else _t("{used} / — (no limit configured)", used=used)
     return (
         "<div class='dash-stat-tile'>"
         f"<span class='material-symbols-outlined dash-stat-icon' aria-hidden='true'>{icon}</span>"
@@ -7801,7 +7950,7 @@ def _budget_rollup_section_html(title, rows, key_field, key_header):
         return f"""
 <section class="card">
 <div class="section-header"><h2>{html.escape(title)}</h2></div>
-<p>No data yet for this breakdown.</p>
+<p>{html.escape(_t('No data yet for this breakdown.'))}</p>
 </section>
 """
     table_rows = "".join(_budget_rollup_row_html(row[key_field], row) for row in rows)
@@ -7809,7 +7958,7 @@ def _budget_rollup_section_html(title, rows, key_field, key_header):
 <section class="card">
 <div class="section-header"><h2>{html.escape(title)}</h2></div>
 <div class='table-wrap'><table class='daemons'>
-<thead><tr><th>{html.escape(key_header)}</th><th>Runs</th><th>Cost</th><th>Status</th></tr></thead>
+<thead><tr><th>{html.escape(key_header)}</th><th>{html.escape(_t('Runs'))}</th><th>{html.escape(_t('Cost'))}</th><th>{html.escape(_t('Status'))}</th></tr></thead>
 <tbody>{table_rows}</tbody>
 </table></div>
 </section>
@@ -7839,35 +7988,35 @@ def render_budget_page():
         runs_with_budget.append((data, budget))
 
     if not runs_with_budget:
-        body = """
+        body = f"""
 <div class="page-title">
-<h1>Budget</h1>
-<p class="subtitle">Budget usage for every recorded LoopRuntime run, most recent first.</p>
+<h1>{html.escape(_t('Budget'))}</h1>
+<p class="subtitle">{html.escape(_t('Budget usage for every recorded LoopRuntime run, most recent first.'))}</p>
 </div>
 <div class="grid"><section class="card">
-<p>No runs yet - run <code>bin/loop_cli.py run &lt;loop.yaml&gt;</code> to produce one.</p>
+<p>{_t('No runs yet - run {command} to produce one.', command='<code>bin/loop_cli.py run &lt;loop.yaml&gt;</code>')}</p>
 </section></div>
 """
         return _render_shell("Budget · Loop X Engineering", "budget", _status_badge_markup(status), body)
 
     rollup_sections = "".join([
         _budget_rollup_section_html(
-            "By loop", loop_budget.summarize_by_loop(results_dir=LOOP_RUNS_DIR), "definition_name", "Loop",
+            _t("By loop"), loop_budget.summarize_by_loop(results_dir=LOOP_RUNS_DIR), "definition_name", _t("Loop"),
         ),
         _budget_rollup_section_html(
-            "By day",
+            _t("By day"),
             loop_budget.summarize_by_time(results_dir=LOOP_RUNS_DIR, granularity="day", limit=14),
-            "bucket", "Day",
+            "bucket", _t("Day"),
         ),
         _budget_rollup_section_html(
-            "By week",
+            _t("By week"),
             loop_budget.summarize_by_time(results_dir=LOOP_RUNS_DIR, granularity="week", limit=8),
-            "bucket", "Week",
+            "bucket", _t("Week"),
         ),
         _budget_rollup_section_html(
-            "By month",
+            _t("By month"),
             loop_budget.summarize_by_time(results_dir=LOOP_RUNS_DIR, granularity="month", limit=6),
-            "bucket", "Month",
+            "bucket", _t("Month"),
         ),
     ])
 
@@ -7876,9 +8025,9 @@ def render_budget_page():
         run_href = urllib.parse.quote(data["run_id"])
         overall_pill = _three_state_pill_class(budget.get("overall", ""))
         tiles = "".join([
-            _budget_dimension_tile_html("loop", "Iterations", budget.get("iterations")),
-            _budget_dimension_tile_html("history", "Runtime (s)", budget.get("runtime")),
-            _budget_dimension_tile_html("payments", "Cost ($)", budget.get("cost")),
+            _budget_dimension_tile_html("loop", _t("Iterations"), budget.get("iterations")),
+            _budget_dimension_tile_html("history", _t("Runtime (s)"), budget.get("runtime")),
+            _budget_dimension_tile_html("payments", _t("Cost ($)"), budget.get("cost")),
         ])
         rows.append(f"""
 <section class="card">
@@ -7893,8 +8042,8 @@ def render_budget_page():
 
     body = f"""
 <div class="page-title">
-<h1>Budget</h1>
-<p class="subtitle">Budget usage for every recorded LoopRuntime run, most recent first.</p>
+<h1>{html.escape(_t('Budget'))}</h1>
+<p class="subtitle">{html.escape(_t('Budget usage for every recorded LoopRuntime run, most recent first.'))}</p>
 </div>
 
 <div class="grid">
@@ -7902,7 +8051,7 @@ def render_budget_page():
 </div>
 
 <div class="page-title">
-<h2>Runs</h2>
+<h2>{html.escape(_t('Runs'))}</h2>
 </div>
 
 <div class="grid">
@@ -7933,13 +8082,13 @@ def render_logs_page():
         entries.reverse()  # newest first - the tail itself is oldest-first
         log_html = f"<div class='log-entries'>{''.join(_log_entry_html(e) for e in entries)}</div>"
     else:
-        log_html = "<p>No log entries yet.</p>"
+        log_html = "<p>" + html.escape(_t("No log entries yet.")) + "</p>"
 
     ai_cli_name = _AI_CLI_DISPLAY_NAMES[ai_cli_config.get_selected_cli(ai_cli_config.DEFAULT_CONFIG_PATH)]
     body = f"""
 <div class="page-title">
-<h1>Logs</h1>
-<p class="subtitle">The most recent output from every {html.escape(ai_cli_name)} invocation - the GitLab loop, the topic monitor loop, and the chat assistant.</p>
+<h1>{html.escape(_t('Logs'))}</h1>
+<p class="subtitle">{html.escape(_t('The most recent output from every {cli} invocation - the GitLab loop, the topic monitor loop, and the chat assistant.', cli=ai_cli_name))}</p>
 </div>
 
 <div class="grid">
@@ -7969,9 +8118,9 @@ def _issue_tracking_toggle_html(alias, issue_iid):
     safe_alias = urllib.parse.quote(str(alias), safe="")
     enabled = issue_tracking_config.is_issue_enabled(alias, issue_iid)
     if enabled:
-        action, switch_class, aria_checked, label = "disable", "is-on", "true", f"Stop tracking #{issue_iid}"
+        action, switch_class, aria_checked, label = "disable", "is-on", "true", _t("Stop tracking #{iid}", iid=issue_iid)
     else:
-        action, switch_class, aria_checked, label = "enable", "is-off", "false", f"Track #{issue_iid} again"
+        action, switch_class, aria_checked, label = "enable", "is-off", "false", _t("Track #{iid} again", iid=issue_iid)
     safe_label = html.escape(label)
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
     return (
@@ -7999,7 +8148,7 @@ def render_gitlab_live_fragment():
     def error_notice(message):
         return (
             f"<p class='inline-error'><span class='material-symbols-outlined' aria-hidden='true'>error</span> "
-            f"Couldn't check: {html.escape(message)}</p>"
+            + _t("Couldn't check: {message}", message=html.escape(message)) + "</p>"
         ) if message else ""
 
     def gitlab_item(item, prefix, alias=None, compact_meta=False):
@@ -8035,7 +8184,7 @@ def render_gitlab_live_fragment():
                 "</li>"
             )
         assignees = item.get("assignees") or []
-        assignee_names = ", ".join(a.get("name") or a.get("username", "") for a in assignees) or "Unassigned"
+        assignee_names = ", ".join(a.get("name") or a.get("username", "") for a in assignees) or _t("Unassigned")
         alias_pill = f"<span class='pill pill-blue'>{html.escape(alias)}</span> " if alias else ""
         return (
             "<li class='gitlab-item'>"
@@ -8051,8 +8200,8 @@ def render_gitlab_live_fragment():
 
     if not live:
         return _empty_state_html(
-            "No projects configured yet, so there's nothing to check for issues or MRs.",
-            "/settings", "Set up a project",
+            html.escape(_t("No projects configured yet, so there's nothing to check for issues or MRs."), quote=False),
+            "/settings", html.escape(_t("Set up a project")),
         )
 
     # Issues assigned to you are what the loop actually works next, so they
@@ -8076,13 +8225,16 @@ def render_gitlab_live_fragment():
     )
 
     if not priority_groups:
-        priority_body = "<p style='color: var(--md-on-surface-variant);'>Nothing assigned to you right now.</p>"
+        priority_body = "<p style='color: var(--md-on-surface-variant);'>" + html.escape(_t("Nothing assigned to you right now.")) + "</p>"
         priority_subtitle = ""
     elif len(priority_groups) == 1:
         alias = ordered_aliases[0]
         items_html = "".join(gitlab_item(item, "#", alias=alias, compact_meta=True) for item in priority_groups[alias])
         priority_body = f"<ul class='plain gitlab-list'>{items_html}</ul>"
-        priority_subtitle = f"<p>{total_priority_count} issue{'' if total_priority_count == 1 else 's'}</p>"
+        priority_subtitle = "<p>" + html.escape(
+            _t("{count} issue", count=total_priority_count) if total_priority_count == 1
+            else _t("{count} issues", count=total_priority_count)
+        ) + "</p>"
     else:
         group_blocks = []
         for alias in ordered_aliases:
@@ -8095,11 +8247,13 @@ def render_gitlab_live_fragment():
                 "</div>"
             )
         priority_body = "".join(group_blocks)
-        priority_subtitle = f"<p>{total_priority_count} issues across {len(priority_groups)} projects</p>"
+        priority_subtitle = "<p>" + html.escape(_t(
+            "{count} issues across {projects} projects", count=total_priority_count, projects=len(priority_groups),
+        )) + "</p>"
 
     priority_section = (
         "<div class='project-block'>"
-        "<h3>My Queue</h3>"
+        f"<h3>{html.escape(_t('My Queue'))}</h3>"
         f"{priority_subtitle}"
         f"{priority_body}"
         "</div>"
@@ -8109,12 +8263,13 @@ def render_gitlab_live_fragment():
     for alias, entry in live.items():
         backlog_issues = [i for i in entry.get("issues", []) if not i.get("_assigned_to_me")]
         mrs = entry.get("mrs", [])
-        issue_items = "".join(gitlab_item(i, "#") for i in backlog_issues) or "<li>(none)</li>"
-        mr_items = "".join(gitlab_item(m, "!") for m in mrs) or "<li>(none)</li>"
+        none_item = f"<li>{html.escape(_t('(none)'))}</li>"
+        issue_items = "".join(gitlab_item(i, "#") for i in backlog_issues) or none_item
+        mr_items = "".join(gitlab_item(m, "!") for m in mrs) or none_item
         gitlab_sections.append(
             "<div class='project-block'>"
             f"<h3>{html.escape(alias)}</h3>"
-            f"<p>Backlog <span class='badge-count'>{len(backlog_issues)}</span></p>"
+            f"<p>{html.escape(_t('Backlog'))} <span class='badge-count'>{len(backlog_issues)}</span></p>"
             f"{error_notice(entry.get('issues_error'))}"
             f"<ul class='plain gitlab-list'>{issue_items}</ul>"
             f"<p>MRs <span class='badge-count'>{len(mrs)}</span></p>"
@@ -8135,15 +8290,15 @@ def render_gitlab_page():
 
     body = f"""
 <div class="page-title">
-<h1>Live GitLab</h1>
-<p class="subtitle">Open issues and merge requests assigned to or created by you, across configured projects.</p>
+<h1>{html.escape(_t('Live GitLab'))}</h1>
+<p class="subtitle">{html.escape(_t('Open issues and merge requests assigned to or created by you, across configured projects.'))}</p>
 </div>
 
 <div class="grid">
 <section class="card">
-<div class="section-header">{_SECTION_ICON_GITLAB}<h2>Live GitLab (open issues &amp; MRs)</h2><span id='gitlab-refresh-indicator' class='md-spinner md-spinner-sm' style='display:none' aria-hidden='true' title='Refreshing…'></span></div>
+<div class="section-header">{_SECTION_ICON_GITLAB}<h2>{html.escape(_t('Live GitLab (open issues & MRs)'))}</h2><span id='gitlab-refresh-indicator' class='md-spinner md-spinner-sm' style='display:none' aria-hidden='true' title='{html.escape(_t('Refreshing…'))}'></span></div>
 <div data-lazy-load='/gitlab/live'>
-<div class="lazy-loading"><div class="md-spinner"></div><p class="loading-text">Loading live GitLab data<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span></p></div>
+<div class="lazy-loading"><div class="md-spinner"></div><p class="loading-text">{html.escape(_t('Loading live GitLab data'))}<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span></p></div>
 </div>
 </section>
 </div>
@@ -8208,7 +8363,7 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
 
     # --- Notifications tab (formerly render_slack_page/GET /notifications) ---
     webhook_url = slack_config.get("webhook_url", "")
-    webhook_display = _mask_secret(webhook_url) if webhook_url else "(not set)"
+    webhook_display = _mask_secret(webhook_url) if webhook_url else html.escape(_t("(not set)"))
     saved_block_templates = slack_config.get("block_templates", {})
     default_block_templates = read_default_block_templates()
     # Defaults first, then any saved-only extras appended after (JS object
@@ -8220,37 +8375,44 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     block_templates_json = json.dumps(block_templates).replace("<", "\\u003c")
     default_only_names_json = json.dumps(default_only_names).replace("<", "\\u003c")
     notification_key_options = "".join(
-        f"<option value='{html.escape(key)}'>{html.escape(label)}</option>"
+        f"<option value='{html.escape(key)}'>{html.escape(i18n.t(label))}</option>"
         for key, label in _BLOCK_TEMPLATE_NOTIFICATION_KEYS.items()
+    )
+    bkb_subtitle = _t(
+        "Compose a Slack Block Kit template, optionally bind it to a real loop alert, and preview the JSON that will be sent. "
+        "{token} in any text field is replaced with the real alert text when a bound template fires. "
+        "Templates marked \"(default)\" ship with the app - pick one, preview or send a test message freely, "
+        "and Save to make it your own (Delete is disabled until then).",
+        token="<code>{{message}}</code>",
     )
     notifications_panel = f"""
 <section class="card">
 <div class="section-header">{_SECTION_ICON_SLACK}<h2>Slack</h2></div>
-<p class="section-subtitle">View and manage where this loop sends run notifications. Slack is currently the only channel.</p>
-<p><strong>Default webhook:</strong> {webhook_display}</p>
+<p class="section-subtitle">{html.escape(_t('View and manage where this loop sends run notifications. Slack is currently the only channel.'))}</p>
+<p><strong>{html.escape(_t('Default webhook:'))}</strong> {webhook_display}</p>
 <form method='post' action='/notifications/webhook' class='daemon-action-form single-field'>
 {csrf_input}
-<input type='password' name='webhook_url' placeholder='paste new Slack webhook URL' required>
-<button type='submit' class='btn btn-neutral'>Save</button>
+<input type='password' name='webhook_url' placeholder='{html.escape(_t('paste new Slack webhook URL'))}' required>
+<button type='submit' class='btn btn-neutral'>{html.escape(_t('Save'))}</button>
 </form>
 </section>
 
 <section class="card">
 <div class="section-header">{_SECTION_ICON_BLOCK_KIT_BUILDER}<h2>Block Kit Builder</h2></div>
-<p class="section-subtitle">Compose a Slack Block Kit template, optionally bind it to a real loop alert, and preview the JSON that will be sent. <code>{{{{message}}}}</code> in any text field is replaced with the real alert text when a bound template fires. Templates marked "(default)" ship with the app - pick one, preview or send a test message freely, and Save to make it your own (Delete is disabled until then).</p>
+<p class="section-subtitle">{bkb_subtitle}</p>
 <script type="application/json" id="bkb-templates-data">{block_templates_json}</script>
 <script type="application/json" id="bkb-default-only-names-data">{default_only_names_json}</script>
 <div class="block-builder">
   <div class="block-builder-row">
-    <label>Template
+    <label>{html.escape(_t('Template'))}
       <select id="bkb-template-select"></select>
     </label>
-    <label>Name
+    <label>{html.escape(_t('Name'))}
       <input type="text" id="bkb-name" placeholder="e.g. run-failed-alert">
     </label>
-    <label>Bind to notification
+    <label>{html.escape(_t('Bind to notification'))}
       <select id="bkb-notification-key">
-        <option value="">(none)</option>
+        <option value="">{html.escape(_t('(none)'))}</option>
         {notification_key_options}
       </select>
     </label>
@@ -8267,7 +8429,7 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     <button type="button" data-add-block="carousel">+ Carousel</button>
   </div>
   <div id="bkb-block-list" class="block-builder-list"></div>
-  <h3>JSON preview</h3>
+  <h3>{html.escape(_t('JSON preview'))}</h3>
   <pre id="bkb-json-preview" class="block-builder-json"></pre>
   <div class="block-builder-actions">
     <form method="post" action="/notifications/block-templates" class="daemon-action-form single-field" id="bkb-save-form">
@@ -8276,15 +8438,15 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     <input type="hidden" name="name" id="bkb-name-hidden" value="">
     <input type="hidden" name="notification_key" id="bkb-notification-key-hidden" value="">
     <input type="hidden" name="blocks_json" id="bkb-blocks-json" value="">
-    <button type="submit" class="btn btn-primary">Save</button>
+    <button type="submit" class="btn btn-primary">{html.escape(_t('Save'))}</button>
     </form>
     <form method="post" action="/notifications/block-templates/placeholder/delete" id="bkb-delete-form">
     {csrf_input}
-    <button type="submit" class="btn btn-neutral" id="bkb-delete-btn" disabled>Delete</button>
+    <button type="submit" class="btn btn-neutral" id="bkb-delete-btn" disabled>{html.escape(_t('Delete'))}</button>
     </form>
     <form method="post" action="/notifications/block-templates/placeholder/test" id="bkb-test-form">
     {csrf_input}
-    <button type="submit" class="btn btn-neutral" id="bkb-test-btn" disabled>Send test message</button>
+    <button type="submit" class="btn btn-neutral" id="bkb-test-btn" disabled>{html.escape(_t('Send test message'))}</button>
     </form>
   </div>
 </div>
@@ -8392,7 +8554,7 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
       }}));
       wrap.appendChild(row);
     }});
-    wrap.appendChild(button('+ Add', function() {{ onStructureChange(values.concat([''])); }}));
+    wrap.appendChild(button({json.dumps(_t('+ Add'))}, function() {{ onStructureChange(values.concat([''])); }}));
     return wrap;
   }}
 
@@ -8402,7 +8564,7 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     elements.forEach(function(el, i) {{
       var row = document.createElement('div');
       row.className = 'block-builder-list-row';
-      row.appendChild(textInput('Label', el.text.text, function(v) {{ el.text.text = v; onValueChange(elements); }}));
+      row.appendChild(textInput({json.dumps(_t('Label'))}, el.text.text, function(v) {{ el.text.text = v; onValueChange(elements); }}));
       row.appendChild(textInput('URL', el.url, function(v) {{ el.url = v; onValueChange(elements); }}));
       row.appendChild(button('\\u2715', function() {{
         var next = elements.slice(); next.splice(i, 1);
@@ -8410,7 +8572,7 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
       }}));
       wrap.appendChild(row);
     }});
-    wrap.appendChild(button('+ Add button', function() {{
+    wrap.appendChild(button({json.dumps(_t('+ Add button'))}, function() {{
       onStructureChange(elements.concat([{{ type: 'button', text: {{ type: 'plain_text', text: '' }}, url: '' }}]));
     }}));
     return wrap;
@@ -8422,20 +8584,20 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     cards.forEach(function(card, i) {{
       var box = document.createElement('div');
       box.className = 'block-builder-subcard';
-      box.appendChild(textInput('Hero image URL', card.hero_image.image_url, function(v) {{ card.hero_image.image_url = v; onValueChange(cards); }}));
-      box.appendChild(textInput('Hero image alt text', card.hero_image.alt_text, function(v) {{ card.hero_image.alt_text = v; onValueChange(cards); }}));
-      box.appendChild(textInput('Title', card.title.text, function(v) {{ card.title.text = v; onValueChange(cards); }}));
-      box.appendChild(textInput('Subtitle', card.subtitle.text, function(v) {{ card.subtitle.text = v; onValueChange(cards); }}));
-      box.appendChild(textArea('Body ({{{{message}}}} available)', card.body.text, function(v) {{ card.body.text = v; onValueChange(cards); }}));
-      box.appendChild(textInput('Button label', card.actions[0].text.text, function(v) {{ card.actions[0].text.text = v; onValueChange(cards); }}));
-      box.appendChild(textInput('Button URL', card.actions[0].url, function(v) {{ card.actions[0].url = v; onValueChange(cards); }}));
-      box.appendChild(button('\\u2715 Remove card', function() {{
+      box.appendChild(textInput({json.dumps(_t('Hero image URL'))}, card.hero_image.image_url, function(v) {{ card.hero_image.image_url = v; onValueChange(cards); }}));
+      box.appendChild(textInput({json.dumps(_t('Hero image alt text'))}, card.hero_image.alt_text, function(v) {{ card.hero_image.alt_text = v; onValueChange(cards); }}));
+      box.appendChild(textInput({json.dumps(_t('Title'))}, card.title.text, function(v) {{ card.title.text = v; onValueChange(cards); }}));
+      box.appendChild(textInput({json.dumps(_t('Subtitle'))}, card.subtitle.text, function(v) {{ card.subtitle.text = v; onValueChange(cards); }}));
+      box.appendChild(textArea({json.dumps(_t('Body ({token} available)', token='{{message}}'))}, card.body.text, function(v) {{ card.body.text = v; onValueChange(cards); }}));
+      box.appendChild(textInput({json.dumps(_t('Button label'))}, card.actions[0].text.text, function(v) {{ card.actions[0].text.text = v; onValueChange(cards); }}));
+      box.appendChild(textInput({json.dumps(_t('Button URL'))}, card.actions[0].url, function(v) {{ card.actions[0].url = v; onValueChange(cards); }}));
+      box.appendChild(button('\\u2715 ' + {json.dumps(_t('Remove card'))}, function() {{
         var next = cards.slice(); next.splice(i, 1);
         onStructureChange(next.length ? next : [defaultCarouselCard()]);
       }}));
       wrap.appendChild(box);
     }});
-    wrap.appendChild(button('+ Add card', function() {{ onStructureChange(cards.concat([defaultCarouselCard()])); }}));
+    wrap.appendChild(button({json.dumps(_t('+ Add card'))}, function() {{ onStructureChange(cards.concat([defaultCarouselCard()])); }}));
     return wrap;
   }}
 
@@ -8443,16 +8605,16 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     var body = document.createElement('div');
     body.className = 'block-builder-card-body';
     if (block.type === 'header') {{
-      body.appendChild(textInput('Title', block.text.text, function(v) {{ block.text.text = v; renderPreview(); }}));
+      body.appendChild(textInput({json.dumps(_t('Title'))}, block.text.text, function(v) {{ block.text.text = v; renderPreview(); }}));
     }} else if (block.type === 'markdown') {{
-      body.appendChild(textArea('Markdown text ({{{{message}}}} available)', block.text, function(v) {{ block.text = v; renderPreview(); }}));
+      body.appendChild(textArea({json.dumps(_t('Markdown text ({token} available)', token='{{message}}'))}, block.text, function(v) {{ block.text = v; renderPreview(); }}));
     }} else if (block.type === 'divider') {{
-      body.appendChild(note('No fields.'));
+      body.appendChild(note({json.dumps(_t('No fields.'))}));
     }} else if (block.type === 'image') {{
-      body.appendChild(textInput('Image URL', block.image_url, function(v) {{ block.image_url = v; renderPreview(); }}));
-      body.appendChild(textInput('Alt text', block.alt_text, function(v) {{ block.alt_text = v; renderPreview(); }}));
+      body.appendChild(textInput({json.dumps(_t('Image URL'))}, block.image_url, function(v) {{ block.image_url = v; renderPreview(); }}));
+      body.appendChild(textInput({json.dumps(_t('Alt text'))}, block.alt_text, function(v) {{ block.alt_text = v; renderPreview(); }}));
     }} else if (block.type === 'context') {{
-      body.appendChild(stringList('Context text elements', block.elements.map(function(e) {{ return e.text; }}),
+      body.appendChild(stringList({json.dumps(_t('Context text elements'))}, block.elements.map(function(e) {{ return e.text; }}),
         function(texts) {{ block.elements = texts.map(function(t) {{ return {{ type: 'mrkdwn', text: t }}; }}); renderPreview(); }},
         function(texts) {{ block.elements = texts.map(function(t) {{ return {{ type: 'mrkdwn', text: t }}; }}); renderBlockList(); }}));
     }} else if (block.type === 'actions') {{
@@ -8460,11 +8622,11 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
         function(elements) {{ block.elements = elements; renderPreview(); }},
         function(elements) {{ block.elements = elements; renderBlockList(); }}));
     }} else if (block.type === 'section' && block.fields) {{
-      body.appendChild(stringList('Fields', block.fields.map(function(f) {{ return f.text; }}),
+      body.appendChild(stringList({json.dumps(_t('Fields'))}, block.fields.map(function(f) {{ return f.text; }}),
         function(texts) {{ block.fields = texts.map(function(t) {{ return {{ type: 'mrkdwn', text: t }}; }}); renderPreview(); }},
         function(texts) {{ block.fields = texts.map(function(t) {{ return {{ type: 'mrkdwn', text: t }}; }}); renderBlockList(); }}));
     }} else if (block.type === 'section') {{
-      body.appendChild(textArea('Text ({{{{message}}}} available)', block.text.text, function(v) {{ block.text.text = v; renderPreview(); }}));
+      body.appendChild(textArea({json.dumps(_t('Text ({token} available)', token='{{message}}'))}, block.text.text, function(v) {{ block.text.text = v; renderPreview(); }}));
     }} else if (block.type === 'carousel') {{
       body.appendChild(cardList(block.elements,
         function(elements) {{ block.elements = elements; renderPreview(); }},
@@ -8540,12 +8702,12 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
   templateSelect.innerHTML = '';
   var newOption = document.createElement('option');
   newOption.value = '__new__';
-  newOption.textContent = '+ New template';
+  newOption.textContent = {json.dumps(_t('+ New template'))};
   templateSelect.appendChild(newOption);
   Object.keys(templates).forEach(function(name) {{
     var option = document.createElement('option');
     option.value = name;
-    option.textContent = defaultOnlyNames.indexOf(name) !== -1 ? name + ' (default)' : name;
+    option.textContent = defaultOnlyNames.indexOf(name) !== -1 ? name + ' ' + {json.dumps(_t('(default)'))} : name;
     templateSelect.appendChild(option);
   }});
 
@@ -8567,8 +8729,8 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
 
     # --- AI CLI tab (formerly render_ai_cli_page/GET /ai-cli) ---
     availability = {
-        "claude": "installed" if _cli_available("claude") else "not found on PATH",
-        "codex": "installed" if _cli_available("codex") else "not found on PATH",
+        "claude": _t("installed") if _cli_available("claude") else _t("not found on PATH"),
+        "codex": _t("installed") if _cli_available("codex") else _t("not found on PATH"),
     }
     cli_labels = {
         cli: f"{name} ({availability[cli]})" for cli, name in _AI_CLI_DISPLAY_NAMES.items()
@@ -8588,21 +8750,21 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
         select_html = select_html.replace(f">{cli}</span>", f">{label}</span>")
     ai_cli_panel = f"""
 <section class="card">
-<div class="section-header">{_SECTION_ICON_AI_CLI}<h2>Selected CLI</h2></div>
-<p class="section-subtitle">Choose which AI CLI tool the GitLab issue loop and the Topic Monitor loop both use.</p>
-<p><strong>Currently:</strong> {html.escape(cli_labels[current_cli])}</p>
+<div class="section-header">{_SECTION_ICON_AI_CLI}<h2>{html.escape(_t('Selected CLI'))}</h2></div>
+<p class="section-subtitle">{html.escape(_t('Choose which AI CLI tool the GitLab issue loop and the Topic Monitor loop both use.'))}</p>
+<p><strong>{html.escape(_t('Currently:'))}</strong> {html.escape(cli_labels[current_cli])}</p>
 <form method='post' action='/ai-cli' class='daemon-action-form single-field'>
 {csrf_input}
 {select_html}
-<button type='submit' class='btn btn-neutral'>Save</button>
+<button type='submit' class='btn btn-neutral'>{html.escape(_t('Save'))}</button>
 </form>
 </section>
 """
 
     # --- Appearance tab (formerly render_preferences_page/GET /preferences) ---
     mode_buttons = "".join(
-        f"<button type='button' class='pref-segmented-option' data-color-mode-choice=\"{mode}\">{label}</button>"
-        for mode, label in (("light", "Light"), ("dark", "Dark"), ("auto", "Auto"))
+        f"<button type='button' class='pref-segmented-option' data-color-mode-choice=\"{mode}\">{html.escape(label)}</button>"
+        for mode, label in (("light", _t("Light")), ("dark", _t("Dark")), ("auto", _t("Auto")))
     )
 
     swatch_buttons = "".join(
@@ -8610,7 +8772,7 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
         "<span class='pref-swatch-preview'>"
         f"<span class='pref-swatch-preview-nav' style='background:{nav_color}'></span>"
         "<span class='pref-swatch-preview-content'></span>"
-        f"</span>{label}</button>"
+        f"</span>{html.escape(i18n.t(label))}</button>"
         for key, label, nav_color in _ACCENT_CHOICES
     )
 
@@ -8624,42 +8786,45 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     )
 
     refresh_buttons = "".join(
-        f"<button type='button' class='pref-segmented-option' data-refresh-choice=\"{seconds}\">{label}</button>"
-        for seconds, label in (("5", "5s"), ("11", "11s"), ("30", "30s"), ("60", "1 min"), ("300", "5 min"))
+        f"<button type='button' class='pref-segmented-option' data-refresh-choice=\"{seconds}\">{html.escape(label)}</button>"
+        for seconds, label in (
+            ("5", _t("{n}s", n=5)), ("11", _t("{n}s", n=11)), ("30", _t("{n}s", n=30)),
+            ("60", _t("{n} min", n=1)), ("300", _t("{n} min", n=5)),
+        )
     )
 
     appearance_panel = f"""
-<p class="section-subtitle">Appearance settings for this browser - saved locally, not shared across devices.</p>
+<p class="section-subtitle">{html.escape(_t('Appearance settings for this browser - saved locally, not shared across devices.'))}</p>
 
 <div class="grid">
 <section class="card">
-<div class="section-header">{_SECTION_ICON_PREFERENCES}<h2>Color mode</h2></div>
-<p class="section-subtitle">Choose how the interface looks - light, dark, or match your system setting.</p>
-<div class="pref-segmented" role="group" aria-label="Color mode">{mode_buttons}</div>
+<div class="section-header">{_SECTION_ICON_PREFERENCES}<h2>{html.escape(_t('Color mode'))}</h2></div>
+<p class="section-subtitle">{html.escape(_t('Choose how the interface looks - light, dark, or match your system setting.'))}</p>
+<div class="pref-segmented" role="group" aria-label="{html.escape(_t('Color mode'))}">{mode_buttons}</div>
 </section>
 </div>
 
 <div class="grid">
 <section class="card">
-<div class="section-header"><span class="pref-theme-icon">{_SECTION_ICON_PREFERENCES}</span><h2>Theme</h2></div>
-<p class="section-subtitle">Select the accent color for the application interface.</p>
-<div class="pref-swatches" role="group" aria-label="Accent color">{swatch_buttons}</div>
+<div class="section-header"><span class="pref-theme-icon">{_SECTION_ICON_PREFERENCES}</span><h2>{html.escape(_t('Theme'))}</h2></div>
+<p class="section-subtitle">{html.escape(_t('Select the accent color for the application interface.'))}</p>
+<div class="pref-swatches" role="group" aria-label="{html.escape(_t('Accent color'))}">{swatch_buttons}</div>
 </section>
 </div>
 
 <div class="grid">
 <section class="card">
-<div class="section-header">{_SECTION_ICON_PREFERENCES}<h2>Font</h2></div>
-<p class="section-subtitle">Choose the typeface used across the dashboard.</p>
-<div class="pref-segmented" role="group" aria-label="Font">{font_buttons}</div>
+<div class="section-header">{_SECTION_ICON_PREFERENCES}<h2>{html.escape(_t('Font'))}</h2></div>
+<p class="section-subtitle">{html.escape(_t('Choose the typeface used across the dashboard.'))}</p>
+<div class="pref-segmented" role="group" aria-label="{html.escape(_t('Font'))}">{font_buttons}</div>
 </section>
 </div>
 
 <div class="grid">
 <section class="card">
-<div class="section-header">{_SECTION_ICON_PREFERENCES}<h2>Auto-refresh</h2></div>
-<p class="section-subtitle">How often pages reload themselves to show live status.</p>
-<div class="pref-segmented" role="group" aria-label="Auto-refresh interval">{refresh_buttons}</div>
+<div class="section-header">{_SECTION_ICON_PREFERENCES}<h2>{html.escape(_t('Auto-refresh'))}</h2></div>
+<p class="section-subtitle">{html.escape(_t('How often pages reload themselves to show live status.'))}</p>
+<div class="pref-segmented" role="group" aria-label="{html.escape(_t('Auto-refresh interval'))}">{refresh_buttons}</div>
 </section>
 </div>
 
@@ -8725,23 +8890,30 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
 
     # --- Instructions tab (formerly render_instructions_page/GET /instructions) ---
     ai_cli_name = _AI_CLI_DISPLAY_NAMES[current_cli]
+    instructions_subtitle = _t(
+        "Include specific instructions in {cli}'s system prompt whenever the loop runs. "
+        "Saved to {path} - read at the start of every run, on top of everything already in {spec}.",
+        cli=html.escape(ai_cli_name),
+        path="<code>~/.loop-engineering/instructions.md</code>",
+        spec="<code>LOOPX_INSTRUCTIONS.md</code>",
+    )
     instructions_panel = f"""
 <section class="card">
-<div class="section-header">{_SECTION_ICON_INSTRUCTIONS}<h2>Your instructions</h2></div>
-<p class="section-subtitle">Include specific instructions in {html.escape(ai_cli_name)}'s system prompt whenever the loop runs. Saved to <code>~/.loop-engineering/instructions.md</code> - read at the start of every run, on top of everything already in <code>LOOPX_INSTRUCTIONS.md</code>.</p>
+<div class="section-header">{_SECTION_ICON_INSTRUCTIONS}<h2>{html.escape(_t('Your instructions'))}</h2></div>
+<p class="section-subtitle">{instructions_subtitle}</p>
 <form method='post' action='/instructions' class='daemon-action-form'>
 {csrf_input}
-<textarea name='instructions' class='instructions-textarea' rows='24' placeholder="e.g. Prefer descriptive commit messages. Never touch files under vendor/.">{html.escape(current_text)}</textarea>
-<button type='submit' class='btn btn-primary'>Save</button>
+<textarea name='instructions' class='instructions-textarea' rows='24' placeholder="{html.escape(_t('e.g. Prefer descriptive commit messages. Never touch files under vendor/.'))}">{html.escape(current_text)}</textarea>
+<button type='submit' class='btn btn-primary'>{html.escape(_t('Save'))}</button>
 </form>
 </section>
 """
 
     tabs = (
-        ("appearance", "Appearance", _SECTION_ICON_PREFERENCES, appearance_panel),
-        ("notifications", "Notifications", _SECTION_ICON_SLACK, notifications_panel),
+        ("appearance", _t("Appearance"), _SECTION_ICON_PREFERENCES, appearance_panel),
+        ("notifications", _t("Notifications"), _SECTION_ICON_SLACK, notifications_panel),
         ("ai-cli", "AI CLI", _SECTION_ICON_AI_CLI, ai_cli_panel),
-        ("instructions", "Instructions", _SECTION_ICON_INSTRUCTIONS, instructions_panel),
+        ("instructions", _t("Instructions"), _SECTION_ICON_INSTRUCTIONS, instructions_panel),
     )
     if active_tab not in {key for key, _label, _icon, _panel in tabs}:
         active_tab = "notifications"
@@ -8749,7 +8921,7 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     tab_buttons = "".join(
         f"<button type='button' class='tab-button{' is-active' if key == active_tab else ''}' "
         f"data-tab-target='{key}' role='tab' aria-selected='{'true' if key == active_tab else 'false'}'>"
-        f"{icon}{label}</button>"
+        f"{icon}{html.escape(label)}</button>"
         for key, label, icon, _panel in tabs
     )
     tab_panels = "".join(
@@ -8759,8 +8931,8 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
 
     body = f"""
 <div class="page-title">
-<h1>Settings</h1>
-<p class="subtitle">Notifications, AI CLI selection, appearance, and custom instructions.</p>
+<h1>{html.escape(_t('Settings'))}</h1>
+<p class="subtitle">{html.escape(_t('Notifications, AI CLI selection, appearance, and custom instructions.'))}</p>
 </div>
 
 {flash_html}
@@ -8784,7 +8956,7 @@ def render_readme_page():
     try:
         content = README_PATH.read_text()
     except OSError:
-        content = "# README\n\nNo README.md found in this repo."
+        content = "# README\n\n" + _t("No README.md found in this repo.")
 
     quicknav_links = "".join(
         f"<a href='#{slug}' class='readme-quicknav-link'>{html.escape(title)}</a>"
@@ -8792,16 +8964,17 @@ def render_readme_page():
         if title.strip().lower() != "table of contents"
     )
     quicknav_html = (
-        "<nav class='readme-quicknav' aria-label='Jump to section'>"
-        "<p class='readme-quicknav-title'>On this page</p>"
+        f"<nav class='readme-quicknav' aria-label='{html.escape(_t('Jump to section'))}'>"
+        f"<p class='readme-quicknav-title'>{html.escape(_t('On this page'))}</p>"
         f"{quicknav_links}</nav>"
         if quicknav_links else ""
     )
 
+    readme_subtitle = html.escape(_t("This project's README, rendered here for reference."), quote=False)
     body = f"""
 <div class="page-title">
 <h1>README</h1>
-<p class="subtitle">This project's README, rendered here for reference.</p>
+<p class="subtitle">{readme_subtitle}</p>
 </div>
 
 <div class="grid">
@@ -8856,14 +9029,15 @@ def render_memory_page():
             return ""
         stats = lesson_stats_by_id.get(lesson_id)
         if stats is None or stats["times_reused"] == 0:
-            return "<p class='learning-reuse-stats'>Not yet reused</p>"
+            return f"<p class='learning-reuse-stats'>{html.escape(_t('Not yet reused'))}</p>"
         effectiveness = stats["effectiveness_rate"]
-        effectiveness_text = f"{effectiveness * 100:.0f}%" if effectiveness is not None else "pending"
-        return (
-            f"<p class='learning-reuse-stats'>Reused {stats['times_reused']}× · "
-            f"{stats['successful_reuses']} successful, {stats['failed_reuses']} failed "
-            f"(effectiveness: {effectiveness_text})</p>"
+        effectiveness_text = f"{effectiveness * 100:.0f}%" if effectiveness is not None else _t("pending")
+        reuse_text = _t(
+            "Reused {times}× · {successful} successful, {failed} failed (effectiveness: {effectiveness})",
+            times=stats["times_reused"], successful=stats["successful_reuses"],
+            failed=stats["failed_reuses"], effectiveness=effectiveness_text,
         )
+        return f"<p class='learning-reuse-stats'>{html.escape(reuse_text, quote=False)}</p>"
 
     def task_item(alias, entry):
         meta_html = (
@@ -8900,31 +9074,31 @@ def render_memory_page():
         tasks, legacy = data["tasks"], data["legacy"]
         tasks_html = (
             f"<ul class='plain'>{''.join(task_item(alias, e) for e in tasks)}</ul>"
-            if tasks else "<p>(no task memory recorded yet)</p>"
+            if tasks else f"<p>{html.escape(_t('(no task memory recorded yet)'))}</p>"
         )
         legacy_html = ""
         if legacy:
             legacy_html = (
-                "<h4>Legacy learnings</h4>"
+                f"<h4>{html.escape(_t('Legacy learnings'))}</h4>"
                 f"<ul class='plain'>{''.join(legacy_item(alias, e) for e in legacy)}</ul>"
             )
         memory_sections.append(
             f"<div class='project-block'><h3>{html.escape(alias)}</h3>{tasks_html}{legacy_html}</div>"
         )
     memory_html = "".join(memory_sections) or _empty_state_html(
-        "No projects configured yet, so there is no memory recorded.",
-        "/settings", "Set up a project",
+        html.escape(_t("No projects configured yet, so there is no memory recorded."), quote=False),
+        "/settings", html.escape(_t("Set up a project"), quote=False),
     )
 
     body = f"""
 <div class="page-title">
-<h1>Project Memory</h1>
-<p class="subtitle">Task memory recorded per project by the automated review loop.</p>
+<h1>{html.escape(_t('Project Memory'))}</h1>
+<p class="subtitle">{html.escape(_t('Task memory recorded per project by the automated review loop.'))}</p>
 </div>
 
 <div class="grid">
 <section class="card">
-<div class="section-header">{_SECTION_ICON_MEMORY}<h2>Project Memory</h2></div>
+<div class="section-header">{_SECTION_ICON_MEMORY}<h2>{html.escape(_t('Project Memory'))}</h2></div>
 {memory_html}
 </section>
 </div>
@@ -8942,7 +9116,8 @@ def _topic_latest_data_html(topics, history_dir=None):
     if history_dir is None:
         history_dir = TOPIC_MONITOR_HISTORY_DIR
     if not topics:
-        return "<p>No topics configured yet. Add one on the <a href='/topic-monitor/settings'>Topic Settings</a> page.</p>"
+        settings_link = "<a href='/topic-monitor/settings'>" + html.escape(_t("Topic Settings")) + "</a>"
+        return "<p>" + _t("No topics configured yet. Add one on the {link} page.", link=settings_link) + "</p>"
 
     blocks = []
     for topic in topics:
@@ -8952,7 +9127,7 @@ def _topic_latest_data_html(topics, history_dir=None):
         if not history_names:
             blocks.append(
                 f"<div class='topic-latest-item'><h3>{html.escape(str(label))}</h3>"
-                "<p class='topic-latest-overview'>(no data yet)</p></div>"
+                f"<p class='topic-latest-overview'>{html.escape(_t('(no data yet)'))}</p></div>"
             )
             continue
         latest_name = history_names[0]
@@ -8977,7 +9152,7 @@ def _topic_latest_data_html(topics, history_dir=None):
             "onkeydown=\"if (event.key === 'Enter' || event.key === ' ') { "
             "event.preventDefault(); this.click(); }\">"
             f"<h3>{html.escape(str(label))} {_EXPAND_ICON}"
-            f"<span class='topic-last-run'>latest {html.escape(latest_when)}</span></h3>"
+            f"<span class='topic-last-run'>{html.escape(_t('latest {when}', when=latest_when))}</span></h3>"
             f"<p class='topic-latest-overview'>{html.escape(overview)}</p>"
             f"<span class='pill-row'>{tags_html}</span>"
             "</div>"
@@ -9039,14 +9214,14 @@ def render_topic_monitor_page(flash=None, flash_ok=True):
     else:
         run_now_form = _run_now_action_html(
             "/topic-monitor/run-now",
-            "Run the topic monitor loop now? This starts a real automated run outside its normal schedule.",
+            _t("Run the topic monitor loop now? This starts a real automated run outside its normal schedule."),
             csrf_input,
         )
 
     if not topics:
         topics_html = _empty_state_html(
-            "No enabled topics, so there's nothing to monitor.",
-            "/topic-monitor/settings", "Manage topics",
+            html.escape(_t("No enabled topics, so there's nothing to monitor."), quote=False),
+            "/topic-monitor/settings", html.escape(_t("Manage topics"), quote=False),
         )
         latest_data_section = ""
     else:
@@ -9067,7 +9242,7 @@ def render_topic_monitor_page(flash=None, flash_ok=True):
             # rather than rendering an empty relative time.
             last_run = _relative_time(entry.get("updated_at", ""))
             last_run_html = (
-                f" <span class='topic-last-run'>last run {html.escape(last_run)}</span>" if last_run else ""
+                f" <span class='topic-last-run'>{html.escape(_t('last run {when}', when=last_run))}</span>" if last_run else ""
             )
             status_blocks.append(
                 f"<div class='project-block'><h3>{html.escape(str(label))} {badge_html}{last_run_html}</h3></div>"
@@ -9081,23 +9256,27 @@ def render_topic_monitor_page(flash=None, flash_ok=True):
         latest_data_section = f"""
 <div class="grid">
 <section class="card">
-<div class="section-header">{_SECTION_ICON_TOPIC_MONITOR}<h2>Latest Data</h2></div>
+<div class="section-header">{_SECTION_ICON_TOPIC_MONITOR}<h2>{html.escape(_t('Latest Data'))}</h2></div>
 {_topic_latest_data_html(topics)}
 </section>
 </div>
 """
 
+    history_link = '<a href="/history">' + html.escape(_t("Run History")) + "</a>"
+    topic_monitor_subtitle = _t(
+        "Status for every configured topic. Saved briefings are on the {link} page.", link=history_link,
+    )
     body = f"""
 <div class="page-title">
-<h1>Topic Monitor</h1>
-<p class="subtitle">Status for every configured topic. Saved briefings are on the <a href="/history">Run History</a> page.</p>
+<h1>{html.escape(_t('Topic Monitor'))}</h1>
+<p class="subtitle">{topic_monitor_subtitle}</p>
 </div>
 
 {flash_html}
 
 <div class="grid">
 <section class="card">
-<div class="section-header">{_SECTION_ICON_TOPIC_MONITOR}<h2>Topics</h2></div>
+<div class="section-header">{_SECTION_ICON_TOPIC_MONITOR}<h2>{html.escape(_t('Topics'))}</h2></div>
 {topics_html}
 {run_now_form}
 </section>
@@ -9121,13 +9300,15 @@ def _topic_action_html(topic, csrf_input):
     name = topic.get("name", "?")
     safe_name = html.escape(str(name))
     url_safe_name = urllib.parse.quote(str(name), safe="")
+    disable_label = html.escape(_t("Disable {name}", name=str(name)))
+    enable_label = html.escape(_t("Enable {name}", name=str(name)))
     enabled = topic.get("enabled", True)
     if enabled:
         return (
             f"<form method='post' action='/topic-monitor/topics/{url_safe_name}/disable' class='daemon-action-form topic-row-switch'>"
             f"{csrf_input}"
             f"<button type='submit' class='switch is-on' role='switch' aria-checked='true' "
-            f"aria-label='Disable {safe_name}' title='Disable {safe_name}'>"
+            f"aria-label='{disable_label}' title='{disable_label}'>"
             "<span class='switch-thumb'></span></button>"
             "</form>"
         )
@@ -9135,7 +9316,7 @@ def _topic_action_html(topic, csrf_input):
         f"<form method='post' action='/topic-monitor/topics/{url_safe_name}/enable' class='daemon-action-form topic-row-switch'>"
         f"{csrf_input}"
         f"<button type='submit' class='switch is-off' role='switch' aria-checked='false' "
-        f"aria-label='Enable {safe_name}' title='Enable {safe_name}'>"
+        f"aria-label='{enable_label}' title='{enable_label}'>"
         "<span class='switch-thumb'></span></button>"
         "</form>"
     )
@@ -9167,7 +9348,9 @@ def render_topic_settings_page(flash=None, flash_ok=True):
         name = topic["name"]
         safe_name = html.escape(name)
         url_safe_name = urllib.parse.quote(name, safe="")
-        delete_confirm = html.escape(f"Delete topic {name}? This does not delete its saved briefings.", quote=True)
+        delete_confirm = html.escape(
+            _t("Delete topic {name}? This does not delete its saved briefings.", name=name), quote=True,
+        )
         # Save/Delete render as one shared action column instead of each
         # sitting inside its own form (see .topic-row-actions below) - the
         # Delete <form> still exists (it needs its own POST target/CSRF
@@ -9184,18 +9367,18 @@ def render_topic_settings_page(flash=None, flash_ok=True):
 {csrf_input}
 <input type='hidden' name='original_name' value='{safe_name}'>
 <div class='topic-row-line1'>
-<input type='text' name='label' value='{html.escape(topic.get("label", ""))}' placeholder='label' required>
-<input type='text' name='name' value='{safe_name}' placeholder='topic name' class='topic-row-name-input' required>
-{_custom_select('slack_bundle', bundles, topic.get('slack_bundle') or '', empty_label='(use default webhook)')}
+<input type='text' name='label' value='{html.escape(topic.get("label", ""))}' placeholder='{html.escape(_t("label"))}' required>
+<input type='text' name='name' value='{safe_name}' placeholder='{html.escape(_t("topic name"))}' class='topic-row-name-input' required>
+{_custom_select('slack_bundle', bundles, topic.get('slack_bundle') or '', empty_label=_t('(use default webhook)'))}
 </div>
-<textarea name='brief' rows='2' placeholder='what counts as notable' class='topic-row-brief' required>{html.escape(topic.get("brief", ""))}</textarea>
+<textarea name='brief' rows='2' placeholder='{html.escape(_t("what counts as notable"))}' class='topic-row-brief' required>{html.escape(topic.get("brief", ""))}</textarea>
 </form>
 <div class='topic-row-actions'>
 <button type='submit' form='{edit_form_id}' class='btn btn-neutral'>
-<span class='material-symbols-outlined' aria-hidden='true'>save</span> Save</button>
+<span class='material-symbols-outlined' aria-hidden='true'>save</span> {html.escape(_t('Save'))}</button>
 <form method='post' action='/topic-monitor/topics/{url_safe_name}/delete' id='{delete_form_id}'>{csrf_input}</form>
 <button type='submit' form='{delete_form_id}' class='btn btn-warning' data-confirm="{delete_confirm}">
-<span class='material-symbols-outlined' aria-hidden='true'>delete</span> Delete</button>
+<span class='material-symbols-outlined' aria-hidden='true'>delete</span> {html.escape(_t('Delete'))}</button>
 </div>
 </div>
 </div>
@@ -9217,30 +9400,34 @@ def render_topic_settings_page(flash=None, flash_ok=True):
 <form method='post' action='/topic-monitor/topics' class='daemon-action-form topic-row-fields' id='topic-add-form'>
 {csrf_input}
 <div class='topic-row-line1'>
-<input type='text' name='name' placeholder='topic name' required>
-<input type='text' name='label' placeholder='label' required>
-{_custom_select('slack_bundle', bundles, None, empty_label='(use default webhook)')}
+<input type='text' name='name' placeholder='{html.escape(_t("topic name"))}' required>
+<input type='text' name='label' placeholder='{html.escape(_t("label"))}' required>
+{_custom_select('slack_bundle', bundles, None, empty_label=_t('(use default webhook)'))}
 </div>
-<textarea name='brief' rows='2' placeholder='what counts as notable' class='topic-row-brief' required></textarea>
+<textarea name='brief' rows='2' placeholder='{html.escape(_t("what counts as notable"))}' class='topic-row-brief' required></textarea>
 </form>
 <div class='topic-row-actions'>
-<button type='submit' form='topic-add-form' class='btn btn-neutral'><span class='material-symbols-outlined' aria-hidden='true'>add</span> Add topic</button>
+<button type='submit' form='topic-add-form' class='btn btn-neutral'><span class='material-symbols-outlined' aria-hidden='true'>add</span> {html.escape(_t('Add topic'))}</button>
 </div>
 </div>
 </div>
 """
 
+    monitor_link = '<a href="/topic-monitor">' + html.escape(_t("Topic Monitor")) + "</a>"
+    topic_settings_subtitle = _t(
+        "Add, edit, or delete topics. Live status is on the {link} page.", link=monitor_link,
+    )
     body = f"""
 <div class="page-title">
-<h1>Topic Settings</h1>
-<p class="subtitle">Add, edit, or delete topics. Live status is on the <a href="/topic-monitor">Topic Monitor</a> page.</p>
+<h1>{html.escape(_t('Topic Settings'))}</h1>
+<p class="subtitle">{topic_settings_subtitle}</p>
 </div>
 
 {flash_html}
 
 <div class="grid">
 <section class="card">
-<div class="section-header">{_SECTION_ICON_SETTINGS}<h2>Topic Settings</h2></div>
+<div class="section-header">{_SECTION_ICON_SETTINGS}<h2>{html.escape(_t('Topic Settings'))}</h2></div>
 {settings_html}
 {add_topic_form}
 </section>
@@ -9257,7 +9444,10 @@ def _inbox_config_for_page():
     try:
         return inbox_config.load_config_or_empty(), ""
     except ValueError as exc:
-        message = f"Could not load {inbox_config.DEFAULT_CONFIG_PATH} - fix or remove that file: {exc}"
+        message = _t(
+            "Could not load {path} - fix or remove that file: {error}",
+            path=inbox_config.DEFAULT_CONFIG_PATH, error=exc,
+        )
         return ({"default_categories": [dict(c) for c in inbox_config.DEFAULT_CATEGORIES], "inboxes": []},
                 f"<div class='flash flash-danger'>{html.escape(message)}</div>")
 
@@ -9391,23 +9581,26 @@ def render_skills_page(flash=None, flash_ok=True):
     skill_rows = []
     for s in skills:
         if s["installed"]:
-            status_cell = f"<span class='pill pill-green'>{_CHECK_ICON}installed</span>"
+            status_cell = f"<span class='pill pill-green'>{_CHECK_ICON}{html.escape(_t('installed'))}</span>"
         elif installing:
             status_cell = (
-                f"<span class='pill pill-blue'>{_SPINNER_ICON}setup in progress…</span>"
+                f"<span class='pill pill-blue'>{_SPINNER_ICON}{html.escape(_t('setup in progress…'))}</span>"
             )
         else:
             confirm_msg = html.escape(
-                f"Set up {s['name']}? This installs it in the background and restarts the dashboard "
-                "when done - the page may briefly go offline.",
+                _t(
+                    "Set up {name}? This installs it in the background and restarts the dashboard "
+                    "when done - the page may briefly go offline.",
+                    name=s["name"],
+                ),
                 quote=True,
             )
             status_cell = (
-                "<span class='pill pill-grey'>not installed</span>"
+                f"<span class='pill pill-grey'>{html.escape(_t('not installed'))}</span>"
                 "<form method='post' action='/skills/install' class='daemon-action-form'>"
                 f"{csrf_input}"
                 f"<button type='submit' class='btn btn-primary' data-confirm=\"{confirm_msg}\">"
-                "Set up &amp; restart dashboard</button>"
+                f"{html.escape(_t('Set up & restart dashboard'))}</button>"
                 "</form>"
             )
         used_by_html = "".join(f"<li><code>{html.escape(u)}</code></li>" for u in s["used_by"])
@@ -9421,28 +9614,29 @@ def render_skills_page(flash=None, flash_ok=True):
             f"<td>{html.escape(s['description'])}</td>"
             "</tr>"
             "<tr class='skill-detail-row'><td colspan='3'>"
-            f"<p><strong>Used by</strong></p><ul class='plain'>{used_by_html}</ul>"
-            f"<p><strong>Path</strong></p><code>{html.escape(s['path'])}</code>"
+            f"<p><strong>{html.escape(_t('Used by'))}</strong></p><ul class='plain'>{used_by_html}</ul>"
+            f"<p><strong>{html.escape(_t('Path'))}</strong></p><code>{html.escape(s['path'])}</code>"
             "</td></tr>"
         )
     skills_html = (
         "<div class='table-wrap'><table class='daemons skills'>"
-        "<thead><tr><th>Skill</th><th>Status</th><th>What it does</th></tr></thead>"
+        f"<thead><tr><th>{html.escape(_t('Skill'))}</th><th>{html.escape(_t('Status'))}</th>"
+        f"<th>{html.escape(_t('What it does'))}</th></tr></thead>"
         f"<tbody>{''.join(skill_rows)}</tbody>"
         "</table></div>"
-    ) if skill_rows else "<p>(no skill dependencies registered)</p>"
+    ) if skill_rows else f"<p>{html.escape(_t('(no skill dependencies registered)'))}</p>"
 
     body = f"""
 <div class="page-title">
-<h1>Skills</h1>
-<p class="subtitle">External skills this loop depends on, and whether each is installed on this machine. Click a row for details.</p>
+<h1>{html.escape(_t('Skills'))}</h1>
+<p class="subtitle">{html.escape(_t('External skills this loop depends on, and whether each is installed on this machine. Click a row for details.'))}</p>
 </div>
 
 {flash_html}
 
 <div class="grid">
 <section class="card">
-<div class="section-header">{_SECTION_ICON_SKILLS}<h2>Required skills</h2></div>
+<div class="section-header">{_SECTION_ICON_SKILLS}<h2>{html.escape(_t('Required skills'))}</h2></div>
 {skills_html}
 </section>
 </div>
@@ -9490,11 +9684,11 @@ def _schedule_form_html(daemon, csrf_input):
     time_value = f"{int(hour):02d}:{int(minute):02d}"
     checkboxes = "".join(
         f"<label class='md-checkbox weekday-check'><input type='checkbox' name='weekday' value='{value}'"
-        f"{' checked' if int(value) in selected_weekdays else ''}> {label}</label>"
+        f"{' checked' if int(value) in selected_weekdays else ''}> {html.escape(i18n.t(label))}</label>"
         for value, label in _WEEKDAY_LABELS
     )
     day_select = _custom_select("day_of_month", (str(d) for d in range(1, 32)), str(day_of_month or 1))
-    freq_select = _custom_select("frequency", _SCHEDULE_FREQUENCIES, frequency)
+    freq_select = _custom_select("frequency", [(f, i18n.t(f)) for f in _SCHEDULE_FREQUENCIES], frequency)
     weekly_style = "" if frequency == "Weekly" else " style='display:none'"
     monthly_style = "" if frequency == "Monthly" else " style='display:none'"
     safe_file = html.escape(daemon["file"])
@@ -9504,8 +9698,8 @@ def _schedule_form_html(daemon, csrf_input):
         f"<input type='time' name='time' value='{time_value}'>"
         f"{freq_select}"
         f"<span class='weekday-checks weekly-controls'{weekly_style}>{checkboxes}</span>"
-        f"<span class='monthly-controls'{monthly_style}>on day {day_select}</span>"
-        "<button type='submit' class='btn btn-neutral'>Save schedule</button>"
+        f"<span class='monthly-controls'{monthly_style}>{_t('on day {day}', day=day_select)}</span>"
+        f"<button type='submit' class='btn btn-neutral'>{html.escape(_t('Save schedule'))}</button>"
         "</form>"
     )
 
@@ -9538,7 +9732,7 @@ def render_daemons_page(flash=None, flash_ok=True):
             daemon_rows.append(
                 "<tr>"
                 f"<td>{html.escape(d['file'])}</td>"
-                f"<td colspan='5'>error parsing plist: {html.escape(d['error'])}</td>"
+                f"<td colspan='5'>{html.escape(_t('error parsing plist: {error}', error=d['error']))}</td>"
                 "</tr>"
             )
             continue
@@ -9546,29 +9740,33 @@ def render_daemons_page(flash=None, flash_ok=True):
         safe_file = html.escape(d["file"])
         safe_label = html.escape(str(label))
         if d["loaded"]:
-            loaded_text = f"loaded (pid {html.escape(str(d['pid']))})" if d.get("pid") else "loaded"
+            loaded_text = (
+                _t("loaded (pid {pid})", pid=html.escape(str(d['pid']))) if d.get("pid") else _t("loaded")
+            )
             loaded_pill = f"<span class='pill pill-green'>{_CHECK_ICON}{html.escape(loaded_text)}</span>"
             action_html = (
                 f"<form method='post' action='/daemons/{safe_file}/disable' class='daemon-action-form'>"
                 f"{csrf_input}"
                 f"<button type='submit' class='switch is-on' role='switch' aria-checked='true' "
-                f"aria-label='Disable {safe_label}' title='Disable {safe_label}'>"
+                f"aria-label='{html.escape(_t('Disable {name}', name=str(label)))}' "
+                f"title='{html.escape(_t('Disable {name}', name=str(label)))}'>"
                 "<span class='switch-thumb'></span></button>"
                 "</form>"
             )
         else:
-            loaded_pill = "<span class='pill pill-grey'>not loaded</span>"
+            loaded_pill = f"<span class='pill pill-grey'>{html.escape(_t('not loaded'))}</span>"
             # html.escape(..., quote=True) is enough here (unlike the old
             # onclick="return confirm(...)" this replaced, data-confirm is a
             # plain HTML attribute, not a JS string literal - no json.dumps
             # needed to escape out of anything).
-            confirm_msg = f"Enable {label}? This will let it start running on its schedule."
+            confirm_msg = _t("Enable {name}? This will let it start running on its schedule.", name=label)
             confirm_attr = html.escape(confirm_msg, quote=True)
             action_html = (
                 f"<form method='post' action='/daemons/{safe_file}/enable' class='daemon-action-form'>"
                 f"{csrf_input}"
                 f"<button type='submit' class='switch is-off' role='switch' aria-checked='false' "
-                f"aria-label='Enable {safe_label}' title='Enable {safe_label}' "
+                f"aria-label='{html.escape(_t('Enable {name}', name=str(label)))}' "
+                f"title='{html.escape(_t('Enable {name}', name=str(label)))}' "
                 f"data-confirm=\"{confirm_attr}\">"
                 "<span class='switch-thumb'></span></button>"
                 "</form>"
@@ -9588,29 +9786,36 @@ def render_daemons_page(flash=None, flash_ok=True):
         )
     daemons_html = (
         "<div class='table-wrap'><table class='daemons'>"
-        "<thead><tr><th>Label</th><th>Status</th><th>Trigger</th><th>Runs</th><th>Schedule</th><th>Action</th></tr></thead>"
+        f"<thead><tr><th>{html.escape(_t('Label'))}</th><th>{html.escape(_t('Status'))}</th>"
+        f"<th>{html.escape(_t('Trigger'))}</th><th>{html.escape(_t('Runs'))}</th>"
+        f"<th>{html.escape(_t('Schedule'))}</th><th>{html.escape(_t('Action'))}</th></tr></thead>"
         f"<tbody>{''.join(daemon_rows)}</tbody>"
         "</table></div>"
-    ) if daemon_rows else "<p>(no launchd plist files found)</p>"
+    ) if daemon_rows else f"<p>{html.escape(_t('(no launchd plist files found)'))}</p>"
 
     registered_loops_html = _render_registered_loops_section()
 
+    registered_loops_subtitle = _t(
+        "Every loop the com.hermes.loop-engineering scheduler above runs, one entry per {path} registration"
+        " - enabling or disabling that one daemon enables or disables all of these together.",
+        path="<code>~/.loop-engineering/loops.json</code>",
+    )
     body = f"""
 <div class="page-title">
-<h1>Launchd Daemons</h1>
-<p class="subtitle">Load state, schedule, and enable/disable controls for every launchd daemon in this project.</p>
+<h1>{html.escape(_t('Launchd Daemons'))}</h1>
+<p class="subtitle">{html.escape(_t('Load state, schedule, and enable/disable controls for every launchd daemon in this project.'))}</p>
 </div>
 
 {flash_html}
 
 <div class="grid">
 <section class="card">
-<div class="section-header">{_SECTION_ICON_DAEMONS}<h2>Launchd Daemons</h2></div>
+<div class="section-header">{_SECTION_ICON_DAEMONS}<h2>{html.escape(_t('Launchd Daemons'))}</h2></div>
 {daemons_html}
 </section>
 <section class="card">
-<div class="section-header">{_SECTION_ICON_DAEMONS}<h2>Registered Loops</h2></div>
-<p class="subtitle">Every loop the com.hermes.loop-engineering scheduler above runs, one entry per <code>~/.loop-engineering/loops.json</code> registration - enabling or disabling that one daemon enables or disables all of these together.</p>
+<div class="section-header">{_SECTION_ICON_DAEMONS}<h2>{html.escape(_t('Registered Loops'))}</h2></div>
+<p class="subtitle">{registered_loops_subtitle}</p>
 {registered_loops_html}
 </section>
 </div>
@@ -9651,7 +9856,7 @@ def render_settings_fragment():
 <form method='post' action='/settings/gitlab/default' class='daemon-action-form single-field'>
 {csrf_input}
 {_custom_select('instance', instances, default_instance)}
-<button type='submit' class='btn btn-neutral'>Set default</button>
+<button type='submit' class='btn btn-neutral'>{html.escape(_t('Set default'))}</button>
 </form>
 """
 
@@ -9659,8 +9864,8 @@ def render_settings_fragment():
     for name, inst in instances.items():
         safe_name = html.escape(name)
         url_safe_name = urllib.parse.quote(name, safe="")
-        badge = " <span class='pill pill-blue'>default</span>" if name == default_instance else ""
-        confirm_msg = f"Delete GitLab instance {name}? Any project alias using it will need to be reassigned first."
+        badge = f" <span class='pill pill-blue'>{html.escape(_t('default'))}</span>" if name == default_instance else ""
+        confirm_msg = _t("Delete GitLab instance {name}? Any project alias using it will need to be reassigned first.", name=name)
         confirm_attr = html.escape(confirm_msg, quote=True)
         instance_rows.append(
             "<tr>"
@@ -9671,33 +9876,33 @@ def render_settings_fragment():
             f"{csrf_input}"
             f"<input type='hidden' name='alias' value='{safe_name}'>"
             f"<input type='text' name='url' value='{html.escape(inst.get('url', ''))}' placeholder='https://gitlab.example.com'>"
-            "<input type='password' name='token' placeholder='leave blank to keep current'>"
-            "<button type='submit' class='btn btn-neutral'>Save</button>"
+            f"<input type='password' name='token' placeholder='{html.escape(_t('leave blank to keep current'))}'>"
+            f"<button type='submit' class='btn btn-neutral'>{html.escape(_t('Save'))}</button>"
             "</form>"
             "</td>"
             "<td>"
             f"<form method='post' action='/settings/gitlab/instances/{url_safe_name}/delete' class='daemon-action-form'>"
             f"{csrf_input}"
             f"<button type='submit' class='btn btn-warning' data-confirm=\"{confirm_attr}\">"
-            "<span class='material-symbols-outlined' aria-hidden='true'>delete</span> Delete</button>"
+            f"<span class='material-symbols-outlined' aria-hidden='true'>delete</span> {html.escape(_t('Delete'))}</button>"
             "</form>"
             "</td>"
             "</tr>"
         )
     instances_html = (
         "<div class='table-wrap'><table class='daemons'>"
-        "<thead><tr><th>Instance</th><th>Token</th><th>Edit</th><th>Delete</th></tr></thead>"
+        f"<thead><tr><th>{html.escape(_t('Instance'))}</th><th>{html.escape(_t('Token'))}</th><th>{html.escape(_t('Edit'))}</th><th>{html.escape(_t('Delete'))}</th></tr></thead>"
         f"<tbody>{''.join(instance_rows)}</tbody>"
         "</table></div>"
-    ) if instance_rows else "<p>(no GitLab instances configured)</p>"
+    ) if instance_rows else f"<p>{html.escape(_t('(no GitLab instances configured)'))}</p>"
 
     add_instance_form = f"""
 <form method='post' action='/settings/gitlab/instances' class='daemon-action-form add-row-form'>
 {csrf_input}
-<input type='text' name='alias' placeholder='instance name' required>
+<input type='text' name='alias' placeholder='{html.escape(_t('instance name'))}' required>
 <input type='text' name='url' placeholder='https://gitlab.example.com' required>
-<input type='password' name='token' placeholder='required'>
-<button type='submit' class='btn btn-neutral'><span class='material-symbols-outlined' aria-hidden='true'>add</span> Add instance</button>
+<input type='password' name='token' placeholder='{html.escape(_t('required'))}'>
+<button type='submit' class='btn btn-neutral'><span class='material-symbols-outlined' aria-hidden='true'>add</span> {html.escape(_t('Add instance'))}</button>
 </form>
 """
 
@@ -9705,7 +9910,7 @@ def render_settings_fragment():
     for alias, project in projects.items():
         safe_alias = html.escape(alias)
         url_safe_alias = urllib.parse.quote(alias, safe="")
-        confirm_msg = f"Delete project alias {alias}?"
+        confirm_msg = _t("Delete project alias {alias}?", alias=alias)
         confirm_attr = html.escape(confirm_msg, quote=True)
         project_rows.append(
             "<tr>"
@@ -9716,34 +9921,34 @@ def render_settings_fragment():
             f"<input type='hidden' name='alias' value='{safe_alias}'>"
             f"<input type='text' name='project_id' value='{html.escape(project.get('project_id', ''))}' placeholder='namespace/project'>"
             f"{_custom_select('instance', instances, project.get('instance', ''))}"
-            f"{_custom_select('bundle', bundles, project.get('bundle', ''), empty_label='(use instance default)')}"
-            "<button type='submit' class='btn btn-neutral'>Save</button>"
+            f"{_custom_select('bundle', bundles, project.get('bundle', ''), empty_label=_t('(use instance default)'))}"
+            f"<button type='submit' class='btn btn-neutral'>{html.escape(_t('Save'))}</button>"
             "</form>"
             "</td>"
             "<td>"
             f"<form method='post' action='/settings/gitlab/projects/{url_safe_alias}/delete' class='daemon-action-form'>"
             f"{csrf_input}"
             f"<button type='submit' class='btn btn-warning' data-confirm=\"{confirm_attr}\">"
-            "<span class='material-symbols-outlined' aria-hidden='true'>delete</span> Delete</button>"
+            f"<span class='material-symbols-outlined' aria-hidden='true'>delete</span> {html.escape(_t('Delete'))}</button>"
             "</form>"
             "</td>"
             "</tr>"
         )
     projects_html = (
         "<div class='table-wrap'><table class='daemons'>"
-        "<thead><tr><th>Alias</th><th>Edit</th><th>Delete</th></tr></thead>"
+        f"<thead><tr><th>{html.escape(_t('Alias'))}</th><th>{html.escape(_t('Edit'))}</th><th>{html.escape(_t('Delete'))}</th></tr></thead>"
         f"<tbody>{''.join(project_rows)}</tbody>"
         "</table></div>"
-    ) if project_rows else "<p>(no project aliases configured)</p>"
+    ) if project_rows else f"<p>{html.escape(_t('(no project aliases configured)'))}</p>"
 
     add_project_form = f"""
 <form method='post' action='/settings/gitlab/projects' class='daemon-action-form add-row-form'>
 {csrf_input}
-<input type='text' name='alias' placeholder='project alias' required>
+<input type='text' name='alias' placeholder='{html.escape(_t('project alias'))}' required>
 <input type='text' name='project_id' placeholder='namespace/project' required>
 {_custom_select('instance', instances, None)}
-{_custom_select('bundle', bundles, None, empty_label='(use instance default)')}
-<button type='submit' class='btn btn-neutral'><span class='material-symbols-outlined' aria-hidden='true'>add</span> Add project</button>
+{_custom_select('bundle', bundles, None, empty_label=_t('(use instance default)'))}
+<button type='submit' class='btn btn-neutral'><span class='material-symbols-outlined' aria-hidden='true'>add</span> {html.escape(_t('Add project'))}</button>
 </form>
 """
 
@@ -9751,10 +9956,10 @@ def render_settings_fragment():
     loop_settings_form = f"""
 <form method='post' action='/settings/loop-config' class='daemon-action-form'>
 {csrf_input}
-<input type='text' name='assignee_username' value='{html.escape(loop_projects_config.get("assignee_username", ""))}' placeholder='GitLab username'>
+<input type='text' name='assignee_username' value='{html.escape(loop_projects_config.get("assignee_username", ""))}' placeholder='{html.escape(_t('GitLab username'))}'>
 <input type='text' name='worktree_root' value='{html.escape(loop_projects_config.get("worktree_root", ""))}' placeholder='/absolute/path/to/worktrees'>
 {_custom_select('gitlab_instance', instances, loop_projects_config.get('gitlab_instance', ''))}
-<button type='submit' class='btn btn-neutral'>Save</button>
+<button type='submit' class='btn btn-neutral'>{html.escape(_t('Save'))}</button>
 </form>
 """
 
@@ -9762,7 +9967,7 @@ def render_settings_fragment():
     for alias, project in tracked_projects.items():
         safe_alias = html.escape(alias)
         url_safe_alias = urllib.parse.quote(alias, safe="")
-        confirm_msg = f"Stop tracking project {alias}?"
+        confirm_msg = _t("Stop tracking project {alias}?", alias=alias)
         confirm_attr = html.escape(confirm_msg, quote=True)
         tracked_project_rows.append(
             "<tr>"
@@ -9770,45 +9975,45 @@ def render_settings_fragment():
             "<form method='post' action='/settings/loop-projects' class='daemon-action-form'>"
             f"{csrf_input}"
             f"<input type='hidden' name='original_alias' value='{safe_alias}'>"
-            f"<input type='text' name='alias' value='{safe_alias}' placeholder='project alias' required>"
+            f"<input type='text' name='alias' value='{safe_alias}' placeholder='{html.escape(_t('project alias'))}' required>"
             f"<input type='text' name='project_id' value='{html.escape(project.get('project_id', ''))}' placeholder='namespace/project'>"
             f"<input type='text' name='local_path' value='{html.escape(project.get('local_path', ''))}' placeholder='/abs/path/to/checkout'>"
-            f"<input type='text' name='target_branch' value='{html.escape(project.get('target_branch', ''))}' placeholder='target branch'>"
-            f"<input type='text' name='install_cmd' value='{html.escape(project.get('install_cmd', ''))}' placeholder='install command'>"
-            f"<input type='text' name='lint_cmd' value='{html.escape(project.get('lint_cmd', ''))}' placeholder='lint command'>"
-            f"<input type='text' name='test_cmd' value='{html.escape(project.get('test_cmd', ''))}' placeholder='test command'>"
-            f"{_custom_select('instance', instances, project.get('instance', ''), empty_label='(use default)')}"
-            "<button type='submit' class='btn btn-neutral'>Save</button>"
+            f"<input type='text' name='target_branch' value='{html.escape(project.get('target_branch', ''))}' placeholder='{html.escape(_t('target branch'))}'>"
+            f"<input type='text' name='install_cmd' value='{html.escape(project.get('install_cmd', ''))}' placeholder='{html.escape(_t('install command'))}'>"
+            f"<input type='text' name='lint_cmd' value='{html.escape(project.get('lint_cmd', ''))}' placeholder='{html.escape(_t('lint command'))}'>"
+            f"<input type='text' name='test_cmd' value='{html.escape(project.get('test_cmd', ''))}' placeholder='{html.escape(_t('test command'))}'>"
+            f"{_custom_select('instance', instances, project.get('instance', ''), empty_label=_t('(use default)'))}"
+            f"<button type='submit' class='btn btn-neutral'>{html.escape(_t('Save'))}</button>"
             "</form>"
             "</td>"
             "<td>"
             f"<form method='post' action='/settings/loop-projects/{url_safe_alias}/delete' class='daemon-action-form'>"
             f"{csrf_input}"
             f"<button type='submit' class='btn btn-warning' data-confirm=\"{confirm_attr}\">"
-            "<span class='material-symbols-outlined' aria-hidden='true'>delete</span> Delete</button>"
+            f"<span class='material-symbols-outlined' aria-hidden='true'>delete</span> {html.escape(_t('Delete'))}</button>"
             "</form>"
             "</td>"
             "</tr>"
         )
     tracked_projects_html = (
         "<div class='table-wrap'><table class='daemons'>"
-        "<thead><tr><th>Project</th><th>Delete</th></tr></thead>"
+        f"<thead><tr><th>{html.escape(_t('Project'))}</th><th>{html.escape(_t('Delete'))}</th></tr></thead>"
         f"<tbody>{''.join(tracked_project_rows)}</tbody>"
         "</table></div>"
-    ) if tracked_project_rows else "<p>(no tracked projects configured)</p>"
+    ) if tracked_project_rows else f"<p>{html.escape(_t('(no tracked projects configured)'))}</p>"
 
     add_tracked_project_form = f"""
 <form method='post' action='/settings/loop-projects' class='daemon-action-form add-row-form'>
 {csrf_input}
-<input type='text' name='alias' placeholder='project alias' required>
+<input type='text' name='alias' placeholder='{html.escape(_t('project alias'))}' required>
 <input type='text' name='project_id' placeholder='namespace/project' required>
 <input type='text' name='local_path' placeholder='/abs/path/to/checkout'>
-<input type='text' name='target_branch' placeholder='target branch'>
-<input type='text' name='install_cmd' placeholder='install command'>
-<input type='text' name='lint_cmd' placeholder='lint command'>
-<input type='text' name='test_cmd' placeholder='test command'>
-{_custom_select('instance', instances, None, empty_label='(use default)')}
-<button type='submit' class='btn btn-neutral'><span class='material-symbols-outlined' aria-hidden='true'>add</span> Add project</button>
+<input type='text' name='target_branch' placeholder='{html.escape(_t('target branch'))}'>
+<input type='text' name='install_cmd' placeholder='{html.escape(_t('install command'))}'>
+<input type='text' name='lint_cmd' placeholder='{html.escape(_t('lint command'))}'>
+<input type='text' name='test_cmd' placeholder='{html.escape(_t('test command'))}'>
+{_custom_select('instance', instances, None, empty_label=_t('(use default)'))}
+<button type='submit' class='btn btn-neutral'><span class='material-symbols-outlined' aria-hidden='true'>add</span> {html.escape(_t('Add project'))}</button>
 </form>
 """
 
@@ -9817,18 +10022,18 @@ def render_settings_fragment():
         safe_name = html.escape(name)
         url_safe_name = urllib.parse.quote(name, safe="")
         webhook_override = bundle_webhooks.get(name, "")
-        webhook_cell = html.escape(_mask_secret(webhook_override)) if webhook_override else "(not set)"
+        webhook_cell = html.escape(_mask_secret(webhook_override)) if webhook_override else html.escape(_t("(not set)"))
         clear_webhook_form = ""
         if webhook_override:
-            clear_confirm = html.escape(f"Clear the Slack webhook override for bundle {name}?", quote=True)
+            clear_confirm = html.escape(_t("Clear the Slack webhook override for bundle {name}?", name=name), quote=True)
             clear_webhook_form = (
                 f" <form method='post' action='/settings/access-bundles/{url_safe_name}/clear-webhook' "
                 "class='daemon-action-form' style='display:inline'>"
                 f"{csrf_input}"
-                f"<button type='submit' class='btn btn-neutral' data-confirm=\"{clear_confirm}\">Clear</button>"
+                f"<button type='submit' class='btn btn-neutral' data-confirm=\"{clear_confirm}\">{html.escape(_t('Clear'))}</button>"
                 "</form>"
             )
-        confirm_msg = f"Delete access bundle {name}? Any project alias using it will need to be reassigned first."
+        confirm_msg = _t("Delete access bundle {name}? Any project alias using it will need to be reassigned first.", name=name)
         confirm_attr = html.escape(confirm_msg, quote=True)
         bundle_rows.append(
             "<tr>"
@@ -9841,48 +10046,53 @@ def render_settings_fragment():
             f"{csrf_input}"
             f"<input type='hidden' name='name' value='{safe_name}'>"
             f"{_custom_select('instance', instances, bundle.get('instance', ''))}"
-            "<input type='password' name='token' placeholder='leave blank to keep current token'>"
-            "<input type='password' name='webhook_url' placeholder='leave blank to keep current webhook'>"
-            "<button type='submit' class='btn btn-neutral'>Save</button>"
+            f"<input type='password' name='token' placeholder='{html.escape(_t('leave blank to keep current token'))}'>"
+            f"<input type='password' name='webhook_url' placeholder='{html.escape(_t('leave blank to keep current webhook'))}'>"
+            f"<button type='submit' class='btn btn-neutral'>{html.escape(_t('Save'))}</button>"
             "</form>"
             "</td>"
             "<td>"
             f"<form method='post' action='/settings/access-bundles/{url_safe_name}/delete' class='daemon-action-form'>"
             f"{csrf_input}"
             f"<button type='submit' class='btn btn-warning' data-confirm=\"{confirm_attr}\">"
-            "<span class='material-symbols-outlined' aria-hidden='true'>delete</span> Delete</button>"
+            f"<span class='material-symbols-outlined' aria-hidden='true'>delete</span> {html.escape(_t('Delete'))}</button>"
             "</form>"
             "</td>"
             "</tr>"
         )
     bundles_html = (
         "<div class='table-wrap'><table class='daemons'>"
-        "<thead><tr><th>Bundle</th><th>Instance</th><th>Token</th><th>Slack webhook</th><th>Edit</th><th>Delete</th></tr></thead>"
+        f"<thead><tr><th>{html.escape(_t('Bundle'))}</th><th>{html.escape(_t('Instance'))}</th>"
+        f"<th>{html.escape(_t('Token'))}</th><th>{html.escape(_t('Slack webhook'))}</th>"
+        f"<th>{html.escape(_t('Edit'))}</th><th>{html.escape(_t('Delete'))}</th></tr></thead>"
         f"<tbody>{''.join(bundle_rows)}</tbody>"
         "</table></div>"
-    ) if bundle_rows else "<p>(no access bundles configured)</p>"
+    ) if bundle_rows else f"<p>{html.escape(_t('(no access bundles configured)'))}</p>"
 
     add_bundle_form = f"""
 <form method='post' action='/settings/access-bundles' class='daemon-action-form add-row-form'>
 {csrf_input}
-<input type='text' name='name' placeholder='bundle name' required>
+<input type='text' name='name' placeholder='{html.escape(_t('bundle name'))}' required>
 {_custom_select('instance', instances, None)}
-<input type='password' name='token' placeholder='GitLab access token'>
-<input type='password' name='webhook_url' placeholder='Slack webhook URL (optional)'>
-<button type='submit' class='btn btn-neutral'><span class='material-symbols-outlined' aria-hidden='true'>add</span> Add bundle</button>
+<input type='password' name='token' placeholder='{html.escape(_t('GitLab access token'))}'>
+<input type='password' name='webhook_url' placeholder='{html.escape(_t('Slack webhook URL (optional)'))}'>
+<button type='submit' class='btn btn-neutral'><span class='material-symbols-outlined' aria-hidden='true'>add</span> {html.escape(_t('Add bundle'))}</button>
 </form>
 """
+
+    bundles_subtitle = html.escape(_t("A project-specific GitLab token (and optional Slack webhook) for projects whose default instance token doesn't have full access."), quote=False)
+    tracked_subtitle = html.escape(_t("This loop's own ~/.loop-engineering/projects.json - where each project lives locally, its target branch and install/lint/test commands, and (if it differs from the default instance above) which GitLab instance it's on. Different from \"Project aliases\" above, which is only about GitLab API auth routing."), quote=False)
 
     return f"""
 <div class="grid">
 <section class="card">
 <div class="section-header">{_SECTION_ICON_SETTINGS}<h2>GitLab</h2></div>
-<h3>Default instance</h3>
+<h3>{html.escape(_t('Default instance'))}</h3>
 {default_form}
-<h3>Instances</h3>
+<h3>{html.escape(_t('Instances'))}</h3>
 {instances_html}
 {add_instance_form}
-<h3>Project aliases</h3>
+<h3>{html.escape(_t('Project aliases'))}</h3>
 {projects_html}
 {add_project_form}
 </section>
@@ -9890,8 +10100,8 @@ def render_settings_fragment():
 
 <div class="grid">
 <section class="card">
-<div class="section-header">{_SECTION_ICON_SETTINGS}<h2>Access bundles</h2></div>
-<p class="subtitle">A project-specific GitLab token (and optional Slack webhook) for projects whose default instance token doesn't have full access.</p>
+<div class="section-header">{_SECTION_ICON_SETTINGS}<h2>{html.escape(_t('Access bundles'))}</h2></div>
+<p class="subtitle">{bundles_subtitle}</p>
 {bundles_html}
 {add_bundle_form}
 </section>
@@ -9899,11 +10109,11 @@ def render_settings_fragment():
 
 <div class="grid">
 <section class="card">
-<div class="section-header">{_SECTION_ICON_SETTINGS}<h2>Tracked Projects</h2></div>
-<p class="subtitle">This loop's own ~/.loop-engineering/projects.json - where each project lives locally, its target branch and install/lint/test commands, and (if it differs from the default instance above) which GitLab instance it's on. Different from "Project aliases" above, which is only about GitLab API auth routing.</p>
-<h3>Loop settings</h3>
+<div class="section-header">{_SECTION_ICON_SETTINGS}<h2>{html.escape(_t('Tracked Projects'))}</h2></div>
+<p class="subtitle">{tracked_subtitle}</p>
+<h3>{html.escape(_t('Loop settings'))}</h3>
 {loop_settings_form}
-<h3>Projects</h3>
+<h3>{html.escape(_t('Projects'))}</h3>
 {tracked_projects_html}
 {add_tracked_project_form}
 </section>
@@ -9934,13 +10144,13 @@ def render_settings_page(flash=None, flash_ok=True):
     body = f"""
 <div class="page-title">
 <h1>GitLab</h1>
-<p class="subtitle">View and manage the GitLab configuration and tracked projects this loop depends on.</p>
+<p class="subtitle">{html.escape(_t('View and manage the GitLab configuration and tracked projects this loop depends on.'))}</p>
 </div>
 
 {flash_html}
 
 <div data-lazy-load='/settings/fragment'>
-<div class="lazy-loading"><div class="md-spinner"></div><p class="loading-text">Loading settings<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span></p></div>
+<div class="lazy-loading"><div class="md-spinner"></div><p class="loading-text">{html.escape(_t('Loading settings'))}<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span></p></div>
 </div>
 """
     return _render_shell("GitLab · Loop X Engineering", "settings", _status_badge_markup(status), body)
@@ -9961,7 +10171,7 @@ def _na_stat_tile_html(icon, label, reason):
     return (
         f"<div class='dash-stat-tile' title=\"{html.escape(reason)}\">"
         f"<span class='material-symbols-outlined dash-stat-icon' aria-hidden='true'>{icon}</span>"
-        "<span class='dash-stat-value'>N/A</span>"
+        f"<span class='dash-stat-value'>{html.escape(_t('N/A'))}</span>"
         f"<span class='dash-stat-label'>{html.escape(label)}</span>"
         "</div>"
     )
@@ -9978,24 +10188,25 @@ _FIRST_PASS_VERIFICATION_TOOLTIP = "currently identical to Verification — the 
 
 def _health_section_html(health_report, metrics_report):
     score = health_report["score"]
-    score_text = f"{score:.0f}/100" if score is not None else "N/A"
+    score_text = f"{score:.0f}/100" if score is not None else _t("N/A")
     partial_note = ""
     if health_report["is_partial"]:
         missing = ", ".join(health_report["missing_components"])
+        partial_text = _t("Partial score — not yet tracked: {missing}", missing=missing)
         partial_note = (
             f"<p class='analytics-health-note' title=\"{html.escape(health_report['missing_reason'])}\">"
-            f"Partial score — not yet tracked: {html.escape(missing)}</p>"
+            f"{html.escape(partial_text)}</p>"
         )
 
     autonomy_is_placeholder = metrics_report["quality_and_autonomy"]["autonomy_rate_is_placeholder"]
     component_tiles = "".join(
         _stat_tile_html(
             "check_circle",
-            _HEALTH_COMPONENT_LABELS.get(name, name.capitalize()),
-            f"{value:.0f}" if value is not None else "N/A",
+            i18n.t(_HEALTH_COMPONENT_LABELS.get(name, name.capitalize())),
+            f"{value:.0f}" if value is not None else _t("N/A"),
             tooltip=(
-                _ESCALATION_TOOLTIP if name == "escalation"
-                else _AUTONOMY_PLACEHOLDER_TOOLTIP if name == "autonomy" and autonomy_is_placeholder
+                i18n.t(_ESCALATION_TOOLTIP) if name == "escalation"
+                else i18n.t(_AUTONOMY_PLACEHOLDER_TOOLTIP) if name == "autonomy" and autonomy_is_placeholder
                 else None
             ),
         )
@@ -10004,7 +10215,7 @@ def _health_section_html(health_report, metrics_report):
 
     return f"""
 <section class="card">
-<div class="section-header">{_SECTION_ICON_ANALYTICS}<h2>Loop Health</h2></div>
+<div class="section-header">{_SECTION_ICON_ANALYTICS}<h2>{html.escape(_t('Loop Health'))}</h2></div>
 <p class="analytics-health-score">{score_text}</p>
 {partial_note}
 <div class="dash-stats-grid">{component_tiles}</div>
@@ -10015,20 +10226,20 @@ def _health_section_html(health_report, metrics_report):
 def _outcomes_section_html(metrics_report):
     issue = metrics_report["issue"]
     qa = metrics_report["quality_and_autonomy"]
-    autonomy_text = f"{qa['autonomy_rate'] * 100:.1f}%" if qa["autonomy_rate"] is not None else "N/A"
-    autonomy_tooltip = _AUTONOMY_PLACEHOLDER_TOOLTIP if qa["autonomy_rate_is_placeholder"] else None
+    autonomy_text = f"{qa['autonomy_rate'] * 100:.1f}%" if qa["autonomy_rate"] is not None else _t("N/A")
+    autonomy_tooltip = i18n.t(_AUTONOMY_PLACEHOLDER_TOOLTIP) if qa["autonomy_rate_is_placeholder"] else None
 
     tiles = "".join([
-        _stat_tile_html("history", "Processed", issue["issues_processed"]),
-        _stat_tile_html("check_circle", "Completed", issue["issues_completed"]),
-        _stat_tile_html("warning", "Escalated", issue["issues_escalated"]),
-        _stat_tile_html("error", "Failed", issue["issues_failed"]),
-        _stat_tile_html("bolt", "Autonomy", autonomy_text, tooltip=autonomy_tooltip),
+        _stat_tile_html("history", _t("Processed"), issue["issues_processed"]),
+        _stat_tile_html("check_circle", _t("Completed"), issue["issues_completed"]),
+        _stat_tile_html("warning", _t("Escalated"), issue["issues_escalated"]),
+        _stat_tile_html("error", _t("Failed"), issue["issues_failed"]),
+        _stat_tile_html("bolt", _t("Autonomy"), autonomy_text, tooltip=autonomy_tooltip),
     ])
 
     return f"""
 <section class="card">
-<div class="section-header">{_SECTION_ICON_ACTIVITY}<h2>Outcomes</h2></div>
+<div class="section-header">{_SECTION_ICON_ACTIVITY}<h2>{html.escape(_t('Outcomes'))}</h2></div>
 <div class="dash-stats-grid">{tiles}</div>
 </section>
 """
@@ -10039,27 +10250,27 @@ def _quality_section_html(metrics_report):
     qa = metrics_report["quality_and_autonomy"]
     verification_text = (
         f"{verification['verification_pass_rate'] * 100:.1f}%"
-        if verification["verification_pass_rate"] is not None else "N/A"
+        if verification["verification_pass_rate"] is not None else _t("N/A")
     )
     first_pass_text = (
         f"{verification['first_pass_verification_rate'] * 100:.1f}%"
-        if verification["first_pass_verification_rate"] is not None else "N/A"
+        if verification["first_pass_verification_rate"] is not None else _t("N/A")
     )
 
     tiles = "".join([
-        _stat_tile_html("check_circle", "Verification", verification_text),
+        _stat_tile_html("check_circle", _t("Verification"), verification_text),
         _stat_tile_html(
-            "check_circle", "First-pass verification", first_pass_text,
-            tooltip=_FIRST_PASS_VERIFICATION_TOOLTIP,
+            "check_circle", _t("First-pass verification"), first_pass_text,
+            tooltip=i18n.t(_FIRST_PASS_VERIFICATION_TOOLTIP),
         ),
-        _na_stat_tile_html("merge", "First-pass MR", "needs Phase 10 human-review data, not built yet"),
-        _na_stat_tile_html("history", "Retry rate", qa["retry_rate_unavailable_reason"]),
-        _na_stat_tile_html("error", "Regression", "not defined by any sprint built so far"),
+        _na_stat_tile_html("merge", _t("First-pass MR"), _t("needs Phase 10 human-review data, not built yet")),
+        _na_stat_tile_html("history", _t("Retry rate"), qa["retry_rate_unavailable_reason"]),
+        _na_stat_tile_html("error", _t("Regression"), _t("not defined by any sprint built so far")),
     ])
 
     return f"""
 <section class="card">
-<div class="section-header">{_SECTION_ICON_LOGS}<h2>Quality</h2></div>
+<div class="section-header">{_SECTION_ICON_LOGS}<h2>{html.escape(_t('Quality'))}</h2></div>
 <div class="dash-stats-grid">{tiles}</div>
 </section>
 """
@@ -10072,9 +10283,9 @@ def _risk_classification_section_html(metrics_report):
     classification = metrics_report["classification"]
 
     headline_and_risk_tiles = "".join([
-        _stat_tile_html("check_circle", "Classified", classification["classified_total"]),
+        _stat_tile_html("check_circle", _t("Classified"), classification["classified_total"]),
         *(
-            _stat_tile_html("warning", level.capitalize(), classification["by_risk_level"].get(level, 0))
+            _stat_tile_html("warning", i18n.t(level.capitalize()), classification["by_risk_level"].get(level, 0))
             for level in _RISK_LEVELS
         ),
     ])
@@ -10082,19 +10293,19 @@ def _risk_classification_section_html(metrics_report):
     type_rows = "".join(
         f"<li><span class='k'>{html.escape(str(value))}</span><span>{count}</span></li>"
         for value, count in sorted(classification["by_type"].items())
-    ) or "<li><span class='k'>No data</span><span>-</span></li>"
+    ) or f"<li><span class='k'>{html.escape(_t('No data'))}</span><span>-</span></li>"
     complexity_rows = "".join(
         f"<li><span class='k'>{html.escape(str(value))}</span><span>{count}</span></li>"
         for value, count in sorted(classification["by_complexity"].items())
-    ) or "<li><span class='k'>No data</span><span>-</span></li>"
+    ) or f"<li><span class='k'>{html.escape(_t('No data'))}</span><span>-</span></li>"
 
     return f"""
 <section class="card">
-<div class="section-header">{_SECTION_ICON_RISK}<h2>Risk &amp; Classification</h2></div>
+<div class="section-header">{_SECTION_ICON_RISK}<h2>{html.escape(_t('Risk & Classification'))}</h2></div>
 <div class="dash-stats-grid">{headline_and_risk_tiles}</div>
 <div class="analytics-breakdown-columns">
-<div><h3>By type</h3><ul class="field-list">{type_rows}</ul></div>
-<div><h3>By complexity</h3><ul class="field-list">{complexity_rows}</ul></div>
+<div><h3>{html.escape(_t('By type'))}</h3><ul class="field-list">{type_rows}</ul></div>
+<div><h3>{html.escape(_t('By complexity'))}</h3><ul class="field-list">{complexity_rows}</ul></div>
 </div>
 </section>
 """
@@ -10104,19 +10315,19 @@ def _failure_breakdown_section_html(metrics_report):
     failure_taxonomy = metrics_report["failure_taxonomy"]
 
     if failure_taxonomy["total"] == 0:
-        tiles = _na_stat_tile_html("error", "Failure breakdown", "no escalations in this window")
+        tiles = _na_stat_tile_html("error", _t("Failure breakdown"), _t("no escalations in this window"))
     else:
         tiles = "".join([
-            _stat_tile_html("error", "Escalations", failure_taxonomy["total"]),
+            _stat_tile_html("error", _t("Escalations"), failure_taxonomy["total"]),
             *(
-                _stat_tile_html("error", category.capitalize(), f"{pct * 100:.1f}%")
+                _stat_tile_html("error", i18n.t(category.capitalize()), f"{pct * 100:.1f}%")
                 for category, pct in sorted(failure_taxonomy["by_category_pct"].items(), key=lambda kv: -kv[1])
             ),
         ])
 
     return f"""
 <section class="card">
-<div class="section-header">{_SECTION_ICON_FAILURE}<h2>Failure Breakdown</h2></div>
+<div class="section-header">{_SECTION_ICON_FAILURE}<h2>{html.escape(_t('Failure Breakdown'))}</h2></div>
 <div class="dash-stats-grid">{tiles}</div>
 </section>
 """
@@ -10125,21 +10336,21 @@ def _failure_breakdown_section_html(metrics_report):
 def _cost_section_html(cost_report):
     cost_metrics = cost_report["cost"]
     cost_per_issue = (
-        f"${cost_metrics['cost_per_issue']:,.2f}" if cost_metrics["cost_per_issue"] is not None else "N/A"
+        f"${cost_metrics['cost_per_issue']:,.2f}" if cost_metrics["cost_per_issue"] is not None else _t("N/A")
     )
     cost_per_resolution = (
-        f"${cost_metrics['cost_per_resolution']:,.2f}" if cost_metrics["cost_per_resolution"] is not None else "N/A"
+        f"${cost_metrics['cost_per_resolution']:,.2f}" if cost_metrics["cost_per_resolution"] is not None else _t("N/A")
     )
 
     tiles = "".join([
-        _stat_tile_html("smart_toy", "AI cost", f"${cost_metrics['total_cost_usd']:,.2f}"),
-        _stat_tile_html("smart_toy", "Cost / issue", cost_per_issue),
-        _stat_tile_html("smart_toy", "Cost / resolution", cost_per_resolution),
+        _stat_tile_html("smart_toy", _t("AI cost"), f"${cost_metrics['total_cost_usd']:,.2f}"),
+        _stat_tile_html("smart_toy", _t("Cost / issue"), cost_per_issue),
+        _stat_tile_html("smart_toy", _t("Cost / resolution"), cost_per_resolution),
     ])
 
     return f"""
 <section class="card">
-<div class="section-header">{_SECTION_ICON_AI_CLI}<h2>Cost</h2></div>
+<div class="section-header">{_SECTION_ICON_AI_CLI}<h2>{html.escape(_t('Cost'))}</h2></div>
 <div class="dash-stats-grid">{tiles}</div>
 </section>
 """
@@ -10149,22 +10360,22 @@ def _learning_section_html(learning_report):
     reuse = learning_report["reuse"]
 
     tiles = "".join([
-        _stat_tile_html("lightbulb", "Lessons created", reuse["lessons_created"]),
-        _stat_tile_html("lightbulb", "Total reuses", reuse["total_reuses"]),
+        _stat_tile_html("lightbulb", _t("Lessons created"), reuse["lessons_created"]),
+        _stat_tile_html("lightbulb", _t("Total reuses"), reuse["total_reuses"]),
         _stat_tile_html(
-            "lightbulb", "Reuse rate",
-            f"{reuse['memory_reuse_rate'] * 100:.1f}%" if reuse["memory_reuse_rate"] is not None else "N/A",
+            "lightbulb", _t("Reuse rate"),
+            f"{reuse['memory_reuse_rate'] * 100:.1f}%" if reuse["memory_reuse_rate"] is not None else _t("N/A"),
         ),
         _stat_tile_html(
-            "lightbulb", "Success rate",
-            f"{reuse['memory_success_rate'] * 100:.1f}%" if reuse["memory_success_rate"] is not None else "N/A",
+            "lightbulb", _t("Success rate"),
+            f"{reuse['memory_success_rate'] * 100:.1f}%" if reuse["memory_success_rate"] is not None else _t("N/A"),
         ),
-        _na_stat_tile_html("lightbulb", "Failures prevented", reuse["failures_prevented_reason"]),
+        _na_stat_tile_html("lightbulb", _t("Failures prevented"), reuse["failures_prevented_reason"]),
     ])
 
     return f"""
 <section class="card">
-<div class="section-header">{_SECTION_ICON_MEMORY}<h2>Learning</h2></div>
+<div class="section-header">{_SECTION_ICON_MEMORY}<h2>{html.escape(_t('Learning'))}</h2></div>
 <div class="dash-stats-grid">{tiles}</div>
 </section>
 """
@@ -10202,7 +10413,7 @@ def _trend_line_chart_svg(label, points, unit="%", width=520, height=140, note=N
             f"<div class='trend-chart trend-chart-empty'>"
             f"<p class='trend-chart-title'>{html.escape(label)}</p>"
             f"{note_html}"
-            f"<p>no data in this window</p></div>"
+            f"<p>{html.escape(_t('no data in this window'))}</p></div>"
         )
 
     pad_left, pad_right, pad_top, pad_bottom = 8, 8, 12, 12
@@ -10255,17 +10466,19 @@ def _trend_line_chart_svg(label, points, unit="%", width=520, height=140, note=N
         "stroke='var(--md-outline-variant)' stroke-width='1' />"
     )
 
+    max_label_text = _t("max: {value}", value=_fmt_trend_value(max(values), unit))
     max_label_html = (
-        f"<p class='trend-chart-note'>max: {html.escape(_fmt_trend_value(max(values), unit))}</p>"
+        f"<p class='trend-chart-note'>{html.escape(max_label_text)}</p>"
         if unit == "$" else ""
     )
 
+    aria_label = _t("{label} trend", label=label)
     return (
         f"<div class='trend-chart'>"
         f"<p class='trend-chart-title'>{html.escape(label)}</p>"
         f"{note_html}{max_label_html}"
         f"<svg viewBox='0 0 {width} {height}' width='100%' height='{height}' role='img' "
-        f"aria-label='{html.escape(label)} trend'>{axis_html}{polylines_html}{dots_html}</svg>"
+        f"aria-label='{html.escape(aria_label)}'>{axis_html}{polylines_html}{dots_html}</svg>"
         f"</div>"
     )
 
@@ -10309,21 +10522,21 @@ def _trend_section_html(days):
     autonomy_is_placeholder = any(
         r["quality_and_autonomy"]["autonomy_rate_is_placeholder"] for r in metrics_reports
     )
-    autonomy_note = _AUTONOMY_PLACEHOLDER_TOOLTIP if autonomy_is_placeholder else None
+    autonomy_note = i18n.t(_AUTONOMY_PLACEHOLDER_TOOLTIP) if autonomy_is_placeholder else None
 
     charts_html = "".join([
-        _trend_line_chart_svg("Autonomy rate", autonomy_points, unit="%", note=autonomy_note),
-        _trend_line_chart_svg("Resolution rate", resolution_points, unit="%"),
-        _trend_line_chart_svg("Verification pass rate", verification_points, unit="%"),
-        _trend_line_chart_svg("Cost per resolution", cost_points, unit="$"),
+        _trend_line_chart_svg(_t("Autonomy rate"), autonomy_points, unit="%", note=autonomy_note),
+        _trend_line_chart_svg(_t("Resolution rate"), resolution_points, unit="%"),
+        _trend_line_chart_svg(_t("Verification pass rate"), verification_points, unit="%"),
+        _trend_line_chart_svg(_t("Cost per resolution"), cost_points, unit="$"),
         "<div class='trend-chart trend-chart-empty'>"
-        "<p class='trend-chart-title'>MR acceptance</p>"
-        "<p>Not yet tracked — needs Phase 10 human-review data.</p></div>",
+        f"<p class='trend-chart-title'>{html.escape(_t('MR acceptance'))}</p>"
+        f"<p>{html.escape(_t('Not yet tracked — needs Phase 10 human-review data.'))}</p></div>",
     ])
 
     return f"""
 <section class="card">
-<div class="section-header">{_SECTION_ICON_ANALYTICS}<h2>Trend</h2></div>
+<div class="section-header">{_SECTION_ICON_ANALYTICS}<h2>{html.escape(_t('Trend'))}</h2></div>
 <div class="trend-charts-grid">{charts_html}</div>
 </section>
 """
@@ -10360,14 +10573,14 @@ def render_analytics_page(days=7):
     health_report = health.compute_health_score(metrics_report, cost_report)
 
     days_selector_html = "".join(
-        f"<a href='/analytics?days={n}' class=\"{'active' if n == days else ''}\">{n}d</a>"
+        f"<a href='/analytics?days={n}' class=\"{'active' if n == days else ''}\">{html.escape(_t('{n}d', n=n))}</a>"
         for n in (7, 30, 90)
     )
 
     body = f"""
 <div class="page-title">
-<h1>Analytics</h1>
-<p class="subtitle">How the loop is performing - no logs required.</p>
+<h1>{html.escape(_t('Analytics'))}</h1>
+<p class="subtitle">{html.escape(_t('How the loop is performing - no logs required.'))}</p>
 </div>
 
 <div class="analytics-days-selector">{days_selector_html}</div>
@@ -10394,17 +10607,17 @@ def _loop_runtime_cost_section_html(cost_summary):
     this page: one is the generic LoopRuntime's persisted runs, the
     other is the GitLab issue loop's own event log."""
     cost_per_run = (
-        f"${cost_summary['cost_per_run_usd']:,.2f}" if cost_summary["cost_per_run_usd"] is not None else "N/A"
+        f"${cost_summary['cost_per_run_usd']:,.2f}" if cost_summary["cost_per_run_usd"] is not None else _t("N/A")
     )
     tiles = "".join([
-        _stat_tile_html("loop", "Runs", cost_summary["total_runs"]),
-        _stat_tile_html("payments", "Estimated cost", f"${cost_summary['total_cost_usd']:,.2f}"),
-        _stat_tile_html("payments", "Cost / run", cost_per_run),
+        _stat_tile_html("loop", _t("Runs"), cost_summary["total_runs"]),
+        _stat_tile_html("payments", _t("Estimated cost"), f"${cost_summary['total_cost_usd']:,.2f}"),
+        _stat_tile_html("payments", _t("Cost / run"), cost_per_run),
     ])
 
     return f"""
 <section class="card">
-<div class="section-header">{_SECTION_ICON_COST}<h2>Loop Runtime Cost</h2></div>
+<div class="section-header">{_SECTION_ICON_COST}<h2>{html.escape(_t('Loop Runtime Cost'))}</h2></div>
 <div class="dash-stats-grid">{tiles}</div>
 </section>
 """
@@ -10429,14 +10642,14 @@ def render_cost_page(days=7):
     cost_summary = loop_serialize.summarize_run_costs(results_dir=LOOP_RUNS_DIR)
 
     days_selector_html = "".join(
-        f"<a href='/cost?days={n}' class=\"{'active' if n == days else ''}\">{n}d</a>"
+        f"<a href='/cost?days={n}' class=\"{'active' if n == days else ''}\">{html.escape(_t('{n}d', n=n))}</a>"
         for n in (7, 30, 90)
     )
 
     body = f"""
 <div class="page-title">
-<h1>Cost</h1>
-<p class="subtitle">What the loop is spending, from both cost sources it tracks.</p>
+<h1>{html.escape(_t('Cost'))}</h1>
+<p class="subtitle">{html.escape(_t('What the loop is spending, from both cost sources it tracks.'))}</p>
 </div>
 
 <div class="analytics-days-selector">{days_selector_html}</div>
@@ -10491,7 +10704,7 @@ def render_activity_page(flash=None, flash_ok=True):
     for key, value in status.items():
         if key == "state":
             continue
-        label = key.replace("_", " ").capitalize()
+        label = i18n.t(key.replace("_", " ").capitalize())
         if key == "updated_at" and value:
             display_value = _relative_time(str(value))
             title_attr = f" title='{html.escape(str(value))}'"
@@ -10507,7 +10720,7 @@ def render_activity_page(flash=None, flash_ok=True):
         tail = _today_log_tail()
         if tail:
             log_html = (
-                "<p><strong>Today's log (tail):</strong></p>"
+                "<p><strong>" + html.escape(_t("Today's log (tail):"), quote=False) + "</strong></p>"
                 f"<pre class='log'>{html.escape(tail)}</pre>"
             )
 
@@ -10515,18 +10728,18 @@ def render_activity_page(flash=None, flash_ok=True):
     if state == "running":
         gitlab_run_now_html = _stop_action_html(
             "/gitlab/stop",
-            "Stop the running GitLab loop? The in-progress issue's work will be abandoned.",
+            _t("Stop the running GitLab loop? The in-progress issue's work will be abandoned."),
             csrf_input,
         )
     elif not has_projects:
         gitlab_run_now_html = _run_now_action_html(
             "/run-now", "", csrf_input,
-            disabled_hint_html="No projects configured yet - <a href='/settings'>add one on the GitLab page</a>.",
+            disabled_hint_html=_t("No projects configured yet - <a href='/settings'>add one on the GitLab page</a>."),
         )
     else:
         gitlab_run_now_html = _run_now_action_html(
             "/run-now",
-            "Run the GitLab loop now? This starts a real automated run outside its normal schedule.",
+            _t("Run the GitLab loop now? This starts a real automated run outside its normal schedule."),
             csrf_input,
         )
 
@@ -10539,48 +10752,50 @@ def render_activity_page(flash=None, flash_ok=True):
         topic_state_label = _topic_monitor_progress_text(topic_status, topics)
     elif not topics:
         topic_badge_class, topic_badge_icon = _status_badge("never_run")
-        topic_state_label = "Not configured"
+        topic_state_label = _t("Not configured")
     else:
         topic_badge_class, topic_badge_icon = _status_badge("idle")
-        topic_state_label = "Idle"
+        topic_state_label = _t("Idle")
     topic_state_hero_html = (
         f"<div class='status-hero'><span class='pill pill-lg {topic_badge_class}'>"
         f"{topic_badge_icon}{html.escape(topic_state_label)}</span></div>"
     )
 
-    topic_fields = [f"<li><span class='k'>Configured topics</span><span>{len(topics)}</span></li>"]
+    topic_fields = [f"<li><span class='k'>{html.escape(_t('Configured topics'))}</span><span>{len(topics)}</span></li>"]
     last_run_values = [entry["updated_at"] for entry in topic_status.values() if entry.get("updated_at")]
     if last_run_values:
         most_recent = max(last_run_values)
         topic_fields.append(
-            f"<li><span class='k'>Last run</span>"
+            f"<li><span class='k'>{html.escape(_t('Last run'))}</span>"
             f"<span title='{html.escape(most_recent)}'>{html.escape(_relative_time(most_recent))}</span></li>"
         )
 
     if any_topic_running:
         topic_run_now_html = _stop_action_html(
             "/topic-monitor/stop",
-            "Stop the running topic loop? The in-progress topic's work will be abandoned.",
+            _t("Stop the running topic loop? The in-progress topic's work will be abandoned."),
             csrf_input,
         )
     elif not topics:
         topic_run_now_html = _run_now_action_html(
             "/topic-monitor/run-now", "", csrf_input,
             disabled_hint_html=(
-                "No topics configured yet - <a href='/topic-monitor/settings'>add one on the Topic Settings page</a>."
+                _t("No topics configured yet - <a href='/topic-monitor/settings'>add one on the Topic Settings page</a>.")
             ),
         )
     else:
         topic_run_now_html = _run_now_action_html(
             "/topic-monitor/run-now",
-            "Run the topic monitor loop now? This starts a real automated run outside its normal schedule.",
+            _t("Run the topic monitor loop now? This starts a real automated run outside its normal schedule."),
             csrf_input,
         )
 
+    activity_subtitle = html.escape(_t("What each automated loop is doing right now, plus the GitLab loop's most recent report."), quote=False)
+
     body = f"""
 <div class="page-title">
-<h1>Activity</h1>
-<p class="subtitle">What each automated loop is doing right now, plus the GitLab loop's most recent report.</p>
+<h1>{html.escape(_t('Activity'))}</h1>
+<p class="subtitle">{activity_subtitle}</p>
 </div>
 
 {flash_html}
@@ -10588,14 +10803,14 @@ def render_activity_page(flash=None, flash_ok=True):
 <div class="overview-layout">
 <div class="activity-card-stack">
 <div class='card'>
-<div class="section-header">{_SECTION_ICON_GITLAB}<h2>GitLab Monitor</h2></div>
+<div class="section-header">{_SECTION_ICON_GITLAB}<h2>{html.escape(_t('GitLab Monitor'))}</h2></div>
 {state_hero_html}
 <ul class="field-list">{''.join(status_lines)}</ul>
 {gitlab_run_now_html}
 {log_html}
 </div>
 <div class='card'>
-<div class="section-header">{_SECTION_ICON_TOPIC_MONITOR}<h2>Topic Monitor</h2></div>
+<div class="section-header">{_SECTION_ICON_TOPIC_MONITOR}<h2>{html.escape(_t('Topic Monitor'))}</h2></div>
 {topic_state_hero_html}
 <ul class="field-list">{''.join(topic_fields)}</ul>
 {topic_run_now_html}
@@ -10604,11 +10819,11 @@ def render_activity_page(flash=None, flash_ok=True):
 
 <div class="activity-card-stack">
 <div class="card">
-<div class="section-header">{_SECTION_ICON_OVERVIEW}<h2>Latest Run Review</h2></div>
+<div class="section-header">{_SECTION_ICON_OVERVIEW}<h2>{html.escape(_t('Latest Run Review'))}</h2></div>
 <div class="markdown">{render_markdown(review)}</div>
 </div>
 <div class="card">
-<div class="section-header">{_SECTION_ICON_TOPIC_MONITOR}<h2>Latest Topic Run Review</h2></div>
+<div class="section-header">{_SECTION_ICON_TOPIC_MONITOR}<h2>{html.escape(_t('Latest Topic Run Review'))}</h2></div>
 {_topic_latest_data_html(topics)}
 </div>
 </div>
@@ -10620,7 +10835,15 @@ def render_activity_page(flash=None, flash_ok=True):
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
+    def _apply_language(self):
+        """Pin this request thread's UI language (bin/i18n.py) before any
+        render_* runs: the loop_lang cookie set by the topbar's language
+        switcher, else Accept-Language, else English. Set unconditionally on
+        every request so nothing ever leaks from a previous one."""
+        i18n.set_language(i18n.resolve_language(self.headers.get("Cookie"), self.headers.get("Accept-Language")))
+
     def do_GET(self):
+        self._apply_language()
         split = urllib.parse.urlsplit(self.path)
 
         if split.path == "/":
@@ -10989,6 +11212,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except (TypeError, ValueError):
             content_length = 0
         body = self.rfile.read(content_length) if content_length else b""
+        self._apply_language()
 
         if self.path == "/run-now":
             if not self._csrf_ok(body):
@@ -11175,7 +11399,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 else:
                     schedule = {"frequency": "daily", "hour": hour, "minute": minute}
             except ValueError:
-                ok, message = False, f"Invalid schedule value: {time_value!r}"
+                ok, message = False, _t("Invalid schedule value: {value}", value=repr(time_value))
             else:
                 ok, message = loops_config.set_schedule(name, schedule)
             self._redirect_with_flash(ok, message)
@@ -11222,7 +11446,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 else:
                     weekdays, day_of_month = [int(v) for v in form.get("weekday", [])], None
             except ValueError:
-                ok, message = False, f"Invalid time, weekday, or day-of-month value: {time_value!r}"
+                ok, message = False, _t("Invalid time, weekday, or day-of-month value: {value}", value=repr(time_value))
             else:
                 ok, message = update_daemon_schedule(filename, hour, minute, weekdays, day_of_month, LAUNCHD_DIR)
             self._redirect_with_flash(ok, message)
@@ -11509,7 +11733,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 # _iter_chat_job_chunks) would hang indefinitely. Finishing
                 # it here guarantees the same "always eventually done"
                 # contract _run_chat_job itself upholds.
-                _chat_job_finish(reply_key, error=f"Could not start assistant thread: {exc}")
+                _chat_job_finish(reply_key, error=_t("Could not start assistant thread: {error}", error=exc))
             self._send_json(200, {"reply_key": reply_key, "session": session_id})
             return
 
@@ -11585,7 +11809,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _not_found(self):
-        body = b"Not found"
+        body = _t("Not found").encode("utf-8")
         self.send_response(404)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
