@@ -777,7 +777,7 @@ def pop_unseen_user_messages(path=None):
             fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
-def build_chat_prompt(user_text, recent_messages):
+def build_chat_prompt(user_text, recent_messages, page=None):
     """Builds the positional prompt passed to `claude -p` for one chat
     turn - _CHAT_ASSISTANT_SYSTEM_PROMPT goes in separately via
     --append-system-prompt; this is just the conversation content.
@@ -786,10 +786,20 @@ def build_chat_prompt(user_text, recent_messages):
     already trimmed by the caller to the last _CHAT_MESSAGE_HISTORY_LIMIT
     entries. Each `claude -p` invocation is a fresh, stateless call with
     no session continuity, so this plain-text transcript is what makes a
-    follow-up question like "now resume it" work at all."""
+    follow-up question like "now resume it" work at all.
+
+    `page` is the _NAV_ITEMS key of the dashboard page the AI side panel
+    was opened on (see _ai_panel_html), so "what am I looking at?" has an
+    answer. Only a known key adds anything - the value comes from the
+    browser, and free text from it must never reach the prompt."""
+    page_item = next((item for item in _NAV_ITEMS if page and item[0] == page), None)
+    context = (
+        f"(The user is viewing the dashboard's {page_item[2]} page, {page_item[1]}.)\n\n"
+        if page_item else ""
+    )
     if not recent_messages:
-        return user_text
-    lines = ["Recent conversation:"]
+        return context + user_text
+    lines = [context + "Recent conversation:" if context else "Recent conversation:"]
     for m in recent_messages:
         speaker = "User" if m.get("from") == "user" else "Assistant"
         lines.append(f"{speaker}: {m.get('text', '')}")
@@ -3778,8 +3788,8 @@ _FONT_FACE_VARS = "\n".join(
 # name that isn't listed here renders as tofu/missing glyph. Add a new name
 # to this list before shipping a new icon constant that uses it.
 _MATERIAL_SYMBOLS_ICON_NAMES = (
-    "account_balance_wallet,add,add_comment,arrow_upward,auto_awesome,bolt,check,check_circle,chevron_left,circle,close,content_copy,delete,description,"
-    "dns,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,history,lightbulb,loop,merge,monitoring,newspaper,"
+    "account_balance_wallet,add,add_comment,arrow_forward,arrow_upward,auto_awesome,bolt,check,check_circle,chevron_left,circle,close,content_copy,delete,description,"
+    "dns,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,help,history,lightbulb,loop,merge,monitoring,newspaper,"
     "open_in_new,palette,payments,save,send,settings,smart_toy,space_dashboard,speed,terminal,topic,translate,tune,warning,widgets"
 )
 
@@ -4004,6 +4014,18 @@ a {{
   transition: color 150ms ease, background-color 150ms ease;
 }}
 a:hover {{ color: var(--md-primary); text-decoration: underline; }}
+/* A link carrying an icon (Material Symbol or inline SVG) lines the glyph
+   up with its text instead of sitting it on the baseline, sizes it to the
+   text, and skips the underline, which would otherwise run under the
+   icon too. :where() keeps this at zero specificity so any component's
+   own rule (.btn, .pill, .sidebar-nav a, ...) still wins. */
+:where(a:has(> .material-symbols-outlined, > svg)) {{
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}}
+:where(a:has(> .material-symbols-outlined, > svg) > .material-symbols-outlined) {{ font-size: 1.2em; }}
+:where(a:has(> .material-symbols-outlined, > svg)):hover {{ text-decoration: none; }}
 
 /* One keyboard-focus treatment for every plain interactive element that
    doesn't already define its own (form inputs, the custom-select trigger,
@@ -4134,7 +4156,7 @@ button:focus-visible,
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  margin: 0 var(--shell-gap) var(--shell-gap) 0;
+  margin: 0 var(--shell-right) var(--shell-gap) 0;
   border-radius: var(--shell-radius);
 }}
 
@@ -4181,10 +4203,10 @@ button:focus-visible,
   display: inline-flex;
   align-items: center;
   gap: 0.2rem;
-  height: 32px;
-  padding: 0 0.5rem;
+  height: 40px;
+  padding: 0 0.75rem;
   border: none;
-  border-radius: 16px;
+  border-radius: 20px;
   background: none;
   color: var(--md-nav-on-surface);
   font: inherit;
@@ -4231,6 +4253,281 @@ button:focus-visible,
 .lang-switch-option[aria-checked='true'] .material-symbols-outlined {{ visibility: visible; }}
 .lang-switch-option:hover,
 .lang-switch-option:focus-visible {{ background: var(--md-surface-container-high); outline: none; }}
+
+/* Topbar AI button (see ai_trigger_html in _render_shell) - Gemini-style:
+   a round icon button that turns into a tinted "on" chip while the AI
+   side panel is open. */
+.ai-panel-trigger {{
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--md-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 150ms ease;
+}}
+.ai-panel-trigger .material-symbols-outlined {{ font-size: 22px; }}
+.ai-panel-trigger:hover {{ background: var(--md-nav-active-surface); }}
+html.ai-panel-open .ai-panel-trigger {{
+  background: color-mix(in srgb, var(--md-primary) 16%, var(--md-nav-surface));
+  font-variation-settings: 'FILL' 1;
+}}
+html.ai-panel-open .ai-panel-trigger .material-symbols-outlined {{ font-variation-settings: 'FILL' 1; }}
+
+/* The AI side panel: a second rounded card to the right of the main one,
+   below the topbar, like Gmail's Gemini panel. Open/closed and width
+   live on <html> (html.ai-panel-open, --ai-panel-width) so the head
+   script can restore both before first paint, and the main card simply
+   moves its right inset over by --shell-right. */
+html.ai-panel-open {{ --shell-right: calc(var(--ai-panel-width) + var(--shell-gap) * 2); }}
+.ai-panel {{
+  position: fixed;
+  top: var(--shell-top);
+  right: var(--shell-gap);
+  bottom: var(--shell-gap);
+  width: var(--ai-panel-width);
+  z-index: 95;
+  display: none;
+  flex-direction: column;
+  background: var(--md-surface);
+  border-radius: var(--shell-radius);
+  color: var(--md-on-surface);
+  overflow: hidden;
+}}
+html.ai-panel-open .ai-panel {{ display: flex; }}
+.ai-panel-resizer {{
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 10px;
+  cursor: col-resize;
+  z-index: 2;
+  touch-action: none;
+}}
+.ai-panel-resizer::after {{
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 4px;
+  height: 40px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: var(--md-outline-variant);
+  opacity: 0;
+  transition: opacity 150ms ease, background-color 150ms ease;
+}}
+.ai-panel:hover .ai-panel-resizer::after {{ opacity: 1; }}
+.ai-panel-resizer:hover::after,
+.ai-panel-resizer:focus-visible::after,
+html.ai-panel-resizing .ai-panel-resizer::after {{ opacity: 1; background: var(--md-primary); }}
+.ai-panel-resizer:focus-visible {{ outline: none; }}
+html.ai-panel-resizing, html.ai-panel-resizing * {{ cursor: col-resize !important; user-select: none; }}
+.ai-panel-header {{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 0.75rem 0.5rem 1.25rem;
+  flex-shrink: 0;
+}}
+.ai-panel-title {{ display: inline-flex; align-items: center; gap: 0.5rem; font-size: 1.05rem; font-weight: 500; }}
+.ai-panel-title .material-symbols-outlined {{ color: var(--md-primary); font-size: 22px; }}
+.ai-panel-header-actions {{ display: flex; align-items: center; gap: 0.15rem; }}
+.ai-panel-header-start {{ display: flex; align-items: center; gap: 0.35rem; min-width: 0; }}
+.ai-panel-header {{ padding-left: 0.75rem; }}
+.ai-panel.is-history [data-ai-history-toggle] {{ background: var(--md-nav-active-surface); color: var(--md-nav-active-on-surface); }}
+/* Chat history view: replaces the thread and composer while open. It
+   lists every chat session - started from the panel on any page or from
+   the Dashboard - via the same fragment as the Dashboard's drawer. */
+.ai-panel-history {{ flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 0.75rem 1rem; }}
+.ai-panel-history[hidden],
+.ai-panel.is-history .ai-panel-body,
+.ai-panel.is-history .ai-panel-footer {{ display: none; }}
+.ai-panel-history-heading {{ margin: 0.25rem 0.5rem 0.75rem; font-size: 0.95rem; }}
+.ai-panel .chat-history-delete-form {{ display: none; }}
+.ai-panel .chat-history-row:hover .chat-history-time,
+.ai-panel .chat-history-row:focus-within .chat-history-time {{ visibility: visible; }}
+.ai-panel-icon-btn {{
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}}
+.ai-panel-icon-btn:hover {{ background: var(--md-surface-container-high); color: var(--md-on-surface); }}
+.ai-panel-icon-btn:disabled {{ opacity: 0.4; cursor: not-allowed; }}
+.ai-panel-icon-btn .material-symbols-outlined {{ font-size: 20px; }}
+.ai-panel-body {{ flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0.5rem 1rem 1rem 1.25rem; }}
+.ai-panel-empty {{
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.4rem;
+  padding: 1rem;
+}}
+.ai-panel.has-messages .ai-panel-empty,
+.ai-panel.has-messages .ai-panel-prompts {{ display: none; }}
+.ai-panel-greeting {{
+  font-size: 1.75rem;
+  font-weight: 500;
+  line-height: 1.3;
+  text-wrap: balance;
+  background: linear-gradient(90deg, var(--md-primary), color-mix(in srgb, var(--md-primary) 45%, #a142f4));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}}
+.ai-panel-context {{ margin: 0; font-size: 0.85rem; color: var(--md-on-surface-variant); }}
+.ai-panel .message-bubble {{ max-width: 92%; }}
+.ai-panel .message-row-user .message-body {{ max-width: 92%; }}
+.ai-panel .message-text {{ font-size: 0.875rem; overflow-wrap: anywhere; }}
+/* Thinking indicator (see appendThinking in _AI_PANEL_SCRIPT). Its
+   animations are deliberately NOT inside the prefers-reduced-motion
+   block - see CLAUDE.md on loading spinners. */
+.ai-thinking {{ display: flex; align-items: flex-start; gap: 0.75rem; width: 100%; padding: 0.25rem 0; }}
+.ai-thinking-avatar {{
+  position: relative;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--md-primary);
+}}
+.ai-thinking-avatar::before {{
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  padding: 2px;
+  background: conic-gradient(from 0deg, var(--md-primary), #a142f4, #24c1e0, transparent 70%, var(--md-primary));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  animation: ai-thinking-spin 1.1s linear infinite;
+}}
+.ai-thinking-avatar .material-symbols-outlined {{
+  font-size: 18px;
+  font-variation-settings: 'FILL' 1;
+  animation: ai-thinking-pulse 1.4s ease-in-out infinite;
+}}
+.ai-thinking-body {{ flex: 1 1 auto; min-width: 0; max-width: 34rem; display: flex; flex-direction: column; gap: 0.5rem; padding-top: 0.4rem; }}
+.ai-thinking-label {{
+  font-size: 0.9rem;
+  font-weight: 500;
+  background: linear-gradient(90deg, var(--md-on-surface-variant) 0%, var(--md-primary) 45%, #a142f4 55%, var(--md-on-surface-variant) 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: ai-shimmer 1.6s linear infinite;
+}}
+.ai-thinking-bar {{
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--md-primary) 10%, var(--md-surface-container-high)) 0%,
+    color-mix(in srgb, var(--md-primary) 28%, var(--md-surface-container-high)) 50%,
+    color-mix(in srgb, var(--md-primary) 10%, var(--md-surface-container-high)) 100%);
+  background-size: 250% 100%;
+  animation: ai-shimmer 1.6s linear infinite;
+}}
+.ai-thinking-bar:nth-of-type(2) {{ width: 92%; }}
+.ai-thinking-bar:nth-of-type(3) {{ width: 76%; animation-delay: 0.15s; }}
+.ai-thinking-bar:nth-of-type(4) {{ width: 52%; animation-delay: 0.3s; }}
+.ai-stream-caret {{
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  border-radius: 2px;
+  background: var(--md-primary);
+  animation: ai-caret-blink 1s steps(1) infinite;
+}}
+@keyframes ai-thinking-spin {{ to {{ transform: rotate(360deg); }} }}
+@keyframes ai-thinking-pulse {{ 0%, 100% {{ transform: scale(0.85); opacity: 0.75; }} 50% {{ transform: scale(1.08); opacity: 1; }} }}
+@keyframes ai-shimmer {{ from {{ background-position: 100% 0; }} to {{ background-position: -150% 0; }} }}
+@keyframes ai-caret-blink {{ 50% {{ opacity: 0; }} }}
+/* Only Copy makes sense here - edit/delete belong to the Dashboard's
+   own thread (their forms redirect back to it). */
+.ai-panel [data-edit-message],
+.ai-panel .message-delete-form {{ display: none; }}
+.ai-panel-footer {{ flex-shrink: 0; padding: 0 1rem 0.75rem; display: flex; flex-direction: column; gap: 0.6rem; }}
+.ai-panel-prompts {{ display: flex; flex-direction: column; align-items: flex-start; gap: 0.4rem; }}
+.ai-panel-prompts .ai-panel-chip {{ max-width: 100%; text-align: left; justify-content: flex-start; }}
+.ai-panel-composer {{
+  margin: 0;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 20px;
+  background: var(--md-surface);
+  padding: 0.65rem 0.65rem 0.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}}
+.ai-panel-composer:focus-within {{
+  border-color: color-mix(in srgb, var(--md-primary) 55%, var(--md-outline-variant));
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--md-primary) 12%, transparent);
+}}
+.ai-panel-composer textarea {{
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--md-on-surface);
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  min-height: 1.5em;
+  max-height: 40vh;
+  padding: 0;
+}}
+.ai-panel-composer textarea::placeholder {{ color: var(--md-on-surface-variant); opacity: 0.8; }}
+.ai-panel-composer-toolbar {{ display: flex; justify-content: flex-end; }}
+.ai-panel-send {{
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity 150ms ease;
+}}
+.ai-panel-send:disabled {{ background: var(--md-surface-container-highest); color: var(--md-on-surface-variant); cursor: not-allowed; }}
+.ai-panel-send .material-symbols-outlined {{ font-size: 20px; }}
+.ai-panel-disclaimer {{ margin: 0; text-align: center; font-size: 0.72rem; color: var(--md-on-surface-variant); }}
+@media (max-width: 720px) {{
+  /* Too narrow for two cards side by side: the panel overlays the main
+     card instead of pushing it, and isn't resizable. */
+  html.ai-panel-open:root {{ --shell-right: var(--shell-gap); }}
+  .ai-panel {{ left: var(--shell-gap); width: auto; z-index: 110; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2); }}
+  .ai-panel-resizer {{ display: none; }}
+}}
 
 html.collapsed {{ --shell-left: 64px; }}
 html.collapsed .sidebar {{ width: 64px; }}
@@ -4367,6 +4664,10 @@ html.collapsed .sidebar-top {{
   --shell-top: 64px;
   --shell-left: 220px;
   --shell-gap: 16px;
+  /* Right inset of the main card: just the gap, or the gap plus the AI
+     side panel (see .ai-panel) while html.ai-panel-open. */
+  --shell-right: var(--shell-gap);
+  --ai-panel-width: 400px;
   --shell-radius: 16px;
   --app-grid-size: 16px;
   --app-grid-lines:
@@ -4377,7 +4678,7 @@ html.collapsed .sidebar-top {{
   position: fixed;
   top: var(--shell-top);
   left: var(--shell-left);
-  right: var(--shell-gap);
+  right: var(--shell-right);
   bottom: var(--shell-gap);
   border-radius: var(--shell-radius);
   pointer-events: none;
@@ -4415,8 +4716,11 @@ html.collapsed .sidebar-top {{
   color: var(--md-on-surface);
   text-decoration: none;
 }}
-.chat-announce:hover {{ text-decoration: underline; }}
+.chat-announce:hover {{ text-decoration: none; }}
+.chat-announce:hover .chat-announce-text {{ text-decoration: underline; text-underline-offset: 3px; }}
 .chat-announce .material-symbols-outlined {{ font-size: 18px; color: var(--chat-accent); }}
+.chat-announce .chat-announce-arrow {{ font-size: 16px; color: inherit; transition: transform 150ms ease; }}
+.chat-announce:hover .chat-announce-arrow {{ transform: translateX(2px); }}
 .chat-hero-title {{
   margin: 0;
   font-size: clamp(2.4rem, 5.5vw, 4.25rem);
@@ -4444,28 +4748,13 @@ html.collapsed .sidebar-top {{
   color: var(--md-primary);
 }}
 
-.chat-link-pill {{
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  padding: 0.75rem 1.6rem;
-  border-radius: 999px;
-  border: 1px solid var(--md-outline-variant);
-  background: color-mix(in srgb, var(--md-surface) 70%, transparent);
-  color: var(--md-on-surface);
-  font-size: 1rem;
-  font-weight: 500;
-  text-decoration: none;
-  backdrop-filter: blur(8px);
-  transition: background 150ms ease, border-color 150ms ease;
-}}
-.chat-link-pill:hover {{ background: var(--md-surface-container-high); border-color: var(--md-outline); }}
-.chat-link-pill .material-symbols-outlined {{ font-size: 20px; }}
+.btn.chat-link-pill {{ background: color-mix(in srgb, var(--md-surface) 70%, transparent); backdrop-filter: blur(8px); }}
+.btn.chat-link-pill:hover {{ background: var(--md-surface-container-high); text-decoration: none; }}
 
 .activity-composer {{
   position: fixed;
   left: var(--shell-left);
-  right: var(--shell-gap);
+  right: var(--shell-right);
   bottom: var(--shell-gap);
   z-index: 80;
   padding: 1.25rem 1.25rem 1rem;
@@ -4476,6 +4765,7 @@ html.collapsed .sidebar-top {{
 html .chat-page.is-empty .activity-composer {{
   position: relative;
   left: auto;
+  right: auto;
   z-index: 1;
   width: 100%;
   max-width: calc(var(--chat-width) + 2.5rem);
@@ -4516,27 +4806,7 @@ html .chat-page.is-empty .activity-composer {{
 .activity-composer-form textarea.activity-composer-input::placeholder {{ color: var(--md-on-surface-variant); opacity: 0.8; }}
 .chat-composer-toolbar {{ display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }}
 .chat-chips {{ display: flex; flex-wrap: wrap; gap: 0.5rem; min-width: 0; }}
-.chat-chip {{
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.4rem 0.85rem;
-  border-radius: 999px;
-  border: 1px solid var(--md-outline-variant);
-  background: transparent;
-  color: var(--md-on-surface);
-  font: inherit;
-  font-size: 0.88rem;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
-}}
-.chat-chip .material-symbols-outlined {{ font-size: 17px; }}
-.chat-chip:hover {{
-  background: color-mix(in srgb, var(--md-primary) 12%, transparent);
-  border-color: color-mix(in srgb, var(--md-primary) 45%, transparent);
-  color: var(--md-primary);
-}}
+.btn.chat-chip {{ white-space: nowrap; }}
 .chat-send-btn {{
   flex: 0 0 auto;
   width: 40px;
@@ -4561,7 +4831,6 @@ html .chat-page.is-empty .activity-composer {{
   .activity-composer {{ padding-left: 0.75rem; padding-right: 0.75rem; }}
   .chat-hero-title {{ font-size: 2.2rem; }}
   .chat-chips {{ flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }}
-  .chat-chip {{ padding: 0.35rem 0.7rem; font-size: 0.82rem; }}
 }}
 
 .page-title {{ margin: 0.25rem 0 1.5rem; }}
@@ -4805,28 +5074,14 @@ html .chat-page.is-empty .activity-composer {{
 /* History + New chat, reachable at any point in either layout: fixed
    just under the topbar, right-aligned. New chat hides on the empty hero,
    which already is a new chat. */
-.chat-toolbar {{ position: fixed; top: calc(var(--shell-top) + 0.75rem); right: calc(var(--shell-gap) + 0.75rem); z-index: 85; display: flex; gap: 0.5rem; }}
+.chat-toolbar {{ position: fixed; top: calc(var(--shell-top) + 0.75rem); right: calc(var(--shell-right) + 0.75rem); z-index: 85; display: flex; gap: 0.5rem; }}
 .chat-new-form {{ margin: 0; display: inline-flex; }}
 .chat-page.is-empty .chat-new-form {{ display: none; }}
-.chat-tool-btn {{
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.45rem 0.95rem;
-  border-radius: 999px;
-  border: 1px solid var(--md-outline-variant);
-  background: color-mix(in srgb, var(--md-surface) 80%, transparent);
-  backdrop-filter: blur(8px);
-  color: var(--md-on-surface);
-  font: inherit;
-  font-size: 0.88rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease;
-}}
-.chat-tool-btn:hover {{ background: var(--md-surface-container-high); border-color: var(--md-outline); }}
-.chat-tool-btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
-.chat-tool-btn .material-symbols-outlined {{ font-size: 18px; }}
+/* Global .btn .btn-neutral look (see .btn), plus a frosted fill since
+   these float over the hero's grid background. */
+.btn.chat-tool-btn {{ background: color-mix(in srgb, var(--md-surface) 85%, transparent); backdrop-filter: blur(8px); }}
+.btn.chat-tool-btn:hover {{ background: var(--md-surface-container-high); }}
+.btn.chat-tool-btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
 
 /* The history drawer slides over everything (sidebar included) from the
    right; its list is render_chat_history_fragment. */
@@ -5135,6 +5390,11 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
 .pill-green {{ background: var(--md-success-container); color: var(--md-on-success-container); }}
 .pill-red {{ background: var(--md-error-container); color: var(--md-on-error-container); }}
 .pill-grey {{ background: var(--md-surface-container-highest); color: var(--md-on-surface-variant); }}
+/* In the topbar's right group the pills match the AI button and the
+   language switcher (all 40px tall), so the row reads as one set of
+   controls rather than small badges next to big buttons. */
+.topbar .header-right .pill {{ height: 40px; padding: 0 1rem; font-size: 0.8rem; gap: 0.45rem; }}
+.topbar .header-right .pill .material-symbols-outlined {{ font-size: 18px; }}
 /* Overview page's status-hero pill: the same state pill shown small in
    the topbar on every page, sized up since here it's the Latest Run
    card's headline value, not a small persistent indicator. */
@@ -6235,6 +6495,496 @@ def _favicon_version():
     return hashlib.sha256(data).hexdigest()[:8]
 
 
+# Suggested prompts the AI side panel offers on each page (see
+# _ai_panel_html), keyed by _NAV_ITEMS key: (icon, label, prompt, send).
+# `send` True sends the prompt straight away; False only pre-fills the
+# composer - every prompt that would start a run is False, for the same
+# reason the Dashboard's own chips never send: the user reviews and
+# presses send. Labels and prompts are catalog keys, translated at render
+# time (bin/locales/*.json).
+_AI_PROMPT_EXPLAIN = ("help", "Explain this page", "What does this page show, and what should I look at first?", True)
+_AI_PROMPT_STATUS = ("monitoring", "Loop status", "What is the loop doing right now?", True)
+_AI_PROMPT_LATEST = ("history", "Latest run", "Summarize the latest GitLab run review.", True)
+_AI_PROMPT_ERRORS = ("error", "Recent errors", "Did any recent runs fail? Summarize what went wrong.", True)
+_AI_PROMPT_RUN_ISSUE = ("bolt", "Run an issue", "Run this GitLab issue now: ", False)
+_AI_PROMPT_INBOX = ("email", "Inbox triage", "Summarize my latest inbox triage - anything urgent?", True)
+_AI_PROMPT_RUN_INBOX = ("bolt", "Run inbox triage", "Run inbox triage now.", False)
+_AI_PROMPT_TOPIC = ("newspaper", "Topic digest", "Summarize the latest topic monitor run.", True)
+_AI_PROMPT_RUN_TOPIC = ("bolt", "Run topic monitor", "Run the topic monitor now.", False)
+_AI_PROMPT_PROGRESS = ("speed", "Performance", "How has the loop been performing lately?", True)
+_AI_PROMPT_MEMORY = ("lightbulb", "Learnings", "What has the loop learned so far?", True)
+_AI_PROMPT_DAEMONS = ("dns", "Daemons", "Which daemons are enabled right now?", True)
+_AI_PROMPT_HELP = ("auto_awesome", "What can you do?", "What can you help me with on this dashboard?", True)
+
+# The "Thinking..." indicator both chats (the AI panel and the Dashboard)
+# show until a reply's first words arrive: the AI sparkle in a spinning
+# gradient ring, a shimmering label (its text is set client-side via
+# textContent, translated) and placeholder lines. See .ai-thinking.
+_AI_THINKING_HTML = (
+    "<div class='ai-thinking' role='status'>"
+    "<span class='ai-thinking-avatar'><span class='material-symbols-outlined' aria-hidden='true'>auto_awesome</span></span>"
+    "<div class='ai-thinking-body'>"
+    "<span class='ai-thinking-label'></span>"
+    "<span class='ai-thinking-bar'></span><span class='ai-thinking-bar'></span><span class='ai-thinking-bar'></span>"
+    "</div>"
+    "</div>"
+)
+
+# Paced reveal of a streaming chat reply, shared by the Dashboard chat and
+# the AI panel (emitted once in <head>, before either script runs). The
+# CLI often emits a short reply's deltas within ~1s after a long think, so
+# painting each chunk as it arrives reads as no streaming at all; this
+# buffers the received text and reveals it every animation frame -
+# proportionally faster the further behind it is (a burst catches up in
+# ~2s), never slower than one character a frame. `onRender(text)` paints
+# the revealed prefix. set(full) gives it the whole text received so far;
+# finish(cb) calls cb once everything is shown (callers swap in the saved,
+# markdown-rendered reply only then); stop() abandons it (errors). A
+# hidden tab (rAF is paused there) or prefers-reduced-motion shows text
+# at once instead.
+_TEXT_REVEAL_SCRIPT = """
+window.__loopTextReveal = function(onRender) {
+  var target = '', shown = 0, frame = null, onDone = null;
+  var reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  function settle() {
+    if (shown < target.length) { shown = target.length; onRender(target); }
+    if (onDone) { var cb = onDone; onDone = null; cb(); }
+  }
+  function tick() {
+    frame = null;
+    var backlog = target.length - shown;
+    if (backlog <= 0) { settle(); return; }
+    shown += Math.max(1, Math.ceil(backlog / 40));
+    onRender(target.slice(0, shown));
+    frame = window.requestAnimationFrame(tick);
+  }
+  function kick() {
+    if (reduce || document.hidden) { if (frame) { window.cancelAnimationFrame(frame); frame = null; } settle(); return; }
+    if (!frame) frame = window.requestAnimationFrame(tick);
+  }
+  return {
+    set: function(full) { target = full; kick(); },
+    finish: function(cb) { onDone = cb; kick(); },
+    stop: function() { if (frame) window.cancelAnimationFrame(frame); frame = null; onDone = null; }
+  };
+};
+"""
+
+# Client side of the AI side panel (see _ai_panel_html). A plain string,
+# not part of _render_shell's f-string, so its braces stay single; the
+# __PLACEHOLDERS__ are swapped for json.dumps(_t(...)) at render time.
+# Open state, width and the panel's own chat session id live in
+# localStorage, so the panel follows the user from page to page (and
+# survives the auto-refresh pages' reloads) with the same conversation.
+_AI_PANEL_SCRIPT = """
+(function() {
+  var root = document.documentElement;
+  var panel = document.getElementById('ai-panel');
+  var trigger = document.getElementById('ai-panel-trigger');
+  if (!panel || !trigger) return;
+  var form = document.getElementById('ai-panel-form');
+  var input = form.querySelector("[name='text']");
+  var sendBtn = form.querySelector("button[type='submit']");
+  var body = document.getElementById('ai-panel-body');
+  var thread = document.getElementById('ai-panel-thread');
+  var resizer = panel.querySelector('.ai-panel-resizer');
+  var newChatBtn = panel.querySelector('[data-ai-new-chat]');
+  var historyToggle = panel.querySelector('[data-ai-history-toggle]');
+  var historyView = document.getElementById('ai-panel-history');
+  var historyList = document.getElementById('ai-panel-history-list');
+  var KEY_OPEN = 'loop-ai-panel-open', KEY_WIDTH = 'loop-ai-panel-width', KEY_SESSION = 'loop-ai-panel-session';
+  var MIN_WIDTH = 320, MAX_WIDTH = 720, DEFAULT_WIDTH = 400;
+  var busy = false;
+
+  function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+  function store(key, value) {
+    try { if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, value); } catch (e) {}
+  }
+  var session = load(KEY_SESSION) || '';
+
+  // Width: clamped so the main card always keeps a usable ~480px.
+  function maxWidth() { return Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, window.innerWidth - 480)); }
+  var width = parseInt(load(KEY_WIDTH), 10) || DEFAULT_WIDTH;
+  function applyWidth(w) {
+    var clamped = Math.round(Math.min(maxWidth(), Math.max(MIN_WIDTH, w)));
+    root.style.setProperty('--ai-panel-width', clamped + 'px');
+    resizer.setAttribute('aria-valuenow', String(clamped));
+    return clamped;
+  }
+  function setWidth(w) { width = applyWidth(w); store(KEY_WIDTH, String(width)); }
+  applyWidth(width);
+  window.addEventListener('resize', function() { applyWidth(width); });
+
+  resizer.addEventListener('pointerdown', function(ev) {
+    ev.preventDefault();
+    resizer.setPointerCapture(ev.pointerId);
+    root.classList.add('ai-panel-resizing');
+    var gap = parseFloat(getComputedStyle(root).getPropertyValue('--shell-gap')) || 16;
+    function move(e) { width = applyWidth(window.innerWidth - e.clientX - gap); }
+    function up() {
+      root.classList.remove('ai-panel-resizing');
+      resizer.removeEventListener('pointermove', move);
+      resizer.removeEventListener('pointerup', up);
+      resizer.removeEventListener('pointercancel', up);
+      setWidth(width);
+    }
+    resizer.addEventListener('pointermove', move);
+    resizer.addEventListener('pointerup', up);
+    resizer.addEventListener('pointercancel', up);
+  });
+  resizer.addEventListener('keydown', function(ev) {
+    // The handle sits on the panel's left edge: moving it left widens.
+    var step = ev.shiftKey ? 64 : 16;
+    if (ev.key === 'ArrowLeft') { setWidth(width + step); ev.preventDefault(); }
+    else if (ev.key === 'ArrowRight') { setWidth(width - step); ev.preventDefault(); }
+    else if (ev.key === 'Home') { setWidth(MIN_WIDTH); ev.preventDefault(); }
+    else if (ev.key === 'End') { setWidth(MAX_WIDTH); ev.preventDefault(); }
+  });
+  resizer.addEventListener('dblclick', function() { setWidth(DEFAULT_WIDTH); });
+
+  function isOpen() { return root.classList.contains('ai-panel-open'); }
+  function setOpen(open) {
+    root.classList.toggle('ai-panel-open', open);
+    trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+    store(KEY_OPEN, open ? '1' : null);
+    if (open) {
+      loadThread();
+      input.focus();
+    } else if (panel.contains(document.activeElement)) {
+      trigger.focus();
+    }
+  }
+  trigger.addEventListener('click', function() { setOpen(!isOpen()); });
+  panel.querySelector('[data-ai-close]').addEventListener('click', function() { setOpen(false); });
+  panel.addEventListener('keydown', function(ev) {
+    if (ev.key !== 'Escape') return;
+    if (isHistory()) { showHistory(false); historyToggle.focus(); } else { setOpen(false); }
+  });
+
+  // Chat history: every saved session, whichever page (or the Dashboard)
+  // it started on. Picking one continues it right here in the panel.
+  function isHistory() { return panel.classList.contains('is-history'); }
+  function showHistory(show) {
+    panel.classList.toggle('is-history', show);
+    historyView.hidden = !show;
+    historyToggle.setAttribute('aria-expanded', show ? 'true' : 'false');
+    if (!show) return;
+    fetch('/activity/sessions/fragment?session=' + encodeURIComponent(session))
+      .then(function(response) { return response.text(); })
+      .then(function(markup) { historyList.innerHTML = markup; })
+      .catch(function() {});
+  }
+  historyToggle.addEventListener('click', function() { showHistory(!isHistory()); });
+  historyList.addEventListener('click', function(ev) {
+    var item = ev.target.closest('.chat-history-item');
+    if (!item) return;
+    ev.preventDefault();
+    if (busy) return;
+    var picked = new URL(item.getAttribute('href'), location.href).searchParams.get('session');
+    if (!picked) return;
+    session = picked;
+    store(KEY_SESSION, session);
+    showHistory(false);
+    loadThread(true);
+    input.focus();
+  });
+
+  function scrollToBottom() { body.scrollTop = body.scrollHeight; }
+  function setHasMessages(has) { panel.classList.toggle('has-messages', has); }
+
+  // Persisted messages are drawn by the server's own fragment, so they
+  // get the same markdown rendering as the Dashboard thread.
+  var loaded = false;
+  function loadThread(force) {
+    if (!session) { thread.innerHTML = ''; setHasMessages(false); return Promise.resolve(); }
+    if (loaded && !force) return Promise.resolve();
+    return fetch('/activity/messages/fragment?session=' + encodeURIComponent(session))
+      .then(function(response) { return response.text(); })
+      .then(function(markup) {
+        loaded = true;
+        thread.innerHTML = markup;
+        var has = !!thread.querySelector('.message-row');
+        if (!has) { thread.innerHTML = ''; session = ''; store(KEY_SESSION, null); }
+        setHasMessages(has);
+        scrollToBottom();
+      })
+      .catch(function() {});
+  }
+
+  function messageList() {
+    var list = thread.querySelector('.message-list');
+    if (!list) {
+      thread.innerHTML = '';
+      list = document.createElement('ul');
+      list.className = 'message-list';
+      thread.appendChild(list);
+    }
+    return list;
+  }
+  // Same shape as render_activity_messages_fragment's saved bubbles
+  // (meta row with "You" / the Loop X icon), so nothing jumps when the
+  // thread is re-fetched once the reply is saved.
+  var BRAND_ICON = __BRAND_ICON__;
+  var YOU_LABEL = __YOU__;
+  function appendBubble(fromUser, text) {
+    var row = document.createElement('li');
+    row.className = 'message-row ' + (fromUser ? 'message-row-user' : 'message-row-loop');
+    var bodyEl = document.createElement('div');
+    bodyEl.className = 'message-body';
+    var bubble = document.createElement('div');
+    bubble.className = 'message-bubble ' + (fromUser ? 'message-bubble-user' : 'message-bubble-loop');
+    var meta = document.createElement('div');
+    meta.className = 'message-meta';
+    var who = document.createElement('span');
+    who.className = 'k';
+    if (fromUser) { who.textContent = YOU_LABEL; } else { who.setAttribute('aria-label', 'Loop X'); who.innerHTML = BRAND_ICON; }
+    meta.appendChild(who);
+    var textEl = document.createElement('div');
+    textEl.className = 'message-text';
+    textEl.textContent = text;
+    bubble.appendChild(meta);
+    bubble.appendChild(textEl);
+    bodyEl.appendChild(bubble);
+    row.appendChild(bodyEl);
+    messageList().appendChild(row);
+    scrollToBottom();
+    return textEl;
+  }
+
+  // Shown until the first words of a reply arrive: the AI sparkle in a
+  // spinning gradient ring, a shimmering "Thinking..." and placeholder
+  // lines. Its motion is the only sign a reply is on the way, so (like
+  // .md-spinner) it is not gated behind prefers-reduced-motion.
+  function appendThinking() {
+    var row = document.createElement('li');
+    row.className = 'message-row message-row-loop ai-thinking-row';
+    row.innerHTML = __THINKING_HTML__;
+    row.querySelector('.ai-thinking-label').textContent = __THINKING_TEXT__;
+    messageList().appendChild(row);
+    scrollToBottom();
+    return row;
+  }
+
+  function autoGrow() {
+    input.style.height = 'auto';
+    input.style.height = input.scrollHeight + 'px';
+    sendBtn.disabled = busy || !input.value.trim();
+  }
+  input.addEventListener('input', autoGrow);
+  input.addEventListener('keydown', function(ev) {
+    // Enter sends, Shift+Enter is a newline - but never mid-IME
+    // composition, where Enter only confirms the Japanese/Chinese text.
+    if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing && ev.keyCode !== 229) {
+      ev.preventDefault();
+      send(input.value);
+    }
+  });
+  form.addEventListener('submit', function(ev) { ev.preventDefault(); send(input.value); });
+
+  panel.querySelectorAll('[data-ai-prompt]').forEach(function(chip) {
+    chip.addEventListener('click', function() {
+      var prompt = chip.getAttribute('data-ai-prompt');
+      if (chip.getAttribute('data-ai-send') === '1') { send(prompt); return; }
+      input.value = prompt;
+      autoGrow();
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
+  });
+
+  newChatBtn.addEventListener('click', function() {
+    if (busy) return;
+    session = '';
+    store(KEY_SESSION, null);
+    thread.innerHTML = '';
+    setHasMessages(false);
+    showHistory(false);
+    input.focus();
+  });
+
+  thread.addEventListener('click', function(ev) {
+    var copyBtn = ev.target.closest('[data-copy-message]');
+    if (!copyBtn) return;
+    var textEl = copyBtn.closest('.message-row').querySelector('.message-text');
+    var raw = textEl.getAttribute('data-raw') || textEl.innerText;
+    var icon = copyBtn.querySelector('.material-symbols-outlined');
+    navigator.clipboard.writeText(raw).then(function() {
+      icon.textContent = 'check';
+      setTimeout(function() { icon.textContent = 'content_copy'; }, 1500);
+    }, function() {});
+  });
+
+  function setBusy(value) {
+    busy = value;
+    window.__loopChatStreaming = value;
+    newChatBtn.disabled = value;
+    sendBtn.disabled = value || !input.value.trim();
+  }
+
+  function send(text) {
+    text = (text || '').trim();
+    if (!text || busy) return;
+    setBusy(true);
+    setHasMessages(true);
+    if (!thread.querySelector('.message-list')) thread.innerHTML = '';
+    appendBubble(true, text);
+    var thinking = appendThinking();
+    var pendingText = null;
+    var caret = null;
+    // The reply bubble replaces the thinking indicator once there's text
+    // to show (or an error to explain).
+    function replyBubble() {
+      if (!pendingText) {
+        thinking.remove();
+        pendingText = appendBubble(false, '');
+        caret = document.createElement('span');
+        caret.className = 'ai-stream-caret';
+        caret.setAttribute('aria-hidden', 'true');
+      }
+      return pendingText;
+    }
+    function showReply(value, streaming) {
+      var el = replyBubble();
+      el.textContent = value;
+      if (streaming) el.appendChild(caret); else if (caret) caret.remove();
+      scrollToBottom();
+    }
+    input.value = '';
+    autoGrow();
+
+    var reveal = window.__loopTextReveal(function(text) { showReply(text, true); });
+    function fail(message) {
+      reveal.stop();
+      showReply(message || __ERROR_TEXT__, false);
+      setBusy(false);
+    }
+
+    var params = new URLSearchParams();
+    params.set('text', text);
+    params.set('csrf_token', form.querySelector("input[name='csrf_token']").value);
+    params.set('session', session);
+    params.set('page', panel.getAttribute('data-page') || '');
+    fetch('/activity/chat', { method: 'POST', body: params })
+      .then(function(response) { return response.json().then(function(data) { return { ok: response.ok, data: data }; }); })
+      .then(function(result) {
+        if (!result.ok) { fail(result.data.error); return; }
+        session = result.data.session || session;
+        store(KEY_SESSION, session);
+        var source = new EventSource('/activity/chat-stream?reply_key=' + encodeURIComponent(result.data.reply_key));
+        var accumulated = '';
+        source.addEventListener('chunk', function(ev) {
+          accumulated += JSON.parse(ev.data);
+          reveal.set(accumulated);
+        });
+        source.addEventListener('done', function() {
+          source.close();
+          reveal.finish(function() {
+            setBusy(false);
+            loadThread(true);
+          });
+        });
+        source.addEventListener('error', function(ev) {
+          source.close();
+          var message = __ERROR_TEXT__;
+          try { message = JSON.parse(ev.data) || message; } catch (e) {}
+          fail(accumulated ? accumulated + ' ' + __INTERRUPTED_TEXT__ : message);
+        });
+      })
+      .catch(function() { fail(); });
+  }
+
+  trigger.setAttribute('aria-expanded', isOpen() ? 'true' : 'false');
+  if (isOpen()) loadThread();
+})();
+"""
+
+
+_AI_PANEL_DEFAULT_PROMPTS = (_AI_PROMPT_STATUS, _AI_PROMPT_HELP)
+_AI_PANEL_PROMPTS = {
+    "overview": (_AI_PROMPT_STATUS, _AI_PROMPT_LATEST, _AI_PROMPT_RUN_ISSUE, _AI_PROMPT_INBOX),
+    "activity": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_STATUS, _AI_PROMPT_LATEST, _AI_PROMPT_ERRORS),
+    "gitlab": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_RUN_ISSUE, _AI_PROMPT_LATEST),
+    "topic_monitor": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_TOPIC, _AI_PROMPT_RUN_TOPIC),
+    "inbox": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_INBOX, _AI_PROMPT_RUN_INBOX),
+    "logs": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_ERRORS, _AI_PROMPT_STATUS),
+    "loop_runs": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_LATEST, _AI_PROMPT_ERRORS),
+    "history": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_LATEST, _AI_PROMPT_ERRORS),
+    "analytics": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_PROGRESS, _AI_PROMPT_LATEST),
+    "memory": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_MEMORY),
+    "cost": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_PROGRESS),
+    "audit": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_ERRORS),
+    "budget": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_PROGRESS),
+    "daemons": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_DAEMONS, _AI_PROMPT_STATUS),
+    "skills": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_HELP),
+    "settings": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_HELP),
+    "general_settings": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_HELP),
+    "topic_settings": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_TOPIC),
+    "inbox_setup": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_INBOX),
+    "readme": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_HELP),
+}
+
+
+def _ai_panel_html(active_page):
+    """The AI side panel every page carries (hidden until the topbar's
+    AI button opens it - see .ai-panel and the "ai-panel" script in
+    _render_shell): a header, a greeting plus prompts suggested for
+    `active_page`, the thread of the panel's own chat session, and a
+    composer. It talks to the same live chat backend as the Dashboard
+    (POST /activity/chat + /activity/chat-stream), sending `page` along
+    so the assistant knows what the user is looking at."""
+    prompts = _AI_PANEL_PROMPTS.get(active_page, _AI_PANEL_DEFAULT_PROMPTS)
+    page_label = next((item[2] for item in _NAV_ITEMS if item[0] == active_page), None)
+    context_html = (
+        f"<p class='ai-panel-context'>{html.escape(_t('Suggestions for {page}', page=i18n.t(page_label)))}</p>"
+        if page_label else ""
+    )
+    prompts_html = "".join(
+        f"<button type='button' class='btn btn-neutral ai-panel-chip' data-ai-prompt=\"{html.escape(i18n.t(prompt), quote=True)}\""
+        f" data-ai-send='{'1' if send else '0'}'>"
+        f"<span class='material-symbols-outlined' aria-hidden='true'>{icon}</span>{html.escape(i18n.t(label))}</button>"
+        for icon, label, prompt, send in prompts
+    )
+    panel_label = html.escape(_t("Loop X assistant"))
+    new_chat = html.escape(_t("New chat"))
+    close = html.escape(_t("Close assistant"))
+    history = html.escape(_t("Chat history"))
+    return f"""<aside class='ai-panel' id='ai-panel' data-page='{html.escape(active_page, quote=True)}' aria-label='{panel_label}'>
+<div class='ai-panel-resizer' role='separator' aria-orientation='vertical' tabindex='0' aria-label='{html.escape(_t("Resize assistant panel"))}' aria-valuemin='320' aria-valuemax='720' aria-valuenow='400'></div>
+<div class='ai-panel-header'>
+<div class='ai-panel-header-start'>
+<button type='button' class='ai-panel-icon-btn' data-ai-history-toggle aria-controls='ai-panel-history' aria-expanded='false' aria-label='{history}' title='{history}'><span class='material-symbols-outlined' aria-hidden='true'>history</span></button>
+<span class='ai-panel-title'><span class='material-symbols-outlined' aria-hidden='true'>auto_awesome</span>Loop X</span>
+</div>
+<div class='ai-panel-header-actions'>
+<button type='button' class='ai-panel-icon-btn' data-ai-new-chat aria-label='{new_chat}' title='{new_chat}'><span class='material-symbols-outlined' aria-hidden='true'>add_comment</span></button>
+<button type='button' class='ai-panel-icon-btn' data-ai-close aria-label='{close}' title='{close}'><span class='material-symbols-outlined' aria-hidden='true'>close</span></button>
+</div>
+</div>
+<div class='ai-panel-history' id='ai-panel-history' aria-label='{history}' hidden>
+<h3 class='ai-panel-history-heading'>{html.escape(_t("Chats"))}</h3>
+<div class='ai-panel-history-list' id='ai-panel-history-list'></div>
+</div>
+<div class='ai-panel-body' id='ai-panel-body'>
+<div class='ai-panel-empty'>
+<div class='ai-panel-greeting'>{html.escape(_t("Hi, how can I help?"))}</div>
+{context_html}
+</div>
+<div class='ai-panel-thread' id='ai-panel-thread' aria-live='polite'></div>
+</div>
+<div class='ai-panel-footer'>
+<div class='ai-panel-prompts'>{prompts_html}</div>
+<form class='ai-panel-composer' id='ai-panel-form'>
+<input type='hidden' name='csrf_token' value="{html.escape(_CSRF_TOKEN)}">
+<textarea name='text' rows='1' placeholder='{html.escape(_t("Ask about this page, or paste a GitLab issue link"))}' aria-label='{html.escape(_t("Message the assistant"))}'></textarea>
+<div class='ai-panel-composer-toolbar'>
+<button type='submit' class='ai-panel-send' aria-label='{html.escape(_t("Send"))}' title='{html.escape(_t("Send"))}' disabled><span class='material-symbols-outlined' aria-hidden='true'>arrow_upward</span></button>
+</div>
+</form>
+<p class='ai-panel-disclaimer'>{html.escape(_t("Loop X can make mistakes - double-check before acting on it."))}</p>
+</div>
+</aside>"""
+
+
 def _render_shell(title, active_page, status_badge_html, body_html, refresh=False, refresh_note=False,
                   lazy_refresh=False):
     """The <!doctype>...</html> skeleton shared by every page this server
@@ -6302,6 +7052,21 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
         f"<span class='lang-switch-code'>{current_lang.upper()}</span></button>"
         f"<div class='lang-switch-menu' role='menu' aria-label='{language_label}' hidden>{lang_options_html}</div>"
         "</div>"
+    )
+    ai_label = html.escape(_t("Ask Loop X"))
+    ai_trigger_html = (
+        f"<button type='button' class='ai-panel-trigger' id='ai-panel-trigger' aria-controls='ai-panel' "
+        f"aria-expanded='false' aria-label='{ai_label}' title='{ai_label}'>"
+        "<span class='material-symbols-outlined' aria-hidden='true'>auto_awesome</span></button>"
+    )
+    ai_panel_script = (
+        _AI_PANEL_SCRIPT
+        .replace("__ERROR_TEXT__", json.dumps(_t("Something went wrong - try again.")))
+        .replace("__INTERRUPTED_TEXT__", json.dumps(_t("(reply interrupted)")))
+        .replace("__THINKING_TEXT__", json.dumps(_t("Thinking…")))
+        .replace("__THINKING_HTML__", json.dumps(_AI_THINKING_HTML))
+        .replace("__YOU__", json.dumps(_t("You")))
+        .replace("__BRAND_ICON__", json.dumps(_MESSAGE_BRAND_ICON))
     )
     refresh_schedule_script = ""
     if refresh:
@@ -6372,11 +7137,22 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
 <link href="https://fonts.googleapis.com/css2?{_GOOGLE_FONTS_FAMILIES_PARAM}&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names={_MATERIAL_SYMBOLS_ICON_NAMES}&display=block" rel="stylesheet">
 <style>{_STYLE}</style>
-<script>
+<script>{_TEXT_REVEAL_SCRIPT}
 (function() {{
   if (localStorage.getItem('loop-dashboard-sidebar') === '1') {{
     document.documentElement.classList.add('collapsed');
   }}
+  // AI side panel (see _ai_panel_html): reopen it, at its saved width,
+  // before first paint so navigating between pages never flashes it shut.
+  try {{
+    if (localStorage.getItem('loop-ai-panel-open') === '1') {{
+      document.documentElement.classList.add('ai-panel-open');
+    }}
+    var aiPanelWidth = parseInt(localStorage.getItem('loop-ai-panel-width'), 10);
+    if (aiPanelWidth >= 320 && aiPanelWidth <= 720) {{
+      document.documentElement.style.setProperty('--ai-panel-width', aiPanelWidth + 'px');
+    }}
+  }} catch (e) {{}}
   // Settings page's Appearance tab (see render_general_settings_page): color mode stays
   // absent for "Auto" - only an explicit light/dark choice ever gets
   // written here, so @media (prefers-color-scheme) in _STYLE keeps
@@ -6773,24 +7549,42 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
       autoGrow();
       button.disabled = true;
 
+      // The same "Thinking..." indicator as the AI panel (_AI_THINKING_HTML)
+      // until the reply's first words arrive; then the reply bubble takes
+      // its place, with a blinking caret while it's still streaming.
       function appendPendingLoopBubble() {{
-        var textEl = appendBubble(
-          'message-bubble-loop',
-          "<span class='k' aria-label='Loop X'>" +
-            "<svg class='message-brand-icon' viewBox='0 0 24 24' width='20' height='20' fill='none' " +
-            "stroke='currentColor' stroke-width='2' aria-hidden='true'>" +
-            "<circle cx='8' cy='12' r='4.5'/><circle cx='16' cy='12' r='4.5'/></svg></span>",
-          ''
-        );
-        var spinnerEl = document.createElement('span');
-        spinnerEl.className = 'md-spinner md-spinner-sm';
-        textEl.parentElement.insertBefore(spinnerEl, textEl);
-        return {{ textEl: textEl, spinner: spinnerEl }};
+        var ul = list.querySelector('.message-list');
+        if (!ul) {{
+          ul = document.createElement('ul');
+          ul.className = 'message-list';
+          list.innerHTML = '';
+          list.appendChild(ul);
+        }}
+        var thinking = document.createElement('li');
+        thinking.className = 'message-row message-row-loop ai-thinking-row';
+        thinking.innerHTML = {json.dumps(_AI_THINKING_HTML)};
+        thinking.querySelector('.ai-thinking-label').textContent = {json.dumps(_t("Thinking…"))};
+        ul.appendChild(thinking);
+        scrollToBottom();
+        var textEl = null;
+        var caret = document.createElement('span');
+        caret.className = 'ai-stream-caret';
+        caret.setAttribute('aria-hidden', 'true');
+        return {{
+          show: function(value, streaming) {{
+            if (!textEl) {{
+              thinking.remove();
+              textEl = appendBubble('message-bubble-loop', "<span class='k' aria-label='Loop X'>" + {json.dumps(_MESSAGE_BRAND_ICON)} + "</span>", '');
+            }}
+            textEl.textContent = value;
+            if (streaming) textEl.appendChild(caret); else caret.remove();
+            scrollToBottom();
+          }}
+        }};
       }}
 
       var pending = appendPendingLoopBubble();
-      var pendingTextEl = pending.textEl;
-      var spinner = pending.spinner;
+      var reveal = window.__loopTextReveal(function(text) {{ pending.show(text, true); }});
 
       var body = new URLSearchParams();
       body.set('text', text);
@@ -6816,37 +7610,38 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
         var accumulated = '';
         source.addEventListener('chunk', function(ev) {{
           accumulated += JSON.parse(ev.data);
-          pendingTextEl.textContent = accumulated;
-          spinner.remove();
-          scrollToBottom();
+          reveal.set(accumulated);
         }});
         source.addEventListener('done', function(ev) {{
-          button.disabled = false;
-          stopStreamingFlag();
           source.close();
-          // The reply is now persisted (see _chat_job_finish/append_message
-          // on the server) - refresh so its bubble picks up markdown
-          // rendering and a delete button immediately, instead of only
-          // after a full page reload.
-          refreshMessageList();
-          refreshHistory();
-          setTimeout(refreshHistory, 8000);
-          setTimeout(refreshHistory, 20000);
+          // Let the paced reveal (see _TEXT_REVEAL_SCRIPT) catch up first.
+          reveal.finish(function() {{
+            button.disabled = false;
+            stopStreamingFlag();
+            // The reply is now persisted (see _chat_job_finish/append_message
+            // on the server) - refresh so its bubble picks up markdown
+            // rendering and a delete button immediately, instead of only
+            // after a full page reload.
+            refreshMessageList();
+            refreshHistory();
+            setTimeout(refreshHistory, 8000);
+            setTimeout(refreshHistory, 20000);
+          }});
         }});
         source.addEventListener('error', function(ev) {{
           var message = {json.dumps(_t("Something went wrong - try again."))};
           try {{ message = JSON.parse(ev.data) || message; }} catch (e) {{}}
+          reveal.stop();
           if (accumulated === '') {{
-            pendingTextEl.textContent = message;
+            pending.show(message, false);
           }} else {{
             // Partial text already streamed into the bubble - a failed
             // or timed-out reply must never look like a normal, complete
             // answer that will simply vanish on the next reload (nothing
             // partial was ever saved via append_message), so this marks
             // it visibly rather than leaving the bubble unchanged.
-            pendingTextEl.textContent = accumulated + ' ' + {json.dumps(_t("(reply interrupted)"))};
+            pending.show(accumulated + ' ' + {json.dumps(_t("(reply interrupted)"))}, false);
           }}
-          spinner.remove();
           button.disabled = false;
           stopStreamingFlag();
           source.close();
@@ -6857,8 +7652,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
         .then(function(response) {{ return response.json().then(function(data) {{ return {{ ok: response.ok, data: data }}; }}); }})
         .then(function(result) {{
           if (!result.ok) {{
-            pendingTextEl.textContent = result.data.error || {json.dumps(_t("Something went wrong."))};
-            spinner.remove();
+            pending.show(result.data.error || {json.dumps(_t("Something went wrong."))}, false);
             button.disabled = false;
             stopStreamingFlag();
             return;
@@ -6878,14 +7672,13 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
           refreshHistory();
           refreshMessageList().then(function() {{
             pending = appendPendingLoopBubble();
-            pendingTextEl = pending.textEl;
-            spinner = pending.spinner;
+            reveal.stop();
+            reveal = window.__loopTextReveal(function(text) {{ pending.show(text, true); }});
             startStream(result.data.reply_key);
           }});
         }})
         .catch(function() {{
-          pendingTextEl.textContent = {json.dumps(_t("Something went wrong - try again."))};
-          spinner.remove();
+          pending.show({json.dumps(_t("Something went wrong - try again."))}, false);
           button.disabled = false;
           stopStreamingFlag();
         }});
@@ -7158,6 +7951,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
 <div class="topbar-progress-bar{" is-active" if "md-spinner" in status_badge_html else ""}"></div>
 <span class="topbar-page-title" id="topbar-page-title"></span>
 <div class="header-right">
+{ai_trigger_html}
 {ai_cli_badge_html}
 {status_badge_html}
 {refresh_html}
@@ -7170,6 +7964,9 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
 </div>
 </div>
 </main>
+
+{_ai_panel_html(active_page)}
+<script>{ai_panel_script}</script>
 
 <div class="nav-tooltip" id="nav-tooltip" role="tooltip" hidden></div>
 <script>
@@ -7518,7 +8315,7 @@ def render_overview_page(flash=None, flash_ok=True, session_id=None):
         announce_text += " · " + _t("updated {when}", when=_relative_time(str(updated_at)))
 
     suggestions_html = "".join(
-        f"<button type='button' class='chat-chip' data-chat-suggestion=\"{html.escape(prompt, quote=True)}\">"
+        f"<button type='button' class='btn btn-neutral chat-chip' data-chat-suggestion=\"{html.escape(prompt, quote=True)}\">"
         f"<span class='material-symbols-outlined' aria-hidden='true'>{icon}</span>{html.escape(i18n.t(label))}</button>"
         for icon, label, prompt in _CHAT_SUGGESTIONS
     )
@@ -7527,10 +8324,10 @@ def render_overview_page(flash=None, flash_ok=True, session_id=None):
     body = f"""
 <div class='chat-page{" is-empty" if is_empty else ""}'>
 <div class='chat-toolbar'>
-<button type='button' class='chat-tool-btn' data-chat-history-open aria-controls='chat-history' aria-expanded='false'><span class='material-symbols-outlined' aria-hidden='true'>history</span>{html.escape(_t('History'))}</button>
+<button type='button' class='btn btn-neutral chat-tool-btn' data-chat-history-open aria-controls='chat-history' aria-expanded='false'><span class='material-symbols-outlined' aria-hidden='true'>history</span>{html.escape(_t('History'))}</button>
 <form method='post' action='/activity/new-chat' class='chat-new-form'>
 {csrf_input}
-<button type='submit' class='chat-tool-btn chat-new-btn'><span class='material-symbols-outlined' aria-hidden='true'>add_comment</span>{html.escape(_t('New chat'))}</button>
+<button type='submit' class='btn btn-neutral chat-tool-btn chat-new-btn'><span class='material-symbols-outlined' aria-hidden='true'>add_comment</span>{html.escape(_t('New chat'))}</button>
 </form>
 </div>
 <div class='chat-history-backdrop' data-chat-history-close hidden></div>
@@ -7543,7 +8340,7 @@ def render_overview_page(flash=None, flash_ok=True, session_id=None):
 </aside>
 {flash_html}
 <div class='chat-hero'>
-<a class='chat-announce' href='/activity'><span class='material-symbols-outlined' aria-hidden='true'>auto_awesome</span>{html.escape(announce_text)} &rarr;</a>
+<a class='chat-announce' href='/activity'><span class='material-symbols-outlined' aria-hidden='true'>auto_awesome</span><span class='chat-announce-text'>{html.escape(announce_text)}</span><span class='material-symbols-outlined chat-announce-arrow' aria-hidden='true'>arrow_forward</span></a>
 <h1 class='chat-hero-title'>{hero_title_html}</h1>
 </div>
 <div class='chat-thread activity-messages-grid'>
@@ -7563,8 +8360,8 @@ def render_overview_page(flash=None, flash_ok=True, session_id=None):
 </div>
 </div>
 <div class='chat-hero-links'>
-<a class='chat-link-pill' href='/activity'><span class='material-symbols-outlined' aria-hidden='true'>bolt</span>{html.escape(_t('Loop activity'))}</a>
-<a class='chat-link-pill' href='/gitlab'><span class='material-symbols-outlined' aria-hidden='true'>merge</span>{html.escape(_t('Live GitLab'))}</a>
+<a class='btn btn-neutral chat-link-pill' href='/activity'><span class='material-symbols-outlined' aria-hidden='true'>bolt</span>{html.escape(_t('Loop activity'))}</a>
+<a class='btn btn-neutral chat-link-pill' href='/gitlab'><span class='material-symbols-outlined' aria-hidden='true'>merge</span>{html.escape(_t('Live GitLab'))}</a>
 </div>
 </div>
 """
@@ -11739,7 +12536,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             # question is always logged even if thread.start() below fails.
             append_unified_log("chat-assistant", "question", body=text.strip())
             reply_key = _chat_job_create()
-            prompt = build_chat_prompt(text.strip(), recent)
+            prompt = build_chat_prompt(text.strip(), recent, page=form.get("page", [None])[0])
             thread = threading.Thread(
                 target=_run_chat_job, args=(reply_key, prompt), kwargs={"session_id": session_id}, daemon=True
             )
