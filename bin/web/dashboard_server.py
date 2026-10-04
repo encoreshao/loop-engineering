@@ -5919,6 +5919,9 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
    wraps it because a label forwards clicks on its menu options back to
    the trigger button, reopening the menu. */
 .stack-form .custom-select {{ flex: 0 0 auto; }}
+.stack-form .field-label {{ font-weight: 500; color: var(--md-on-surface); }}
+.stack-form .field-hint {{ font-size: 0.78rem; line-height: 1.4; color: var(--md-on-surface-variant); }}
+.stack-form .field-hint code {{ font-size: 0.75rem; }}
 /* Inbox Setup's per-inbox card: labelled Account / Triage rules /
    Notifications / Connection sections, then a Save-left, Delete-right
    footer (buttons target their forms via form=, like Topic Settings). */

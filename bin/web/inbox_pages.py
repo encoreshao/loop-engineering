@@ -239,13 +239,14 @@ def _client_form(provider, title, oauth, csrf_input, with_secret):
     client_id = (oauth.get(provider) or {}).get("client_id", "")
     configured = (f"<span class='pill pill-green'>{e(_t('Saved'))}</span>" if client_id
                   else f"<span class='pill pill-grey'>{e(_t('Not set'))}</span>")
-    secret = (f"<label>{e(_t('Client secret'))} <input type='password' name='client_secret' autocomplete='off' "
-              f"placeholder='{e(_t('(unchanged unless you type a new one)'))}'></label>") if with_secret else ""
+    secret = _labelled(_t("Client secret"), "<input type='password' name='client_secret' autocomplete='off'>",
+                       e(_t("Leave blank to keep the saved secret."))) if with_secret else ""
     return (
         f"<form method='POST' action='/inbox/oauth-client' class='stack-form'>{csrf_input}"
         f"<input type='hidden' name='provider' value='{provider}'><h3>{e(title)} {configured}</h3>"
-        f"<label>{e(_t('Client ID'))} <input type='text' name='client_id' value=\"{e(client_id)}\" required></label>{secret}"
-        f"<button type='submit' class='btn btn-primary'>{e(_t('Save'))}</button></form>"
+        + _labelled(_t("Client ID"), f"<input type='text' name='client_id' value=\"{e(client_id)}\" required>")
+        + secret
+        + f"<button type='submit' class='btn btn-primary'>{e(_t('Save'))}</button></form>"
     )
 
 
@@ -281,10 +282,22 @@ def _section(title, inner):
     return f"<div class='inbox-section'><h3>{e(title)}</h3>{inner}</div>"
 
 
-def _field(label, control):
+def _field(label, control, hint=""):
     """A labelled custom dropdown. A <div>, not a <label>: a label forwards
     clicks on the dropdown's menu options back to its trigger button."""
-    return f"<div class='stack-field'><span>{label}</span>{control}</div>"
+    return f"<div class='stack-field'><span class='field-label'>{label}</span>{control}{_hint(hint)}</div>"
+
+
+def _hint(text_html):
+    """Supporting text under a field. `text_html` is already escaped."""
+    return f"<small class='field-hint'>{text_html}</small>" if text_html else ""
+
+
+def _labelled(label, control, hint=""):
+    """A <label> whose caption is one <span>: .stack-form labels are flex
+    columns, so a bare caption with inline markup (a <code> example)
+    would otherwise split into one line per child."""
+    return f"<label><span class='field-label'>{e(label)}</span>{control}{_hint(hint)}</label>"
 
 
 def _inbox_fields(inbox, is_new, select_html, slack_bundles):
@@ -294,20 +307,32 @@ def _inbox_fields(inbox, is_new, select_html, slack_bundles):
         # A saved bundle since removed from gitlab.json stays selectable,
         # so saving an unrelated field doesn't silently clear it.
         bundles.append(inbox["slack_bundle"])
-    vip_label = _t("VIP senders (one per line; {example} allowed)", example="<code>@domain.com</code>")
+    sender_format = _t("One email address per line, or {example} for a whole domain.", example="<code>@domain.com</code>")
     account = (
-        f"<label>{e(_t('Name (slug, fixed once created)'))} <input type='text' name='name' value=\"{e(inbox['name'])}\"{readonly} required pattern='[a-z0-9][a-z0-9-]*'></label>"
-        + _field(e(_t("Provider")), select_html("provider", _PROVIDER_OPTIONS, inbox["provider"]))
-        + f"<label>{e(_t('Account email'))} <input type='email' name='account' value=\"{e(inbox['account'])}\" required></label>"
-        f"<label>{e(_t('Label'))} <input type='text' name='label' value=\"{e(inbox['label'])}\" required></label>"
+        _labelled(_t("Inbox ID"),
+                  f"<input type='text' name='name' value=\"{e(inbox['name'])}\"{readonly} required pattern='[a-z0-9][a-z0-9-]*' placeholder='work-gmail'>",
+                  e(_t("Lowercase letters, numbers and dashes. It can't be changed later.")) if is_new else "")
+        + _field(e(_t("Email provider")), select_html("provider", _PROVIDER_OPTIONS, inbox["provider"]))
+        + _labelled(_t("Email address"),
+                    f"<input type='email' name='account' value=\"{e(inbox['account'])}\" required placeholder='you@example.com'>")
+        + _labelled(_t("Display name"),
+                    f"<input type='text' name='label' value=\"{e(inbox['label'])}\" required>",
+                    e(_t("Shown on the dashboard and in Slack alerts.")))
     )
     triage = (
-        f"<label>{e(_t('What counts as urgent'))} <textarea name='urgent_brief' rows='2'>{e(inbox.get('urgent_brief', ''))}</textarea></label>"
-        f"<label>{vip_label} <textarea name='vip_senders' rows='2'>{_lines(inbox.get('vip_senders'))}</textarea></label>"
-        f"<label>{e(_t('Never send to the AI (one per line)'))} <textarea name='exclude_senders' rows='2'>{_lines(inbox.get('exclude_senders'))}</textarea></label>"
+        _labelled(_t("What counts as urgent"),
+                  f"<textarea name='urgent_brief' rows='2'>{e(inbox.get('urgent_brief', ''))}</textarea>",
+                  e(_t("Describe it in plain words, e.g. customer outages or invoices due this week.")))
+        + _labelled(_t("VIP senders"),
+                    f"<textarea name='vip_senders' rows='2'>{_lines(inbox.get('vip_senders'))}</textarea>",
+                    e(_t("Always marked urgent.")) + " " + sender_format)
+        + _labelled(_t("Private senders"),
+                    f"<textarea name='exclude_senders' rows='2'>{_lines(inbox.get('exclude_senders'))}</textarea>",
+                    e(_t("Their emails are never shown to the AI.")) + " " + sender_format)
     )
     notifications = _field(e(_t("Slack bundle")), select_html("slack_bundle", bundles, inbox.get("slack_bundle") or "",
-                                                              empty_label=_t("(use default webhook)")))
+                                                              empty_label=_t("(use default webhook)")),
+                           e(_t("Which Slack webhook gets this inbox's urgent alerts.")))
     return (_section(_t("Account"), account) + _section(_t("Triage rules"), triage)
             + _section(_t("Notifications"), notifications))
 
@@ -398,7 +423,7 @@ def render_setup_body(config, oauth, csrf_input, redirect_uri, status=None, sele
             "<div class='card'><div class='empty-state'>"
             "<div class='empty-state-icon'><span class='material-symbols-outlined' aria-hidden='true'>email</span></div>"
             "<p class='empty-state-message'>"
-            + e(_t("No inboxes yet. Save the Gmail or Outlook app credentials first, then add an inbox."))
+            + e(_t("No inboxes yet. First fill in the Gmail app or Outlook app tab, then add an inbox."))
             + "</p>"
             "<a class='btn btn-primary empty-state-action' href='/inbox/setup?tab=add'>"
             f"<span class='material-symbols-outlined' aria-hidden='true'>add</span> {e(_t('Add inbox'))}</a>"
@@ -409,7 +434,7 @@ def render_setup_body(config, oauth, csrf_input, redirect_uri, status=None, sele
     add_panel = (
         f"<div class='card'><div class='section-header'><h2>{e(_t('Add an inbox'))}</h2></div>"
         "<p class='section-subtitle'>"
-        + e(_t("Connect, Test connection and Disconnect appear on the Inboxes tab after saving."))
+        + e(_t("After adding it, sign in from the Inboxes tab with Connect."))
         + "</p>"
         f"{_inbox_form(None, csrf_input, select_html, slack_bundles, 'inbox-add-form', add_footer)}</div>"
     )

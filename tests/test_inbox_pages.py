@@ -418,7 +418,7 @@ def test_setup_add_tab_has_editable_name_and_no_connection():
     body = _panel(_setup(), "add")
     assert "name='name' value=\"\" required" in body and "readonly" not in body
     assert "Add inbox</button>" in body and ">Connection<" not in body
-    assert "after saving" in body
+    assert "sign in from the Inboxes tab" in body
     assert ">Account<" in body and ">Triage rules<" in body and ">Notifications<" in body
 
 
@@ -494,3 +494,27 @@ def test_inbox_body_spaces_cards_in_a_grid_and_shows_counts_as_tiles():
 def test_inbox_body_no_counts_yet_says_so():
     body = inbox_pages.render_inbox_body(CONFIG, {"inboxes": {}}, CSRF)
     assert "No triage runs yet" in body and "last run never" not in body
+
+
+def _labels_of(form_html):
+    import re
+    return re.findall(r"<label>(.*?)<(?:input|textarea)", form_html, re.S)
+
+
+def test_setup_field_labels_are_one_element_each():
+    """Every label's caption is a single <span>, so a flex-column label
+    can't break a caption like "VIP senders ... @domain.com ..." into
+    several lines."""
+    add = _panel(_setup(), "add")
+    labels = _labels_of(add)
+    assert labels
+    for caption in labels:
+        assert caption.startswith("<span class='field-label'>") and caption.count("<span class='field-label'>") == 1, caption
+
+
+def test_setup_triage_fields_explain_themselves_with_hints():
+    add = _panel(_setup(), "add")
+    assert "<span class='field-label'>VIP senders</span>" in add
+    assert "<code>@domain.com</code>" in add.split("VIP senders", 1)[1].split("</label>", 1)[0]
+    assert "<span class='field-label'>Private senders</span>" in add
+    assert "field-hint" in add.split("Inbox ID", 1)[1].split("</label>", 1)[0]
