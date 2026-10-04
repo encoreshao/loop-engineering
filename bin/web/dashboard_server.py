@@ -3950,17 +3950,22 @@ _STYLE = f"""
 
 * {{ box-sizing: border-box; }}
 
+/* The window never scrolls - #main-scroll (the rounded main card) is the
+   only page-level scroller, so the scrollbar lives inside the main view
+   and the sidebar/topbar frame stays put, Gmail-style. */
+html, body {{ height: 100%; overflow: hidden; }}
+
 body {{
   margin: 0;
-  padding: 0 0 4rem;
-  background: var(--md-surface-dim);
+  padding: 0;
+  background: var(--md-nav-surface);
   color: var(--md-on-surface-variant);
   font-family: var(--font-family-stack);
   line-height: 1.55;
   font-size: 16px;
 }}
 
-.wrap {{ max-width: clamp(1080px, 90%, 2400px); margin: 0 auto; padding: 2rem 1.25rem 0; }}
+.wrap {{ max-width: clamp(1080px, 90%, 2400px); margin: 0 auto; padding: 2rem 1.25rem 4rem; }}
 
 h1, h2, h3 {{ font-family: var(--font-family-stack); color: var(--md-on-surface); font-weight: 500; margin: 0 0 0.5rem; }}
 /* Page titles (h1) get a size step up from h2/h3 - stays at the same
@@ -4011,12 +4016,7 @@ button:focus-visible,
   left: 0;
   width: 220px;
   height: 100vh;
-  background: var(--app-grid-lines), color-mix(in srgb, var(--md-nav-surface) 78%, transparent);
-  background-size: var(--app-grid-size) var(--app-grid-size), auto;
-  background-attachment: fixed;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-right: 1px solid var(--md-outline-variant);
+  background: transparent;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -4029,7 +4029,8 @@ button:focus-visible,
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 1rem 1rem 0.75rem;
+  min-height: var(--shell-top);
+  padding: 0 1rem;
   flex-shrink: 0;
 }}
 
@@ -4101,19 +4102,31 @@ button:focus-visible,
 }}
 .sidebar-group-label:first-child {{ margin-top: 0.25rem; }}
 
-.content-area {{ margin-left: 220px; min-height: 100vh; transition: margin-left 150ms ease; }}
+.content-area {{
+  margin-left: var(--shell-left);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  transition: margin-left 150ms ease;
+}}
+/* overflow (unlike position: fixed or a z-index) creates no stacking
+   context, so the fixed composer, chat toolbar and history drawer inside
+   it still layer against the sidebar exactly as before. */
+.main-scroll {{
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0 var(--shell-gap) var(--shell-gap) 0;
+  border-radius: var(--shell-radius);
+}}
 
 .topbar {{
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 90;
-  background: var(--app-grid-lines), color-mix(in srgb, var(--md-nav-surface) 78%, transparent);
-  background-size: var(--app-grid-size) var(--app-grid-size), auto;
-  background-attachment: fixed;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid var(--md-outline-variant);
-  padding: 0.75rem 1.25rem;
+  flex: 0 0 auto;
+  height: var(--shell-top);
+  padding: 0 calc(var(--shell-gap) + 0.5rem) 0 0.5rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4121,7 +4134,7 @@ button:focus-visible,
 }}
 .topbar .header-right {{ justify-content: flex-end; flex-shrink: 0; }}
 
-/* Shown once the page's own <h1> has scrolled up behind this sticky
+/* Shown once the page's own <h1> has scrolled out of the main card below this
    topbar (see the IntersectionObserver script in _render_shell), so
    scrolling down a page never leaves the topbar with no indication of
    which page you're on. */
@@ -4142,8 +4155,8 @@ button:focus-visible,
 .header-right {{ display: flex; align-items: center; gap: 0.65rem; }}
 .refresh-note {{ font-size: 0.75rem; color: var(--md-nav-on-surface); white-space: nowrap; }}
 
+html.collapsed {{ --shell-left: 64px; }}
 html.collapsed .sidebar {{ width: 64px; }}
-html.collapsed .content-area {{ margin-left: 64px; }}
 html.collapsed .brand-name,
 html.collapsed .nav-label,
 html.collapsed .sidebar-group-label {{ display: none; }}
@@ -4161,7 +4174,6 @@ html.collapsed .sidebar-top {{
   justify-content: center;
   gap: 0.4rem;
 }}
-html.collapsed .activity-composer {{ left: 64px; }}
 
 /* Label bubble shown beside a nav icon on hover/focus while the sidebar is
    the 64px icon rail (collapsed, or forced narrow below 720px) - see the
@@ -4184,14 +4196,13 @@ html.collapsed .activity-composer {{ left: 64px; }}
 }}
 
 @media (max-width: 720px) {{
+  html:root {{ --shell-left: 64px; }}
   .sidebar {{ width: 64px; }}
-  .content-area {{ margin-left: 64px; }}
   .brand-name, .nav-label, .sidebar-group-label {{ display: none; }}
   .brand-mark {{ display: inline-flex; }}
   .sidebar-toggle {{ display: none; }}
   .sidebar-nav a {{ justify-content: center; }}
   .sidebar-top {{ justify-content: center; }}
-  .activity-composer {{ left: 64px; }}
 }}
 
 /* The Dashboard page's stats section - tracked-projects/configured-topics
@@ -4245,7 +4256,7 @@ html.collapsed .activity-composer {{ left: 64px; }}
    on .chat-page (dropped client-side on the first send):
    - empty: a vertically centered hero - status announcement, headline,
      one large rounded composer, quick-link pills.
-   - session: a centered reading-width thread (window scroll, not an
+   - session: a centered reading-width thread (the main card scrolls, not an
      inner scroll panel) with the same composer pinned to the viewport
      bottom. Its reserved space below the thread is kept in sync with the
      composer's actual height by the ResizeObserver in the
@@ -4266,14 +4277,20 @@ html.collapsed .activity-composer {{ left: 64px; }}
    every palette and dark mode get a matching wash instead of hardcoded
    blues. z-index -1 paints it above the body's own background but below
    all page content without giving .content-area a stacking context of its
-   own (which would trap the chat history drawer beneath the sidebar). The
-   sidebar and topbar are translucent + blurred so it shows through them. */
-/* The grid is shared with .sidebar/.topbar, which paint it themselves
-   (their tint + blur would otherwise hide .app-bg's lines) - both use
-   background-attachment: fixed so every line starts from the viewport
-   origin and lines up across the nav/page seams. Defined on :root so
-   --md-outline-variant resolves per color mode. */
+   own (which would trap the chat history drawer beneath the sidebar). It
+   only fills the rounded main card - the sidebar and topbar sit
+   transparently on the body's plain nav wash around it. */
+/* Grid tokens defined on :root so --md-outline-variant resolves per
+   color mode. */
 :root {{
+  /* Gmail-style shell: the sidebar and topbar share the body's nav wash
+     with no borders between them, and the page sits in a rounded card
+     (.app-bg, scrolled by .main-scroll) inset by these from the viewport
+     edges. */
+  --shell-top: 64px;
+  --shell-left: 220px;
+  --shell-gap: 16px;
+  --shell-radius: 16px;
   --app-grid-size: 16px;
   --app-grid-lines:
     linear-gradient(color-mix(in srgb, var(--md-outline-variant) 22%, transparent) 1px, transparent 1px),
@@ -4281,13 +4298,20 @@ html.collapsed .activity-composer {{ left: 64px; }}
 }}
 .app-bg {{
   position: fixed;
-  inset: 0;
-  z-index: -1;
+  top: var(--shell-top);
+  left: var(--shell-left);
+  right: var(--shell-gap);
+  bottom: var(--shell-gap);
+  border-radius: var(--shell-radius);
   pointer-events: none;
+  transition: left 150ms ease;
+  z-index: -1;
+  overflow: hidden;
   background:
     radial-gradient(40% 35% at 70% 12%, color-mix(in srgb, var(--md-primary) 22%, transparent), transparent 70%),
     radial-gradient(35% 30% at 22% 42%, color-mix(in srgb, var(--md-primary) 14%, transparent), transparent 70%),
-    radial-gradient(45% 40% at 90% 60%, color-mix(in srgb, var(--md-primary) 10%, transparent), transparent 70%);
+    radial-gradient(45% 40% at 90% 60%, color-mix(in srgb, var(--md-primary) 10%, transparent), transparent 70%),
+    var(--md-surface-dim);
 }}
 .app-bg::after {{
   content: "";
@@ -4299,7 +4323,7 @@ html.collapsed .activity-composer {{ left: 64px; }}
 .chat-page > .flash, .chat-hero, .chat-thread, .chat-hero-links {{ position: relative; z-index: 1; width: 100%; max-width: var(--chat-width); }}
 .chat-hero, .chat-hero-links {{ display: none; }}
 
-.chat-page.is-empty {{ min-height: calc(100vh - 9rem); justify-content: center; padding-bottom: 6vh; }}
+.chat-page.is-empty {{ min-height: calc(100vh - var(--shell-top) - var(--shell-gap) - 6rem); justify-content: center; padding-bottom: 6vh; }}
 .chat-page.is-empty .chat-hero {{ display: flex; flex-direction: column; align-items: center; text-align: center; gap: 1.75rem; margin-bottom: 2.25rem; }}
 .chat-page.is-empty .chat-thread {{ display: none; }}
 .chat-page.is-empty .chat-hero-links {{ display: flex; justify-content: center; flex-wrap: wrap; gap: 1rem; margin-top: 2.25rem; }}
@@ -4363,11 +4387,12 @@ html.collapsed .activity-composer {{ left: 64px; }}
 
 .activity-composer {{
   position: fixed;
-  left: 220px;
-  right: 0;
-  bottom: 0;
+  left: var(--shell-left);
+  right: var(--shell-gap);
+  bottom: var(--shell-gap);
   z-index: 80;
   padding: 1.25rem 1.25rem 1rem;
+  border-radius: 0 0 var(--shell-radius) var(--shell-radius);
   background: linear-gradient(to top, var(--md-surface) 65%, transparent);
   transition: left 150ms ease;
 }}
@@ -4456,7 +4481,7 @@ html .chat-page.is-empty .activity-composer {{
 @media (max-width: 720px) {{
   /* Restated here because the base .activity-composer rule above comes
      after the shared mobile block and would otherwise win at 220px. */
-  .activity-composer {{ left: 64px; padding-left: 0.75rem; padding-right: 0.75rem; }}
+  .activity-composer {{ padding-left: 0.75rem; padding-right: 0.75rem; }}
   .chat-hero-title {{ font-size: 2.2rem; }}
   .chat-chips {{ flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }}
   .chat-chip {{ padding: 0.35rem 0.7rem; font-size: 0.82rem; }}
@@ -4703,7 +4728,7 @@ html .chat-page.is-empty .activity-composer {{
 /* History + New chat, reachable at any point in either layout: fixed
    just under the topbar, right-aligned. New chat hides on the empty hero,
    which already is a new chat. */
-.chat-toolbar {{ position: fixed; top: 4.25rem; right: 1.25rem; z-index: 85; display: flex; gap: 0.5rem; }}
+.chat-toolbar {{ position: fixed; top: calc(var(--shell-top) + 0.75rem); right: calc(var(--shell-gap) + 0.75rem); z-index: 85; display: flex; gap: 0.5rem; }}
 .chat-new-form {{ margin: 0; display: inline-flex; }}
 .chat-page.is-empty .chat-new-form {{ display: none; }}
 .chat-tool-btn {{
@@ -6411,11 +6436,13 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     var list = document.getElementById('activity-message-list');
     if (!form || !list) return;
 
-    // The Dashboard thread scrolls with the window (see .chat-thread),
-    // not inside its own panel, so "bottom" means the page's bottom.
+    // The Dashboard thread scrolls with the main card (#main-scroll, see
+    // .main-scroll), not inside its own panel, so "bottom" means the
+    // card's bottom.
     var chatPage = document.querySelector('.chat-page');
+    var scroller = document.getElementById('main-scroll');
     function scrollToBottom() {{
-      window.scrollTo(0, document.documentElement.scrollHeight);
+      scroller.scrollTo(0, scroller.scrollHeight);
     }}
     // Open on the most recent messages, not the top of a long thread.
     if (!chatPage || !chatPage.classList.contains('is-empty')) scrollToBottom();
@@ -6897,12 +6924,9 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
 }})();
 (function() {{
   // Reveals #topbar-page-title (see .topbar-page-title in _STYLE) once
-  // the page's own <h1> has scrolled up behind the sticky topbar -
-  // otherwise scrolling down leaves the topbar with no indication of
-  // which page this is at all. rootMargin is set to the topbar's own
-  // rendered height (read at runtime, not hardcoded, so it can't drift
-  // out of sync with the CSS) so the h1 counts as "gone" exactly when it
-  // disappears behind the topbar, not only once it's fully above y=0.
+  // the page's own <h1> has scrolled out of the main card (#main-scroll,
+  // the observer's root) - otherwise scrolling down leaves the topbar
+  // with no indication of which page this is at all.
   document.addEventListener('DOMContentLoaded', function() {{
     var titleEl = document.getElementById('topbar-page-title');
     var topbar = document.querySelector('.topbar');
@@ -6913,7 +6937,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
       entries.forEach(function(entry) {{
         titleEl.classList.toggle('is-visible', !entry.isIntersecting);
       }});
-    }}, {{ rootMargin: '-' + topbar.offsetHeight + 'px 0px 0px 0px' }});
+    }}, {{ root: document.getElementById('main-scroll') }});
     observer.observe(h1);
   }});
 }})();
@@ -6950,8 +6974,9 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
   var SCROLL_KEY_PREFIX = 'daemon-action-scroll:';
   document.addEventListener('submit', function(ev) {{
     if (!ev.target.matches || !ev.target.matches('.daemon-action-form')) return;
+    var scroller = document.getElementById('main-scroll');
     try {{
-      sessionStorage.setItem(SCROLL_KEY_PREFIX + location.pathname, String(window.scrollY));
+      sessionStorage.setItem(SCROLL_KEY_PREFIX + location.pathname, String(scroller.scrollTop));
     }} catch (e) {{}}
   }});
   document.addEventListener('DOMContentLoaded', function() {{
@@ -6960,7 +6985,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     try {{ saved = sessionStorage.getItem(key); }} catch (e) {{ saved = null; }}
     if (saved === null) return;
     try {{ sessionStorage.removeItem(key); }} catch (e) {{}}
-    window.scrollTo(0, parseInt(saved, 10) || 0);
+    document.getElementById('main-scroll').scrollTo(0, parseInt(saved, 10) || 0);
   }});
 }})();
 (function() {{
@@ -7035,8 +7060,10 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
 {refresh_html}
 </div>
 </div>
+<div class="main-scroll" id="main-scroll">
 <div class="wrap">
 {body_html}
+</div>
 </div>
 </main>
 

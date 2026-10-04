@@ -1054,29 +1054,37 @@ def test_default_accent_keeps_the_sidebar_neutral_and_mode_aware():
     assert "--md-nav-on-surface: var(--md-on-surface-variant);" in rule
 
 
-def test_sidebar_and_topbar_use_a_translucent_accent_nav_surface():
-    """The sidebar/topbar stay tinted by the accent's --md-nav-surface,
-    but translucent (plus a backdrop blur) so the shared .app-bg wash
-    shows through them the same way it does behind page content."""
-    assert ".sidebar {" in ds._STYLE
-    sidebar_rule = ds._STYLE.split(".sidebar {")[1].split("}")[0]
-    assert "color-mix(in srgb, var(--md-nav-surface)" in sidebar_rule
-    assert "backdrop-filter:" in sidebar_rule
-
-    topbar_rule = ds._STYLE.split(".topbar {")[1].split("}")[0]
-    assert "color-mix(in srgb, var(--md-nav-surface)" in topbar_rule
-    assert "backdrop-filter:" in topbar_rule
-
-
-def test_sidebar_and_topbar_paint_the_shared_page_grid():
-    """The blur/tint on the sidebar and topbar would hide the page's grid
-    lines, so both paint the same grid themselves - same line token, same
-    cell size, viewport-fixed so their lines line up with the page's."""
+def test_sidebar_and_topbar_sit_borderless_on_the_shared_nav_wash():
+    """Gmail-style shell: the body itself is the accent's nav wash, and
+    the sidebar/topbar are transparent and borderless on top of it, so
+    the two read as one continuous frame around the main card."""
+    body_rule = ds._STYLE.split("\nbody {")[1].split("}")[0]
+    assert "background: var(--md-nav-surface);" in body_rule
     for selector in (".sidebar {", ".topbar {"):
         rule = ds._STYLE.split(selector)[1].split("}")[0]
-        assert "var(--app-grid-lines)" in rule
-        assert "var(--app-grid-size) var(--app-grid-size)" in rule
-        assert "background-attachment: fixed" in rule
+        assert "border-right" not in rule
+        assert "border-bottom" not in rule
+        assert "backdrop-filter" not in rule
+        assert "var(--md-nav-surface)" not in rule
+
+
+def test_main_content_sits_in_a_rounded_card_inset_from_the_nav():
+    """.app-bg paints the rounded card, and #main-scroll is the card's own
+    scroller - the window never scrolls, so the scrollbar lives only in
+    the main view, Gmail-style."""
+    page = ds._render_shell("Settings", "settings", "", "<p>hi</p>")
+    assert 'class="app-frame"' not in page
+    assert '<div class="main-scroll" id="main-scroll">' in page
+    card = ds._STYLE.split("\n.app-bg {")[1].split("}")[0]
+    for decl in ("top: var(--shell-top);", "left: var(--shell-left);",
+                 "right: var(--shell-gap);", "bottom: var(--shell-gap);",
+                 "border-radius: var(--shell-radius);"):
+        assert decl in card
+    scroller = ds._STYLE.split("\n.main-scroll {")[1].split("}")[0]
+    assert "overflow-y: auto;" in scroller
+    assert "border-radius: var(--shell-radius);" in scroller
+    assert "html, body {{ height: 100%; overflow: hidden; }}".replace("{{", "{").replace("}}", "}") in ds._STYLE
+    assert "html.collapsed { --shell-left: 64px; }" in ds._STYLE
 
     grid_rule = ds._STYLE.split(".app-bg::after {")[1].split("}")[0]
     assert "var(--app-grid-lines)" in grid_rule
@@ -1084,12 +1092,19 @@ def test_sidebar_and_topbar_paint_the_shared_page_grid():
     assert "--app-grid-size: 16px;" in ds._STYLE
 
 
+def test_scroll_aware_scripts_track_the_main_scroller_not_the_window():
+    page = ds._render_shell("T", "settings", "", "<h1>T</h1>")
+    assert "String(window.scrollY)" not in page
+    assert "String(scroller.scrollTop)" in page
+    assert "root: document.getElementById('main-scroll')" in page
+
+
 def test_every_page_renders_the_shared_app_background():
     """The Dashboard's gradient/grid background lives in _render_shell,
     so every page (not just the Dashboard) gets it - exactly once."""
     page = ds._render_shell("Settings", "settings", "", "<p>hi</p>")
     assert page.count("class=\"app-bg\"") == 1
-    app_bg_rule = ds._STYLE.split(".app-bg {")[1].split("}")[0]
+    app_bg_rule = ds._STYLE.split("\n.app-bg {")[1].split("}")[0]
     assert "position: fixed;" in app_bg_rule
     assert "z-index: -1;" in app_bg_rule
 
@@ -1193,7 +1208,10 @@ def test_nav_active_state_css_rule_present():
 
 def test_sidebar_collapse_css_rules_present():
     assert "html.collapsed .sidebar" in ds._STYLE
-    assert "html.collapsed .content-area" in ds._STYLE
+    # .content-area, the card, and the composer all follow --shell-left
+    assert "html.collapsed { --shell-left: 64px; }" in ds._STYLE
+    content_rule = ds._STYLE.split(".content-area {")[1].split("}")[0]
+    assert "margin-left: var(--shell-left);" in content_rule
     assert "html.collapsed .nav-label" in ds._STYLE
 
 
@@ -10012,12 +10030,14 @@ def test_message_brand_icon_is_sized():
     assert "color:" in icon_section or "color :" in icon_section
 
 
-def test_chat_thread_scrolls_with_the_window_not_an_inner_panel():
-    """The Dashboard's chat session reads like a chatbot thread - the page
-    itself scrolls, with the composer pinned over it - so the message list
-    must not be boxed into its own bounded scroll panel."""
+def test_chat_thread_scrolls_with_the_main_card_not_its_own_panel():
+    """The Dashboard's chat session reads like a chatbot thread - the main
+    card (#main-scroll) scrolls, with the composer pinned over it - so the
+    message list must not be boxed into its own bounded scroll panel."""
     assert "#activity-message-list {" not in ds._STYLE
-    assert "window.scrollTo(0, document.documentElement.scrollHeight)" in ds._render_shell("T", "overview", "", "")
+    page = ds._render_shell("T", "overview", "", "")
+    assert "scroller.scrollTo(0, scroller.scrollHeight)" in page
+    assert "window.scrollTo(0, document.documentElement.scrollHeight)" not in page
 
 
 def test_material_symbols_icon_names_includes_monitoring():
