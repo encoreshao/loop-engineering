@@ -11425,3 +11425,87 @@ def test_inbox_post_unknown_path_with_valid_csrf_is_404(tmp_path, monkeypatch):
     with _running_server() as port:
         status, _headers, _body = _post(port, "/inbox/nope", {"csrf_token": ds._CSRF_TOKEN})
     assert status == 404
+
+
+# --- i18n -------------------------------------------------------------------
+
+import i18n  # noqa: E402
+
+
+@pytest.fixture
+def lang():
+    """Set the request-thread language for a render call, restoring English
+    afterwards so no other test ever sees a translated page."""
+    def _set(code):
+        i18n.set_language(code)
+    yield _set
+    i18n.set_language("en")
+
+
+def test_render_shell_defaults_to_english_html_lang():
+    body = ds._render_shell("Test Page", "overview", "<span>badge</span>", "<p>body</p>")
+    assert '<html lang="en">' in body
+    assert ">Dashboard</span>" in body
+
+
+def test_render_shell_translates_nav_and_html_lang(lang):
+    lang("ja")
+    body = ds._render_shell("Dashboard · Loop X Engineering", "overview", "<span>badge</span>", "<p>body</p>")
+    assert '<html lang="ja">' in body
+    assert "<span class='nav-label'>ダッシュボード</span>" in body
+    assert "<title>ダッシュボード · Loop X Engineering</title>" in body
+    assert ">Dashboard</span>" not in body
+
+
+def test_render_shell_zh_uses_zh_cn_html_lang(lang):
+    lang("zh")
+    body = ds._render_shell("Test Page", "overview", "<span>badge</span>", "<p>body</p>")
+    assert '<html lang="zh-CN">' in body
+
+
+def test_render_shell_has_language_switcher_in_topbar(lang):
+    lang("fr")
+    body = ds._render_shell("Test Page", "overview", "<span>badge</span>", "<p>body</p>")
+    topbar = body.split("<div class=\"topbar\">", 1)[1].split("<div class=\"main-scroll\"", 1)[0]
+    assert "id='lang-switch'" in topbar
+    assert ">translate</span>" in topbar
+    for code, name in i18n.LANGUAGE_NAMES.items():
+        assert f"data-lang='{code}'" in topbar
+        assert name in topbar
+    assert "data-lang='fr' aria-checked='true'" in topbar
+    assert "data-lang='en' aria-checked='false'" in topbar
+
+
+def test_translate_icon_is_in_subset_font_list():
+    names = ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
+    assert "translate" in names
+    assert names == sorted(names)
+
+
+@pytest.mark.parametrize("code", ["ja", "zh", "fr"])
+def test_every_nav_label_and_group_has_a_translation(code):
+    catalog = json.loads((Path(ds.__file__).resolve().parent.parent / "locales" / f"{code}.json").read_text("utf-8"))
+    labels = {item[2] for item in ds._NAV_ITEMS} | {label for label, _ in ds._NAV_GROUPS if label}
+    assert sorted(label for label in labels if not catalog.get(label)) == []
+
+
+def test_dashboard_server_integration_honors_language_cookie():
+    server = ds.ThreadingHTTPServer(("127.0.0.1", 0), ds.DashboardHandler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        request = urllib.request.Request(f"http://127.0.0.1:{port}/readme", headers={"Cookie": "loop_lang=ja"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            body = response.read().decode("utf-8")
+        assert '<html lang="ja">' in body
+        assert "ダッシュボード" in body
+
+        request = urllib.request.Request(f"http://127.0.0.1:{port}/readme", headers={"Accept-Language": "en-US"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            body = response.read().decode("utf-8")
+        assert '<html lang="en">' in body
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
