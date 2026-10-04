@@ -1,0 +1,341 @@
+[English](README.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | **Français**
+
+# Loop X Engineering
+
+![CI](https://github.com/encoreshao/loop-engineering/actions/workflows/ci.yml/badge.svg)
+![License](https://img.shields.io/github/license/encoreshao/loop-engineering)
+![Python](https://img.shields.io/badge/python-3.12%2B-blue)
+![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
+![Dependencies](https://img.shields.io/badge/dependencies-stdlib%20only-green)
+![Shell](https://img.shields.io/badge/shell-bash-4EAA25)
+
+La mission de Loop X Engineering est de vous rendre le temps que dévore le
+tri des tickets : un coéquipier permanent et autonome qui traite votre file
+GitLab chaque jour ouvré, pour qu'aucun ticket qui vous est assigné ne reste
+en souffrance — en livrant des correctifs, en répondant aux questions ou en
+signalant ce qui requiert réellement votre jugement — et que votre attention
+n'aille qu'à ce qui compte vraiment. Un tableau de bord web local vous permet
+de le regarder travailler, de passer en revue tout ce qu'il a fait et de tout
+configurer à la main — sans éditer de JSON.
+
+Il est conçu pour tourner sans surveillance en toute sécurité : il ne fusionne
+jamais ses propres merge requests, ne s'assigne jamais de nouveaux tickets et
+ne touche qu'aux projets que vous lui avez explicitement indiqués.
+
+## Table des matières
+
+- [Comment ça marche](#comment-ça-marche)
+- [Prérequis](#prérequis)
+- [Démarrage rapide](#démarrage-rapide)
+- [Arborescence des répertoires](#arborescence-des-répertoires)
+- [Configuration](#configuration)
+- [Exécution](#exécution)
+- [Le tableau de bord](#le-tableau-de-bord)
+- [Référence des scripts](#référence-des-scripts)
+- [Garde-fous de sécurité](#garde-fous-de-sécurité)
+- [Tests](#tests)
+- [Documentation du projet](#documentation-du-projet)
+- [Licence](#licence)
+
+
+
+## Comment ça marche
+
+Chaque exécution planifiée (`run-loop-now.sh gitlab-loop`) :
+
+1. Liste tous les tickets GitLab ouverts assignés au nom d'utilisateur configuré, sur chaque alias de projet de votre configuration.
+2. Les traite **un par un, jamais en parallèle**, en suivant la procédure de décision pas à pas de [`LOOPX_INSTRUCTIONS.md`](https://github.com/encoreshao/loop-engineering/blob/main/LOOPX_INSTRUCTIONS.md).
+3. Pour chaque ticket, fait exactement l'une des actions suivantes :
+  - **Le corriger** — dans un git worktree isolé, sur une branche `loop/issue-<iid>`, en n'ouvrant une merge request qu'une fois les commandes de lint/test du projet passées.
+  - **Y répondre** — publier un commentaire GitLab quand la demande ne nécessite aucune modification de code (une question, un point d'étape).
+  - **L'escalader** — publier un commentaire GitLab demandant des précisions quand la demande est ambiguë ou quand la vérification échoue.
+4. Envoie un message Slack par ticket plus un récapitulatif de fin d'exécution (à chaque exécution, même les matins sans rien d'assigné).
+5. Met à jour [`PROGRESS.md`](https://github.com/encoreshao/loop-engineering/blob/main/PROGRESS.md) et `outputs/daily-review.md` pour que la prochaine exécution — et vous — sachiez ce qui s'est passé.
+
+Les enseignements réutilisables d'une exécution à l'autre (schémas de correction, pièges) sont enregistrés par ticket sous forme de fichiers markdown de mémoire de tâche via `bin/memory_store.py` (les entrées antérieures à ce format restent lues via `bin/project_memory.py`), de sorte que chaque exécution démarre plus avisée que la précédente.
+
+Une deuxième boucle, indépendante (`run-loop-now.sh topic-loop`), surveille des sujets arbitraires sur le web plutôt que GitLab — voir [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md).
+
+Une troisième boucle (`run-loop-now.sh inbox-triage-loop`) trie les boîtes de réception Gmail et Outlook : elle classe chaque nouveau message non lu sous un libellé `Loop/*`, rédige (sans jamais l'envoyer) un brouillon de réponse dans le fil pour tout ce qui est urgent, et rend compte via un récapitulatif Slack et la page **Inbox Triage** du tableau de bord — voir [`docs/tasks/inbox-triage-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/inbox-triage-loop.md).
+
+## Prérequis
+
+- macOS (la planification et le tableau de bord tournent tous deux comme agents `launchd`)
+- Python 3.12+ — le code de ce dépôt utilise **uniquement la bibliothèque standard**, aucun `pip install` n'est nécessaire pour l'exécuter
+- `git` 2.42+ (worktrees, push-options)
+- Un compte GitLab + un jeton d'accès personnel pour les projets à suivre
+- (facultatif) Un webhook entrant Slack, pour les notifications d'exécution
+- La skill `[gitlab-config](https://github.com/encoreshao/encore-skills/tree/main/skills/gitlab-config)` de `[encore-skills](https://github.com/encoreshao/encore-skills)` — l'unique dépendance externe de cette boucle, déployée dans `~/.encore-skills` par `setup.sh`. Vérifiez à tout moment qu'elle est bien présente depuis la page **Skills** du tableau de bord.
+- `pytest` — uniquement pour le développement, pour exécuter la suite de tests de ce dépôt
+
+
+
+## Démarrage rapide
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install.sh | bash
+```
+
+Clone ce dépôt dans `~/.loop-engineering` (passez `--dir <path>` pour un autre emplacement) et exécute `bin/scripts/setup.sh`, qui installe la skill `gitlab-config` et génère `projects.json`/`topics.json` à partir de leurs modèles. Il configure ensuite le reverse proxy nginx local et démarre le tableau de bord comme agent `launchd` permanent, si bien que cette seule commande se termine avec un tableau de bord réellement joignable et en marche — passez `--skip-nginx` et/ou `--skip-launchd-daemons` pour désactiver l'un ou l'autre. (La boucle GitLab planifiée et le moniteur de sujets ne sont *pas* démarrés automatiquement, car ils agiraient sur `projects.json`/`topics.json` avant que vous ne les ayez remplis — démarrez-les vous-même, une fois configurés, depuis la page **Daemons** du tableau de bord.) Relancer la même commande plus tard récupère simplement la dernière version de `main` au lieu de recloner.
+
+Déjà installé et vous voulez simplement mettre à jour ? Ajoutez `--upgrade` :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install.sh | bash -s -- --upgrade
+```
+
+Mêmes étapes que ci-dessus, mais échoue immédiatement si rien n'est encore installé dans `--dir` au lieu de cloner silencieusement, et rafraîchit chacun des agents launchd de ce projet actuellement chargés — pas seulement le tableau de bord. Le tableau de bord (un serveur permanent) est réellement redémarré (`launchctl kickstart -k`), contrairement à un simple `launchctl load`, sans effet sur un agent déjà en marche. `com.hermes.loop-engineering` — l'ordonnanceur unique qui exécute chaque boucle enregistrée dans `loops.json`, si vous l'avez activé depuis la page Daemons — voit seulement son enregistrement rechargé (`unload` + `load -w`) — jamais de kickstart, car cela déclencherait immédiatement une vraie exécution hors planning contre GitLab/Slack en production au lieu d'attendre le prochain sondage de l'ordonnanceur. `--upgrade` migre aussi un plist généré antérieur à l'ordonnanceur unifié (qui pointe encore vers `run-loop.sh`, désormais supprimé) et retire le daemon orphelin `com.hermes.loop-engineering-topic-monitor` s'il est encore installé d'avant cette migration.
+
+Vous préférez voir le clonage se faire vous-même d'abord ?
+
+```bash
+git clone https://github.com/encoreshao/loop-engineering.git
+cd loop-engineering
+bin/scripts/setup.sh
+```
+
+La skill est déjà installée et vous voulez seulement les fichiers de configuration de base ?
+
+```bash
+bin/scripts/setup.sh --skip-skills-install
+```
+
+Une fois terminé, ouvrez la page **Skills** du tableau de bord pour confirmer que tout le nécessaire est bien installé — elle vérifie en direct, sans approximation.
+
+**Vous travaillez déjà dans Claude Code ?** Collez ceci au lieu d'exécuter les commandes vous-même :
+
+> Clone et configure [https://github.com/encoreshao/loop-engineering](https://github.com/encoreshao/loop-engineering) pour moi : lance son installateur en ligne
+> (`curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install.sh | bash`),
+> puis aide-moi à remplir `~/.loop-engineering/projects.json` avec mon ou mes propres projets GitLab, et `~/.gitlab/config.json` avec mon jeton GitLab.
+
+
+
+### Désinstallation
+
+```bash
+bin/scripts/uninstall.sh                 # or: curl -fsSL .../uninstall.sh | bash
+```
+
+Décharge et supprime les agents `launchd` de ce dépôt, annule `setup-nginx.sh` si vous l'avez exécuté, et supprime tout le dossier `~/.loop-engineering` — code, configuration et historique d'exécution ensemble — passez `--keep-config` pour tout laisser en place (par exemple si vous vous apprêtez à réinstaller). Peut être relancé sans risque.
+
+## Arborescence des répertoires
+
+Avec le chemin d'installation par défaut, tout se retrouve dans un seul dossier :
+
+```
+~/.loop-engineering/            # install.sh's clone target
+├── bin/, docs/, tests/, ...    # this repo's own code (tracked in git)
+├── projects.json                # your config: GitLab projects to track  ┐
+├── topics.json                  # your config: topics to monitor         │
+├── loops.json                   # your config: scheduled-loop registry   ├─ gitignored, yours
+├── instructions.md              # your free-text instructions            │
+├── ai_cli.json                  # your config: Claude Code vs Codex CLI   ┘
+├── loop_scheduler_state.json    # managed automatically, not hand-edited
+├── PROGRESS.md                  # live run state, updated every run
+├── outputs/                     # ← generated docs & run history live here (gitignored)
+│   ├── daily-review.md          #   latest GitLab-issue-loop report
+│   ├── messages.json             #   Activity page message thread
+│   ├── status.json               #   GitLab loop's current/last run status
+│   ├── status/<loop_name>.json   #   every other registered loop's current/last run status
+│   └── history/<date>.{md,log}   #   every past run's report + log
+└── worktrees/                    # ← per-issue git worktrees for tracked projects (gitignored)
+    └── <project>-issue-<iid>/    #   that project's own checkout, on branch loop/issue-<iid>
+```
+
+`projects.json`, `topics.json`, `loops.json`, `instructions.md` et `ai_cli.json` se résolvent toujours vers `~/.loop-engineering/…`, quel que soit l'endroit où vous clonez le code — ils ne se retrouvent *dans* le dossier du dépôt ci-dessus que parce que la cible de clonage par défaut de `install.sh` est justement ce même chemin. Si vous clonez ailleurs à la main, ces cinq fichiers restent dans `~/.loop-engineering/`, séparés du code. Le `worktree_root` généré dans `projects.json` vaut aussi `~/.loop-engineering/worktrees` par défaut, pour la même raison.
+
+Deux autres fichiers de configuration se trouvent entièrement hors de cette arborescence, modifiables depuis les pages **GitLab** et **Notifications** du tableau de bord plutôt qu'à la main : `~/.gitlab/config.json` et `~/.slack/config.json`.
+
+## Configuration
+
+
+| Fichier                               | Contenu                                                                                                                                                                                                                 | Géré via                                                                                                                                                                      |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `~/.loop-engineering/projects.json`   | Les projets à suivre, leurs chemins de checkout locaux, la branche cible, les commandes d'installation/lint/test, votre nom d'utilisateur GitLab et le répertoire de travail des worktrees (`worktree_root`, par défaut `~/.loop-engineering/worktrees`) | Section « Tracked Projects » de la page **GitLab Settings** du tableau de bord, ou copiez [`config/projects.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/projects.json.template) à la main, ou laissez `bin/scripts/setup.sh` s'en charger |
+| ↳ `instance` par projet (facultatif)  | Remplace le `gitlab_instance` de premier niveau pour un projet — à définir quand vos projets s'étendent sur plusieurs instances GitLab. Retombe sur `gitlab_instance` s'il est omis.                                       | Même fichier, par entrée de projet — voir l'exemple `harbor` du modèle                                                                                                        |
+| `~/.loop-engineering/topics.json`     | Les sujets à surveiller et ce qui est jugé notable pour chacun (boucle de surveillance de sujets uniquement)                                                                                                             | Copiez [`config/topics.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/topics.json.template) à la main, ou laissez `bin/scripts/setup.sh` s'en charger                                                                |
+| `~/.loop-engineering/inboxes.json`    | Les boîtes mail à trier (fournisseur, compte, catégories, expéditeurs VIP/exclus, bundle Slack) et l'ensemble de catégories par défaut partagé (boucle Inbox Triage uniquement)                                          | Page **Inbox Setup** du tableau de bord (`/inbox/setup`), ou laissez `bin/scripts/setup.sh` le générer à partir de [`config/inboxes.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/inboxes.json.template)               |
+| `~/.loop-engineering/mail_oauth.json` | Le client ID propre à l'application OAuth Gmail/Outlook (et, pour Google, le client secret) — une étape unique d'enregistrement d'application, pas un identifiant par boîte mail                                         | Page **Inbox Setup** du tableau de bord                                                                                                                                                     |
+| `~/.loop-engineering/loops.json`      | Le registre des boucles planifiées : nom de chaque entrée, planning (jours ouvrés/heure/minute), module de point d'entrée, délai d'expiration et réglages par boucle — lu par `bin/loops_config.py`, sondé par `bin/loop_scheduler.py` | Copiez [`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template) à la main, ou laissez `bin/scripts/setup.sh` s'en charger                                                                  |
+| `~/.loop-engineering/loop_scheduler_state.json` | La date de dernière tentative de chaque boucle, pour que l'ordonnanceur n'exécute jamais la même boucle deux fois dans la journée — à ne pas éditer à la main                                              | Écrit automatiquement par `bin/loop_scheduler.py` ; initialisé avec la date du jour pour chaque boucle enregistrée par `bin/scripts/setup.sh`, afin qu'activer l'ordonnanceur ne déclenche pas une exécution immédiate |
+| `~/.loop-engineering/instructions.md` | Vos propres instructions en texte libre, lues par la boucle au début de chaque exécution                                                                                                                                | Onglet Instructions de la page **Settings** du tableau de bord                                                                                                                               |
+| `~/.loop-engineering/ai_cli.json`     | La CLI d'IA (Claude Code ou Codex CLI) que `run-loop-now.sh` invoque pour chaque boucle enregistrée ; `claude` par défaut                                                                                                 | Onglet AI CLI de la page **Settings** du tableau de bord, ou laissez `bin/scripts/setup.sh` s'en charger                                                                                                                |
+| `~/.gitlab/config.json`               | URL des instances GitLab, jetons et correspondances alias de projet → ID de projet (lus par la skill `gitlab-config`)                                                                                                    | Page **GitLab Settings** du tableau de bord                                                                                                                                                     |
+| `~/.slack/config.json`                | L'URL de votre webhook entrant Slack (et d'éventuelles surcharges par bundle)                                                                                                                                          | Onglet Notifications de la page **Settings** du tableau de bord (webhook par défaut) / section Access bundles de la page **GitLab Settings** (surcharges par bundle)                                                              |
+
+
+`bin/loop_config.py` est le seul code qui lit `projects.json` — utilisez-le pour vérifier votre configuration depuis un terminal :
+
+```bash
+python3 bin/loop_config.py aliases                # every configured project alias
+python3 bin/loop_config.py project <alias>         # that alias's full config, incl. resolved GitLab instance
+python3 bin/loop_config.py assignee                # the GitLab username being tracked
+python3 bin/loop_config.py worktree-root           # where per-issue worktrees get created
+```
+
+Si `~/.loop-engineering/projects.json` n'existe pas encore, chaque script qui en a besoin échoue immédiatement avec un message vous invitant à exécuter `bin/scripts/setup.sh` — rien ne devine silencieusement les chemins.
+
+**Access bundles** — surcharges de jeton/webhook par projet
+
+La plupart des projets utilisent simplement le jeton par défaut de leur instance GitLab. Un **access bundle** est une surcharge nommée — sa propre paire `{instance, token}`, plus un webhook Slack facultatif — pour le rare projet dont le jeton par défaut de l'instance n'a pas les accès nécessaires.
+
+Gérez les bundles depuis la page **GitLab** du tableau de bord, dans leur propre section « Access bundles » :
+
+- **Ajouter un bundle** : nommez-le, choisissez l'instance GitLab auprès de laquelle il s'authentifie, collez son jeton et, éventuellement, une URL de webhook Slack.
+- **Assigner un bundle à un projet** : modifiez la ligne de l'alias de projet et choisissez le bundle dans la liste déroulante **Bundle** — par défaut « (use instance default) ».
+- Un bundle ne peut pas être supprimé, ni son instance modifiée, tant qu'un alias de projet pointe encore vers lui.
+- Supprimer un bundle efface aussi sa surcharge de webhook Slack, s'il en avait une.
+
+Les bundles se trouvent dans la clé `bundles` de `~/.gitlab/config.json` et, si une surcharge de webhook est définie, dans la clé `bundle_webhooks` de `~/.slack/config.json` — reliés uniquement par le nom du bundle.
+
+## Exécution
+
+**Manuellement**, une fois, pour le voir fonctionner avant de lui confier un planning :
+
+```bash
+bash run-loop-now.sh gitlab-loop   # the daily GitLab issue loop
+bash run-loop-now.sh topic-loop    # the topic monitor loop
+```
+
+Les deux journalisent dans `outputs/history/`, et ajoutent aussi la sortie de chaque invocation de la CLI `claude` à `logs/loop-engineering.log` (consultable sur la page **Logs** du tableau de bord) ; vous pouvez aussi déclencher la boucle GitLab depuis le bouton **Run now** du tableau de bord (page Overview), sans terminal.
+
+**Selon un planning**, via `launchd` — installez les deux agents de [`launchd/`](https://github.com/encoreshao/loop-engineering/tree/main/launchd), le plus simplement d'un clic chacun depuis la page **Daemons** du tableau de bord (qui indique aussi si chacun est actuellement chargé et son PID), ou à la main :
+
+```bash
+cp launchd/com.hermes.loop-engineering*.plist ~/Library/LaunchAgents/
+launchctl load -w ~/Library/LaunchAgents/com.hermes.loop-engineering.plist
+launchctl load -w ~/Library/LaunchAgents/com.hermes.loop-engineering-dashboard.plist
+```
+
+
+| Agent                                   | Exécute                                                                                                                                          |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------|
+| `com.hermes.loop-engineering`           | La boucle de sondage unique de l'ordonnanceur (`bin/loop_scheduler.py`), toutes les 15 minutes (`StartInterval`) — exécute, via `run-loop-now.sh`, la ou les boucles enregistrées dans `~/.loop-engineering/loops.json` qui sont dues |
+| `com.hermes.loop-engineering-dashboard` | Le tableau de bord web, en permanence (`RunAtLoad` + `KeepAlive`)                                                                                 |
+
+
+Les boucles exécutées et leur planning relèvent de la configuration, pas du code — modifiez `~/.loop-engineering/loops.json` (voir [`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template)) pour ajouter une boucle ou changer son échéance ; ajouter une troisième boucle demande une nouvelle entrée dans `loops.json`, pas un nouveau plist. L'éditeur de planning par agent de la page **Daemons** ne s'applique qu'au `StartCalendarInterval` propre d'un plist, que `com.hermes.loop-engineering` n'a plus (il sonde toutes les 15 minutes sur un `StartInterval` fixe et s'en remet à `loops.json` pour savoir quelle boucle est due) — modifier le planning d'une boucle passe pour l'instant par une édition manuelle de `loops.json`.
+
+## Le tableau de bord
+
+Une interface web accessible uniquement en localhost et sans dépendance (Python stdlib, aucun framework JS), servie par `bin/web/dashboard_server.py`. Lancé directement pour le développement local (sans argument), il utilise son propre port par défaut, `8420`. `bin/scripts/install.sh` choisit un port aléatoire entre `48420` et `48620` lors de la première installation de l'agent `launchd` permanent (modifiable avec `--port`, et jamais re-tiré lors d'un `--upgrade` ultérieur) — consultez `launchd/com.hermes.loop-engineering-dashboard.plist` pour connaître le port réellement utilisé par une installation existante.
+
+
+| Page              | Affiche                                                                                                                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Overview**      | L'état de l'exécution en cours/dernière, un indicateur de progression en direct et le bouton Run now                                                                            |
+| **Activity**      | Un fil de messages avec la boucle, avec son propre indicateur de progression en direct. Collez-y le lien d'un ticket GitLab pour que la boucle le traite immédiatement, quelle que soit la personne à qui il est assigné.                                                                    |
+| **Live GitLab**   | Vos tickets assignés et MR ouvertes du moment, récupérés en direct                                                                                                              |
+| **Topic Monitor** | L'état et les synthèses enregistrées de chaque sujet configuré                                                                                                                  |
+| **Logs**          | La fin de `logs/loop-engineering.log` - la sortie de chaque invocation de la CLI `claude`, pour la boucle GitLab, la boucle de surveillance de sujets et l'assistant de chat du tableau de bord lui-même |
+| **Loop Runs**     | Chaque exécution enregistrée sous `outputs/loop-runs/` (une par ticket ou sujet traité), la plus récente en premier — en lecture seule ; un bandeau de synthèse indique le nombre total d'exécutions, le taux de réussite/escalade, le coût moyen et le Loop Efficiency Score expérimental |
+| **Run History**   | Le rapport de revue de chaque exécution passée, du plus récent au plus ancien                                                                                                   |
+| **Analytics**     | Les performances de la boucle sur une fenêtre de jours au choix : un score Loop Health, les résultats, la qualité, le risque et la classification, la répartition des échecs et les tendances d'apprentissage |
+| **Memory**        | Les enseignements inter-exécutions enregistrés par projet, un fichier markdown par ticket GitLab, plus tout ce qui a été enregistré avant ce format (affiché sous « Legacy learnings ») |
+| **Cost**          | Le coût d'utilisation de l'IA — le coût fenêtré propre à la boucle de tickets GitLab, et le coût total de toutes les exécutions sous `outputs/loop-runs/`                         |
+| **Audit**         | Un score et des contrôles réussi/échoué pour chaque définition de boucle                                                                                                        |
+| **Budget**        | Le dernier état de budget connu de chaque exécution enregistrée, plus des agrégats par définition de boucle et par jour/semaine/mois                                             |
+| **Daemons**       | L'état de chargement, un planning modifiable et l'activation/désactivation de chaque agent `launchd`, plus une vue Registered Loops de chaque boucle exécutée par l'ordonnanceur unifié (son propre planning et l'état de sa dernière exécution, lus depuis `loops.json`) |
+| **Skills**        | Chaque skill externe dont dépend cette boucle, et si elle est réellement installée                                                                                              |
+| **GitLab Settings** | Gère `~/.gitlab/config.json` (instances, alias de projet, access bundles) et `~/.loop-engineering/projects.json` (projets suivis, réglages de la boucle) sans éditer de JSON à la main |
+| **Topic Settings** | Ajoute, modifie et supprime les sujets surveillés — séparé de Topic Monitor pour que la configuration n'encombre pas la vue d'état en direct de cette page                      |
+| **Settings**      | Notifications (gère le webhook par défaut de `~/.slack/config.json`), AI CLI (choix entre Claude Code et Codex CLI, avec une vérification en direct installé/introuvable pour chacun), Appearance (mode de couleur, thème d'accent, intervalle d'actualisation automatique — enregistrés dans le `localStorage` de ce navigateur) et Instructions (vos propres instructions en texte libre, lues par la boucle au début de chaque exécution) — regroupés en onglets sur une seule page |
+| **README**        | Ce fichier, rendu dans l'application avec une navigation rapide vers chaque section                                                                                             |
+
+
+**Facultatif : un nom d'hôte convivial via nginx**
+
+Par défaut, le tableau de bord n'est joignable qu'à `http://127.0.0.1:<port>` (voir ci-dessus comment `<port>` est choisi). `bin/scripts/setup-nginx.sh` configure un reverse proxy nginx local pour le rendre joignable à `http://loop.x/` (port 80) à la place — installe nginx via Homebrew si nécessaire, écrit la configuration du proxy, ajoute `loop.x` à `/etc/hosts` et démarre nginx comme service système. `install.sh` lui transmet déjà automatiquement le port installé ; idempotent, il peut aussi être relancé seul sans risque :
+
+```bash
+bin/scripts/setup-nginx.sh
+# or, with no clone at all:
+curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/setup-nginx.sh | bash
+```
+
+L'écriture de `/etc/hosts` et le démarrage du service nginx nécessitent tous deux `sudo` — macOS vous demandera votre mot de passe à ces deux étapes. Passez `--domain`/`--port` pour utiliser autre chose que `loop.x`/`8420`.
+
+## Référence des scripts
+
+Dépliez pour la liste complète
+
+
+| Script                              | Rôle                                                                                                                                                                                                                                 |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `run-loop-now.sh`                   | Point d'entrée générique pour l'exécution d'une boucle enregistrée (recherchée dans `~/.loop-engineering/loops.json` via `bin/loops_config.py`) — journalise dans `outputs/history/`, notifie Slack en cas d'échec. Invoqué par `bin/loop_scheduler.py` (selon le planning) ou par le tableau de bord (à la demande) |
+| `bin/loop_scheduler.py`             | La boucle de sondage unique planifiée par launchd : lit `~/.loop-engineering/loops.json` et exécute, via `run-loop-now.sh`, la ou les boucles enregistrées qui sont dues                                                            |
+| `bin/loops_config.py`               | Lit `~/.loop-engineering/loops.json` — le registre des boucles planifiées (nom, planning, point d'entrée) ; aucun chemin d'écriture pour l'instant, éditez le fichier à la main (ou copiez le modèle) pour le modifier                |
+| `bin/gitlab_loop_runner.py`         | L'orchestrateur par ticket auquel `run-loop-now.sh` délègue lors de l'exécution de `gitlab-loop` : découvre les tickets assignés, fait passer chacun par son propre `LoopRuntime` (un `LoopResult` par ticket sous `outputs/loop-runs/`), gère l'invocation `claude -p`/`codex exec` et son garde-fou `--allowedTools`/`--disallowedTools`, puis exécute une clôture de fin d'exécution inconditionnelle pour tout le lot |
+| `bin/scripts/build_run_prompt.sh`   | Construit le prompt que `bin/gitlab_loop_runner.py` transmet à la CLI d'IA — un prompt mono-ticket pour `<alias> <issue_iid>` (l'exécution ciblée du chat Activity du tableau de bord), `--batch-issue <alias> <issue_iid>` pour un ticket au sein d'un lot planifié (sans fin d'exécution), et `--batch-end-of-run` pour l'unique clôture récapitulatif/daily-review du lot |
+| `bin/web/dashboard_server.py`       | Le tableau de bord web ; aussi une petite CLI (`write-status`, `write-skills-install-status`, `read-messages`, `add-message`, `chat-tool`) utilisée par `run-loop-now.sh`, `bin/loop_scheduler.py`, les actions propres du tableau de bord et l'assistant de chat intégré à la page Activity |
+| `bin/loop_config.py`                | Lit `~/.loop-engineering/projects.json`                                                                                                                                                                                              |
+| `bin/list_assigned_issues.py`       | Liste les tickets GitLab ouverts assignés à l'utilisateur configuré sur les projets configurés                                                                                                                                      |
+| `bin/track_new_comments.py`         | Détecte quelles notes d'un ticket en cache sont nouvelles depuis le dernier passage de la boucle                                                                                                                                     |
+| `bin/project_memory.py`             | Lit les enseignements durables par projet (legacy), stockés en ligne dans le cache GitLab                                                                                                                                           |
+| `bin/memory_store.py`               | Lit/enregistre la mémoire de tâche durable par ticket sous forme de fichiers markdown (un par ticket, plus un index MEMORY.md par projet)                                                                                            |
+| `bin/ai_cli_config.py`              | Lit/écrit `~/.loop-engineering/ai_cli.json` — la CLI d'IA (`claude` ou `codex`) que `run-loop-now.sh` invoque pour chaque boucle enregistrée                                                                                        |
+| `bin/topic_monitor_runner.py`       | L'orchestrateur par sujet auquel `run-loop-now.sh` délègue lors de l'exécution de `topic-loop` : fait passer chaque sujet configuré par son propre `LoopRuntime` (un `LoopResult` par sujet sous `outputs/loop-runs/`), gère l'invocation `claude -p`/`codex exec` et son garde-fou — même rôle pour la boucle de surveillance de sujets que `bin/gitlab_loop_runner.py` pour la boucle GitLab |
+| `bin/scripts/build_topic_prompt.sh` | Construit le prompt d'un sujet configuré, même rôle que `build_run_prompt.sh` ci-dessus ; conservé comme échappatoire manuelle documentée bien que `topic_monitor_runner.py` ne l'appelle plus                                     |
+| `bin/topic_config.py`               | Lit `~/.loop-engineering/topics.json`                                                                                                                                                                                                |
+| `bin/topic_seen.py`                 | Fenêtre glissante de dédoublonnage de 7 jours par sujet, pour que les synthèses ne répètent pas la même actualité deux jours de suite                                                                                               |
+| `bin/slack_notify.py`               | Publie un message sur le webhook entrant Slack configuré                                                                                                                                                                             |
+| `bin/scripts/new_worktree.sh`       | Crée (ou réutilise) un git worktree isolé sur une branche `loop/issue-<iid>`                                                                                                                                                         |
+| `bin/scripts/open_merge_request.sh` | Pousse une branche de ticket et ouvre sa MR — refuse tout ce qui n'est pas nommé `loop/issue-*`                                                                                                                                     |
+| `bin/scripts/install.sh`            | Installateur en ligne — clone (ou met à jour) ce dépôt, puis exécute `setup.sh` (en lui transmettant `--config-path`/`--topics-config-path`/`--ai-cli-config-path`/`--loops-config-path`/`--state-path`) ; `--upgrade` pour une installation existante, rafraîchit chaque agent launchd actuellement chargé (tableau de bord redémarré, daemon de l'ordonnanceur simplement ré-enregistré) pour qu'ils prennent en compte le nouveau code ; migre aussi sur place un `com.hermes.loop-engineering.plist` obsolète antérieur à l'ordonnanceur unifié et retire l'ancien daemon orphelin `com.hermes.loop-engineering-topic-monitor` s'il est encore installé d'avant l'ordonnanceur unifié ; peut être exécuté via un pipe depuis `curl` sans risque |
+| `bin/scripts/setup.sh`              | Installation en une commande : la skill `gitlab-config` + les fichiers de base `projects.json`/`topics.json`/`ai_cli.json`/`loops.json`, plus un `loop_scheduler_state.json` initialisé avec la date du jour pour chaque boucle enregistrée, afin qu'activer l'ordonnanceur juste après l'installation ne déclenche pas d'exécution immédiate |
+| `bin/scripts/setup-nginx.sh`        | Reverse proxy nginx local facultatif (`http://loop.x/` → le tableau de bord)                                                                                                                                                     |
+| `bin/scripts/uninstall.sh`          | Annule `setup.sh`/`setup-nginx.sh`/`install.sh` ; peut être exécuté via un pipe depuis `curl` sans risque                                                                                                                           |
+
+
+
+
+## Garde-fous de sécurité
+
+Fixes, et ne se relâchent pas avec le temps ni avec les succès répétés (voir [`docs/tasks/gitlab-issue-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/gitlab-issue-loop.md)) :
+
+- **Ne fusionne jamais une merge request.** Le travail de la boucle s'arrête à « MR ouverte, vérification réussie » — la fusion reste toujours une étape humaine manuelle.
+- Chaque modification de code se fait dans son propre git worktree, sur une branche `loop/issue-<iid>`, jamais directement sur la branche cible.
+- Une MR n'est ouverte que si les `test_cmd`/`lint_cmd` configurés du projet passent, et le diff ne touche que des fichiers pertinents pour le ticket.
+- Pas de shell arbitraire, pas de mise à jour de dépendances, pas de lecture de `.env`/identifiants/clés SSH — uniquement la liste de commandes autorisées de `LOOPX_INSTRUCTIONS.md`.
+- Les tickets sont traités un par un, séquentiellement, jamais en parallèle.
+- Un échec de vérification sur un même ticket n'est jamais retenté au cours d'une exécution — il est escaladé via un commentaire GitLab.
+
+La boucle Inbox Triage a ses propres garde-fous fixes (voir [`docs/tasks/inbox-triage-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/inbox-triage-loop.md)) :
+
+- **N'envoie jamais de mail.** Aucun module de fournisseur mail ne contient de fonction d'envoi, et le jeton Outlook obtenu est limité sans `Mail.Send` — l'envoi est impossible au niveau du jeton, pas seulement du code.
+- **N'archive, ne supprime, ne déplace jamais et ne modifie jamais l'état lu/non lu.** Les seules écritures dans la boîte mail sont la création de libellés/catégories `Loop/*`, leur application et la création de brouillons de réponse laissés dans le dossier Brouillons de la boîte.
+- **Seuls des libellés `Loop/*` sont appliqués.** Chaque libellé de catégorie, par défaut ou personnalisé, doit commencer par `Loop/` — `inboxes.json` est sinon rejeté au chargement, si bien qu'un libellé système ajouté à la main comme `TRASH` ou `UNREAD` ne peut jamais être appliqué à de vrais mails.
+- **Les corps de message ne sont jamais conservés.** Ils n'existent qu'en mémoire et dans le prompt de l'appel `claude -p` par boîte (plus au plus une nouvelle tentative), qui ne conserve aucune transcription de session — jamais écrits dans `outputs/`, les logs, l'état ou le récapitulatif Slack, qui ne reçoivent que l'expéditeur, l'objet, la catégorie, la brève justification de l'IA et un lien vers le brouillon. Le brouillon de réponse rédigé par l'IA n'est enregistré que dans le dossier Brouillons de la boîte.
+- **Inbox Triage requiert la CLI Claude.** Codex donne toujours un shell au modèle et enregistre le prompt sous `~/.codex/sessions/`, donc avec Codex sélectionné chaque boîte échoue d'emblée — avant toute lecture de mail — jusqu'à ce que la CLI d'IA soit repassée sur Claude dans **Settings**.
+- **Les refresh tokens ne résident que dans le trousseau macOS**, écrits via `security -i` avec le jeton sur stdin, jamais sur disque en clair ni dans l'argv d'un processus.
+
+
+
+## Tests
+
+```bash
+python3 -m pytest tests/
+```
+
+Chaque script sous `bin/` (Python ou shell, quel que soit son dossier) a un `tests/test_*.py` correspondant, exécuté contre de vrais sous-processus/répertoires temporaires plutôt que des mocks partout où c'est possible (voir `tests/test_new_worktree.py` pour un exemple utilisant un vrai dépôt git local).
+
+## Documentation du projet
+
+
+| Document                                                               | Utilité                                                                                                |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [`docs/architecture.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/architecture.md)                         | L'architecture d'exécution V2 : `LoopDefinition`/`LoopState`/`LoopRuntime`, vérification/budget/politique, observabilité et la CLI — la carte d'ensemble, pas la spécification propre à l'une ou l'autre boucle |
+| [`TASK.md`](https://github.com/encoreshao/loop-engineering/blob/main/TASK.md)                                                   | Index de chaque tâche planifiée exécutée par ce dépôt, chacune pointant vers sa propre spécification sous `docs/tasks/` |
+| [`docs/tasks/gitlab-issue-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/gitlab-issue-loop.md)   | La spécification destinée aux humains de la boucle de tickets GitLab : objectif, périmètre, garde-fous de sécurité |
+| [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md) | La spécification destinée aux humains de la boucle de surveillance de sujets : objectif, périmètre, garde-fous de sécurité |
+| [`LOOPX_INSTRUCTIONS.md`](https://github.com/encoreshao/loop-engineering/blob/main/LOOPX_INSTRUCTIONS.md)                         | La procédure pas à pas que suit la boucle de tickets GitLab à chaque exécution                         |
+| [`TOPIC_MONITOR_INSTRUCTIONS.md`](https://github.com/encoreshao/loop-engineering/blob/main/TOPIC_MONITOR_INSTRUCTIONS.md)       | La procédure pas à pas que suit la boucle de surveillance de sujets à chaque exécution                 |
+| [`PROGRESS.md`](https://github.com/encoreshao/loop-engineering/blob/main/PROGRESS.md)                                           | L'état en direct que la boucle lit et met à jour à chaque exécution — résumé de la dernière exécution, escalades ouvertes, décisions prises |
+| [`docs/troubleshooting/crash-looping-launchd-agent.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/troubleshooting/crash-looping-launchd-agent.md) | Diagnostiquer et corriger un agent launchd `com.hermes.loop-engineering*` bloqué dans une boucle de plantages qui inonde son log |
+
+
+
+
+## Licence
+
+[MIT](https://github.com/encoreshao/loop-engineering/blob/main/LICENSE) — voir le fichier [`LICENSE`](https://github.com/encoreshao/loop-engineering/blob/main/LICENSE).

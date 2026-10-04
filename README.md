@@ -1,3 +1,5 @@
+**English** | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [Français](README.fr.md)
+
 # Loop X Engineering
 
 ![CI](https://github.com/encoreshao/loop-engineering/actions/workflows/ci.yml/badge.svg)
