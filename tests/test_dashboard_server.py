@@ -1077,7 +1077,7 @@ def test_main_content_sits_in_a_rounded_card_inset_from_the_nav():
     assert '<div class="main-scroll" id="main-scroll">' in page
     card = ds._STYLE.split("\n.app-bg {")[1].split("}")[0]
     for decl in ("top: var(--shell-top);", "left: var(--shell-left);",
-                 "right: var(--shell-gap);", "bottom: var(--shell-gap);",
+                 "right: var(--shell-right);", "bottom: var(--shell-gap);",
                  "border-radius: var(--shell-radius);"):
         assert decl in card
     scroller = ds._STYLE.split("\n.main-scroll {")[1].split("}")[0]
@@ -10878,7 +10878,7 @@ def test_chat_route_scopes_history_to_the_session_and_returns_its_id(monkeypatch
     ds.send_chat_message("other session question", messages_path, session="")
     ds.start_new_chat_session()
     captured = {}
-    monkeypatch.setattr(ds, "build_chat_prompt", lambda text, recent: captured.setdefault("recent", recent) and text or text)
+    monkeypatch.setattr(ds, "build_chat_prompt", lambda text, recent, page=None: captured.setdefault("recent", recent) and text or text)
     monkeypatch.setattr(ds, "_run_chat_job", lambda *a, **k: captured.setdefault("job", (a, k)))
 
     with _running_server() as port:
@@ -11555,3 +11555,284 @@ def test_repo_ships_translated_readmes_with_the_same_section_count(name):
     assert len(ds._markdown_h2_sections(translated)) == len(ds._markdown_h2_sections(english))
     assert translated.count("```") == english.count("```")
     assert "[English](README.md)" in translated.splitlines()[0]
+
+
+# --- AI side panel (Gemini-style assistant panel opened from the topbar) ---
+
+
+def _topbar_of(body):
+    return body.split("<div class=\"topbar\">", 1)[1].split("<div class=\"main-scroll\"", 1)[0]
+
+
+def test_render_shell_topbar_has_ai_panel_trigger():
+    body = ds._render_shell("Test Page", "overview", "<span>badge</span>", "<p>body</p>")
+    topbar = _topbar_of(body)
+    assert "id='ai-panel-trigger'" in topbar
+    assert "aria-controls='ai-panel'" in topbar
+    assert "aria-expanded='false'" in topbar
+    assert ">auto_awesome</span>" in topbar
+
+
+def test_render_shell_includes_resizable_ai_panel_with_composer():
+    body = ds._render_shell("Test Page", "gitlab", "<span>badge</span>", "<p>body</p>")
+    assert "<aside class='ai-panel' id='ai-panel'" in body
+    assert "data-page='gitlab'" in body
+    # Drag (and keyboard) resize handle on the panel's left edge.
+    assert "class='ai-panel-resizer'" in body
+    assert "role='separator'" in body
+    assert "aria-orientation='vertical'" in body
+    assert "id='ai-panel-form'" in body
+    assert ds._CSRF_TOKEN in body.split("id='ai-panel-form'", 1)[1]
+    # Reuses the existing live chat backend.
+    assert "'/activity/chat'" in body
+    assert "/activity/chat-stream?reply_key=" in body
+    assert "/activity/messages/fragment?session=" in body
+    # Width is persisted and restored before first paint.
+    assert "loop-ai-panel-width" in body
+    assert "loop-ai-panel-open" in body.split("</head>", 1)[0]
+
+
+def test_ai_panel_offers_prompts_for_the_current_page():
+    memory_body = ds._render_shell("Memory", "memory", "<span>b</span>", "<p>x</p>")
+    panel = memory_body.split("<aside class='ai-panel'", 1)[1].split("</aside>", 1)[0]
+    for _icon, label, prompt, _send in ds._AI_PANEL_PROMPTS["memory"]:
+        assert html.escape(label) in panel
+        assert html.escape(prompt, quote=True) in panel
+    overview_body = ds._render_shell("Dashboard", "overview", "<span>b</span>", "<p>x</p>")
+    overview_panel = overview_body.split("<aside class='ai-panel'", 1)[1].split("</aside>", 1)[0]
+    assert "What is the loop doing right now?" in overview_panel
+    assert "What has the loop learned so far?" not in overview_panel
+
+
+def test_ai_panel_falls_back_to_default_prompts_for_unknown_page():
+    body = ds._render_shell("Somewhere", "no-such-page", "<span>b</span>", "<p>x</p>")
+    panel = body.split("<aside class='ai-panel'", 1)[1].split("</aside>", 1)[0]
+    for _icon, _label, prompt, _send in ds._AI_PANEL_DEFAULT_PROMPTS:
+        assert html.escape(prompt, quote=True) in panel
+
+
+def test_ai_panel_prompts_cover_every_nav_page():
+    nav_keys = {key for _label, keys in ds._NAV_GROUPS for key in keys}
+    assert sorted(nav_keys - set(ds._AI_PANEL_PROMPTS)) == []
+
+
+def test_ai_panel_mutating_prompts_only_prefill():
+    """A chip that would start a run must never send by itself - the user
+    reviews the text and presses send (same rule as the Dashboard chips)."""
+    for prompts in list(ds._AI_PANEL_PROMPTS.values()) + [ds._AI_PANEL_DEFAULT_PROMPTS]:
+        for _icon, _label, prompt, send in prompts:
+            if prompt.lower().startswith("run "):
+                assert send is False, prompt
+
+
+def test_ai_panel_prompt_icons_are_in_subset_font_list():
+    names = set(ds._MATERIAL_SYMBOLS_ICON_NAMES.split(","))
+    for prompts in list(ds._AI_PANEL_PROMPTS.values()) + [ds._AI_PANEL_DEFAULT_PROMPTS]:
+        for icon, _label, _prompt, _send in prompts:
+            assert icon in names, icon
+    for icon in ("auto_awesome", "close", "add_comment", "arrow_upward", "arrow_forward"):
+        assert icon in names
+
+
+@pytest.mark.parametrize("code", ["ja", "zh", "fr"])
+def test_every_ai_panel_prompt_has_a_translation(code):
+    catalog = json.loads((Path(ds.__file__).resolve().parent.parent / "locales" / f"{code}.json").read_text("utf-8"))
+    strings = set()
+    for prompts in list(ds._AI_PANEL_PROMPTS.values()) + [ds._AI_PANEL_DEFAULT_PROMPTS]:
+        for _icon, label, prompt, _send in prompts:
+            strings.update((label, prompt))
+    assert sorted(s for s in strings if not catalog.get(s)) == []
+
+
+def test_ai_panel_prompts_render_translated(lang):
+    lang("ja")
+    body = ds._render_shell("Memory", "memory", "<span>b</span>", "<p>x</p>")
+    panel = body.split("<aside class='ai-panel'", 1)[1].split("</aside>", 1)[0]
+    _icon, label, prompt, _send = ds._AI_PANEL_PROMPTS["memory"][0]
+    assert html.escape(i18n.t(label)) in panel
+    assert html.escape(i18n.t(prompt), quote=True) in panel
+
+
+def test_build_chat_prompt_adds_current_page_context():
+    prompt = ds.build_chat_prompt("what is this?", [], page="memory")
+    assert "Memory" in prompt
+    assert "/memory" in prompt
+    assert prompt.endswith("what is this?")
+
+
+def test_build_chat_prompt_ignores_unknown_page():
+    assert ds.build_chat_prompt("hi", [], page="<script>") == "hi"
+    assert ds.build_chat_prompt("hi", [], page=None) == "hi"
+
+
+def test_activity_route_chat_passes_page_to_prompt(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds, "UNIFIED_LOG_PATH", tmp_path / "logs" / "loop-engineering.log")
+    monkeypatch.setattr(ds, "MESSAGES_PATH", tmp_path / "messages.json")
+    seen = {}
+    real_build = ds.build_chat_prompt
+
+    def capture(text, recent, page=None):
+        seen["page"] = page
+        return real_build(text, recent, page=page)
+
+    monkeypatch.setattr(ds, "build_chat_prompt", capture)
+    monkeypatch.setattr(ds, "_run_chat_job", lambda key, prompt, **k: ds._chat_job_finish(key, final_text="ok"))
+
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/")
+        status, _headers, _body = _post(port, "/activity/chat", {"text": "hi", "csrf_token": token, "page": "cost"})
+        assert status == 200
+    assert seen["page"] == "cost"
+
+
+def test_overview_buttons_use_global_btn_style(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds, "MESSAGES_PATH", tmp_path / "messages.json")
+    page = ds.render_overview_page()
+    assert "class='btn btn-neutral chat-tool-btn'" in page
+    assert "class='btn btn-neutral chat-tool-btn chat-new-btn'" in page
+    assert page.count("class='btn btn-neutral chat-link-pill'") == 2
+    assert "class='btn btn-neutral chat-chip'" in page
+    # The announcement link's trailing arrow is an aligned icon, not a text glyph.
+    announce = page.split("class='chat-announce'", 1)[1].split("</a>", 1)[0]
+    assert "&rarr;" not in announce
+    assert ">arrow_forward</span>" in announce
+
+
+def test_empty_dashboard_composer_resets_both_fixed_offsets():
+    """The empty hero puts the composer back in flow (position: relative),
+    where a leftover `right` from the fixed rule shifts it sideways - by
+    the whole AI panel width (--shell-right) once that panel is open."""
+    rule = ds._STYLE.split("html .chat-page.is-empty .activity-composer {")[1].split("}")[0]
+    assert "position: relative;" in rule
+    assert "left: auto;" in rule
+    assert "right: auto;" in rule
+
+
+def test_ai_panel_trigger_leads_the_topbar_right_group():
+    body = ds._render_shell("Test Page", "overview", "<span>badge</span>", "<p>body</p>")
+    right = body.split("<div class=\"header-right\">", 1)[1]
+    assert right.lstrip().startswith("<button type='button' class='ai-panel-trigger'")
+
+
+def test_topbar_right_controls_share_the_ai_button_height():
+    """Every control in the topbar's right group (AI button, AI CLI and
+    status pills, language switcher) is the same 40px tall."""
+    def rule(selector):
+        return ds._STYLE.split("\n" + selector + " {")[1].split("}")[0]
+    assert "height: 40px;" in rule(".ai-panel-trigger")
+    assert "height: 40px;" in rule(".topbar .header-right .pill")
+    assert "height: 40px;" in rule(".lang-switch-trigger")
+
+
+def test_ai_panel_has_chat_history_view():
+    body = ds._render_shell("Memory", "memory", "<span>b</span>", "<p>x</p>")
+    panel = body.split("<aside class='ai-panel'", 1)[1].split("</aside>", 1)[0]
+    header = panel.split("class='ai-panel-header'", 1)[1].split("class='ai-panel-body'", 1)[0]
+    # History toggle leads the header, Gemini-style, before the title.
+    assert header.index("data-ai-history-toggle") < header.index("ai-panel-title")
+    assert "aria-controls='ai-panel-history'" in header
+    assert ">history</span>" in header
+    assert "id='ai-panel-history'" in panel
+    assert "/activity/sessions/fragment?session=" in body
+
+
+def test_chat_started_from_any_page_lands_in_chat_history(monkeypatch, tmp_path):
+    """A chat sent from the AI panel on some page (session "" = new chat)
+    is an ordinary session: listed in the shared history the Dashboard
+    drawer and the panel's own history view both render."""
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
+    monkeypatch.setattr(ds, "UNIFIED_LOG_PATH", tmp_path / "logs" / "loop-engineering.log")
+    messages_path = tmp_path / "messages.json"
+    monkeypatch.setattr(ds, "MESSAGES_PATH", messages_path)
+    monkeypatch.setattr(ds, "_run_chat_job", lambda key, prompt, **k: ds._chat_job_finish(key, final_text="ok"))
+
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/memory")
+        status, _headers, body = _post(port, "/activity/chat",
+                                       {"text": "What has the loop learned?", "csrf_token": token,
+                                        "session": "", "page": "memory"})
+        assert status == 200
+        session_id = json.loads(body)["session"]
+
+    assert [s["id"] for s in ds.list_chat_sessions(messages_path)] == [session_id]
+    fragment = ds.render_chat_history_fragment(messages_path, active_session_id=session_id)
+    assert "What has the loop learned?" in fragment
+    assert "aria-current='page'" in fragment
+
+
+def _ai_panel_script_of(body):
+    return body.split("var KEY_OPEN = 'loop-ai-panel-open'", 1)[1].split("</script>", 1)[0]
+
+
+def test_ai_panel_streaming_bubbles_carry_the_same_meta_as_saved_ones():
+    """A reply bubble built while streaming gets the Loop X icon (and a
+    user bubble its "You" label) up front, like render_activity_messages_
+    fragment's saved bubbles - not only once the thread reloads."""
+    body = ds._render_shell("Memory", "memory", "<span>b</span>", "<p>x</p>")
+    script = _ai_panel_script_of(body)
+    assert "__BRAND_ICON__" not in script and "__YOU__" not in script
+    assert json.dumps(ds._MESSAGE_BRAND_ICON) in script
+    assert "message-meta" in script
+
+
+def test_ai_panel_thinking_indicator(lang):
+    lang("ja")
+    body = ds._render_shell("Memory", "memory", "<span>b</span>", "<p>x</p>")
+    script = _ai_panel_script_of(body)
+    assert "ai-thinking" in script
+    assert "ai-stream-caret" in script
+    assert json.dumps(i18n.t("Thinking…")) in script
+    assert i18n.t("Thinking…") != "Thinking…"
+
+
+def test_ai_thinking_animation_is_not_gated_behind_reduced_motion():
+    """Like .md-spinner (see CLAUDE.md), the thinking indicator's motion is
+    the only sign a reply is coming - it must not freeze under
+    prefers-reduced-motion."""
+    assert "@keyframes ai-thinking-spin" in ds._STYLE
+    reduced = ds._STYLE.split("@media (prefers-reduced-motion: no-preference) {")[1:]
+    assert all("ai-thinking" not in block.split("\n}\n")[0] for block in reduced)
+    avatar = ds._STYLE.split("\n.ai-thinking-avatar::before {")[1].split("}")[0]
+    assert "animation:" in avatar
+
+
+def _dashboard_chat_script_of(body):
+    return body.split("var form = document.getElementById('activity-composer-form');", 1)[1].split("\n})();", 1)[0]
+
+
+def test_dashboard_chat_uses_the_same_thinking_indicator_as_the_ai_panel(lang):
+    lang("fr")
+    body = ds._render_shell("Dashboard", "overview", "<span>b</span>", "<p>x</p>")
+    dashboard = _dashboard_chat_script_of(body)
+    panel = _ai_panel_script_of(body)
+    shared = json.dumps(ds._AI_THINKING_HTML)
+    assert shared in dashboard and shared in panel
+    assert json.dumps(i18n.t("Thinking…")) in dashboard
+    assert "ai-stream-caret" in dashboard
+    # The old small spinner in a placeholder bubble is gone.
+    assert "md-spinner md-spinner-sm" not in dashboard
+
+
+def test_ai_thinking_avatar_is_compact():
+    avatar = ds._STYLE.split("\n.ai-thinking-avatar {")[1].split("}")[0]
+    assert "width: 32px;" in avatar and "height: 32px;" in avatar
+
+
+def test_chat_replies_are_revealed_smoothly_in_both_chats():
+    """The CLI often emits a short reply's deltas within ~1s after a long
+    think, so painting each chunk as it lands looks like no streaming at
+    all. Both chats feed chunks through one shared paced revealer (defined
+    in <head>, before either chat script runs) and only swap in the saved,
+    markdown-rendered reply once it has finished revealing."""
+    body = ds._render_shell("Dashboard", "overview", "<span>b</span>", "<p>x</p>")
+    head = body.split("</head>", 1)[0]
+    assert "window.__loopTextReveal = function" in head
+    for script in (_dashboard_chat_script_of(body), _ai_panel_script_of(body)):
+        assert "__loopTextReveal(" in script
+        assert ".finish(function()" in script
+        assert ".stop()" in script
+    reveal = head.split("window.__loopTextReveal = function", 1)[1].split("\n};", 1)[0]
+    assert "document.hidden" in reveal
+    assert "prefers-reduced-motion: reduce" in reveal
