@@ -8945,6 +8945,21 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
     return _render_shell("Settings · Loop X Engineering", "general_settings", _status_badge_markup(status), body)
 
 
+def _localized_readme_path(readme_path=None):
+    """README_PATH's translated sibling for the current request language
+    (README.ja.md, README.zh-CN.md, README.fr.md - named by i18n.html_lang,
+    GitHub's usual convention), or README_PATH itself for English or when
+    that translation doesn't exist."""
+    if readme_path is None:
+        readme_path = README_PATH
+    lang = i18n.get_language()
+    if lang != i18n.DEFAULT_LANGUAGE:
+        translated = readme_path.with_name(f"{readme_path.stem}.{i18n.html_lang(lang)}{readme_path.suffix}")
+        if translated.is_file():
+            return translated
+    return readme_path
+
+
 def render_readme_page():
     """This repo's own README.md, rendered in-app for anyone who'd rather
     not leave the dashboard (or doesn't have a GitHub/editor view of the
@@ -8954,9 +8969,15 @@ def render_readme_page():
     page you've scrolled - see _markdown_h2_sections."""
     status = read_status(STATUS_PATH)
     try:
-        content = README_PATH.read_text()
+        content = _localized_readme_path().read_text(encoding="utf-8")
     except OSError:
         content = "# README\n\n" + _t("No README.md found in this repo.")
+    # The GitHub-facing "[English](README.md) | [日本語](README.ja.md) | ..."
+    # line atop each README links to sibling files that don't resolve
+    # in-app - the topbar's language switcher already does that job here.
+    first_line, _, rest = content.partition("\n")
+    if first_line.startswith("[English](README.md)") or first_line.startswith("**English**"):
+        content = rest.lstrip("\n")
 
     quicknav_links = "".join(
         f"<a href='#{slug}' class='readme-quicknav-link'>{html.escape(title)}</a>"

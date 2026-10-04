@@ -11509,3 +11509,49 @@ def test_dashboard_server_integration_honors_language_cookie():
         server.shutdown()
         thread.join(timeout=5)
         server.server_close()
+
+
+def test_render_readme_page_uses_the_translated_readme_for_the_current_language(monkeypatch, tmp_path, lang):
+    (tmp_path / "README.md").write_text("# Loop\n\n## How it works\nEnglish body.\n")
+    (tmp_path / "README.ja.md").write_text("# Loop\n\n## 仕組み\n日本語の本文。\n")
+    (tmp_path / "README.zh-CN.md").write_text("# Loop\n\n## 工作原理\n中文正文。\n")
+    monkeypatch.setattr(ds, "README_PATH", tmp_path / "README.md")
+
+    lang("ja")
+    output = ds.render_readme_page()
+    assert "日本語の本文。" in output
+    assert "<a href='#仕組み' class='readme-quicknav-link'>仕組み</a>" in output
+    assert "English body." not in output
+
+    lang("zh")
+    assert "中文正文。" in ds.render_readme_page()
+
+
+def test_render_readme_page_falls_back_to_english_without_a_translation(monkeypatch, tmp_path, lang):
+    (tmp_path / "README.md").write_text("# Loop\n\n## How it works\nEnglish body.\n")
+    monkeypatch.setattr(ds, "README_PATH", tmp_path / "README.md")
+
+    lang("fr")
+    assert "English body." in ds.render_readme_page()
+
+
+def test_render_readme_page_strips_the_github_language_switcher_line(monkeypatch, tmp_path):
+    (tmp_path / "README.md").write_text(
+        "[English](README.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [Français](README.fr.md)\n\n"
+        "# Loop\n\nBody.\n"
+    )
+    monkeypatch.setattr(ds, "README_PATH", tmp_path / "README.md")
+
+    output = ds.render_readme_page()
+    assert "README.ja.md" not in output
+    assert "Body." in output
+
+
+@pytest.mark.parametrize("name", ["README.ja.md", "README.zh-CN.md", "README.fr.md"])
+def test_repo_ships_translated_readmes_with_the_same_section_count(name):
+    root = Path(ds.__file__).resolve().parent.parent.parent
+    english = (root / "README.md").read_text("utf-8")
+    translated = (root / name).read_text("utf-8")
+    assert len(ds._markdown_h2_sections(translated)) == len(ds._markdown_h2_sections(english))
+    assert translated.count("```") == english.count("```")
+    assert "[English](README.md)" in translated.splitlines()[0]
