@@ -8146,11 +8146,17 @@ def test_dispatch_chat_tool_run_issue_dispatches_to_chat_tool_run_issue(monkeypa
     assert "Started work on harbor #482" in capsys.readouterr().out
 
 
-def test_chat_tool_history_delete(tmp_path):
+def test_chat_tool_history_delete_moves_entry_to_trash(tmp_path):
+    """A chat delete is recoverable: the entry moves into history/.trash/
+    rather than being unlinked, since chat's prompt can carry third-party
+    GitLab text - a prompt-injected delete must never be permanent."""
     (tmp_path / "2026-08-20.md").write_text("content")
     result = ds._chat_tool_history_delete("2026-08-20.md", history_dir=tmp_path)
-    assert result == {"ok": True, "message": "Deleted 2026-08-20.md"}
+    assert result["ok"] is True
+    assert "2026-08-20.md" in result["message"]
     assert not (tmp_path / "2026-08-20.md").exists()
+    assert (tmp_path / ".trash" / "2026-08-20.md").read_text() == "content"
+    assert ds.list_run_history(tmp_path) == []
 
 
 def test_chat_tool_history_delete_missing_file(tmp_path):
@@ -8158,22 +8164,58 @@ def test_chat_tool_history_delete_missing_file(tmp_path):
     assert result == {"ok": False, "message": "missing.md not found"}
 
 
-def test_dispatch_chat_tool_history_delete_is_not_reachable(capsys):
-    """Fix 5 (scope change): history-delete is removed from the chat
-    assistant's action surface entirely - GitLab issue content (attacker-
-    influenceable) flows into the files chat-tool reads and into the
-    assistant's own prompt, so a destructive action must not be reachable
-    from chat. _chat_tool_history_delete itself is kept (and still tested
-    directly above) for any future non-chat caller, but the CLI dispatcher
-    must treat it exactly like any other unknown action now."""
+def test_chat_tool_history_delete_rejects_path_traversal(tmp_path):
+    history = tmp_path / "history"
+    history.mkdir()
+    (tmp_path / "secret.md").write_text("keep")
+    result = ds._chat_tool_history_delete("../secret.md", history_dir=history)
+    assert result["ok"] is False
+    assert (tmp_path / "secret.md").exists()
+
+
+def test_chat_tool_history_delete_rejects_non_md(tmp_path):
+    (tmp_path / "2026-08-20.log").write_text("log")
+    result = ds._chat_tool_history_delete("2026-08-20.log", history_dir=tmp_path)
+    assert result["ok"] is False
+    assert (tmp_path / "2026-08-20.log").exists()
+
+
+def test_chat_tool_history_delete_keeps_earlier_trashed_copy(tmp_path):
+    (tmp_path / ".trash").mkdir()
+    (tmp_path / ".trash" / "2026-08-20.md").write_text("old")
+    (tmp_path / "2026-08-20.md").write_text("new")
+    result = ds._chat_tool_history_delete("2026-08-20.md", history_dir=tmp_path)
+    assert result["ok"] is True
+    trashed = sorted(p.read_text() for p in (tmp_path / ".trash").iterdir())
+    assert trashed == ["new", "old"]
+
+
+def test_dispatch_chat_tool_history_delete(monkeypatch, capsys):
+    captured = {}
+
+    def fake_delete(name):
+        captured["name"] = name
+        return {"ok": True, "message": "Moved 2026-09-10.md to trash"}
+
+    monkeypatch.setattr(ds, "_chat_tool_history_delete", fake_delete)
+    ds._dispatch_chat_tool("history-delete", ["2026-09-10.md"])
+    assert captured["name"] == "2026-09-10.md"
+    assert "Moved 2026-09-10.md to trash" in capsys.readouterr().out
+
+
+def test_dispatch_chat_tool_history_delete_requires_name(capsys):
     with pytest.raises(SystemExit) as exc_info:
-        ds._dispatch_chat_tool("history-delete", ["2026-08-20.md"])
+        ds._dispatch_chat_tool("history-delete", [])
     assert exc_info.value.code == 1
-    assert "Unknown chat-tool action" in capsys.readouterr().err
 
 
-def test_chat_assistant_system_prompt_does_not_mention_history_delete():
-    assert "history-delete" not in ds._CHAT_ASSISTANT_SYSTEM_PROMPT
+def test_history_delete_is_a_mutating_chat_action():
+    assert "history-delete" in ds._CHAT_MUTATING_ACTIONS
+
+
+def test_chat_assistant_system_prompt_documents_history_delete():
+    assert "history-delete <name>" in ds._CHAT_ASSISTANT_SYSTEM_PROMPT
+    assert "Deleting anything is not available from chat" not in ds._CHAT_ASSISTANT_SYSTEM_PROMPT
 
 
 def test_chat_assistant_system_prompt_documents_run_issue_action():
