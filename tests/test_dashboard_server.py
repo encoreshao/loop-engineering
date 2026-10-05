@@ -1523,6 +1523,36 @@ def test_render_shell_shows_selected_ai_cli_badge_for_claude(monkeypatch, tmp_pa
     assert "href='/settings/general?tab=ai-cli'" in body
 
 
+def test_render_shell_ai_cli_badge_uses_theme_accent_color(monkeypatch, tmp_path):
+    monkeypatch.setattr(ai_cli_config, "DEFAULT_CONFIG_PATH", tmp_path / "does-not-exist.json")
+
+    body = ds._render_shell("Test Page", "overview", "<span>badge</span>", "<p>body</p>")
+
+    assert "<a class='pill pill-ai-cli' href='/settings/general?tab=ai-cli'>" in body
+    assert ".pill-ai-cli {{ background: var(--md-nav-active-surface); color: var(--md-nav-active-on-surface); }}".replace("{{", "{").replace("}}", "}") in body
+
+
+def test_render_shell_ai_cli_badge_shows_claude_logo(monkeypatch, tmp_path):
+    monkeypatch.setattr(ai_cli_config, "DEFAULT_CONFIG_PATH", tmp_path / "does-not-exist.json")
+
+    body = ds._render_shell("Test Page", "overview", "<span>badge</span>", "<p>body</p>")
+
+    assert ds._AI_CLI_LOGOS["claude"] in body
+    assert ds._AI_CLI_LOGOS["codex"] not in body
+    assert ">smart_toy<" not in body
+
+
+def test_render_shell_ai_cli_badge_shows_openai_logo_for_codex(monkeypatch, tmp_path):
+    config_path = tmp_path / "ai_cli.json"
+    config_path.write_text('{"cli": "codex"}')
+    monkeypatch.setattr(ai_cli_config, "DEFAULT_CONFIG_PATH", config_path)
+
+    body = ds._render_shell("Test Page", "overview", "<span>badge</span>", "<p>body</p>")
+
+    assert ds._AI_CLI_LOGOS["codex"] in body
+    assert ds._AI_CLI_LOGOS["claude"] not in body
+
+
 def test_render_shell_shows_selected_ai_cli_badge_for_codex(monkeypatch, tmp_path):
     config_path = tmp_path / "ai_cli.json"
     config_path.write_text('{"cli": "codex"}')
@@ -3164,6 +3194,16 @@ def test_general_settings_nav_item_present_with_icon():
 
 def test_general_settings_material_symbol_name_is_registered():
     assert "tune" in ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
+
+
+def test_render_general_settings_page_block_kit_builder_card_is_spaced_below_slack_card(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "SLACK_CONFIG_PATH", tmp_path / "does-not-exist-slack.json")
+    monkeypatch.setattr(ds, "CUSTOM_INSTRUCTIONS_PATH", tmp_path / "does-not-exist-instructions.md")
+
+    output = ds.render_general_settings_page(active_tab="notifications")
+
+    assert '<section class="card block-kit-card">' in output
+    assert ".block-kit-card { margin-top: 1.25rem; }" in ds._render_shell("T", "overview", "", "")
 
 
 def test_render_general_settings_page_notifications_tab_uses_slack_mark(monkeypatch, tmp_path):
