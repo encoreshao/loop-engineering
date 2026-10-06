@@ -24,6 +24,7 @@ MAX_TRACE_CHARS = 20_000
 RECURRING_WINDOW_DAYS = 7
 RECURRING_THRESHOLD = 3
 LOOKBACK_HOURS = 26
+MAX_MR_DETAIL_FETCHES = 20
 CATEGORIES = ("flaky", "infra", "test_failure", "lint", "build", "dependency", "config", "unknown")
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -67,8 +68,30 @@ class FingerprintStore:
             return {}
         return data if isinstance(data, dict) else {}
 
-    def record(self, fp):
+    def _recorded_path(self):
+        return self.path.with_name("recorded_pipelines.json")
+
+    def _write(self, path, data):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + f".tmp{os.getpid()}")
+        tmp.write_text(json.dumps(data, indent=2))
+        os.replace(tmp, path)
+
+    def _recorded(self, now):
+        try:
+            data = json.loads(self._recorded_path().read_text())
+        except (OSError, ValueError):
+            return {}
+        cutoff = (now - timedelta(days=RECURRING_WINDOW_DAYS)).isoformat()
+        return {k: v for k, v in data.items() if isinstance(data, dict) and isinstance(v, str) and v >= cutoff}
+
+    def record(self, fp, pipeline_key=None):
+        """Count this occurrence; with pipeline_key, each pipeline counts once
+        (a --force re-diagnosis only reads the current count)."""
         now = self._now()
+        recorded = self._recorded(now) if pipeline_key else {}
+        if pipeline_key in recorded:
+            return len(self._load().get(fp) or []) >= RECURRING_THRESHOLD
         cutoff = now - timedelta(days=RECURRING_WINDOW_DAYS)
         fresh = {}
         for key, stamps in self._load().items():
@@ -85,10 +108,10 @@ class FingerprintStore:
             if kept:
                 fresh[key] = kept
         fresh.setdefault(fp, []).append(now.isoformat())
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_name(self.path.name + f".tmp{os.getpid()}")
-        tmp.write_text(json.dumps(fresh, indent=2))
-        os.replace(tmp, self.path)
+        self._write(self.path, fresh)
+        if pipeline_key:
+            recorded[pipeline_key] = now.isoformat()
+            self._write(self._recorded_path(), recorded)
         return len(fresh[fp]) >= RECURRING_THRESHOLD
 
 
@@ -186,9 +209,20 @@ class PipelineDoctor(loopkit.LoopPlugin):
         me = conn.api("GET", "/user")
         rows = conn.api("GET", f"/merge_requests?author_username={_quote(me['username'])}"
                                "&state=opened&scope=all&per_page=50")
-        out = []
+        out, fallbacks = [], 0
         for mr in rows or []:
-            pipe = mr.get("head_pipeline")
+            if "head_pipeline" in mr:
+                pipe = mr.get("head_pipeline")
+            elif fallbacks < MAX_MR_DETAIL_FETCHES:
+                # The list endpoint does not always include head_pipeline.
+                fallbacks += 1
+                try:
+                    pipe = (conn.api("GET", f"/projects/{mr['project_id']}/merge_requests/{mr['iid']}")
+                            or {}).get("head_pipeline")
+                except Exception:  # noqa: BLE001 - one MR failing never stops the rest
+                    continue
+            else:
+                continue
             if isinstance(pipe, dict) and pipe.get("status") == "failed":
                 pid = mr["project_id"]
                 out.append((pid, names.get(str(pid)) or f"project {pid}", pipe))
@@ -230,7 +264,7 @@ class PipelineDoctor(loopkit.LoopPlugin):
         jobs = payload.get("jobs") or []
         first_job = jobs[0]["name"] if jobs else ""
         first_line = (explanation.splitlines() or [""])[0]
-        recurring = self._store(ctx).record(fingerprint(first_job, first_line))
+        recurring = self._store(ctx).record(fingerprint(first_job, first_line), item.key)
         summary = f"[{category}] {payload.get('project')} #{payload.get('pipeline_id')}: {culprit}"
         return loopkit.Outcome(
             item.key, "done", summary, url=item.url or payload.get("web_url", ""),

@@ -151,9 +151,9 @@ def test_default_projects_fn_maps_config(monkeypatch):
                     {"alias": "h", "gitlab_instance": "other", "project_id": "o/h", "default_branch": None}]
 
 
-def _item():
-    return pd.loopkit.WorkItem("pipe:work:9#100", "web #100", "https://gl/p/100", {
-        "account": "work", "project": "web", "project_id": 9, "pipeline_id": 100,
+def _item(pid=100):
+    return pd.loopkit.WorkItem(f"pipe:work:9#{pid}", f"web #{pid}", f"https://gl/p/{pid}", {
+        "account": "work", "project": "web", "project_id": 9, "pipeline_id": pid,
         "jobs": [{"name": "rspec", "stage": "test", "web_url": "u", "trace_tail": "x"}]})
 
 
@@ -162,7 +162,7 @@ def test_after_item_records_fingerprint_and_flags_recurring(tmp_path):
     plugin = pd.PipelineDoctor(state_dir=tmp_path / "state")
     answer = {"category": "flaky", "culprit": "spec/x_spec.rb", "explanation": "Timeout\nmore",
               "suggested_fix": "retry", "confidence": 0.8}
-    outs = [plugin.after_item(_item(), dict(answer), ctx) for _ in range(3)]
+    outs = [plugin.after_item(_item(100 + i), dict(answer), ctx) for i in range(3)]
     assert [o.data["recurring"] for o in outs] == [False, False, True]
     assert outs[0].status == "done" and outs[0].summary == "[flaky] web #100: spec/x_spec.rb"
     assert outs[0].url == "https://gl/p/100" and outs[0].data["category"] == "flaky"
@@ -212,3 +212,41 @@ def test_definition_files_and_template():
     assert entry["requires"] == ["pipelines"] and entry["routes_notifications"] is True
     assert entry["schedule"] == {"frequency": "hourly", "interval_hours": 1} and entry["timeout_seconds"] == 1800
     assert entry["enabled"] is False and entry["entry_point"] == "bin.loop_plugins.pipeline_doctor"
+
+
+def test_mr_without_head_pipeline_in_list_falls_back_to_detail_gets_only():
+    class F(G):
+        def api(self, method, path, **kw):
+            if path.startswith("/merge_requests?"):
+                self.calls.append((method, path))
+                return [{"iid": 7, "project_id": 9}]
+            if path == "/projects/9/merge_requests/7":
+                self.calls.append((method, path))
+                return {"head_pipeline": {"id": 777, "status": "failed", "web_url": "https://gl/p/777"}}
+            return super().api(method, path, **kw)
+    g = F()
+    keys = sorted(i.key for i in _plugin(g).discover(C()))
+    assert "pipe:work:9#777" in keys and all(m == "GET" for m, _ in g.calls)
+
+
+def test_mr_detail_fallback_bounded_to_20():
+    class F(G):
+        details = 0
+        def api(self, method, path, **kw):
+            if path.startswith("/merge_requests?"):
+                return [{"iid": i, "project_id": 9} for i in range(30)]
+            if "/merge_requests/" in path:
+                F.details += 1; return {"head_pipeline": None}
+            return super().api(method, path, **kw)
+    _plugin(F()).discover(C())
+    assert F.details == 20
+
+
+def test_force_rediagnosis_does_not_rerecord_fingerprint(tmp_path):
+    ctx = C(); ctx.repo_root = tmp_path
+    plugin = pd.PipelineDoctor(state_dir=tmp_path / "s")
+    answer = {"category": "flaky", "culprit": "x", "explanation": "Timeout", "suggested_fix": "f", "confidence": 1}
+    outs = [plugin.after_item(_item(), dict(answer), ctx) for _ in range(5)]
+    assert [o.data["recurring"] for o in outs] == [False] * 5
+    fps = json.loads((tmp_path / "s" / "fingerprints.json").read_text())
+    assert [len(v) for v in fps.values()] == [1]

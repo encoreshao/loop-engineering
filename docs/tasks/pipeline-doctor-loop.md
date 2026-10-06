@@ -26,12 +26,20 @@ keep coming back are flagged so flaky tests and chronic breakage stand out.
 - The answer has `category` (`flaky|infra|test_failure|lint|build|dependency|config|unknown`),
   `culprit`, `explanation`, `suggested_fix` and `confidence`.
 
+- Scope limits: only the default branch is watched (other branches' failures
+  are seen only when they are the head pipeline of one of your open MRs), and
+  an account with no tracked project in `projects.json` is not scanned at all,
+  not even for your MRs. If the MR list omits `head_pipeline`, the loop fetches
+  the MR detail for up to 20 such MRs per account.
+
 ## Recurring failures
 
 A fingerprint (`sha1(job name + explanation's first line)[:12]`) is stored in
 `outputs/loops/pipeline-doctor-loop/fingerprints.json` (gitignored). Three or
 more occurrences in 7 days mark the diagnosis as recurring; the digest lists
-recurring items first, prefixed with a repeat marker.
+recurring items first, prefixed with a repeat marker. Each pipeline counts
+once (tracked in `recorded_pipelines.json` beside it), so a `--force`
+re-diagnosis does not inflate the count.
 
 ## Safety boundary
 

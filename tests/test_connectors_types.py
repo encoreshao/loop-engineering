@@ -492,30 +492,55 @@ def test_webhook_preset_descriptions_are_distinct_and_non_empty():
 
 
 class _FakeResp:
-    def __init__(self, data): self.data = data; self.read_sizes = []
-    def read(self, n=-1): self.read_sizes.append(n); return self.data if n < 0 else self.data[:n]
+    def __init__(self, data, status=200):
+        self.data = data; self.pos = 0; self.status = status; self.max_chunk = 0
+    def read(self, n=-1):
+        n = len(self.data) - self.pos if n is None or n < 0 else n
+        self.max_chunk = max(self.max_chunk, n)
+        out = self.data[self.pos:self.pos + n]; self.pos += len(out); return out
     def __enter__(self): return self
     def __exit__(self, *a): return False
 
 
-def test_gitlab_api_text_returns_text_with_token_header(monkeypatch):
+def test_gitlab_api_text_returns_text_with_token_and_range_headers(monkeypatch):
     import urllib.request
     seen = {}
     def fake(req, timeout=None):
         seen["url"] = req.full_url; seen["headers"] = dict(req.header_items()); seen["timeout"] = timeout
-        return _FakeResp("boom ✓\n".encode())
+        return _FakeResp("boom \u2713\n".encode())
     monkeypatch.setattr(urllib.request, "urlopen", fake)
     c, _ = make("gitlab", {"url": "https://gl.example/"}, secret="tok")
-    assert c.api_text("/projects/9/jobs/5/trace", timeout=7) == "boom ✓\n"
+    assert c.api_text("/projects/9/jobs/5/trace", timeout=7) == "boom \u2713\n"
     assert seen["url"] == "https://gl.example/api/v4/projects/9/jobs/5/trace"
     assert seen["headers"]["Private-token"] == "tok" and seen["timeout"] == 7
+    assert seen["headers"]["Range"] == "bytes=-2097152"
 
 
-def test_gitlab_api_text_caps_read_at_2mb(monkeypatch):
+def test_gitlab_api_text_keeps_tail_when_server_ignores_range(monkeypatch):
     import urllib.request
-    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: _FakeResp(b"x" * (3 * 1024 * 1024)))
+    body = b"a" * (1024 * 1024) + b"b" * (2 * 1024 * 1024 - 5) + b"THE-END"
+    resp = _FakeResp(body)
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: resp)
     c, _ = make("gitlab", {"url": "https://gl.example"})
-    assert len(c.api_text("/t")) == 2 * 1024 * 1024
+    text = c.api_text("/t")
+    assert len(text) <= 2 * 1024 * 1024 and text.endswith("THE-END") and text.startswith("b")
+    assert resp.max_chunk <= 64 * 1024
+
+
+def test_gitlab_api_text_accepts_206_partial(monkeypatch):
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: _FakeResp(b"tail-part", status=206))
+    c, _ = make("gitlab", {"url": "https://gl.example"})
+    assert c.api_text("/t") == "tail-part"
+
+
+def test_gitlab_api_text_416_is_empty(monkeypatch):
+    import io, urllib.error, urllib.request
+    def r416(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 416, "x", {}, io.BytesIO(b""))
+    monkeypatch.setattr(urllib.request, "urlopen", r416)
+    c, _ = make("gitlab", {"url": "https://gl.example"})
+    assert c.api_text("/t") == ""
 
 
 def test_gitlab_api_text_errors_redact_url_and_token(monkeypatch):

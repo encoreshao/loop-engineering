@@ -14,6 +14,7 @@ from connectors.base import (
 )
 
 _MAX_TEXT_BYTES = 2 * 1024 * 1024
+_CHUNK_BYTES = 64 * 1024
 
 
 @register
@@ -38,15 +39,28 @@ class GitLabConnector(Connector):
                          headers={"PRIVATE-TOKEN": self.secret or ""}, timeout=timeout, **kw)
 
     def api_text(self, path, timeout=30):
-        """GET a plain-text endpoint (e.g. a job trace). The read is capped at
-        2 MB. Errors carry only the status: the URL and token are never put in
-        the exception."""
-        request = urllib.request.Request(f"{self.base_url()}/api/v4{path}", method="GET",
-                                         headers={"PRIVATE-TOKEN": self.secret or ""})
+        """GET a plain-text endpoint (e.g. a job trace) and return its LAST
+        2 MB (failures sit at the end of a log). Asks for a suffix Range; if
+        the server ignores it, streams the body keeping only a rolling tail.
+        Errors carry only the status: the URL and token are never put in the
+        exception."""
+        request = urllib.request.Request(
+            f"{self.base_url()}/api/v4{path}", method="GET",
+            headers={"PRIVATE-TOKEN": self.secret or "", "Range": f"bytes=-{_MAX_TEXT_BYTES}"})
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
-                return response.read(_MAX_TEXT_BYTES).decode("utf-8", "replace")
+                tail = bytearray()
+                while True:
+                    chunk = response.read(_CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    tail += chunk
+                    if len(tail) > _MAX_TEXT_BYTES + _CHUNK_BYTES:
+                        del tail[:len(tail) - _MAX_TEXT_BYTES]
+                return bytes(tail[-_MAX_TEXT_BYTES:]).decode("utf-8", "replace")
         except urllib.error.HTTPError as exc:
+            if exc.code == 416:  # empty body: nothing to range over
+                return ""
             raise mail_http.MailHTTPError(exc.code, "", "") from None
         except (urllib.error.URLError, TimeoutError, ConnectionError):
             raise mail_http.MailHTTPError(None, "", "") from None
