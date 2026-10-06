@@ -91,3 +91,11 @@ def test_topic_monitor_actions_are_classified_as_local_mutation():
 
     assert ACTION_RISK_LEVELS["research_topic"] == RiskLevel.L1_LOCAL_MUTATION
     assert ACTION_RISK_LEVELS["write_briefing"] == RiskLevel.L1_LOCAL_MUTATION
+
+
+def test_new_actions_have_explicit_levels():
+    from loop_policy import ACTION_RISK_LEVELS, RiskLevel
+    assert ACTION_RISK_LEVELS["create_draft_review_note"] is RiskLevel.L2_EXTERNAL_CHANGE
+    assert ACTION_RISK_LEVELS["send_notification"] is RiskLevel.L2_EXTERNAL_CHANGE
+    for a in ("fetch_connector_data", "summarize", "review_diff", "diagnose_failure"):
+        assert ACTION_RISK_LEVELS[a] is RiskLevel.L0_READ_ONLY

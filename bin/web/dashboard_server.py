@@ -7029,8 +7029,8 @@ def _sidebar_loop_children(active_page, loops=None, status_path_fn=None):
         if not isinstance(loop, dict):
             continue
         name = str(loop.get("name", ""))
-        page = pages.get(name)
-        if page is None or not loop_is_visible(loop, status_path_fn):
+        page = pages.get(name) or _generic_loop_page(name, loop)
+        if not name or not loop_is_visible(loop, status_path_fn):
             continue
         links.append(_nav_link(
             f"loop:{name}", f"/loops/{urllib.parse.quote(name)}", page.label, page.icon,
@@ -13228,6 +13228,113 @@ def _loop_pages():
     }
 
 
+_LOOP_HISTORY_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}\.md$")  # loopkit._write_reports' filename
+
+
+def _loop_output_dir(name, base_dir=None):
+    if base_dir is None:
+        base_dir = LOOP_DIR
+    return Path(base_dir) / "outputs" / "loops" / name
+
+
+def _read_loop_last_run(name):
+    try:
+        data = json.loads((_loop_output_dir(name) / "last-run.json").read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _loop_history_files(name):
+    """Newest-first history filenames loopkit wrote for this loop (only names
+    matching its exact timestamp pattern)."""
+    try:
+        names = [p.name for p in (_loop_output_dir(name) / "history").iterdir()
+                 if p.is_file() and _LOOP_HISTORY_FILE_RE.match(p.name)]
+    except OSError:
+        return []
+    return sorted(names, reverse=True)
+
+
+def _generic_loop_live_body(name, flash=None, flash_ok=True):
+    safe_name = html.escape(name)
+    quoted = urllib.parse.quote(name)
+    csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
+    status = read_status(status_path_for_loop(name))
+    last = _read_loop_last_run(name)
+    parts = [_flash_html(flash, flash_ok),
+             f"<section class='card'><div class='section-header'><h2>{html.escape(_t('Status'))}</h2>"
+             f"{_status_badge_markup(status)}</div>"]
+    if last is None:
+        parts.append(f"<p>{html.escape(_t('No runs recorded yet.'))}</p>")
+    else:
+        counts = last.get("counts") if isinstance(last.get("counts"), dict) else {}
+        parts.append(
+            f"<p>{html.escape(_t('Last run'))}: {html.escape(str(last.get('finished_at', '')))}</p>"
+            "<ul class='loop-counts'>"
+            + "".join(f"<li>{html.escape(_t(label))}: <strong>{html.escape(str(counts.get(key, 0)))}</strong></li>"
+                      for key, label in (("done", "Done"), ("skipped", "Skipped"), ("failed", "Failed")))
+            + "</ul>")
+        outcomes = [o for o in (last.get("outcomes") or []) if isinstance(o, dict)]
+        if outcomes:
+            rows = []
+            for o in outcomes:
+                url = str(o.get("url") or "")
+                key = html.escape(str(o.get("item_key", "")))
+                if url.startswith(("http://", "https://")):
+                    key = f"<a href='{html.escape(url, quote=True)}' target='_blank' rel='noopener'>{key}</a>"
+                rows.append(f"<tr><td>{key}</td><td>{html.escape(str(o.get('status', '')))}</td>"
+                            f"<td>{html.escape(str(o.get('summary', '')))}</td></tr>")
+            head = "".join(f"<th>{html.escape(_t(c))}</th>" for c in ("Item", "Status", "Summary"))
+            parts.append(f"<div class='table-wrap'><table><thead><tr>{head}</tr></thead>"
+                         f"<tbody>{''.join(rows)}</tbody></table></div>")
+    parts.append(f"<p><a href='/loops/{quoted}?view=history'>{html.escape(_t('View run history'))}</a></p>")
+    if status.get("state") != "running":
+        parts.append(_run_now_action_html(f"/loops/{safe_name}/run-now", "", csrf_input))
+    parts.append("</section>")
+    return "".join(parts)
+
+
+def _generic_loop_history_body(name, flash=None, flash_ok=True):
+    quoted = urllib.parse.quote(name)
+    files = _loop_history_files(name)
+    if not files:
+        inner = f"<p>{html.escape(_t('No history yet.'))}</p>"
+    else:
+        inner = "<ul>" + "".join(
+            f"<li><a href='/loops/{quoted}/history/{html.escape(f)}'>{html.escape(f[:-3])}</a></li>"
+            for f in files) + "</ul>"
+    return (_flash_html(flash, flash_ok)
+            + f"<section class='card'><div class='section-header'><h2>{html.escape(_t('History'))}</h2></div>"
+            + inner + "</section>")
+
+
+def _generic_loop_page(name, loop=None):
+    """Generic tabbed page (Live + History) for a registered LoopKit plugin
+    loop with no bespoke page. The label is the registry description, else
+    the loop name."""
+    V = hub_mod.HubView
+    label = str((loop or {}).get("description") or name)
+    return hub_mod.Hub("loops", f"/loops/{urllib.parse.quote(name)}", label, _SECTION_ICON_LOOPS, (
+        V("live", "Live", lambda **kw: _generic_loop_live_body(name, **_only(kw, "flash", "flash_ok")), refresh=True),
+        V("history", "History", lambda **kw: _generic_loop_history_body(name, **_only(kw, "flash", "flash_ok"))),
+    ))
+
+
+def _loop_page_for(name, loop=None):
+    """The bespoke page for `name`, else the generic page when `name` is a
+    registered loop (`loop` given, or looked up); None otherwise."""
+    page = _loop_pages().get(name)
+    if page is not None:
+        return page
+    if loop is None:
+        try:
+            loop = loops_config.get_loop(name)
+        except (KeyError, ValueError, OSError, json.JSONDecodeError, TypeError, AttributeError):
+            return None
+    return _generic_loop_page(name, loop)
+
+
 def loop_is_visible(loop, status_path_fn=None):
     """A loop shows under "Active loops" when it is enabled or has ever run
     (its status file exists); otherwise it is only "Available"."""
@@ -13352,7 +13459,7 @@ def _loop_notify_form_html(loop, csrf_input, notify_accounts):
 def _loops_catalog_row(loop, csrf_input, pages, notify_accounts=()):
     name = str(loop.get("name", "?"))
     safe_name = html.escape(name)
-    page = pages.get(name)
+    page = pages.get(name) or _generic_loop_page(name, loop)
     icon = page.icon if page else _SECTION_ICON_OVERVIEW
     label = html.escape(i18n.t(page.label) if page else name)
     loop_status = read_status(status_path_for_loop(name))
@@ -13425,7 +13532,7 @@ def render_loops_catalog_page(flash=None, flash_ok=True):
 
 def render_loop_page(name, view=None, flash=None, flash_ok=True, **ctx):
     """A loop's tabbed page; None for an unknown loop name (caller 404s)."""
-    page = _loop_pages().get(name)
+    page = _loop_page_for(name)
     if page is None:
         return None
     current = hub_mod.resolve_view(page, view)
@@ -13518,6 +13625,28 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_html(render_loops_catalog_page(
                 flash=query.get("flash", [None])[0],
                 flash_ok=query.get("ok", ["1"])[0] != "0"))
+            return
+
+        if split.path.startswith("/loops/") and split.path.count("/") == 4 and "/history/" in split.path:
+            _, _, loop_name, _, fname = split.path.split("/")
+            loop_name = urllib.parse.unquote(loop_name)
+            fname = urllib.parse.unquote(fname)
+            if (loop_name in _loop_pages() or not _LOOP_HISTORY_FILE_RE.match(fname)
+                    or _loop_page_for(loop_name) is None):
+                self._not_found()
+                return
+            history_dir = (_loop_output_dir(loop_name) / "history").resolve()
+            target = (history_dir / fname).resolve()
+            if target.parent != history_dir or not target.is_file():
+                self._not_found()
+                return
+            body_html = (
+                f"<div class='page-title'><h1>{html.escape(fname[:-3])}</h1></div>"
+                f"<p><a href='/loops/{urllib.parse.quote(loop_name)}?view=history'>"
+                f"{html.escape(_t('Back to history'))}</a></p>"
+                f"<section class='card'>{render_markdown(target.read_text(errors='replace'))}</section>")
+            self._send_html(_render_shell(
+                f"{fname[:-3]} · Loop X Engineering", f"loop:{loop_name}", _default_badge(), body_html))
             return
 
         if split.path.startswith("/loops/") and split.path.count("/") == 2:
@@ -14014,6 +14143,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
             name = urllib.parse.unquote(self.path[len("/daemons/loops/"):-len("/enable")])
             ok, message = enable_loop_if_requirements_met(name)
             self._redirect_with_flash(ok, message, location=self._loop_return_to(body))
+            return
+
+        if self.path.startswith("/loops/") and self.path.endswith("/run-now") and self.path.count("/") == 3:
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            name = urllib.parse.unquote(self.path[len("/loops/"):-len("/run-now")])
+            if name in _loop_pages() or _loop_page_for(name) is None:
+                self._not_found()
+                return
+            ok, message = trigger_manual_run(status_path=status_path_for_loop(name), loop_name=name)
+            self._redirect_with_flash(ok, message, location=f"/loops/{urllib.parse.quote(name)}")
             return
 
         if self.path.startswith("/loops/") and self.path.endswith("/notify") and self.path.count("/") == 3:

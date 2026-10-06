@@ -803,5 +803,13 @@
   "Post notifications to a Google Chat space through an incoming webhook.": "通过传入 Webhook 向 Google Chat 空间发送通知。",
   "Post JSON notifications to any webhook URL.": "向任意 Webhook URL 发送 JSON 通知。",
   "e.g. Work {name}": "例如：工作 {name}",
-  "Google didn't grant calendar access - reconnect and keep the Calendar box ticked": "Google 未授予日历访问权限 - 请重新连接，并保持勾选“日历”选项"
+  "Google didn't grant calendar access - reconnect and keep the Calendar box ticked": "Google 未授予日历访问权限 - 请重新连接，并保持勾选“日历”选项",
+  "No runs recorded yet.": "尚无运行记录。",
+  "Done": "完成",
+  "Skipped": "已跳过",
+  "Item": "条目",
+  "Summary": "摘要",
+  "View run history": "查看运行历史",
+  "No history yet.": "暂无历史记录。",
+  "Back to history": "返回历史"
 }

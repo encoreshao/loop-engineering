@@ -12217,14 +12217,14 @@ def test_loops_catalog_splits_active_and_available(monkeypatch, tmp_path):
     assert "data-loop='inbox-triage-loop'" in available
 
 
-def test_loops_catalog_unknown_loop_has_no_open_link(monkeypatch, tmp_path):
+def test_loops_catalog_registered_plugin_loop_links_generic_page(monkeypatch, tmp_path):
     monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [{"name": "mystery-loop", "enabled": True}])
     monkeypatch.setattr(ds.connectors_config, "accounts_with_capability", lambda cap, **kw: [])
     monkeypatch.setattr(ds, "status_path_for_loop", lambda n, base_dir=None: tmp_path / f"{n}.json")
     out = ds._loops_catalog_body()
     assert "data-loop='mystery-loop'" in out
     assert "mystery-loop</" in out
-    assert "href='/loops/mystery-loop'" not in out
+    assert "href='/loops/mystery-loop'" in out  # generic page for any registered loop
 
 
 def test_loops_catalog_renders_without_loops_json(monkeypatch):
@@ -13570,3 +13570,93 @@ def test_tile_description_has_full_text_title():
 def test_connector_search_focus_keeps_forced_colors_outline():
     rule = re.search(r"\.connector-search:focus[^{]*\{([^}]*)\}", ds._STYLE).group(1)
     assert "outline: 2px solid transparent" in rule and "outline: none" not in rule
+
+
+def _plugin_loop_sandbox(monkeypatch, tmp_path, name="rss-watch-loop"):
+    monkeypatch.setattr(ds.loops_config, "get_loop",
+                        lambda n, *a, **k: {"name": n, "description": "Watch RSS"})
+    monkeypatch.setattr(ds, "LOOP_DIR", tmp_path)
+    d = tmp_path / "outputs" / "loops" / name
+    (d / "history").mkdir(parents=True)
+    return d
+
+
+def test_generic_loop_page_for_registered_plugin_loop(monkeypatch, tmp_path):
+    d = _plugin_loop_sandbox(monkeypatch, tmp_path)
+    (d / "last-run.json").write_text(
+        '{"run_id": "r", "finished_at": "2026-10-06T08:00:00Z", '
+        '"counts": {"done": 3, "skipped": 0, "failed": 0}, '
+        '"outcomes": [{"item_key": "k<1>", "status": "done", "summary": "ok", "url": "https://x.test/a"}]}')
+    out = ds.render_loop_page("rss-watch-loop")
+    assert out is not None and "3" in out
+    assert "href='/loops/rss-watch-loop?view=history'" in out
+    assert "action='/loops/rss-watch-loop/run-now'" in out
+    assert "k&lt;1&gt;" in out and "https://x.test/a" in out
+
+
+def test_generic_loop_page_history_view_lists_newest_first(monkeypatch, tmp_path):
+    d = _plugin_loop_sandbox(monkeypatch, tmp_path)
+    (d / "history" / "2026-10-05_080000.md").write_text("# old\n")
+    (d / "history" / "2026-10-06_080000.md").write_text("# new\n")
+    (d / "history" / "notes.txt").write_text("ignore")
+    out = ds.render_loop_page("rss-watch-loop", view="history")
+    assert out.index("2026-10-06_080000") < out.index("2026-10-05_080000")
+    assert "/loops/rss-watch-loop/history/2026-10-06_080000.md" in out
+    assert "notes.txt" not in out
+
+
+def test_generic_loop_page_unregistered_404(monkeypatch):
+    def missing(n, *a, **k): raise KeyError(n)
+    monkeypatch.setattr(ds.loops_config, "get_loop", missing)
+    assert ds.render_loop_page("ghost-loop") is None
+
+
+def test_generic_loop_page_not_used_for_bespoke_names(monkeypatch):
+    def boom(n, *a, **k): raise AssertionError("registry consulted")
+    monkeypatch.setattr(ds.loops_config, "get_loop", boom)
+    assert ds._loop_page_for("gitlab-loop") is ds._loop_pages()["gitlab-loop"] or \
+        ds._loop_page_for("gitlab-loop").label == "GitLab Issues"
+
+
+def test_sidebar_links_plugin_loop_with_description(monkeypatch):
+    out = ds._sidebar_html("loop:rss-watch-loop",
+                           loops=[{"name": "rss-watch-loop", "enabled": True, "description": "Watch RSS"}],
+                           status_path_fn=lambda n: Path("/nonexistent"))
+    assert "href='/loops/rss-watch-loop'" in out and "Watch RSS" in out
+
+
+def _plain_get(port, path):
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    try:
+        conn.request("GET", path)
+        r = conn.getresponse()
+        return r.status, dict(r.getheaders()), r.read().decode("utf-8")
+    finally:
+        conn.close()
+
+
+def test_loop_history_file_route(monkeypatch, tmp_path):
+    d = _plugin_loop_sandbox(monkeypatch, tmp_path)
+    (d / "history" / "2026-10-06_080000.md").write_text("# run <script>x</script>\n")
+    (tmp_path / "secret.md").write_text("top secret")
+    with _running_server() as port:
+        status, _h, body = _plain_get(port, "/loops/rss-watch-loop/history/2026-10-06_080000.md")
+        assert status == 200 and "<script>x" not in body and "&lt;script&gt;" in body
+        for bad in ("../../../../secret.md", "..%2F..%2Fsecret.md", "notes.md", "2026-10-06_080000.txt",
+                    "2026-10-07_000000.md"):
+            status, _h, _b = _plain_get(port, f"/loops/rss-watch-loop/history/{bad}")
+            assert status == 404, bad
+
+
+def test_loop_run_now_requires_csrf_and_launches(monkeypatch, tmp_path):
+    _plugin_loop_sandbox(monkeypatch, tmp_path)
+    calls = []
+    monkeypatch.setattr(ds, "trigger_manual_run",
+                        lambda status_path=None, run_loop_path=None, loop_name="gitlab-loop":
+                        calls.append(loop_name) or (True, "started"))
+    with _running_server() as port:
+        status, _h, _b = _post(port, "/loops/rss-watch-loop/run-now", {})
+        assert status == 403 and calls == []
+        status, headers, _b = _post(port, "/loops/rss-watch-loop/run-now", {"csrf_token": ds._CSRF_TOKEN})
+        assert status == 303 and calls == ["rss-watch-loop"]
+        assert headers["Location"].startswith("/loops/rss-watch-loop?")

@@ -803,5 +803,13 @@
   "Post notifications to a Google Chat space through an incoming webhook.": "Envoyer des notifications vers un espace Google Chat via un webhook entrant.",
   "Post JSON notifications to any webhook URL.": "Envoyer des notifications JSON vers n'importe quelle URL de webhook.",
   "e.g. Work {name}": "p. ex. {name} pro",
-  "Google didn't grant calendar access - reconnect and keep the Calendar box ticked": "Google n'a pas accordé l'accès à l'agenda - reconnectez-vous en gardant la case Agenda cochée"
+  "Google didn't grant calendar access - reconnect and keep the Calendar box ticked": "Google n'a pas accordé l'accès à l'agenda - reconnectez-vous en gardant la case Agenda cochée",
+  "No runs recorded yet.": "Aucune exécution enregistrée.",
+  "Done": "Terminé",
+  "Skipped": "Ignoré",
+  "Item": "Élément",
+  "Summary": "Résumé",
+  "View run history": "Voir l'historique des exécutions",
+  "No history yet.": "Aucun historique pour le moment.",
+  "Back to history": "Retour à l'historique"
 }

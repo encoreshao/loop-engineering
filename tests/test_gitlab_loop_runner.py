@@ -1140,3 +1140,9 @@ def test_invoke_batch_issue_agent_reports_no_cost_on_the_codex_path(tmp_path, mo
 
     assert result == {"changed": True, "cost_usd": None, "usage": None}
     assert "codex did the thing" in unified_log.read_text()
+
+
+def test_allowed_tools_cover_loop_plugins(tmp_path):
+    tools = glr._allowed_tools(tmp_path)
+    assert "Bash(python3 bin/loop_plugins/*.py*)" in tools
+    assert f"Bash(python3 {tmp_path}/bin/loop_plugins/*.py*)" in tools

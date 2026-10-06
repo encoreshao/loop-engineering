@@ -114,8 +114,10 @@ def _allowed_tools(repo_root):
         "Bash(bundle check*) Bash(bundle install*) Bash(RAILS_ENV=test bundle exec rake db:test:prepare*) "
         "Bash(npm run test*) Bash(npm run lint*) Bash(npm ci*) Bash(yarn install*) "
         "Bash(python3 *gitlab_api.py*) Bash(python3 *gitlab_cache.py*) "
-        "Bash(python3 bin/*.py*) Bash(python3 bin/web/*.py*) Bash(bash bin/scripts/*.sh*) "
+        "Bash(python3 bin/*.py*) Bash(python3 bin/web/*.py*) Bash(python3 bin/loop_plugins/*.py*) "
+        "Bash(bash bin/scripts/*.sh*) "
         f"Bash(python3 {repo_root}/bin/*.py*) Bash(python3 {repo_root}/bin/web/*.py*) "
+        f"Bash(python3 {repo_root}/bin/loop_plugins/*.py*) "
         f"Bash(bash {repo_root}/bin/scripts/*.sh*)"
     )
 
