@@ -94,7 +94,7 @@ STALE_LOOP_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-def make_origin(tmp_path, with_launchd_fixtures=False):
+def make_origin(tmp_path, with_launchd_fixtures=False, loop_cli_stub=None):
     origin = tmp_path / "origin.git"
     subprocess.run(["git", "init", "--bare", "-b", "main", str(origin)], check=True, capture_output=True)
 
@@ -108,6 +108,9 @@ def make_origin(tmp_path, with_launchd_fixtures=False):
     setup_sh.write_text(FAKE_SETUP_SH)
     setup_sh.chmod(0o755)
     to_add = ["bin/scripts/setup.sh"]
+    if loop_cli_stub is not None:
+        (seed / "bin" / "loop_cli.py").write_text(loop_cli_stub)
+        to_add.append("bin/loop_cli.py")
 
     if with_launchd_fixtures:
         nginx_sh = seed / "bin" / "scripts" / "setup-nginx.sh"
@@ -635,3 +638,28 @@ def test_install_leaves_not_yet_loaded_non_dashboard_daemons_alone(tmp_path):
     # install.sh never auto-starts the GitLab loop/topic monitor - only the
     # dashboard gets a first-time `load -w`.
     assert not (launch_agents_dir / "com.hermes.loop-engineering.plist").exists()
+
+
+_BACKFILL_STUB = "import sys, pathlib\npathlib.Path(__file__).with_name('backfill_args.txt').write_text(' '.join(sys.argv[1:]))\n"
+
+
+def test_install_upgrade_runs_ledger_backfill(tmp_path):
+    origin = make_origin(tmp_path, loop_cli_stub=_BACKFILL_STUB)
+    target = tmp_path / "clone"
+    run_install("--repo-url", str(origin), "--dir", str(target))
+    assert not (target / "bin" / "backfill_args.txt").exists()  # fresh install does not backfill
+
+    run_install("--repo-url", str(origin), "--dir", str(target), "--upgrade")
+
+    assert (target / "bin" / "backfill_args.txt").read_text() == "ledger backfill"
+
+
+def test_install_upgrade_survives_a_failing_ledger_backfill(tmp_path):
+    origin = make_origin(tmp_path, loop_cli_stub="import sys\nsys.exit(3)\n")
+    target = tmp_path / "clone"
+    run_install("--repo-url", str(origin), "--dir", str(target))
+
+    result = run_install("--repo-url", str(origin), "--dir", str(target), "--upgrade")
+
+    assert result.returncode == 0
+    assert (target / "setup_ran.txt").exists()

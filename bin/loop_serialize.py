@@ -101,6 +101,7 @@ def result_summary(loop_result):
         "total_cost_usd": total_cost,
         "iterations": iterations,
         "verified_success": _is_verified_successful(data),
+        "budget_overall": str(last_budget.get("overall", "ok")) if last_budget else None,
     }
 
 
@@ -145,21 +146,28 @@ def _is_verified_successful(data):
     return all(effective_passed(v) for v in verification_results)
 
 
-def summarize_results(results_dir=None):
+def _complete_runs(runs):
+    """Default to the ledger; incomplete runs (started, no terminal event)
+    are not counted by any summary."""
+    if runs is None:
+        import ledger
+        runs = ledger.iter_runs()
+    return [r for r in runs if r.complete]
+
+
+def summarize_results(runs=None):
     """{"total_runs", "success_rate", "escalation_rate",
-    "average_cost_usd", "efficiency_score"} across every persisted run -
-    the plan's "Loop Overview" (section 23) plus the experimental Loop
-    Efficiency Score (section 17): verified-successful runs / (total
+    "average_cost_usd", "efficiency_score"} across every ledger run
+    (`runs`: RunRecords, default ledger.iter_runs(); incomplete runs are
+    skipped) - the plan's "Loop Overview" (section 23) plus the experimental
+    Loop Efficiency Score (section 17): verified-successful runs / (total
     cost_usd * total duration_hours * total iterations), summed across
     ALL runs (not just successful ones) so a failed run's resource use
-    still drags the score down. No average-duration figure - LoopResult
-    carries no start/finish timestamp yet, and this deliberately reports
-    only what's actually computable rather than guessing (matches
-    bin/health.py's honest-degradation pattern). Rates/average/score are
-    None (not 0) when there are no runs, or no cost/duration/iteration
-    data, to divide by."""
-    paths = list_results(results_dir=results_dir)
-    total_runs = len(paths)
+    still drags the score down. Rates/average/score are None (not 0)
+    when there are no runs, or no cost/duration/iteration data, to
+    divide by."""
+    runs = _complete_runs(runs)
+    total_runs = len(runs)
     if total_runs == 0:
         return {
             "total_runs": 0,
@@ -169,25 +177,12 @@ def summarize_results(results_dir=None):
             "efficiency_score": None,
         }
 
-    completed = 0
-    escalated = 0
-    total_cost_usd = 0.0
-    total_duration_seconds = 0.0
-    total_iterations = 0
-    verified_successful = 0
-    for path in paths:
-        data = read_result(path)
-        if data["final_state"] == "completed":
-            completed += 1
-        if data["final_state"] == "escalated":
-            escalated += 1
-        if data["iterations"]:
-            budget = data["iterations"][-1].get("budget", {})
-            total_cost_usd += budget.get("cost", {}).get("used_usd") or 0
-            total_duration_seconds += budget.get("runtime", {}).get("used_seconds") or 0
-        total_iterations += len(data["iterations"])
-        if _is_verified_successful(data):
-            verified_successful += 1
+    completed = sum(1 for r in runs if r.final_state == "completed")
+    escalated = sum(1 for r in runs if r.final_state == "escalated")
+    total_cost_usd = sum(r.total_cost_usd or 0 for r in runs)
+    total_duration_seconds = sum((r.duration_ms or 0) / 1000 for r in runs)
+    total_iterations = sum(len(r.iterations) for r in runs)
+    verified_successful = sum(1 for r in runs if r.verified_success)
 
     total_duration_hours = total_duration_seconds / 3600
     if total_cost_usd and total_duration_hours and total_iterations:
@@ -204,20 +199,17 @@ def summarize_results(results_dir=None):
     }
 
 
-def summarize_run_costs(results_dir=None):
+def summarize_run_costs(runs=None):
     """{"total_runs", "total_cost_usd", "cost_per_run_usd"} - the same
     numbers `loop_cli.py cost` prints, shared here so the CLI and the
     dashboard's Cost page compute them one way. cost_per_run_usd is None
     (not 0) when there are no runs to divide by, matching
     summarize_results's honest-degradation convention."""
-    paths = list_results(results_dir=results_dir)
-    total_runs = len(paths)
+    runs = _complete_runs(runs)
+    total_runs = len(runs)
     total_cost_usd = 0.0
-    for path in paths:
-        data = read_result(path)
-        if data["iterations"]:
-            total_cost_usd += data["iterations"][-1].get("budget", {}).get("cost", {}).get("used_usd") or 0
-
+    for r in runs:
+        total_cost_usd += r.total_cost_usd or 0
     return {
         "total_runs": total_runs,
         "total_cost_usd": total_cost_usd,

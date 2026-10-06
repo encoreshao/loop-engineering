@@ -110,7 +110,7 @@ def test_summarize_by_loop_groups_runs_and_sums_cost(tmp_path):
     _write_loop_result(tmp_path, "run_20260902_100000_b", "gitlab-issue-loop", 2.0, BudgetStatus.WARNING)
     _write_loop_result(tmp_path, "run_20260903_100000_c", "topic-monitor-loop", 0.5, BudgetStatus.EXCEEDED)
 
-    rows = summarize_by_loop(results_dir=tmp_path)
+    rows = summarize_by_loop()
 
     by_name = {row["definition_name"]: row for row in rows}
     assert by_name["gitlab-issue-loop"]["runs"] == 2
@@ -121,7 +121,7 @@ def test_summarize_by_loop_groups_runs_and_sums_cost(tmp_path):
 
 
 def test_summarize_by_loop_returns_empty_list_for_no_runs(tmp_path):
-    assert summarize_by_loop(results_dir=tmp_path) == []
+    assert summarize_by_loop() == []
 
 
 def test_summarize_by_time_buckets_by_day_most_recent_first(tmp_path):
@@ -129,7 +129,7 @@ def test_summarize_by_time_buckets_by_day_most_recent_first(tmp_path):
     _write_loop_result(tmp_path, "run_20260901_150000_b", "gitlab-issue-loop", 1.0, BudgetStatus.OK)
     _write_loop_result(tmp_path, "run_20260902_100000_c", "gitlab-issue-loop", 2.0, BudgetStatus.WARNING)
 
-    rows = summarize_by_time(results_dir=tmp_path, granularity="day")
+    rows = summarize_by_time(granularity="day")
 
     assert [row["bucket"] for row in rows] == ["2026-09-02", "2026-09-01"]
     assert rows[0]["runs"] == 1
@@ -143,7 +143,7 @@ def test_summarize_by_time_buckets_by_week_groups_same_iso_week(tmp_path):
     _write_loop_result(tmp_path, "run_20260909_100000_b", "gitlab-issue-loop", 1.0, BudgetStatus.OK)
     _write_loop_result(tmp_path, "run_20260914_100000_c", "gitlab-issue-loop", 1.0, BudgetStatus.OK)
 
-    rows = summarize_by_time(results_dir=tmp_path, granularity="week")
+    rows = summarize_by_time(granularity="week")
 
     assert [row["bucket"] for row in rows] == ["2026-W38", "2026-W37"]
     assert rows[0]["runs"] == 1
@@ -154,7 +154,7 @@ def test_summarize_by_time_buckets_by_month(tmp_path):
     _write_loop_result(tmp_path, "run_20260815_100000_a", "gitlab-issue-loop", 1.0, BudgetStatus.OK)
     _write_loop_result(tmp_path, "run_20260901_100000_b", "gitlab-issue-loop", 2.0, BudgetStatus.OK)
 
-    rows = summarize_by_time(results_dir=tmp_path, granularity="month")
+    rows = summarize_by_time(granularity="month")
 
     assert [row["bucket"] for row in rows] == ["2026-09", "2026-08"]
 
@@ -164,7 +164,7 @@ def test_summarize_by_time_respects_limit(tmp_path):
     _write_loop_result(tmp_path, "run_20260902_100000_b", "gitlab-issue-loop", 1.0, BudgetStatus.OK)
     _write_loop_result(tmp_path, "run_20260903_100000_c", "gitlab-issue-loop", 1.0, BudgetStatus.OK)
 
-    rows = summarize_by_time(results_dir=tmp_path, granularity="day", limit=2)
+    rows = summarize_by_time(granularity="day", limit=2)
 
     assert [row["bucket"] for row in rows] == ["2026-09-03", "2026-09-02"]
 
@@ -172,5 +172,5 @@ def test_summarize_by_time_respects_limit(tmp_path):
 def test_summarize_by_time_skips_runs_with_unparseable_run_id(tmp_path):
     _write_loop_result(tmp_path, "not-a-parseable-run-id", "gitlab-issue-loop", 1.0, BudgetStatus.OK)
 
-    assert summarize_by_time(results_dir=tmp_path, granularity="day") == []
-    assert summarize_by_loop(results_dir=tmp_path) == []
+    assert summarize_by_time(granularity="day") == []
+    assert summarize_by_loop() == []

@@ -353,8 +353,9 @@ def _print_run_detail(data):
 
 
 def _cmd_cost(argv):
-    results_dir = _parse_flag(argv, "--results-dir")
-    summary = summarize_run_costs(results_dir=results_dir)
+    import ledger
+    events_dir = _parse_flag(argv, "--events-dir")
+    summary = summarize_run_costs(ledger.iter_runs(events_dir=events_dir))
 
     print("Loop Cost Report")
     print()
@@ -411,6 +412,18 @@ def _cmd_eval(argv):
     return 0 if passed_count == len(outcomes) else 1
 
 
+def _cmd_ledger(argv):
+    if not argv or argv[0] != "backfill":
+        print("Usage: loop_cli.py ledger backfill [--results-dir DIR] [--events-dir DIR]", file=sys.stderr)
+        return 2
+    import ledger
+    rest = argv[1:]
+    count = ledger.backfill_from_results(
+        results_dir=_parse_flag(rest, "--results-dir"), events_dir=_parse_flag(rest, "--events-dir"))
+    print(f"Backfilled {count} run(s) into the ledger")
+    return 0
+
+
 _COMMANDS = {
     "init": _cmd_init,
     "validate": _cmd_validate,
@@ -422,6 +435,7 @@ _COMMANDS = {
     "doctor": _cmd_doctor,
     "eval": _cmd_eval,
     "replay": _cmd_replay,
+    "ledger": _cmd_ledger,
 }
 
 

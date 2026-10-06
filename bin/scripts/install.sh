@@ -173,6 +173,13 @@ echo "${C_BLUE}==> Running setup...${C_RESET}"
 # empty and to the normal quoted elements otherwise, on all bash versions.
 "$DIR/bin/scripts/setup.sh" "${SETUP_ARGS[@]+"${SETUP_ARGS[@]}"}"
 
+if [ "$UPGRADE" -eq 1 ]; then
+  # Legacy result.json runs -> event ledger (idempotent, keyed by run_id).
+  # Best-effort: a failure here must never abort the upgrade.
+  echo "${C_BLUE}==> Backfilling legacy runs into the ledger...${C_RESET}"
+  python3 "$DIR/bin/loop_cli.py" ledger backfill || echo "${C_YELLOW:-}ledger backfill failed (non-fatal); retry with: python3 $DIR/bin/loop_cli.py ledger backfill${C_RESET}" >&2
+fi
+
 echo "${C_BLUE}==> Rendering launchd/*.plist for this machine...${C_RESET}"
 PYTHON3="$(command -v python3 || true)"
 # The port the launchd-installed dashboard daemon listens on: picked once

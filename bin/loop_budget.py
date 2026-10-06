@@ -15,8 +15,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 
-import loop_serialize
-
 _WARNING_THRESHOLD = 0.8
 _RUN_ID_TIMESTAMP_RE = re.compile(r"^run_(\d{8})_(\d{6})_")
 
@@ -99,33 +97,32 @@ def _new_group():
     return {"runs": 0, "cost_used_usd": 0.0, "status_counts": {"ok": 0, "warning": 0, "exceeded": 0}}
 
 
-def _budget_row(data):
+def _budget_row(run):
     """(definition_name, timestamp, cost_used_usd, overall_status) for one
-    read_result() dict, or None if it has no budget/timestamp to aggregate -
-    same "skip, don't crash" contract as loop_serialize.summarize_results."""
-    if not data["iterations"]:
+    ledger RunRecord, or None if it has no budget/timestamp to aggregate
+    (incomplete runs, legacy terminal-event runs with no iterations, and
+    run_ids without an embedded timestamp) - "skip, don't crash"."""
+    if not run.complete or not run.iterations or run.budget_overall is None:
         return None
-    budget = data["iterations"][-1].get("budget") or {}
-    if not budget:
-        return None
-    timestamp = run_timestamp(data["run_id"])
+    timestamp = run_timestamp(run.run_id)
     if timestamp is None:
         return None
-    cost_used_usd = budget.get("cost", {}).get("used_usd") or 0
-    overall = str(budget.get("overall", BudgetStatus.OK))
-    return data["definition_name"], timestamp, cost_used_usd, overall
+    return run.loop_name, timestamp, run.total_cost_usd or 0, run.budget_overall
 
 
-def summarize_by_loop(results_dir=None):
-    """Group every persisted run by definition_name: run count, total
-    cost used, and a count of runs at each overall budget status. Rows
-    sorted by definition_name for a stable, deterministic order."""
+def _rows(runs):
+    if runs is None:
+        import ledger
+        runs = ledger.iter_runs()
+    return [row for row in map(_budget_row, runs) if row is not None]
+
+
+def summarize_by_loop(runs=None):
+    """Group every ledger run (RunRecords; default ledger.iter_runs()) by
+    definition name: run count, total cost used, and a count of runs at
+    each overall budget status. Rows sorted by definition_name."""
     groups = {}
-    for path in loop_serialize.list_results(results_dir=results_dir):
-        row = _budget_row(loop_serialize.read_result(path))
-        if row is None:
-            continue
-        definition_name, _timestamp, cost_used_usd, overall = row
+    for definition_name, _timestamp, cost_used_usd, overall in _rows(runs):
         group = groups.setdefault(definition_name, _new_group())
         group["runs"] += 1
         group["cost_used_usd"] += cost_used_usd
@@ -144,19 +141,14 @@ def _bucket_key(timestamp, granularity):
     raise ValueError(f"unknown granularity: {granularity!r}")
 
 
-def summarize_by_time(results_dir=None, granularity="day", limit=None):
-    """Group every persisted run into day/week/month buckets (by the
-    timestamp embedded in its run_id): run count, total cost used, and a
-    count of runs at each overall budget status per bucket. Rows are
-    sorted most-recent-bucket-first (unlike metrics.bucketed_reports,
-    which orders oldest-first for trend charts) and, when `limit` is
-    given, capped to the most recent `limit` buckets."""
+def summarize_by_time(runs=None, granularity="day", limit=None):
+    """Group every ledger run (RunRecords; default ledger.iter_runs()) into
+    day/week/month buckets (by the timestamp embedded in its run_id): run
+    count, total cost used, and a count of runs at each overall budget
+    status per bucket. Rows are sorted most-recent-bucket-first and, when
+    `limit` is given, capped to the most recent `limit` buckets."""
     groups = {}
-    for path in loop_serialize.list_results(results_dir=results_dir):
-        row = _budget_row(loop_serialize.read_result(path))
-        if row is None:
-            continue
-        _definition_name, timestamp, cost_used_usd, overall = row
+    for _definition_name, timestamp, cost_used_usd, overall in _rows(runs):
         key = _bucket_key(timestamp, granularity)
         group = groups.setdefault(key, _new_group())
         group["runs"] += 1

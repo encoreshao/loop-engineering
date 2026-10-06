@@ -53,6 +53,7 @@ import i18n
 import inbox_config
 import inbox_status
 import issue_tracking_config
+import ledger
 import learning
 import loop_audit
 import loop_config
@@ -9134,7 +9135,7 @@ def _loop_runs_body():
 </div>
 """)
 
-    summary = loop_serialize.summarize_results(results_dir=LOOP_RUNS_DIR)
+    summary = loop_serialize.summarize_results()
     body = f"""
 <div class="page-title">
 <h1>{html.escape(_t('Loop Runs'))}</h1>
@@ -9596,23 +9597,24 @@ def _budget_body():
 """
         return body
 
+    ledger_runs = ledger.iter_runs()
     rollup_sections = "".join([
         _budget_rollup_section_html(
-            _t("By loop"), loop_budget.summarize_by_loop(results_dir=LOOP_RUNS_DIR), "definition_name", _t("Loop"),
+            _t("By loop"), loop_budget.summarize_by_loop(ledger_runs), "definition_name", _t("Loop"),
         ),
         _budget_rollup_section_html(
             _t("By day"),
-            loop_budget.summarize_by_time(results_dir=LOOP_RUNS_DIR, granularity="day", limit=14),
+            loop_budget.summarize_by_time(ledger_runs, granularity="day", limit=14),
             "bucket", _t("Day"),
         ),
         _budget_rollup_section_html(
             _t("By week"),
-            loop_budget.summarize_by_time(results_dir=LOOP_RUNS_DIR, granularity="week", limit=8),
+            loop_budget.summarize_by_time(ledger_runs, granularity="week", limit=8),
             "bucket", _t("Week"),
         ),
         _budget_rollup_section_html(
             _t("By month"),
-            loop_budget.summarize_by_time(results_dir=LOOP_RUNS_DIR, granularity="month", limit=6),
+            loop_budget.summarize_by_time(ledger_runs, granularity="month", limit=6),
             "bucket", _t("Month"),
         ),
     ])
@@ -12396,7 +12398,7 @@ def _cost_body(days=7):
     since_date, until_date = since.isoformat(), until.isoformat()
 
     cost_report = cost.build_cost_report(since_date=since_date, until_date=until_date)
-    cost_summary = loop_serialize.summarize_run_costs(results_dir=LOOP_RUNS_DIR)
+    cost_summary = loop_serialize.summarize_run_costs()
 
     days_selector_html = "".join(
         f"<a href='/insights?view=cost&days={n}' class=\"{'active' if n == days else ''}\">{html.escape(_t('{n}d', n=n))}</a>"

@@ -118,7 +118,7 @@ def test_find_latest_result_returns_none_when_empty(tmp_path):
 
 
 def test_summarize_results_empty_dir(tmp_path):
-    summary = summarize_results(results_dir=tmp_path)
+    summary = summarize_results()
 
     assert summary == {
         "total_runs": 0,
@@ -132,7 +132,7 @@ def test_summarize_results_empty_dir(tmp_path):
 def test_summarize_results_efficiency_score_is_none_without_cost_or_duration_data(tmp_path):
     write_result(_sample_result(run_id="run_a", cost_usd=1.0), results_dir=tmp_path)
 
-    summary = summarize_results(results_dir=tmp_path)
+    summary = summarize_results()
 
     assert summary["efficiency_score"] is None
 
@@ -151,7 +151,7 @@ def test_summarize_results_computes_efficiency_score(tmp_path):
         results_dir=tmp_path,
     )
 
-    summary = summarize_results(results_dir=tmp_path)
+    summary = summarize_results()
 
     # 1 verified-successful run out of 2; total_cost=2.0, total_duration_hours=2.0, total_iterations=2
     assert summary["efficiency_score"] == 1 / (2.0 * 2.0 * 2)
@@ -165,7 +165,7 @@ def test_summarize_results_efficiency_score_is_zero_when_no_run_is_verified_succ
         results_dir=tmp_path,
     )
 
-    summary = summarize_results(results_dir=tmp_path)
+    summary = summarize_results()
 
     assert summary["efficiency_score"] == 0.0
 
@@ -189,7 +189,7 @@ def test_summarize_results_treats_completed_run_with_no_verifiers_as_verified(tm
     )
     write_result(result, results_dir=tmp_path)
 
-    summary = summarize_results(results_dir=tmp_path)
+    summary = summarize_results()
 
     assert summary["efficiency_score"] == 1 / (1.0 * 1.0 * 1)
 
@@ -200,7 +200,7 @@ def test_summarize_results_computes_rates_and_average_cost(tmp_path):
     write_result(_sample_result(run_id="run_c", final_state=LoopState.ESCALATED, cost_usd=2.0), results_dir=tmp_path)
     write_result(_sample_result(run_id="run_d", final_state=LoopState.FAILED, cost_usd=0.0), results_dir=tmp_path)
 
-    summary = summarize_results(results_dir=tmp_path)
+    summary = summarize_results()
 
     assert summary["total_runs"] == 4
     assert summary["success_rate"] == 0.5
@@ -209,7 +209,7 @@ def test_summarize_results_computes_rates_and_average_cost(tmp_path):
 
 
 def test_summarize_run_costs_empty_dir(tmp_path):
-    summary = summarize_run_costs(results_dir=tmp_path)
+    summary = summarize_run_costs()
 
     assert summary == {
         "total_runs": 0,
@@ -222,7 +222,7 @@ def test_summarize_run_costs_sums_and_averages(tmp_path):
     write_result(_sample_result(run_id="run_a", cost_usd=1.0), results_dir=tmp_path)
     write_result(_sample_result(run_id="run_b", cost_usd=3.0), results_dir=tmp_path)
 
-    summary = summarize_run_costs(results_dir=tmp_path)
+    summary = summarize_run_costs()
 
     assert summary["total_runs"] == 2
     assert summary["total_cost_usd"] == 4.0
@@ -268,7 +268,7 @@ def test_observed_failure_is_not_verified_successful(tmp_path):
         stop_reason="completed",
     )
     write_result(result, results_dir=tmp_path)
-    assert summarize_results(results_dir=tmp_path)["efficiency_score"] == 0.0
+    assert summarize_results()["efficiency_score"] == 0.0
 
 
 def test_write_result_emits_compact_loop_result(tmp_path):

@@ -202,7 +202,13 @@ def test_cost_aggregates_across_runs(tmp_path):
     _run("run", str(path), "--results-dir", str(results_dir))
     _run("run", str(path), "--results-dir", str(results_dir))
 
-    result = _run("cost", "--results-dir", str(results_dir))
+    events_dir = tmp_path / "events"
+    backfill = _run("ledger", "backfill", "--results-dir", str(results_dir), "--events-dir", str(events_dir))
+    assert backfill.returncode == 0
+    again = _run("ledger", "backfill", "--results-dir", str(results_dir), "--events-dir", str(events_dir))
+    assert "Backfilled 0 run" in again.stdout
+
+    result = _run("cost", "--events-dir", str(events_dir))
 
     assert result.returncode == 0
     assert "Runs" in result.stdout
