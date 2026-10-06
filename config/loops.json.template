@@ -37,5 +37,17 @@
     "emit_run_events": false,
     "routes_notifications": true,
     "requires": ["issues"]
+  },
+  {
+    "name": "mr-review-loop",
+    "entry_point": "bin.loop_plugins.mr_review",
+    "description": "Pre-reviews merge requests where you're a reviewer and leaves GitLab draft notes for you to publish.",
+    "schedule": {"frequency": "hourly", "interval_hours": 2},
+    "enabled": false,
+    "timeout_seconds": 3600,
+    "log_suffix": "-mr-review-loop",
+    "emit_run_events": false,
+    "routes_notifications": true,
+    "requires": ["merge_requests"]
   }
 ]
