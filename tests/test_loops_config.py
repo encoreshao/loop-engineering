@@ -389,3 +389,24 @@ def test_replace_notify_id_no_match_or_missing_file_writes_nothing(tmp_path):
     before = p.stat().st_mtime_ns
     assert lc.replace_notify_id("x", config_path=p) == 0
     assert p.stat().st_mtime_ns == before
+
+
+def test_set_settings_only_declared_keys(tmp_path):
+    p = tmp_path / "loops.json"
+    p.write_text('[{"name": "rss-watch-loop", "entry_point": "x", "timeout_seconds": 1}]')
+    ok, _ = lc.set_settings("rss-watch-loop", {"interests": "rails", "evil": "x"},
+                                      allowed_keys=("interests",), config_path=p, template_path=tmp_path / "none")
+    assert ok and json.loads(p.read_text())[0]["settings"] == {"interests": "rails"}
+
+
+def test_set_settings_limits_and_unknown_loop(tmp_path):
+    p = tmp_path / "loops.json"
+    p.write_text('[{"name": "a", "entry_point": "x", "timeout_seconds": 1, "settings": {"keep": "1"}}]')
+    ok, _ = lc.set_settings("a", {"interests": "x" * 2000, "n": 5}, allowed_keys=("interests", "n"),
+                                      config_path=p, template_path=tmp_path / "none")
+    saved = json.loads(p.read_text())[0]["settings"]
+    assert ok and len(saved["interests"]) == 1000 and "n" not in saved and saved["keep"] == "1"
+    before = p.read_text()
+    ok, _ = lc.set_settings("nope", {"interests": "x"}, allowed_keys=("interests",),
+                                      config_path=p, template_path=tmp_path / "none")
+    assert not ok and p.read_text() == before

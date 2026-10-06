@@ -811,5 +811,10 @@
   "Summary": "摘要",
   "View run history": "查看运行历史",
   "No history yet.": "暂无历史记录。",
-  "Back to history": "返回历史"
+  "Back to history": "返回历史",
+  "This loop has no settings.": "此循环没有设置。",
+  "{name} has no settings": "{name} 没有设置",
+  "Comma-separated topics you care about": "你关注的主题，以逗号分隔",
+  "Interests": "兴趣",
+  "Rails security, Postgres performance, AI coding agents": "Rails 安全、Postgres 性能、AI 编程代理"
 }

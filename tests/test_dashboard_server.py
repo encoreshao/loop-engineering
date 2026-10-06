@@ -13660,3 +13660,42 @@ def test_loop_run_now_requires_csrf_and_launches(monkeypatch, tmp_path):
         status, headers, _b = _post(port, "/loops/rss-watch-loop/run-now", {"csrf_token": ds._CSRF_TOKEN})
         assert status == 303 and calls == ["rss-watch-loop"]
         assert headers["Location"].startswith("/loops/rss-watch-loop?")
+
+
+def _settings_server(monkeypatch, tmp_path):
+    calls = []
+    loop = {"name": "rss-watch-loop", "entry_point": "bin.loop_plugins.rss_watch", "enabled": True,
+            "description": "RSS", "settings": {"interests": "rails <b>"}}
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [loop])
+    monkeypatch.setattr(ds.loops_config, "get_loop", lambda name, *a, **k: loop)
+    monkeypatch.setattr(ds.loops_config, "set_settings",
+                        lambda name, values, allowed_keys, **k: calls.append((name, values, tuple(allowed_keys))) or (True, "ok"))
+    monkeypatch.setattr(ds, "status_path_for_loop", lambda n, base_dir=None: tmp_path / "none.json")
+    return calls
+
+
+def test_plugin_settings_fields_whitelist_import():
+    assert [f.key for f in ds._plugin_settings_fields("bin.loop_plugins.rss_watch")] == ["interests"]
+    assert ds._plugin_settings_fields("os") == ()
+    assert ds._plugin_settings_fields("bin.loop_plugins.nope_x") == ()
+    assert ds._plugin_settings_fields("bin.loop_plugins.daily_digest") == ()
+
+
+def test_loop_settings_view_renders_form(monkeypatch, tmp_path):
+    _settings_server(monkeypatch, tmp_path)
+    out = ds.render_loop_page("rss-watch-loop", view="settings")
+    assert "action='/loops/rss-watch-loop/settings'" in out and "<textarea" in out
+    assert "Comma-separated topics you care about" in out
+    assert "rails &lt;b&gt;" in out and "rails <b>" not in out
+
+
+def test_post_loop_settings_requires_csrf_then_saves(monkeypatch, tmp_path):
+    calls = _settings_server(monkeypatch, tmp_path)
+    with _running_server() as port:
+        status, _h, _b = _post(port, "/loops/rss-watch-loop/settings", {"csrf_token": "", "interests": "x"})
+        assert status == 403 and calls == []
+        token = _fetch_csrf_token(port, "/loops")
+        status, headers, _b = _post(port, "/loops/rss-watch-loop/settings",
+                                    {"csrf_token": token, "interests": "rails", "evil": "x"})
+    assert status == 303 and headers["Location"].startswith("/loops/rss-watch-loop")
+    assert calls == [("rss-watch-loop", {"interests": "rails"}, ("interests",))]

@@ -15,6 +15,7 @@ import concurrent.futures
 import fcntl
 import hashlib
 import html
+import importlib
 import json
 import os
 import plistlib
@@ -13309,16 +13310,91 @@ def _generic_loop_history_body(name, flash=None, flash_ok=True):
             + inner + "</section>")
 
 
+_PLUGIN_ENTRY_POINT_RE = re.compile(r"^bin\.loop_plugins\.[a-z_]+$")
+
+
+def _plugin_settings_fields(entry_point):
+    """The `SETTINGS_FIELDS` a plugin module declares, read without running
+    the loop. Only `bin.loop_plugins.<module>` entry points are imported (never
+    an arbitrary module name from the registry); anything else, an import
+    failure or a missing/odd constant gives ()."""
+    if not isinstance(entry_point, str) or not _PLUGIN_ENTRY_POINT_RE.match(entry_point):
+        return ()
+    try:
+        module = importlib.import_module(entry_point[len("bin."):])
+    except Exception:  # noqa: BLE001 - a broken plugin never breaks the dashboard
+        return ()
+    fields = getattr(module, "SETTINGS_FIELDS", ())
+    return tuple(fields) if isinstance(fields, (tuple, list)) and all(
+        hasattr(f, "key") and hasattr(f, "label") for f in fields) else ()
+
+
+def _loop_settings_fields(name, loop=None):
+    if loop is None:
+        try:
+            loop = loops_config.get_loop(name)
+        except (KeyError, ValueError, OSError, json.JSONDecodeError, TypeError, AttributeError):
+            return ()
+    return _plugin_settings_fields((loop or {}).get("entry_point"))
+
+
+def _generic_loop_settings_body(name, flash=None, flash_ok=True):
+    """Form generated from the plugin's settings_fields; saved by
+    POST /loops/<name>/settings."""
+    try:
+        loop = loops_config.get_loop(name)
+    except (KeyError, ValueError, OSError, json.JSONDecodeError, TypeError, AttributeError):
+        loop = {}
+    fields = _plugin_settings_fields(loop.get("entry_point"))
+    current = loop.get("settings") if isinstance(loop.get("settings"), dict) else {}
+    csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
+    rows = []
+    for field in fields:
+        value = current.get(field.key, field.default)
+        value = value if isinstance(value, str) else ""
+        field_id = "ls-" + re.sub(r"[^a-z0-9_-]", "-", field.key.lower())
+        help_text = i18n.t(field.help) if field.help else ""
+        placeholder = i18n.t(field.placeholder) if " " in field.placeholder else field.placeholder
+        ph = f" placeholder='{html.escape(placeholder, quote=True)}'" if placeholder else ""
+        described = f" aria-describedby='{field_id}-help'" if help_text else ""
+        req = " required" if field.required else ""
+        attrs = f"name='{html.escape(field.key, quote=True)}' id='{field_id}'{described}{req}"
+        wide = field.kind == "textarea"
+        if wide:
+            control = f"<textarea {attrs} rows='4' maxlength='1000'{ph}>{html.escape(value)}</textarea>"
+        else:
+            control = f"<input type='text' {attrs} value='{html.escape(value, quote=True)}' maxlength='1000'{ph}>"
+        marker = (" <span class='field-required' aria-hidden='true'>*</span>" if field.required
+                  else f" <span class='field-optional'>{html.escape(_t('(optional)'))}</span>")
+        help_html = (f"<span class='field-help section-subtitle' id='{field_id}-help'>{html.escape(help_text)}</span>"
+                     if help_text else "")
+        cls = "connector-field connector-field-wide" if wide else "connector-field"
+        rows.append(f"<div class='{cls}'><label for='{field_id}'>{html.escape(i18n.t(field.label))}{marker}</label>"
+                    f"{control}{help_html}</div>")
+    safe_name = html.escape(urllib.parse.quote(name, safe=""))
+    form = (f"<form method='post' action='/loops/{safe_name}/settings' class='stack-form'>{csrf_input}"
+            f"<div class='connector-fields'>{''.join(rows)}</div>"
+            f"<button type='submit' class='btn'>{html.escape(_t('Save'))}</button></form>"
+            if rows else f"<p>{html.escape(_t('This loop has no settings.'))}</p>")
+    return (_flash_html(flash, flash_ok)
+            + f"<section class='card'><div class='section-header'><h2>{html.escape(_t('Settings'))}</h2></div>"
+            + form + "</section>")
+
+
 def _generic_loop_page(name, loop=None):
-    """Generic tabbed page (Live + History) for a registered LoopKit plugin
-    loop with no bespoke page. The label is the registry description, else
-    the loop name."""
+    """Generic tabbed page (Live + History, plus Settings when the plugin
+    declares settings_fields) for a registered LoopKit plugin loop with no
+    bespoke page. The label is the registry description, else the loop name."""
     V = hub_mod.HubView
     label = str((loop or {}).get("description") or name)
-    return hub_mod.Hub("loops", f"/loops/{urllib.parse.quote(name)}", label, _SECTION_ICON_LOOPS, (
+    views = [
         V("live", "Live", lambda **kw: _generic_loop_live_body(name, **_only(kw, "flash", "flash_ok")), refresh=True),
         V("history", "History", lambda **kw: _generic_loop_history_body(name, **_only(kw, "flash", "flash_ok"))),
-    ))
+    ]
+    if _loop_settings_fields(name, loop):
+        views.append(V("settings", "Settings",
+                       lambda **kw: _generic_loop_settings_body(name, **_only(kw, "flash", "flash_ok"))))
+    return hub_mod.Hub("loops", f"/loops/{urllib.parse.quote(name)}", label, _SECTION_ICON_LOOPS, tuple(views))
 
 
 def _loop_page_for(name, loop=None):
@@ -14155,6 +14231,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             ok, message = trigger_manual_run(status_path=status_path_for_loop(name), loop_name=name)
             self._redirect_with_flash(ok, message, location=f"/loops/{urllib.parse.quote(name)}")
+            return
+
+        if self.path.startswith("/loops/") and self.path.endswith("/settings") and self.path.count("/") == 3:
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            name = urllib.parse.unquote(self.path[len("/loops/"):-len("/settings")])
+            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
+            try:
+                loop = next((l for l in loops_config.list_loops()
+                             if isinstance(l, dict) and l.get("name") == name), None)
+            except (OSError, ValueError, KeyError, TypeError):
+                loop = None
+            fields = _loop_settings_fields(name, loop) if loop is not None else ()
+            if loop is None or name in _loop_pages():
+                ok, message = False, _t("Unknown loop {name}", name=name)
+            elif not fields:
+                ok, message = False, _t("{name} has no settings", name=name)
+            else:
+                keys = tuple(f.key for f in fields)
+                values = {k: form[k][0] for k in keys if k in form}
+                ok, message = loops_config.set_settings(name, values, allowed_keys=keys)
+            self._redirect_with_flash(
+                ok, message, location=f"/loops/{urllib.parse.quote(name)}?view=settings")
             return
 
         if self.path.startswith("/loops/") and self.path.endswith("/notify") and self.path.count("/") == 3:

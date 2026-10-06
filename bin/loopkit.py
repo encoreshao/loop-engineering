@@ -67,6 +67,9 @@ class LoopPlugin:
     definition_dir: str = ""
     max_items_per_run: int = 20
     output_keys: tuple = ()
+    # connectors.base.Field instances the dashboard renders as a settings form
+    # (values land in this loop's loops.json "settings").
+    settings_fields: tuple = ()
 
     def discover(self, ctx):
         raise NotImplementedError

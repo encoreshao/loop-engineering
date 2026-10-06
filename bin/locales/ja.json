@@ -811,5 +811,10 @@
   "Summary": "概要",
   "View run history": "実行履歴を表示",
   "No history yet.": "履歴はまだありません。",
-  "Back to history": "履歴に戻る"
+  "Back to history": "履歴に戻る",
+  "This loop has no settings.": "このループには設定がありません。",
+  "{name} has no settings": "{name} には設定がありません",
+  "Comma-separated topics you care about": "関心のあるトピック（カンマ区切り）",
+  "Interests": "関心事",
+  "Rails security, Postgres performance, AI coding agents": "Rails のセキュリティ、Postgres のパフォーマンス、AI コーディングエージェント"
 }

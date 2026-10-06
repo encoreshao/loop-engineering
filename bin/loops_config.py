@@ -148,6 +148,32 @@ def set_notify(name, ids, config_path=None, template_path=None):
     return False, f"No loop named {name!r} in the loops registry"
 
 
+MAX_SETTING_CHARS = 1000
+
+
+def set_settings(name, values, allowed_keys, config_path=None, template_path=None):
+    """Merge `values` into the loop's "settings" dict, keeping only keys in
+    `allowed_keys` whose value is a string (truncated to MAX_SETTING_CHARS).
+    Other existing settings are kept. Returns (ok, message); an unknown loop
+    writes nothing."""
+    if config_path is None:
+        config_path = DEFAULT_CONFIG_PATH
+    if not isinstance(values, dict):
+        return False, "settings must be an object"
+    clean = {k: v[:MAX_SETTING_CHARS] for k, v in values.items()
+             if k in tuple(allowed_keys) and isinstance(v, str)}
+    loops = list_loops(config_path, template_path)
+    for loop in loops:
+        if loop["name"] == name:
+            current = loop.get("settings")
+            merged = dict(current) if isinstance(current, dict) else {}
+            merged.update(clean)
+            loop["settings"] = merged
+            _write_loops(loops, config_path)
+            return True, f"Updated settings for {name}"
+    return False, f"No loop named {name!r} in the loops registry"
+
+
 def replace_notify_id(old_id, new_id=None, config_path=None):
     """Drop connector `old_id` from every loop's "notify" list (a deleted
     connector), or rename it to `new_id` (a renamed one), without creating

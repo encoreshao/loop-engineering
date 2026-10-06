@@ -811,5 +811,10 @@
   "Summary": "Résumé",
   "View run history": "Voir l'historique des exécutions",
   "No history yet.": "Aucun historique pour le moment.",
-  "Back to history": "Retour à l'historique"
+  "Back to history": "Retour à l'historique",
+  "This loop has no settings.": "Cette boucle n'a aucun réglage.",
+  "{name} has no settings": "{name} n'a aucun réglage",
+  "Comma-separated topics you care about": "Sujets qui vous intéressent, séparés par des virgules",
+  "Interests": "Centres d'intérêt",
+  "Rails security, Postgres performance, AI coding agents": "Sécurité Rails, performances Postgres, agents de codage IA"
 }

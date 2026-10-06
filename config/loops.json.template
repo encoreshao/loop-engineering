@@ -61,5 +61,17 @@
     "emit_run_events": false,
     "routes_notifications": true,
     "requires": ["pipelines"]
+  },
+  {
+    "name": "rss-watch-loop",
+    "entry_point": "bin.loop_plugins.rss_watch",
+    "description": "Ranks new entries from your RSS/Atom feeds against your interests and sends a short daily digest.",
+    "schedule": {"frequency": "daily", "hour": 8, "minute": 0},
+    "enabled": false,
+    "timeout_seconds": 1800,
+    "log_suffix": "-rss-watch-loop",
+    "emit_run_events": false,
+    "routes_notifications": true,
+    "requires": ["feed"]
   }
 ]
