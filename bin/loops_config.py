@@ -5,7 +5,14 @@ repo). Each entry names a loop (gitlab-loop, topic-loop, and any
 future loop), its schedule, its entry point module, and the handful of
 per-loop knobs run-loop-now.sh and bin/loop_scheduler.py need - adding a
 new loop means adding one entry here, not a new plist/shell script. See
-docs/superpowers/specs/2026-09-14-unified-loop-scheduler-design.md."""
+docs/superpowers/specs/2026-09-14-unified-loop-scheduler-design.md.
+
+Optional per-loop fields:
+  notify    list of connector ids (see connectors_config) that receive this
+            loop's notifications via bin/notify.py; absent or empty means
+            default routing (the slack_notify webhook).
+  requires  list of connector capabilities (e.g. "issues", "notify") the
+            loop needs; informational for the dashboard/LoopKit."""
 import json
 import os
 import re
@@ -106,6 +113,32 @@ def set_enabled(name, enabled, config_path=None):
             loop["enabled"] = bool(enabled)
             _write_loops(loops, config_path)
             return True, f"{'Enabled' if enabled else 'Disabled'} {name}"
+    return False, f"No loop named {name!r} in the loops registry"
+
+
+_VALID_CONNECTOR_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
+
+
+def set_notify(name, ids, config_path=None, template_path=None):
+    """Set the loop's "notify" connector-id list (an empty list removes the
+    key, restoring default routing). Returns (ok, message); an invalid id or
+    unknown loop writes nothing."""
+    if config_path is None:
+        config_path = DEFAULT_CONFIG_PATH
+    if not isinstance(ids, list):
+        return False, "notify must be a list of connector ids"
+    for account_id in ids:
+        if not isinstance(account_id, str) or not _VALID_CONNECTOR_ID_RE.match(account_id):
+            return False, f"Invalid connector id {account_id!r}"
+    loops = list_loops(config_path, template_path)
+    for loop in loops:
+        if loop["name"] == name:
+            if ids:
+                loop["notify"] = list(ids)
+            else:
+                loop.pop("notify", None)
+            _write_loops(loops, config_path)
+            return True, f"Updated notify for {name}"
     return False, f"No loop named {name!r} in the loops registry"
 
 

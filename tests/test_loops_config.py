@@ -329,3 +329,37 @@ def test_set_enabled_persists_a_backfilled_template_loop(tmp_path, monkeypatch):
 
 def test_real_template_is_used_by_default():
     assert _REAL_TEMPLATE_PATH == REPO_ROOT / "config" / "loops.json.template"
+
+
+def test_set_notify_writes_ids(tmp_path):
+    p = tmp_path / "loops.json"
+    _write_registry(p, [{"name": "gitlab-loop", "entry_point": "x"}])
+    ok, _ = lc.set_notify("gitlab-loop", ["feishu-team"], config_path=p, template_path=tmp_path / "none")
+    assert ok is True
+    assert lc.get_loop("gitlab-loop", config_path=p, template_path=tmp_path / "none")["notify"] == ["feishu-team"]
+
+
+def test_set_notify_rejects_invalid_id_without_writing(tmp_path):
+    p = tmp_path / "loops.json"
+    _write_registry(p, [{"name": "gitlab-loop", "entry_point": "x"}])
+    before = p.read_text()
+    for bad in (["Bad Id"], [""], [5], ["-x"], ["a" * 49]):
+        ok, msg = lc.set_notify("gitlab-loop", bad, config_path=p, template_path=tmp_path / "none")
+        assert ok is False and msg
+    assert p.read_text() == before
+
+
+def test_set_notify_unknown_loop(tmp_path):
+    p = tmp_path / "loops.json"
+    _write_registry(p, [{"name": "gitlab-loop", "entry_point": "x"}])
+    before = p.read_text()
+    ok, msg = lc.set_notify("nope", ["a"], config_path=p, template_path=tmp_path / "none")
+    assert ok is False and "nope" in msg and p.read_text() == before
+
+
+def test_set_notify_empty_list_removes_key(tmp_path):
+    p = tmp_path / "loops.json"
+    _write_registry(p, [{"name": "gitlab-loop", "entry_point": "x", "notify": ["a"]}])
+    ok, _ = lc.set_notify("gitlab-loop", [], config_path=p, template_path=tmp_path / "none")
+    assert ok is True
+    assert "notify" not in json.loads(p.read_text())[0]
