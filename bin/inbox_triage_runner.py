@@ -12,10 +12,7 @@ files and run commands), and it has no switch to stop recording the prompt
 - i.e. the email bodies - under ~/.codex/sessions/. So when the selected
 AI CLI is codex, every inbox fails up front with CODEX_REFUSAL, before any
 mail is fetched, labelled or recorded, and no AI is invoked."""
-import contextlib
-import fcntl
 import functools
-import json
 import re
 import signal
 import subprocess
@@ -34,6 +31,8 @@ import mail_http
 import mail_providers
 import slack_notify
 from agents import sealed
+from loopkit import exclusive_run_lock as _exclusive_run_lock
+from loopkit import raise_on_sigterm as _raise_on_sigterm
 from loop_definition import LoopDefinition
 from loop_runtime import LoopRuntime
 from loop_serialize import write_result
@@ -376,26 +375,6 @@ def _run_one_inbox(inbox, config, now, run_id, definition, triage, results_dir, 
     return outcome
 
 
-@contextlib.contextmanager
-def _exclusive_run_lock(lock_path):
-    """Yields True while this process holds an exclusive, non-blocking
-    flock on lock_path, False (immediately) if another run holds it. The
-    kernel drops the lock when the holder exits, however it exits, so a
-    killed run can never leave it stuck."""
-    path = Path(lock_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a") as handle:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            yield False
-            return
-        try:
-            yield True
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
-
-
 def run_all_inboxes(run_id, now=None, config_path=None, definition_path=None, results_dir=None,
                     events_dir=None, status_path=None, history_dir=None, triage=None, lock_path=None):
     """One lock for the whole run: the scheduler and the dashboard's run-now
@@ -447,14 +426,6 @@ def _run_all_inboxes_locked(run_id, now, config_path, definition_path, results_d
         outcomes.append(outcome)
     send_digests(outcomes, now)
     return outcomes
-
-
-def _raise_on_sigterm(signum, frame):
-    """run-loop-now.sh's `timeout` stops a run with SIGTERM, whose default
-    action kills Python without running any `finally`. Raising SystemExit
-    instead lets run_all_inboxes write the interrupted inbox's terminal
-    status (and subprocess.run kill the AI child) on the way out."""
-    raise SystemExit(128 + signum)
 
 
 def main_with_argv(argv, **kwargs):
