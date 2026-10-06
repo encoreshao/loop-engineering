@@ -13803,9 +13803,10 @@ def test_gate_stats_uses_last_iteration_and_excludes_verifier_errors():
 
 def test_gate_stats_counts_blocks_escalations_and_policy_denials():
     events = [
-        _gate_ev("issue.escalated", 1, {"reason": "verification_failed"}),
-        _gate_ev("issue.escalated", 2, {"reason": "handoff_invalid"}, project="api"),
-        _gate_ev("issue.escalated", 3, {"reason": "something_else"}),
+        _gate_ev("issue.escalated", 1, {"reason": "verification_failed", "gated": True}),
+        _gate_ev("issue.escalated", 2, {"reason": "handoff_invalid", "gated": True}, project="api"),
+        _gate_ev("issue.escalated", 3, {"reason": "something_else", "gated": True}),
+        _gate_ev("issue.escalated", 4, {"reason": "verification_failed"}),
         _gate_ev("policy.denied", None),
     ]
     s = ds.gate_stats(events_iter=lambda days: events)
@@ -13838,3 +13839,16 @@ def test_gates_body_empty_shows_na(tmp_path):
 
 def test_harness_hub_first_view_is_gates():
     assert [v.key for v in ds._hubs()["harness"].views] == ["gates", "audit"]
+
+
+def test_gate_stats_ignores_gate_mode_verdicts_for_agreement():
+    events = [
+        _gate_ev("verification.external_completed", 1, {"observed_passed": False, "mode": "gate", "iteration": 1}),
+        _gate_ev("verification.external_completed", 1, {"observed_passed": True, "mode": "gate", "iteration": 2}),
+        _gate_ev("issue.completed", 1),
+        _gate_ev("verification.external_completed", 2, {"observed_passed": True, "mode": "observe"}),
+        _gate_ev("issue.completed", 2),
+    ]
+    s = ds.gate_stats(events_iter=lambda days: events)
+    assert s["issues"] == 1 and s["agreement_rate"] == 1.0
+    assert s["retried_then_passed"] == 1

@@ -9293,14 +9293,15 @@ def gate_stats(days=7, events_iter=None):
         if kind == "verification.external_completed":
             if data.get("error"):
                 continue
-            last_verdict[key] = bool(data.get("observed_passed"))
+            if data.get("mode") != "gate":  # gate verdicts agree by construction
+                last_verdict[key] = bool(data.get("observed_passed"))
             if data.get("observed_passed") and (data.get("iteration") or 1) >= 2:
                 retried.add(key)
         elif kind == "issue.completed":
             completed.add(key)
         elif kind == "issue.escalated":
             reason = data.get("reason")
-            if reason in _GATE_ESCALATION_REASONS:
+            if reason in _GATE_ESCALATION_REASONS and data.get("gated"):
                 targets = [total] + ([bucket(project)] if project else [])
                 for t in targets:
                     t["escalated_verification"] += 1
