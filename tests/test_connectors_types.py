@@ -134,7 +134,7 @@ def test_post_json_redacts_url_and_accepts_plain_ok(monkeypatch):
         def __exit__(self, *a): return False
 
     monkeypatch.setattr(slack.urllib.request, "urlopen", lambda req, timeout=None: Resp(b"ok"))
-    assert slack._post_json("POST", url, json_body={"text": "x"}, timeout=3) is None or True
+    assert slack._post_json("POST", url, json_body={"text": "x"}, timeout=3) is None
 
     def boom(req, timeout=None):
         raise urllib.error.HTTPError(url, 500, "err", {}, io.BytesIO(b"bad"))
