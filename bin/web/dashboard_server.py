@@ -43,6 +43,8 @@ from pathlib import Path
 # file being imported by tests) gets no implicit path at all.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import ai_cli_config
+import connectors
+import connectors_config
 import cost
 import health
 import i18n
@@ -93,6 +95,7 @@ LOOPS_DIR = LOOP_DIR / "loops"
 LOGS_DIR = LOOP_DIR / "logs"
 UNIFIED_LOG_PATH = LOGS_DIR / "loop-engineering.log"
 MESSAGES_PATH = LOOP_DIR / "outputs" / "messages.json"
+CONNECTOR_TEST_RESULTS_PATH = LOOP_DIR / "outputs" / "connectors" / "test-results.json"
 LAUNCHD_DIR = LOOP_DIR / "launchd"
 TOPIC_MONITOR_DIR = LOOP_DIR / "outputs" / "topic-monitor"
 TOPIC_MONITOR_HISTORY_DIR = TOPIC_MONITOR_DIR / "history"
@@ -177,7 +180,7 @@ _CHAT_ASSISTANT_SYSTEM_PROMPT = (
     "inbox-status, run-now inbox-triage, "
     "run-issue <url>, topic-list, topic-save name=<id> label=<text> "
     "brief=<text> [slack_bundle=<bundle>], topic-enable <name>, "
-    "topic-disable <name>, project-list, project-save alias=<alias> "
+    "topic-disable <name>, project-list, connector-list, project-save alias=<alias> "
     "project_id=<gitlab path or id> [local_path=<dir>] "
     "[target_branch=<branch>] [instance=<gitlab instance>], loop-list, "
     "loop-enable <name>, loop-disable <name>, issue-enable <alias> <iid>, "
@@ -3482,6 +3485,30 @@ def _chat_tool_project_list(config_path=None, gitlab_config_path=None):
     }
 
 
+_CHAT_CONNECTOR_SETTINGS_KEYS = ("url", "api_url", "site_url", "format")
+
+
+def _chat_tool_connector_list(list_fn=None):
+    """Configured connector accounts for the chat assistant. Read-only, and
+    `settings` is cut down to a fixed allowlist of non-secret keys so no
+    credential-adjacent value can ever reach the model."""
+    if list_fn is None:
+        list_fn = connectors_config.list_accounts
+    out = []
+    for account in list_fn():
+        try:
+            caps = sorted(connectors.get_type(account["type"]).capabilities)
+        except KeyError:
+            caps = []
+        settings = account.get("settings") or {}
+        out.append({
+            "id": account["id"], "type": account["type"], "label": account["label"],
+            "capabilities": caps, "managed_by": account["managed_by"],
+            "settings": {k: settings[k] for k in _CHAT_CONNECTOR_SETTINGS_KEYS if k in settings},
+        })
+    return out
+
+
 def _chat_tool_project_save(fields, config_path=None):
     """Adds a tracked GitLab project, or updates one by `alias`, keeping
     any field not given (and always the command fields - see
@@ -3597,6 +3624,8 @@ def _dispatch_chat_tool(action, args):
         result = _chat_tool_topic_save(fields) if action == "topic-save" else _chat_tool_project_save(fields)
     elif action == "project-list":
         result = _chat_tool_project_list()
+    elif action == "connector-list":
+        result = _chat_tool_connector_list()
     elif action == "loop-list":
         result = {"loops": loops_config.list_loops()}
     elif action in ("topic-enable", "topic-disable", "loop-enable", "loop-disable",
@@ -4041,9 +4070,10 @@ _FONT_FACE_VARS = "\n".join(
 # name that isn't listed here renders as tofu/missing glyph. Add a new name
 # to this list before shipping a new icon constant that uses it.
 _MATERIAL_SYMBOLS_ICON_NAMES = (
-    "account_balance_wallet,add,add_comment,arrow_forward,arrow_upward,auto_awesome,autorenew,bolt,check,check_circle,chevron_left,circle,close,content_copy,delete,description,"
-    "dns,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,help,history,lightbulb,loop,merge,monitoring,newspaper,"
-    "open_in_new,palette,payments,save,send,settings,smart_toy,space_dashboard,speed,terminal,topic,translate,tune,warning,widgets"
+    "account_balance_wallet,add,add_comment,arrow_forward,arrow_upward,auto_awesome,autorenew,bolt,check,check_circle,chevron_left,circle,close,code,"
+    "content_copy,delete,description,dns,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,help,history,hub,lightbulb,"
+    "loop,mail,merge,monitoring,newspaper,open_in_new,palette,payments,rss_feed,save,send,settings,smart_toy,space_dashboard,speed,task_alt,terminal,topic,"
+    "translate,tune,warning,webhook,widgets"
 )
 
 
@@ -6460,6 +6490,8 @@ _SECTION_ICON_INBOX = "<span class='material-symbols-outlined' aria-hidden='true
 
 _SECTION_ICON_DAEMONS = "<span class='material-symbols-outlined' aria-hidden='true'>dns</span>"
 
+_SECTION_ICON_CONNECTORS = "<span class='material-symbols-outlined' aria-hidden='true'>hub</span>"
+
 _SECTION_ICON_SETTINGS = "<span class='material-symbols-outlined' aria-hidden='true'>settings</span>"
 # The Slack mark, not a Material Symbols glyph - that icon set has no
 # generic "Slack" glyph, so this is an inline SVG (same pattern as
@@ -6598,6 +6630,7 @@ _NAV_ITEMS = (
     ("runs", "/runs", "Runs", _SECTION_ICON_LOOP_RUNS),
     ("insights", "/insights", "Insights", _SECTION_ICON_ANALYTICS),
     ("harness", "/harness", "Harness", _SECTION_ICON_AUDIT),
+    ("connectors", "/connectors", "Connectors", _SECTION_ICON_CONNECTORS),
     ("settings", "/settings", "Settings", _SECTION_ICON_GENERAL_SETTINGS),
 )
 
@@ -6611,7 +6644,7 @@ _NAV_GROUPS = (
     (None, ("overview",)),
     ("Loops", ("loops",)),
     ("Observe", ("runs", "insights", "harness")),
-    ("System", ("settings",)),
+    ("System", ("connectors", "settings")),
 )
 
 
@@ -6837,6 +6870,7 @@ _AI_PROMPT_MEMORY = ("lightbulb", "Learnings", "What has the loop learned so far
 _AI_PROMPT_DAEMONS = ("dns", "Daemons", "Which daemons are enabled right now?", True)
 _AI_PROMPT_HELP = ("auto_awesome", "What can you do?", "What can you help me with on this dashboard?", True)
 _AI_PROMPT_ADD_TOPIC = ("add", "Add a topic", "Add a new Topic Monitor topic: ", False)
+_AI_PROMPT_CONNECTORS = ("hub", "Connectors", "Which connectors are configured?", True)
 _AI_PROMPT_ADD_PROJECT = ("add", "Add a GitLab project", "Set up a new GitLab project for the loop: ", False)
 
 # The "Thinking..." indicator both chats (the AI panel and the Dashboard)
@@ -7235,6 +7269,7 @@ _AI_PANEL_PROMPTS = {
     "runs": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_LATEST, _AI_PROMPT_ERRORS, _AI_PROMPT_STATUS),
     "insights": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_PROGRESS, _AI_PROMPT_MEMORY, _AI_PROMPT_LATEST),
     "harness": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_ERRORS),
+    "connectors": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_CONNECTORS),
     "settings": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_DAEMONS, _AI_PROMPT_ADD_PROJECT, _AI_PROMPT_HELP),
 }
 
@@ -12177,6 +12212,239 @@ def _default_badge():
     return _status_badge_markup(read_status(STATUS_PATH))
 
 
+# --- Connectors page ----------------------------------------------------------
+
+_CONNECTOR_OWNER_PAGES = {
+    "gitlab-config": "/loops/gitlab-loop?view=projects",
+    "slack-config": "/settings?tab=notifications",
+    "inboxes": "/loops/inbox-triage-loop?view=setup",
+}
+
+
+def _connector_owner_badge_text(managed_by):
+    """Translated "Managed on ..." badge text for an account's owner."""
+    if managed_by == "gitlab-config":
+        return _t("Managed on GitLab page")
+    if managed_by == "slack-config":
+        return _t("Managed on Notification settings")
+    if managed_by == "inboxes":
+        return _t("Managed on Inbox Triage")
+    return _t("Native")
+
+
+def _read_connector_test_results(results_path=None):
+    if results_path is None:
+        results_path = CONNECTOR_TEST_RESULTS_PATH
+    try:
+        data = json.loads(Path(results_path).read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _record_connector_test_result(account_id, ok, message, results_path=None):
+    """Atomically merge one {ok, message, at} entry into the per-checkout
+    test-results file. Never holds a secret: `message` is the connector's own
+    user-facing summary."""
+    if results_path is None:
+        results_path = CONNECTOR_TEST_RESULTS_PATH
+    results_path = Path(results_path)
+    results = _read_connector_test_results(results_path)
+    results[account_id] = {
+        "ok": bool(ok), "message": str(message)[:500],
+        "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    results_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = results_path.with_name(results_path.name + f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(results, indent=2))
+    os.replace(tmp, results_path)
+
+
+def _connector_type_or_none(name):
+    try:
+        return connectors.get_type(name)
+    except KeyError:
+        return None
+
+
+def _connector_account_row_html(account, csrf_input, result):
+    account_id = account["id"]
+    safe_id = html.escape(account_id)
+    quoted_id = urllib.parse.quote(account_id, safe="")
+    cls = _connector_type_or_none(account["type"])
+    caps = sorted(cls.capabilities) if cls else []
+    chips = "".join(f"<span class='pill pill-grey'>{html.escape(c)}</span>" for c in caps)
+    managed_by = account.get("managed_by", "native")
+    owner_href = _CONNECTOR_OWNER_PAGES.get(managed_by)
+    if owner_href:
+        badge = (f"<a class='pill pill-link' href=\"{html.escape(owner_href, quote=True)}\">"
+                 f"{html.escape(_connector_owner_badge_text(managed_by))}</a>")
+    else:
+        badge = f"<span class='pill pill-blue'>{html.escape(_connector_owner_badge_text(managed_by))}</span>"
+    result_html = ""
+    if isinstance(result, dict):
+        pill = "pill-green" if result.get("ok") else "pill-red"
+        result_html = (f"<span class='pill {pill}' title=\"{html.escape(str(result.get('at', '')), quote=True)}\">"
+                       f"{html.escape(str(result.get('message', '')))}</span>")
+    notify = cls is not None and "notify" in cls.capabilities
+    test_label = _t("Send test message") if notify else _t("Test")
+    buttons = (
+        f"<form method='post' action='/connectors/test' class='daemon-action-form'>{csrf_input}"
+        f"<input type='hidden' name='id' value=\"{safe_id}\">"
+        f"<button type='submit' class='btn btn-neutral'><span class='material-symbols-outlined' aria-hidden='true'>"
+        f"{'send' if notify else 'check_circle'}</span> {html.escape(test_label)}</button></form>"
+    )
+    if managed_by == "native":
+        confirm = html.escape(_t("Delete connector {id}?", id=account_id), quote=True)
+        buttons += (
+            f"<a class='btn btn-neutral' href='/connectors?view=add&amp;type={urllib.parse.quote(account['type'], safe='')}"
+            f"&amp;id={html.escape(quoted_id)}'><span class='material-symbols-outlined' aria-hidden='true'>edit</span> "
+            f"{html.escape(_t('Edit'))}</a>"
+            f"<form method='post' action='/connectors/delete' class='daemon-action-form'>{csrf_input}"
+            f"<input type='hidden' name='id' value=\"{safe_id}\">"
+            f"<button type='submit' class='btn btn-warning' data-confirm=\"{confirm}\">"
+            f"<span class='material-symbols-outlined' aria-hidden='true'>delete</span> {html.escape(_t('Delete'))}</button></form>"
+        )
+    disabled = "" if account.get("enabled", True) else f" <span class='pill pill-grey'>{html.escape(_t('Disabled'))}</span>"
+    return (
+        "<div class='project-block'>"
+        f"<div><strong>{html.escape(account['label'])}</strong> <code>{safe_id}</code>{disabled}</div>"
+        f"<div class='pill-row'>{chips}{badge}{result_html}</div>"
+        f"<div class='pill-row'>{buttons}</div>"
+        "</div>"
+    )
+
+
+def _connectors_accounts_body(flash=None, flash_ok=True, list_fn=None):
+    """Accounts view: one card per connector type, one row per account. The
+    list view renders no secret input and never reads a secret."""
+    if list_fn is None:
+        list_fn = connectors_config.list_accounts
+    csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
+    connectors._load_all()
+    try:
+        accounts = list_fn()
+        error_html = ""
+    except (connectors_config.ConnectorConfigError, OSError) as exc:
+        accounts = []
+        error_html = _flash_html(str(exc), False)
+    results = _read_connector_test_results()
+    by_type = {}
+    for account in accounts:
+        by_type.setdefault(account["type"], []).append(account)
+    cards = []
+    for type_name, rows in by_type.items():
+        cls = _connector_type_or_none(type_name)
+        label = i18n.t(cls.label) if cls else type_name
+        icon = cls.icon if cls else "hub"
+        rows_html = "".join(
+            _connector_account_row_html(a, csrf_input, results.get(a["id"])) for a in rows)
+        cards.append(
+            f"<div class='card'><div class='section-header'>"
+            f"<span class='material-symbols-outlined' aria-hidden='true'>{html.escape(icon)}</span>"
+            f"<h2>{html.escape(label)}</h2></div>{rows_html}</div>")
+    if not cards and not error_html:
+        cards.append(f"<div class='card'><p class='section-subtitle'>{html.escape(_t('No connectors yet.'))} "
+                     f"<a href='/connectors?view=add'>{html.escape(_t('Add a connector'))}</a></p></div>")
+    subtitle = (f"<p class='section-subtitle'>{html.escape(_t('Accounts the loops can read from or notify through.'))}</p>")
+    return _flash_html(flash, flash_ok) + error_html + subtitle + "".join(cards)
+
+
+def _connector_type_picker_html():
+    connectors._load_all()
+    tiles = []
+    for name, cls in connectors.CONNECTOR_TYPES.items():
+        if cls.external:
+            continue
+        tiles.append(
+            f"<a class='card' href='/connectors?view=add&amp;type={urllib.parse.quote(name, safe='')}'>"
+            f"<div class='section-header'><span class='material-symbols-outlined' aria-hidden='true'>{html.escape(cls.icon)}</span>"
+            f"<h2>{html.escape(i18n.t(cls.label))}</h2></div></a>")
+    return (f"<p class='section-subtitle'>{html.escape(_t('Choose a connector type.'))}</p>"
+            f"<div class='pill-row'>{''.join(tiles)}</div>")
+
+
+def _connector_form_body(type_name, account=None):
+    """The add/edit form for one native connector type, generated from the
+    type's declared fields. A secret value is never rendered: when editing,
+    the secret input is empty with a "leave blank to keep" placeholder."""
+    cls = connectors.get_type(type_name)
+    csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
+    editing = account is not None
+    settings = (account or {}).get("settings") or {}
+
+    def row(label, control, help_text=""):
+        help_html = f"<div class='section-subtitle'>{html.escape(i18n.t(help_text))}</div>" if help_text else ""
+        return f"<label class='project-field'><span>{html.escape(label)}</span>{control}{help_html}</label>"
+
+    rows = [
+        row(i18n.t("Label"), f"<input type='text' name='label' value='{html.escape((account or {}).get('label', ''), quote=True)}' required>"),
+        row(i18n.t("Connector id"), f"<input type='text' name='id' value='{html.escape((account or {}).get('id', ''), quote=True)}' "
+                                    f"pattern='[a-z0-9][a-z0-9-]*' required>",
+            "Lowercase letters, digits and dashes"),
+    ]
+    for field in cls.fields:
+        value = settings.get(field.key, "") if editing else field.default
+        name = html.escape(field.key, quote=True)
+        req = " required" if field.required else ""
+        if field.kind == "select":
+            opts = "".join(
+                f"<option value='{html.escape(o, quote=True)}'{' selected' if o == value else ''}>{html.escape(o)}</option>"
+                for o in field.options)
+            control = f"<select name='{name}'{req}>{opts}</select>"
+        elif field.kind == "textarea":
+            control = f"<textarea name='{name}' rows='3'{req}>{html.escape(value)}</textarea>"
+        else:
+            input_type = "url" if field.kind == "url" else "text"
+            control = f"<input type='{input_type}' name='{name}' value='{html.escape(value, quote=True)}'{req}>"
+        rows.append(row(i18n.t(field.label), control, field.help))
+    if cls.secret_label:
+        placeholder = html.escape(_t("•••• saved — leave blank to keep") if editing else "", quote=True)
+        rows.append(row(
+            i18n.t(cls.secret_label),
+            f"<input type='password' name='secret' autocomplete='new-password' placeholder='{placeholder}'"
+            f"{'' if editing else ' required'}>"))
+    original = (f"<input type='hidden' name='original_id' value='{html.escape(account['id'], quote=True)}'>"
+                if editing else "")
+    return (
+        f"<div class='card'><div class='section-header'>"
+        f"<span class='material-symbols-outlined' aria-hidden='true'>{html.escape(cls.icon)}</span>"
+        f"<h2>{html.escape(i18n.t(cls.label))}</h2></div>"
+        f"<form method='post' action='/connectors/save' class='project-form' autocomplete='off'>"
+        f"{csrf_input}<input type='hidden' name='type' value='{html.escape(type_name, quote=True)}'>{original}"
+        f"{''.join(rows)}"
+        f"<button type='submit' class='btn btn-primary'><span class='material-symbols-outlined' aria-hidden='true'>save</span> "
+        f"{html.escape(_t('Save'))}</button></form></div>")
+
+
+def _connectors_add_body(type_name=None, account_id=None, list_fn=None):
+    """Add view: the type picker, or the form for ?type= (editing the native
+    account ?id=). Unknown/external types fall back to the picker."""
+    if list_fn is None:
+        list_fn = connectors_config.list_accounts
+    connectors._load_all()
+    account = None
+    if account_id:
+        try:
+            account = next((a for a in list_fn() if a["id"] == account_id), None)
+        except (connectors_config.ConnectorConfigError, OSError) as exc:
+            return _flash_html(str(exc), False) + _connector_type_picker_html()
+        if account is None:
+            return _flash_html(_t("No connector with id {id}", id=account_id), False) + _connector_type_picker_html()
+        if account.get("managed_by") != "native":
+            href = _CONNECTOR_OWNER_PAGES.get(account.get("managed_by"), "/connectors")
+            return (f"<div class='card'><p>{html.escape(account['label'])} <code>{html.escape(account_id)}</code> "
+                    f"<a class='pill pill-link' href=\"{html.escape(href, quote=True)}\">"
+                    f"{html.escape(_connector_owner_badge_text(account.get('managed_by')))}</a></p></div>")
+        type_name = account["type"]
+    if not type_name:
+        return _connector_type_picker_html()
+    cls = _connector_type_or_none(type_name)
+    if cls is None or cls.external:
+        return _flash_html(_t("Unknown connector type {type}", type=type_name), False) + _connector_type_picker_html()
+    return _connector_form_body(type_name, account=account)
+
+
 def _only(kwargs, *keys):
     return {k: kwargs[k] for k in keys if k in kwargs}
 
@@ -12204,6 +12472,10 @@ def _hubs():
         )),
         "harness": hub_mod.Hub("harness", "/harness", "Harness", _SECTION_ICON_AUDIT, (
             V("audit", "Audit", lambda **kw: _audit_body()),
+        )),
+        "connectors": hub_mod.Hub("connectors", "/connectors", "Connectors", _SECTION_ICON_CONNECTORS, (
+            V("accounts", "Accounts", lambda **kw: _connectors_accounts_body(**_only(kw, "flash", "flash_ok"))),
+            V("add", "Add", lambda **kw: _connectors_add_body(kw.get("type"), kw.get("id"))),
         )),
         "settings": hub_mod.Hub("settings", "/settings", "Settings", _SECTION_ICON_GENERAL_SETTINGS, (
             V("general", "General", lambda **kw: _general_settings_body(
@@ -12364,7 +12636,8 @@ _LEGACY_REDIRECTS = {
 }
 
 _HUB_PATHS = {"/": "overview", "/runs": "runs", "/insights": "insights",
-              "/harness": "harness", "/settings": "settings"}
+              "/harness": "harness", "/settings": "settings",
+              "/connectors": "connectors"}
 
 
 def legacy_redirect_target(path, query):
@@ -12401,7 +12674,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if split.path in _HUB_PATHS:
             query = urllib.parse.parse_qs(split.query)
             ctx = {"tab": query.get("tab", [None])[0],
-                   "session_id": query.get("session", [None])[0]}
+                   "session_id": query.get("session", [None])[0],
+                   "type": query.get("type", [None])[0],
+                   "id": query.get("id", [None])[0]}
             if "days" in query:
                 try:
                     ctx["days"] = int(query["days"][0])
@@ -12683,6 +12958,45 @@ class DashboardHandler(BaseHTTPRequestHandler):
             content_length = 0
         body = self.rfile.read(content_length) if content_length else b""
         self._apply_language()
+
+        if self.path == "/connectors/save":
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            form = {k: v[0] for k, v in urllib.parse.parse_qs(
+                body.decode("utf-8", errors="replace"), keep_blank_values=True).items()}
+            fields = {k: v for k, v in form.items() if k not in ("csrf_token", "secret", "original_id")}
+            ok, message = connectors_config.upsert_account(
+                fields, form.get("secret", ""), original_id=form.get("original_id", ""))
+            self._redirect_with_flash(ok, message, location="/connectors")
+            return
+
+        if self.path == "/connectors/delete":
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
+            ok, message = connectors_config.delete_account(form.get("id", [""])[0])
+            self._redirect_with_flash(ok, message, location="/connectors")
+            return
+
+        if self.path == "/connectors/test":
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
+            account_id = form.get("id", [""])[0]
+            try:
+                ok, message = connectors_config.load_connector(account_id).test()
+            except Exception as exc:  # noqa: BLE001 - a probe must never 500 the page
+                from connectors.base import describe_http_error
+                ok, message = False, describe_http_error(exc)
+            try:
+                _record_connector_test_result(account_id, ok, message)
+            except OSError:
+                pass
+            self._redirect_with_flash(ok, message, location="/connectors")
+            return
 
         if self.path == "/run-now":
             if not self._csrf_ok(body):

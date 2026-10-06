@@ -3130,6 +3130,7 @@ def test_nav_items_each_carry_a_material_symbols_icon():
         "runs": "loop",
         "insights": "monitoring",
         "harness": "fact_check",
+        "connectors": "hub",
         "settings": "tune",
     }
     assert [k for k, *_ in ds._NAV_ITEMS] == list(expected_names)
@@ -3138,7 +3139,7 @@ def test_nav_items_each_carry_a_material_symbols_icon():
 
 
 def test_nav_has_seven_or_fewer_top_level_items():
-    assert [k for k, *_ in ds._NAV_ITEMS] == ["overview", "loops", "runs", "insights", "harness", "settings"]
+    assert [k for k, *_ in ds._NAV_ITEMS] == ["overview", "loops", "runs", "insights", "harness", "connectors", "settings"]
     assert len(ds._NAV_ITEMS) <= 7
 
 
@@ -3146,13 +3147,14 @@ def test_nav_items_point_at_hub_paths():
     assert {k: href for k, href, *_ in ds._NAV_ITEMS} == {
         "overview": "/", "loops": "/loops", "runs": "/runs",
         "insights": "/insights", "harness": "/harness", "settings": "/settings",
+        "connectors": "/connectors",
     }
 
 
 def test_nav_groups_structure():
     assert ds._NAV_GROUPS == (
         (None, ("overview",)), ("Loops", ("loops",)),
-        ("Observe", ("runs", "insights", "harness")), ("System", ("settings",)),
+        ("Observe", ("runs", "insights", "harness")), ("System", ("connectors", "settings")),
     )
 
 
@@ -11578,7 +11580,7 @@ def test_ai_panel_offers_prompts_for_the_current_page():
 
 
 def test_ai_panel_prompt_table_uses_hub_keys_with_at_most_four_prompts():
-    assert set(ds._AI_PANEL_PROMPTS) == {"overview", "loops", "runs", "insights", "harness", "settings"}
+    assert set(ds._AI_PANEL_PROMPTS) == {"overview", "loops", "runs", "insights", "harness", "connectors", "settings"}
     for key, prompts in ds._AI_PANEL_PROMPTS.items():
         assert 1 <= len(prompts) <= 4, key
 
@@ -12383,3 +12385,196 @@ def test_nav_and_hub_labels_are_in_every_catalog():
         cat = json.loads((Path(ds.__file__).parent.parent / "locales" / f"{lang}.json").read_text())
         missing = sorted(l for l in labels if l not in cat)
         assert not missing, (lang, missing)
+
+
+# --- Connectors page (Task 6) ---------------------------------------------
+
+import connectors_config  # noqa: E402
+
+
+def _gh_account(**over):
+    base = {"id": "gh", "type": "github", "label": "GH", "enabled": True,
+            "settings": {"api_url": "https://api.github.com", "username": "u"},
+            "managed_by": "native"}
+    base.update(over)
+    return base
+
+
+def test_connectors_nav_item_before_settings():
+    keys = [k for k, *_ in ds._NAV_ITEMS]
+    assert keys.index("connectors") == keys.index("settings") - 1
+    system = dict(ds._NAV_GROUPS)["System"]
+    assert system == ("connectors", "settings")
+    assert "hub" in ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
+
+
+def test_connectors_accounts_body_never_renders_secrets(monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [_gh_account()])
+    out = ds._connectors_accounts_body(None, True)
+    assert "GH" in out and ">gh<" in out
+    assert "type='password'" not in out
+
+
+def test_connectors_accounts_body_external_rows_link_to_owner(monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [
+        {"id": "gitlab:a b", "type": "gitlab", "label": "GL", "enabled": True,
+         "settings": {}, "managed_by": "gitlab-config"},
+        {"id": "slack-x", "type": "slack", "label": "SL", "enabled": True,
+         "settings": {}, "managed_by": "slack-config"},
+        {"id": "mb", "type": "mailbox", "label": "MB", "enabled": True,
+         "settings": {}, "managed_by": "inboxes"}])
+    out = ds._connectors_accounts_body(None, True)
+    assert "/loops/gitlab-loop?view=projects" in out
+    assert "/settings?tab=notifications" in out
+    assert "/loops/inbox-triage-loop?view=setup" in out
+    assert "/connectors/delete" not in out
+    assert "gitlab:a b" in out and "/connectors?view=add" not in out
+
+
+def test_connectors_accounts_body_escapes_and_shows_last_result(monkeypatch, tmp_path):
+    results = tmp_path / "r.json"
+    results.write_text(json.dumps({"x<y": {"ok": False, "message": "bad <b>", "at": "2026-01-01T00:00:00Z"}}))
+    monkeypatch.setattr(ds, "CONNECTOR_TEST_RESULTS_PATH", results)
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [
+        _gh_account(id="x<y", label="<i>L</i>")])
+    out = ds._connectors_accounts_body(None, True)
+    assert "<i>L</i>" not in out and "&lt;i&gt;L&lt;/i&gt;" in out
+    assert "bad &lt;b&gt;" in out
+    assert "x<y" not in out.replace("x&lt;y", "")
+
+
+def test_connectors_notify_row_uses_send_test_message(monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [
+        _gh_account(id="w", type="webhook", label="W", settings={"format": "feishu"})])
+    out = ds._connectors_accounts_body(None, True)
+    assert "Send test message" in out
+
+
+def test_connectors_page_renders_when_keychain_errors(monkeypatch):
+    def boom(**kw):
+        raise ds.connectors_config.ConnectorConfigError("connectors.json is not valid JSON")
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", boom)
+    out = ds._connectors_accounts_body(None, True)
+    assert "not valid JSON" in out
+
+
+def test_connector_form_generated_from_fields():
+    out = ds._connector_form_body("webhook")
+    assert "name='format'" in out and "<option value='feishu'" in out
+    assert "type='password'" in out and "autocomplete='new-password'" in out
+    assert "name='csrf_token'" in out
+
+
+def test_connector_form_edit_hides_secret_value():
+    out = ds._connector_form_body("github", account={"id": "gh", "type": "github", "label": "GH", "settings": {"api_url": "https://api.github.com", "username": "u"}})
+    assert "value='https://api.github.com'" in out
+    assert "leave blank to keep" in out
+    assert "name='original_id' value='gh'" in out
+
+
+def test_connectors_add_view_unknown_type_shows_picker_not_500(monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [])
+    for t in ("nope", "mailbox"):
+        page = ds.render_hub_page("connectors", view="add", type=t)
+        assert "?view=add&amp;type=webhook" in page or "view=add&type=webhook" in page
+
+
+def test_connectors_edit_external_id_links_to_owner(monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [
+        {"id": "g1", "type": "gitlab", "label": "GL", "enabled": True, "settings": {}, "managed_by": "gitlab-config"}])
+    page = ds.render_hub_page("connectors", view="add", type="github", id="g1")
+    assert "/loops/gitlab-loop?view=projects" in page
+    assert "name='secret'" not in page
+
+
+def test_post_connectors_routes_require_csrf(monkeypatch):
+    called = []
+    monkeypatch.setattr(ds.connectors_config, "upsert_account", lambda *a, **k: called.append(1) or (True, "x"))
+    monkeypatch.setattr(ds.connectors_config, "delete_account", lambda *a, **k: called.append(1) or (True, "x"))
+    monkeypatch.setattr(ds.connectors_config, "load_connector", lambda *a, **k: called.append(1))
+    with _running_server() as port:
+        for path in ("/connectors/save", "/connectors/delete", "/connectors/test"):
+            assert _post(port, path, {"id": "gh", "type": "github"})[0] == 403
+            assert _post(port, path)[0] == 403
+    assert called == []
+
+
+def test_post_connectors_save_passes_fields_and_secret(monkeypatch):
+    seen = {}
+
+    def fake_upsert(fields, secret, original_id="", **kw):
+        seen.update(fields=fields, secret=secret, original_id=original_id)
+        return True, "Saved"
+    monkeypatch.setattr(ds.connectors_config, "upsert_account", fake_upsert)
+    with _running_server() as port:
+        status, headers, _ = _post(port, "/connectors/save", {
+            "csrf_token": ds._CSRF_TOKEN, "id": "gh", "type": "github", "label": "GH",
+            "secret": "s3cr3t-token", "original_id": "old"})
+    assert status == 303 and headers["Location"].startswith("/connectors?")
+    assert seen["fields"] == {"id": "gh", "type": "github", "label": "GH"}
+    assert seen["secret"] == "s3cr3t-token" and seen["original_id"] == "old"
+    assert "s3cr3t" not in headers["Location"]
+
+
+def test_post_connectors_delete(monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "delete_account", lambda i, **k: (True, f"Deleted {i}"))
+    with _running_server() as port:
+        status, headers, _ = _post(port, "/connectors/delete", {"csrf_token": ds._CSRF_TOKEN, "id": "gh"})
+    assert status == 303 and "Deleted" in urllib.parse.unquote(headers["Location"])
+
+
+def test_post_connectors_test_records_result(monkeypatch, tmp_path):
+    results = tmp_path / "out" / "test-results.json"
+    monkeypatch.setattr(ds, "CONNECTOR_TEST_RESULTS_PATH", results)
+
+    class C:
+        capabilities = frozenset()
+
+        def test(self):
+            return True, "Connected as u"
+    monkeypatch.setattr(ds.connectors_config, "load_connector", lambda i, **kw: C())
+    with _running_server() as port:
+        status, headers, _ = _post(port, "/connectors/test", {"csrf_token": ds._CSRF_TOKEN, "id": "gh"})
+    assert status == 303 and "Connected" in urllib.parse.unquote(headers["Location"])
+    data = json.loads(results.read_text())
+    assert data["gh"]["ok"] is True and data["gh"]["message"] == "Connected as u" and data["gh"]["at"]
+
+
+def test_post_connectors_test_exception_is_recorded_as_failure(monkeypatch, tmp_path):
+    results = tmp_path / "test-results.json"
+    monkeypatch.setattr(ds, "CONNECTOR_TEST_RESULTS_PATH", results)
+
+    def boom(i, **kw):
+        raise RuntimeError("keychain exploded")
+    monkeypatch.setattr(ds.connectors_config, "load_connector", boom)
+    with _running_server() as port:
+        status, headers, _ = _post(port, "/connectors/test", {"csrf_token": ds._CSRF_TOKEN, "id": "gh"})
+    assert status == 303 and "ok=0" in headers["Location"]
+    assert json.loads(results.read_text())["gh"]["ok"] is False
+
+
+def test_chat_tool_connector_list_filters_settings(monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [
+        _gh_account(settings={"api_url": "https://api.github.com", "username": "u",
+                              "token": "ghp_secret", "format": "x", "webhook_url": "https://hooks/AAA"}),
+        {"id": "w", "type": "webhook", "label": "W", "enabled": True,
+         "settings": {"url": "https://h/x", "secret_header": "zzz"}, "managed_by": "native"}])
+    out = ds._chat_tool_connector_list()
+    assert [r["id"] for r in out] == ["gh", "w"]
+    assert set(out[0]) == {"id", "type", "label", "capabilities", "managed_by", "settings"}
+    assert out[0]["settings"] == {"api_url": "https://api.github.com", "format": "x"}
+    assert out[1]["settings"] == {"url": "https://h/x"}
+    assert isinstance(out[0]["capabilities"], list)
+    blob = json.dumps(out)
+    assert "ghp_secret" not in blob and "AAA" not in blob and "zzz" not in blob
+
+
+def test_chat_system_prompt_mentions_connector_list():
+    assert "connector-list" in ds._CHAT_ASSISTANT_SYSTEM_PROMPT
+
+
+def test_connectors_hub_page_renders(monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [_gh_account()])
+    page = ds.render_hub_page("connectors")
+    assert "GH" in page and "view=add" in page
+    assert "connectors" in ds._AI_PANEL_PROMPTS and len(ds._AI_PANEL_PROMPTS["connectors"]) <= 4
