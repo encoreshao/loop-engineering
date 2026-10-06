@@ -16,7 +16,7 @@ from loop_definition import LoopDefinition
 from loop_eval import run_all
 from loop_result import LoopResult
 from loop_runtime import LoopRuntime
-from loop_serialize import find_latest_result, list_results, read_result, summarize_run_costs, write_result
+from loop_serialize import effective_passed, find_latest_result, list_results, read_result, summarize_run_costs, write_result
 from loop_state import LoopState
 from loop_verifiers import build_verifiers
 
@@ -329,7 +329,7 @@ def _print_run_detail(data):
     for iteration in data["iterations"]:
         print(f"  Iteration {iteration['iteration']}: {iteration['state']}")
         for verification in iteration["verification_results"]:
-            mark = "PASS" if verification["passed"] else "FAIL"
+            mark = "PASS" if effective_passed(verification) else "FAIL"
             print(f"    [{mark}] {verification['name']}")
 
 

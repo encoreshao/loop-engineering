@@ -9227,7 +9227,7 @@ def render_loop_run_detail_page(run_id):
     iteration_blocks = []
     for iteration in data["iterations"]:
         verifier_items = "".join(
-            f"<li>{'✓' if v['passed'] else '✗'} {html.escape(v['name'])}</li>"
+            f"<li>{'✓' if loop_serialize.effective_passed(v) else '✗'} {html.escape(v['name'])}</li>"
             for v in iteration["verification_results"]
         ) or "<li>" + html.escape(_t("(no verifiers configured)")) + "</li>"
         iteration_blocks.append(f"""

@@ -184,8 +184,10 @@ class ProjectCommandsVerifier(Verifier):
                 name=f"{self.name}_{kind}", command=command, cwd=worktree, timeout_seconds=self.timeout_seconds,
             ).verify(context)
             passed = passed and result.passed
-            commands.append({"kind": kind, "command": command, "passed": result.passed, "exit_code": result.exit_code})
-            chunks.append(f"$ {command}\n{result.output[-_OUTPUT_TAIL_CHARS:]}")
+            tail = result.output[-_OUTPUT_TAIL_CHARS:]
+            commands.append({"kind": kind, "command": command, "passed": result.passed,
+                             "exit_code": result.exit_code, "output": tail})
+            chunks.append(f"$ {command}\n{tail}")
 
         return VerificationResult(
             name=self.name,

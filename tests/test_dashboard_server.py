@@ -13752,3 +13752,18 @@ def test_catalog_row_shows_label_with_description_below():
     row = ds._loops_catalog_row(dict(_RSS_LOOP), "", {})
     assert "<span class='loop-label'>RSS Watch</span>" in row
     assert "<p class='loop-description'>Ranks new entries" in row
+
+
+def test_loop_run_detail_marks_observed_failure_as_failed(tmp_path, monkeypatch):
+    import loop_verifiers
+
+    result = _sample_loop_result(run_id="run_observed")
+    result.iterations[0].verification_results = [loop_verifiers.VerificationResult(
+        name="project_commands", passed=True, exit_code=0, duration_ms=5, output="",
+        evidence={"observed_passed": False, "mode": "observe"})]
+    loop_serialize.write_result(result, results_dir=tmp_path)
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", tmp_path)
+
+    output = ds.render_loop_run_detail_page("run_observed")
+
+    assert "✗ project_commands" in output and "✓ project_commands" not in output

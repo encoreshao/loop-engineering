@@ -254,3 +254,18 @@ def test_write_result_is_atomic_no_reader_ever_sees_a_corrupt_file(tmp_path):
 
     assert errors == []
     assert not (tmp_path / "run_atomic" / "result.json.tmp").exists()
+
+
+def test_observed_failure_is_not_verified_successful(tmp_path):
+    result = LoopResult(
+        loop_id="loop_1", run_id="run_obs", definition_name="test-loop", final_state=LoopState.COMPLETED,
+        iterations=[IterationResult(
+            iteration=1, state=LoopState.COMPLETED,
+            verification_results=[VerificationResult(
+                "project_commands", True, 0, 1, "", {"observed_passed": False, "mode": "observe"})],
+            budget={"cost": {"used_usd": 1.0}, "runtime": {"used_seconds": 3600.0}}, progressed=True,
+        )],
+        stop_reason="completed",
+    )
+    write_result(result, results_dir=tmp_path)
+    assert summarize_results(results_dir=tmp_path)["efficiency_score"] == 0.0

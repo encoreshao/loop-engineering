@@ -68,6 +68,13 @@ def find_latest_result(results_dir=None):
     return max(results, key=lambda p: p.stat().st_mtime)
 
 
+def effective_passed(verification):
+    """A serialized verification result's real outcome: observe mode forces
+    `passed` True and keeps the underlying result in evidence."""
+    evidence = verification.get("evidence") or {}
+    return evidence.get("observed_passed", verification.get("passed"))
+
+
 def _is_verified_successful(data):
     """A run counts toward the Loop Efficiency Score's numerator when it
     completed AND every verifier that ran passed - a run with no
@@ -79,7 +86,7 @@ def _is_verified_successful(data):
     if data["final_state"] != "completed" or not data["iterations"]:
         return False
     verification_results = data["iterations"][-1].get("verification_results") or []
-    return all(v.get("passed") for v in verification_results)
+    return all(effective_passed(v) for v in verification_results)
 
 
 def summarize_results(results_dir=None):

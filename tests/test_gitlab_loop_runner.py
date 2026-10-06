@@ -1191,3 +1191,27 @@ def test_allowed_tools_cover_loop_plugins(tmp_path):
     tools = glr._allowed_tools(tmp_path)
     assert "Bash(python3 bin/loop_plugins/*.py*)" in tools
     assert f"Bash(python3 {tmp_path}/bin/loop_plugins/*.py*)" in tools
+
+
+def test_feedback_keeps_failing_test_command_when_lint_output_is_long(tmp_path):
+    (tmp_path / "wt" / "repo-issue-7").mkdir(parents=True)
+    project = {
+        "local_path": str(tmp_path / "repo"),
+        "test_cmd": "python3 -c \"import sys; print('T' * 3000 + 'TESTTAIL'); sys.exit(1)\"",
+        "lint_cmd": "python3 -c \"import sys; print('L' * 3000); sys.exit(1)\"",
+    }
+    v = lv.ProjectCommandsVerifier("project_commands", "web", 7, 30, project_fn=lambda a: project,
+                                   worktree_root_fn=lambda: tmp_path / "wt")
+    text = glr.format_feedback(FakeIteration([v.verify({})]))
+    assert "$ python3 -c \"import sys; print('T'" in text and "TESTTAIL" in text and "L" * 100 in text
+    assert len(text) <= 6000
+
+
+def test_feedback_omits_passing_commands(tmp_path):
+    (tmp_path / "wt" / "repo-issue-7").mkdir(parents=True)
+    project = {"local_path": str(tmp_path / "repo"), "test_cmd": "echo GOODOUTPUT",
+               "lint_cmd": "python3 -c \"import sys; print('BADLINT'); sys.exit(1)\""}
+    v = lv.ProjectCommandsVerifier("project_commands", "web", 7, 30, project_fn=lambda a: project,
+                                   worktree_root_fn=lambda: tmp_path / "wt")
+    text = glr.format_feedback(FakeIteration([v.verify({})]))
+    assert "BADLINT" in text and "GOODOUTPUT" not in text

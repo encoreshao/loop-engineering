@@ -393,10 +393,18 @@ _FEEDBACK_PER_RESULT_CHARS = 2500
 def format_feedback(previous_iteration):
     """Failure feedback for the next attempt: each failed verifier's output
     tail (its output already carries `$ <command>` headers), bounded."""
-    parts = [
-        r.output[-_FEEDBACK_PER_RESULT_CHARS:]
-        for r in previous_iteration.verification_results if not r.passed
-    ]
+    parts = []
+    for r in previous_iteration.verification_results:
+        if r.passed:
+            continue
+        commands = (r.evidence or {}).get("commands")
+        if commands:
+            parts.extend(
+                f"$ {c['command']}\n{(c.get('output') or '')[-_FEEDBACK_PER_RESULT_CHARS:]}"
+                for c in commands if not c.get("passed")
+            )
+        else:
+            parts.append(r.output[-_FEEDBACK_PER_RESULT_CHARS:])
     return (_FEEDBACK_HEADER + "\n\n".join(parts))[:_FEEDBACK_MAX_CHARS]
 
 
