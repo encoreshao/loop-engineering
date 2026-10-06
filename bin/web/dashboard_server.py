@@ -4083,7 +4083,7 @@ _FONT_FACE_VARS = "\n".join(
 _MATERIAL_SYMBOLS_ICON_NAMES = (
     "account_balance_wallet,add,add_comment,arrow_forward,arrow_upward,auto_awesome,autorenew,bolt,calendar_month,check,check_circle,chevron_left,circle,"
     "close,code,content_copy,delete,description,dns,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,help,history,hub,"
-    "lightbulb,login,loop,mail,merge,monitoring,newspaper,open_in_new,palette,payments,rss_feed,save,send,settings,smart_toy,space_dashboard,speed,task_alt,terminal,topic,"
+    "lightbulb,login,loop,mail,merge,monitoring,newspaper,open_in_new,palette,payments,rss_feed,save,search,send,settings,smart_toy,space_dashboard,speed,task_alt,terminal,topic,"
     "translate,tune,warning,webhook,widgets"
 )
 
@@ -5745,12 +5745,181 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
 svg.brand-logo[fill="currentColor"] {{ color: #181717; }}
 .brand-lettermark {{ display: inline-flex; align-items: center; justify-content: center; box-sizing: content-box; padding: 4px; border-radius: 50%; background: var(--brand, var(--md-primary)); color: #fff; font-size: 0.8rem; font-weight: 700; }}
 .connector-row-title {{ display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }}
-.connector-search {{ width: 100%; max-width: 24rem; margin: 0.5rem 0 1rem; padding: 0.55rem 0.8rem; border: 1px solid var(--md-outline); border-radius: 8px; background: var(--md-surface-container-lowest); color: var(--md-on-surface); font: inherit; }}
-.connector-category h2 {{ margin: 1.25rem 0 0.6rem; font-size: 1rem; color: var(--md-on-surface-variant); }}
-.connector-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0.75rem; }}
-.connector-tile {{ display: flex; gap: 0.75rem; align-items: flex-start; padding: 0.85rem; border: 1px solid var(--md-outline-variant); border-radius: 12px; background: var(--md-surface-container-low); color: var(--md-on-surface); text-decoration: none; }}
-.connector-tile:hover {{ background: var(--md-surface-container-high); border-color: var(--md-outline); }}
-.connector-tile-body {{ display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }}
+/* Connector gallery cards. Tiles (.connector-tile), the search box and the
+   form's brand header (.connector-hero) read the --cg-* tokens below, which
+   derive from the theme accent (--md-nav-*), so picking another accent on
+   Settings > Appearance recolors the whole gallery. Dark mode (the base
+   scheme) mixes only a little accent into the dark surfaces; light mode
+   uses the accent wash itself. Plain values come first and color-mix()
+   overrides them inside @supports, so an older engine still gets a
+   coherent neutral card. Each tile also carries style='--brand:#hex'
+   (brand_logos.brand_color) for its logo glow and top edge. */
+.connector-gallery, .connector-hero {{
+  --cg-card: var(--md-surface-container-low);
+  --cg-card-hover: var(--md-surface-container);
+  --cg-panel: var(--md-surface-container-lowest);
+  --cg-border: var(--md-outline-variant);
+  --cg-accent: var(--md-nav-active-on-surface);
+  --cg-chip-bg: var(--md-surface-container-highest);
+  --cg-chip-fg: var(--md-on-surface-variant);
+  --cg-glow: transparent;
+  --cg-shadow: rgba(0, 0, 0, 0.35);
+}}
+@supports (color: color-mix(in srgb, red 50%, blue)) {{
+  .connector-gallery, .connector-hero {{
+    --cg-card: color-mix(in srgb, var(--md-nav-active-surface) 16%, var(--md-surface-container-low));
+    --cg-card-hover: color-mix(in srgb, var(--md-nav-active-surface) 24%, var(--md-surface-container));
+    --cg-panel: color-mix(in srgb, var(--md-nav-active-surface) 7%, var(--md-surface-container-lowest));
+    --cg-border: color-mix(in srgb, var(--md-nav-active-surface) 32%, var(--md-outline-variant));
+    --cg-accent: color-mix(in srgb, var(--md-nav-active-on-surface) 50%, #FFFFFF);
+    --cg-chip-bg: color-mix(in srgb, var(--md-nav-active-surface) 18%, var(--md-surface-container-high));
+    --cg-glow-mix: 38%;
+    --cg-shadow-base: rgba(0, 0, 0, 0.55);
+  }}
+}}
+@media (prefers-color-scheme: light) {{
+  :root:not([data-color-mode="dark"]) .connector-gallery,
+  :root:not([data-color-mode="dark"]) .connector-hero {{
+    --cg-card: var(--md-surface-container-lowest);
+    --cg-card-hover: var(--md-surface-container-lowest);
+    --cg-panel: var(--md-nav-surface);
+    --cg-border: var(--md-outline-variant);
+    --cg-accent: var(--md-nav-active-on-surface);
+    --cg-chip-bg: var(--md-nav-active-surface);
+    --cg-chip-fg: var(--md-nav-on-surface);
+    --cg-shadow: rgba(30, 30, 40, 0.16);
+  }}
+  @supports (color: color-mix(in srgb, red 50%, blue)) {{
+    :root:not([data-color-mode="dark"]) .connector-gallery,
+    :root:not([data-color-mode="dark"]) .connector-hero {{
+      --cg-card: color-mix(in srgb, var(--md-nav-surface) 45%, #FFFFFF);
+      --cg-panel: color-mix(in srgb, var(--md-nav-surface) 70%, var(--md-surface));
+      --cg-border: color-mix(in srgb, var(--md-nav-active-surface) 55%, var(--md-outline-variant));
+      --cg-chip-bg: color-mix(in srgb, var(--md-nav-active-surface) 70%, #FFFFFF);
+      --cg-glow-mix: 26%;
+      --cg-shadow-base: rgba(30, 30, 40, 0.14);
+    }}
+  }}
+}}
+:root[data-color-mode="light"] .connector-gallery,
+:root[data-color-mode="light"] .connector-hero {{
+  --cg-card: var(--md-surface-container-lowest);
+  --cg-card-hover: var(--md-surface-container-lowest);
+  --cg-panel: var(--md-nav-surface);
+  --cg-border: var(--md-outline-variant);
+  --cg-accent: var(--md-nav-active-on-surface);
+  --cg-chip-bg: var(--md-nav-active-surface);
+  --cg-chip-fg: var(--md-nav-on-surface);
+  --cg-shadow: rgba(30, 30, 40, 0.16);
+}}
+@supports (color: color-mix(in srgb, red 50%, blue)) {{
+  :root[data-color-mode="light"] .connector-gallery,
+  :root[data-color-mode="light"] .connector-hero {{
+    --cg-card: color-mix(in srgb, var(--md-nav-surface) 45%, #FFFFFF);
+    --cg-panel: color-mix(in srgb, var(--md-nav-surface) 70%, var(--md-surface));
+    --cg-border: color-mix(in srgb, var(--md-nav-active-surface) 55%, var(--md-outline-variant));
+    --cg-chip-bg: color-mix(in srgb, var(--md-nav-active-surface) 70%, #FFFFFF);
+    --cg-glow-mix: 26%;
+    --cg-shadow-base: rgba(30, 30, 40, 0.14);
+  }}
+}}
+/* --brand is set on each tile/hero, so the brand-derived tokens must be
+   computed there too (a custom property resolves var() where it's declared). */
+@supports (color: color-mix(in srgb, red 50%, blue)) {{
+  .connector-tile, .connector-hero {{
+    --cg-glow: color-mix(in srgb, var(--brand, transparent) var(--cg-glow-mix, 40%), transparent);
+    --cg-shadow: color-mix(in srgb, var(--brand, #000) 28%, var(--cg-shadow-base, rgba(0, 0, 0, 0.4)));
+  }}
+}}
+.connector-gallery-intro {{ margin: 0 0 0.75rem; }}
+.connector-search-wrap {{ position: relative; display: flex; align-items: center; max-width: 26rem; margin: 0 0 1.5rem; }}
+.connector-search-wrap .material-symbols-outlined {{ position: absolute; left: 0.9rem; font-size: 20px; color: var(--md-on-surface-variant); pointer-events: none; }}
+.connector-search {{ width: 100%; height: 2.75rem; padding: 0 1rem 0 2.75rem; border: 1px solid var(--cg-border); border-radius: 999px; background: var(--cg-card); color: var(--md-on-surface); font: inherit; font-size: 0.92rem; box-sizing: border-box; transition: border-color 150ms ease, box-shadow 150ms ease; }}
+.connector-search::placeholder {{ color: var(--md-on-surface-variant); }}
+.connector-search:focus, .connector-search:focus-visible {{ outline: none; border-color: var(--cg-accent); box-shadow: 0 0 0 3px var(--md-outline-variant); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cg-accent) 25%, transparent); }}
+.connector-category {{ margin: 0 0 1.75rem; }}
+.connector-category h2 {{ display: flex; align-items: center; gap: 0.55rem; margin: 0 0 0.85rem; font-size: 1rem; font-weight: 500; color: var(--md-on-surface); }}
+.connector-category h2 .brand-logo {{ padding: 0; background: none; }}
+.connector-count {{ display: inline-flex; align-items: center; justify-content: center; min-width: 1.4rem; height: 1.4rem; padding: 0 0.4rem; box-sizing: border-box; border-radius: 999px; background: var(--cg-chip-bg); color: var(--cg-chip-fg); font-size: 0.72rem; font-weight: 500; }}
+/* Google leads the gallery: its section sits on its own accent panel. */
+.connector-category[data-category="google"] {{ padding: 1.1rem 1.25rem 1.25rem; border: 1px solid var(--cg-border); border-radius: 20px; background: var(--cg-panel); }}
+.connector-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 1rem; }}
+.connector-tile {{
+  position: relative; isolation: isolate; overflow: hidden;
+  display: flex; flex-direction: column; gap: 0.6rem;
+  min-height: 10.5rem; padding: 1.1rem 1.1rem 1rem; box-sizing: border-box;
+  border: 1px solid var(--cg-border); border-radius: 16px;
+  background: var(--cg-card); color: var(--md-on-surface);
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background-color 180ms ease;
+}}
+/* No link styling anywhere inside a card, in any state: the card itself is the link. */
+.connector-tile, .connector-tile *, .connector-tile:hover, .connector-tile:hover *,
+.connector-tile:focus, .connector-tile:focus *, .connector-tile:visited, .connector-tile:visited * {{
+  text-decoration: none;
+}}
+.connector-tile:hover, .connector-tile:focus, .connector-tile:visited {{ color: var(--md-on-surface); }}
+/* Brand edge along the top, strongest at the logo end. */
+.connector-tile::before {{
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
+  background: linear-gradient(90deg, var(--brand, var(--cg-accent)), transparent 75%);
+  opacity: 0.7; transition: opacity 180ms ease;
+}}
+/* Soft brand glow pooled behind the logo chip. */
+.connector-tile::after {{
+  content: ""; position: absolute; z-index: -1; left: -3rem; top: -3.75rem; width: 11.5rem; height: 10.5rem;
+  border-radius: 50%; background: radial-gradient(closest-side, var(--cg-glow), transparent);
+  opacity: 0.8; transition: opacity 180ms ease, transform 180ms ease;
+}}
+.connector-tile:hover, .connector-tile:focus-visible {{
+  transform: translateY(-2px);
+  border-color: var(--cg-accent);
+  background: var(--cg-card-hover);
+  box-shadow: 0 14px 28px -16px var(--cg-shadow), 0 2px 6px -2px var(--cg-shadow);
+}}
+.connector-tile:hover::before, .connector-tile:focus-visible::before {{ opacity: 1; }}
+.connector-tile:hover::after, .connector-tile:focus-visible::after {{ opacity: 1; transform: scale(1.2); }}
+.connector-tile:focus-visible {{ outline: 2px solid var(--cg-accent); outline-offset: 3px; }}
+.connector-tile-head {{ display: flex; align-items: center; gap: 0.75rem; min-width: 0; }}
+.connector-tile-mark {{
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 2.75rem; height: 2.75rem; border-radius: 12px; background: #FFFFFF; color: #181717;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 6px 14px -6px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand, #000) 16%, rgba(0, 0, 0, 0.06)),
+              0 6px 14px -6px color-mix(in srgb, var(--brand, #000) 55%, transparent);
+}}
+.connector-tile-mark .brand-logo {{ padding: 0; background: none; border-radius: 0; }}
+.connector-tile-mark .brand-lettermark {{ padding: 0; border-radius: 9px; background: var(--brand); font-size: 0.75rem; }}
+.connector-tile-mark .material-symbols-outlined {{ font-size: 24px; color: var(--brand, #181717); }}
+.connector-tile-name {{ min-width: 0; font-size: 1rem; font-weight: 500; line-height: 1.3; overflow-wrap: anywhere; }}
+.connector-tile-desc {{
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+  font-size: 0.85rem; line-height: 1.45; color: var(--md-on-surface-variant);
+}}
+.connector-tile-caps {{ display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: auto; padding-top: 0.25rem; }}
+.connector-tile-caps .pill {{ padding: 0.28rem 0.65rem; font-size: 0.72rem; background: var(--cg-chip-bg); color: var(--cg-chip-fg); }}
+/* The form's brand header: same card language as the gallery tile. */
+.connector-hero {{
+  position: relative; isolation: isolate; overflow: hidden;
+  display: flex; align-items: center; gap: 1rem; margin: 0 0 0.75rem; padding: 1.1rem 1.25rem;
+  border: 1px solid var(--cg-accent); border-radius: 16px; background: var(--cg-card);
+}}
+.connector-hero::before {{
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
+  background: linear-gradient(90deg, var(--brand, var(--cg-accent)), transparent 75%);
+}}
+.connector-hero::after {{
+  content: ""; position: absolute; z-index: -1; left: -3rem; top: -3.5rem; width: 11rem; height: 11rem;
+  border-radius: 50%; background: radial-gradient(closest-side, var(--cg-glow), transparent);
+}}
+.connector-hero .connector-tile-mark {{ width: 3.25rem; height: 3.25rem; border-radius: 14px; }}
+.connector-hero-text {{ min-width: 0; }}
+.connector-hero-text h2 {{ margin: 0 0 0.2rem; }}
+.connector-hero-text .section-subtitle {{ margin: 0; }}
+@media (prefers-reduced-motion: reduce) {{
+  .connector-tile, .connector-tile::before, .connector-tile::after, .connector-search {{ transition: none; }}
+  .connector-tile:hover, .connector-tile:focus-visible,
+  .connector-tile:hover::after, .connector-tile:focus-visible::after {{ transform: none; }}
+}}
 .connector-fixed-value {{ display: inline-flex; gap: 0.6rem; align-items: center; }}
 .section-header .brand-logo {{ margin-right: 0.25rem; }}
 /* Connector add/edit form (_connector_form_body): labels above full-width
@@ -12556,12 +12725,15 @@ def _connector_tile_html(href, brand, label, description, capabilities, type_key
     name = i18n.t(label)
     search = " ".join(p for p in (name, label, type_key, preset_key, brand,
                                   _CONNECTOR_SEARCH_ALIASES.get(brand, "")) if p).lower()
+    desc = html.escape(i18n.t(description)) if description else ""
     return (
-        f"<a class='connector-tile' href='{href}' data-name=\"{html.escape(search, quote=True)}\">"
-        f"{brand_logos.brand_logo_svg(brand, name, 32)}"
-        f"<span class='connector-tile-body'><strong>{html.escape(name)}</strong>"
-        f"<span class='section-subtitle'>{html.escape(i18n.t(description)) if description else ''}</span>"
-        f"<span class='pill-row'>{chips}</span></span></a>")
+        f"<a class='connector-tile' href='{href}' data-name=\"{html.escape(search, quote=True)}\" "
+        f"style='--brand:{brand_logos.brand_color(brand)}'>"
+        f"<span class='connector-tile-head'><span class='connector-tile-mark'>"
+        f"{brand_logos.brand_logo_svg(brand, name, 26)}</span>"
+        f"<strong class='connector-tile-name'>{html.escape(name)}</strong></span>"
+        f"<span class='connector-tile-desc'>{desc}</span>"
+        f"<span class='connector-tile-caps'>{chips}</span></a>")
 
 
 # Explicit tile order inside the Google section (by brand), not dict order.
@@ -12619,11 +12791,14 @@ def _connector_type_picker_html():
         else:
             mark = ""
         sections.append(f"<section class='connector-category' data-category='{key}'>"
-                        f"<h2>{mark}{html.escape(i18n.t(heading))}</h2>"
+                        f"<h2>{mark}<span>{html.escape(i18n.t(heading))}</span>"
+                        f"<span class='connector-count'>{len(tiles)}</span></h2>"
                         f"<div class='connector-grid'>{''.join(tiles)}</div></section>")
-    search = (f"<input type='search' class='connector-search' id='connector-search' "
+    search = (f"<div class='connector-search-wrap'>"
+              f"<span class='material-symbols-outlined' aria-hidden='true'>search</span>"
+              f"<input type='search' class='connector-search' id='connector-search' "
               f"placeholder=\"{html.escape(_t('Search connectors'), quote=True)}\" "
-              f"aria-label=\"{html.escape(_t('Search connectors'), quote=True)}\">")
+              f"aria-label=\"{html.escape(_t('Search connectors'), quote=True)}\"></div>")
     script = (
         "<script>(function(){var q=document.getElementById('connector-search');if(!q)return;"
         "q.addEventListener('input',function(){var v=q.value.trim().toLowerCase();"
@@ -12632,8 +12807,9 @@ def _connector_type_picker_html():
         "document.querySelectorAll('.connector-category').forEach(function(s){"
         "var any=s.querySelector('.connector-tile:not([style*=\"none\"])');"
         "s.style.display=any?'':'none';});});})();</script>")
-    return (f"<p class='section-subtitle'>{html.escape(_t('Choose a connector type.'))}</p>"
-            f"{search}{''.join(sections)}{script}")
+    return (f"<div class='connector-gallery'>"
+            f"<p class='section-subtitle connector-gallery-intro'>{html.escape(_t('Choose a connector type.'))}</p>"
+            f"{search}{''.join(sections)}</div>{script}")
 
 
 _CONNECTOR_TECH_INPUT_ATTRS = " spellcheck='false' autocapitalize='off' autocomplete='off'"
@@ -12784,9 +12960,11 @@ def _connector_form_body(type_name, account=None, preset_key=None, submitted=Non
                     if preset and not editing else "")
     if preset:
         title, description = i18n.t(preset.label), preset.description or cls.description
+        brand_key = preset.brand
         logo = brand_logos.brand_logo_svg(preset.brand, title, 32)
     else:
         title, description = i18n.t(cls.label), cls.description
+        brand_key = cls.brand or type_name
         logo = (brand_logos.brand_logo_svg(cls.brand, title, 32) if cls.brand else
                 f"<span class='material-symbols-outlined' aria-hidden='true'>{html.escape(cls.icon)}</span>")
     docs_url = (preset.docs_url if preset and preset.docs_url else cls.docs_url) or ""
@@ -12798,8 +12976,10 @@ def _connector_form_body(type_name, account=None, preset_key=None, submitted=Non
     chips = "".join(f"<span class='pill pill-grey'>{html.escape(i18n.t(_CAPABILITY_LABELS.get(c, c)))}</span>"
                     for c in sorted(cls.capabilities))
     desc_html = f"<p class='section-subtitle'>{html.escape(i18n.t(description))}</p>" if description else ""
-    header = (f"<div class='section-header'>{logo}<h2>{html.escape(title)}</h2></div>"
-              f"{desc_html}<div class='pill-row'>{chips}{docs_html}</div>")
+    header = (f"<div class='connector-hero' style='--brand:{brand_logos.brand_color(brand_key)}'>"
+              f"<span class='connector-tile-mark'>{logo}</span>"
+              f"<div class='connector-hero-text'><h2>{html.escape(title)}</h2>{desc_html}</div></div>"
+              f"<div class='pill-row'>{chips}{docs_html}</div>")
     connection_html = ""
     if field_rows:
         connection_html = (f"<fieldset class='connector-section'><legend>{html.escape(_t('Connection'))}</legend>"

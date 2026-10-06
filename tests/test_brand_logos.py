@@ -58,3 +58,12 @@ def test_class_with_trailing_newline_falls_back():
     assert "class='brand-logo'" in out and "\n" not in out
     out = bl.brand_logo_svg("webhook", cls="x\n")
     assert "class='brand-logo brand-lettermark'" in out
+
+
+def test_brand_color_known_and_lettermark_fallback():
+    assert bl.brand_color("gitlab") == "#FC6D26"
+    fallback = bl.brand_color("webhook")
+    assert re.fullmatch(r"#[0-9A-F]{6}", fallback)
+    # Same color the lettermark itself paints, so tile accent and mark agree.
+    assert f"--brand:{fallback}" in bl.brand_logo_svg("webhook", label="Web Hook")
+    assert re.fullmatch(r"#[0-9A-F]{6}", bl.brand_color(None))

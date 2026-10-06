@@ -13395,7 +13395,7 @@ def test_picker_renders_unknown_category_under_other(monkeypatch):
     monkeypatch.setitem(ds.connectors.CONNECTOR_TYPES, "odd_thing", Odd)
     out = ds._connector_type_picker_html()
     assert "type=odd_thing" in out
-    assert out.index("type=odd_thing") > out.index(">Other</h2>")
+    assert out.index("type=odd_thing") > out.index(">Other</span>")
 
 
 def test_google_category_first():
@@ -13439,3 +13439,41 @@ def test_google_calendar_brand_logo_is_svg():
 def test_google_connector_icons_are_in_the_font_subset():
     names = ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
     assert {"login", "calendar_month"} <= set(names) and names == sorted(names)
+
+
+def test_tiles_carry_brand_color_var():
+    out = ds._connector_type_picker_html()
+    assert re.search(r"class='connector-tile[^']*'[^>]*style='--brand:#[0-9A-Fa-f]{6}'", out)
+    gitlab = _tile_for(out, "type=gitlab")[0]
+    assert "--brand:#FC6D26" in gitlab
+
+
+def test_tile_css_never_underlines_text():
+    css = ds._STYLE
+    assert re.search(r"\.connector-tile,\s*\.connector-tile \*[^{]*\{[^}]*text-decoration:\s*none", css)
+    rule = re.search(r"\.connector-tile,\s*\.connector-tile \*([^{]*)\{", css).group(1)
+    for state in (":hover", ":focus", ":visited"):
+        assert f".connector-tile{state}" in rule
+
+
+def test_tile_css_uses_accent_tokens_and_reduced_motion():
+    css = ds._STYLE
+    block = css[css.index(".connector-tile"):]
+    assert "--md-nav-active-surface" in block and "--md-nav-active-on-surface" in block
+    reduce_blocks = css.split("@media (prefers-reduced-motion: reduce)")[1:]
+    assert any(".connector-tile" in b[:1500] for b in reduce_blocks)
+
+
+def test_tile_has_focus_visible_style():
+    assert re.search(r"\.connector-tile:focus-visible", ds._STYLE)
+
+
+def test_picker_sections_show_tile_count_badge():
+    out = ds._connector_type_picker_html()
+    google = out.split("data-category='google'")[1].split("data-category=")[0]
+    assert re.search(r"<span class='connector-count'[^>]*>3</span>", google)
+
+
+def test_connector_form_header_carries_brand_color():
+    out = ds._connector_form_body("gitlab")
+    assert re.search(r"class='connector-hero'[^>]*style='--brand:#FC6D26'", out)

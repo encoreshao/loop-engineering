@@ -99,6 +99,14 @@ def _initials(label):
     return "".join(w[0] for w in words).upper()
 
 
+def brand_color(key):
+    """The brand's hex color, or the lettermark palette color for an unknown key."""
+    entry = LOGOS.get(key) if isinstance(key, str) else None
+    if entry:
+        return entry[1].upper()
+    return _LETTER_PALETTE[zlib.crc32(str(key).encode("utf-8")) % len(_LETTER_PALETTE)]
+
+
 def brand_logo_svg(key, label="", size=28, cls="brand-logo"):
     """Return static markup for a brand mark: an inline SVG, or a lettermark span."""
     if not isinstance(cls, str) or not _CLS_RE.fullmatch(cls):
@@ -110,7 +118,7 @@ def brand_logo_svg(key, label="", size=28, cls="brand-logo"):
         fill = "currentColor" if key in _CURRENT_COLOR else color
         return (f"<svg class='{cls}' viewBox='0 0 24 24' width='{size}' height='{size}' "
                 f"fill='{fill}' aria-hidden='true' focusable='false'><path d='{d}'/></svg>")
-    color = _LETTER_PALETTE[zlib.crc32(str(key).encode("utf-8")) % len(_LETTER_PALETTE)]
+    color = brand_color(key)
     initials = html.escape(_initials(label or key))
     return (f"<span class='{cls} brand-lettermark' aria-hidden='true' "
             f"style='--brand:{color};width:{size}px;height:{size}px'>{initials}</span>")
