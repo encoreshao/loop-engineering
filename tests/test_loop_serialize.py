@@ -269,3 +269,39 @@ def test_observed_failure_is_not_verified_successful(tmp_path):
     )
     write_result(result, results_dir=tmp_path)
     assert summarize_results(results_dir=tmp_path)["efficiency_score"] == 0.0
+
+
+def test_write_result_emits_compact_loop_result(tmp_path):
+    emitted = []
+    result = _sample_result(cost_usd=0.5, duration_seconds=30.0)
+    write_result(result, results_dir=tmp_path,
+                 emit=lambda t, run_id, data=None, **kw: emitted.append((t, data)))
+    t, data = emitted[0]
+    assert t == "loop.result" and data["run_id"] == result.run_id
+    assert data["definition"] == "test-loop" and data["final_state"] == "completed"
+    assert data["total_cost_usd"] == 0.5 and data["duration_ms"] == 30000
+    assert data["verified_success"] is True
+    assert data["iterations"] == [{"n": 1, "state": "completed", "verifiers_passed": True, "cost_usd": 0.5}]
+    assert len(json.dumps(data)) < 8192 and "ok" not in data["iterations"][0]
+
+
+def test_write_result_running_snapshot_emits_nothing(tmp_path):
+    emitted = []
+    result = _sample_result()
+    result.status = "running"
+    write_result(result, results_dir=tmp_path, emit=lambda *a, **kw: emitted.append(a))
+    assert emitted == []
+
+
+def test_write_result_survives_emit_failure(tmp_path):
+    def boom(*a, **kw):
+        raise RuntimeError("x")
+    path = write_result(_sample_result(), results_dir=tmp_path, emit=boom)
+    assert path.exists()
+
+
+def test_result_summary_unverified_when_verifier_fails():
+    from loop_serialize import result_summary
+    s = result_summary(_sample_result(verified=False))
+    assert s["verified_success"] is False
+    assert s["iterations"][0]["verifiers_passed"] is False

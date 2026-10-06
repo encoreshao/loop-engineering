@@ -76,3 +76,13 @@ def _no_real_keychain(monkeypatch):
     yield hits
     if hits:
         pytest.fail(f"test reached the real Keychain: {hits}")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_events_dir(monkeypatch, tmp_path_factory):
+    """write_result now emits `loop.result` to events.DEFAULT_EVENTS_DIR
+    (the real <repo>/outputs/events); point that at a scratch dir so no
+    test can append to the live ledger. Tests that pass events_dir
+    explicitly are unaffected."""
+    import events
+    monkeypatch.setattr(events, "DEFAULT_EVENTS_DIR", tmp_path_factory.mktemp("events"))

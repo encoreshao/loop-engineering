@@ -8,6 +8,7 @@ every CLI consumer only ever reads plain fields back out)."""
 import json
 import os
 from dataclasses import asdict, is_dataclass
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 
@@ -30,7 +31,7 @@ def to_json_dict(loop_result):
     return _jsonify(loop_result)
 
 
-def write_result(loop_result, results_dir=None):
+def write_result(loop_result, results_dir=None, events_dir=None, emit=None):
     """Writes via a temp file + os.replace (atomic on POSIX) rather than
     a direct path.write_text - this is now called roughly once per
     iteration (see LoopRuntime.on_iteration), not just once per run, so
@@ -45,7 +46,62 @@ def write_result(loop_result, results_dir=None):
     tmp_path = run_dir / "result.json.tmp"
     tmp_path.write_text(json.dumps(to_json_dict(loop_result), indent=2))
     os.replace(tmp_path, path)
+    if getattr(loop_result, "status", "finished") == "finished":
+        _emit_loop_result(loop_result, events_dir=events_dir, emit=emit)
     return path
+
+
+def _emit_loop_result(loop_result, events_dir=None, emit=None):
+    """Best-effort: an emit failure must never break write_result. Only
+    called for terminal results (running snapshots are not ledger rows)."""
+    try:
+        if emit is None:
+            import events
+            emit = events.emit
+        kwargs = {"data": result_summary(loop_result)}
+        if events_dir is not None:
+            kwargs["events_dir"] = events_dir
+        emit("loop.result", loop_result.run_id, **kwargs)
+    except Exception:
+        pass
+
+
+def result_summary(loop_result):
+    """Compact loop.result event payload, mapped field by field (never
+    asdict - that would drag in verifier outputs). LoopResult has no
+    start/finish timestamps, so finished_at is the time of summarising,
+    duration_ms comes from the last iteration's budget runtime, and
+    started_at is derived as finished_at - duration."""
+    data = to_json_dict(loop_result)
+    iterations = []
+    for it in data["iterations"]:
+        budget = it.get("budget") or {}
+        verification = it.get("verification_results") or []
+        iterations.append({
+            "n": it.get("iteration"),
+            "state": it.get("state"),
+            "verifiers_passed": all(effective_passed(v) for v in verification),
+            "cost_usd": (budget.get("cost") or {}).get("used_usd") or 0,
+        })
+    last_budget = data["iterations"][-1].get("budget") or {} if data["iterations"] else {}
+    duration_ms = int(round(((last_budget.get("runtime") or {}).get("used_seconds") or 0) * 1000))
+    total_cost = (last_budget.get("cost") or {}).get("used_usd") or 0
+    finished = datetime.now(timezone.utc)
+    started = finished - timedelta(milliseconds=duration_ms)
+    fmt = lambda d: d.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return {
+        "run_id": data["run_id"],
+        "loop_id": data["loop_id"],
+        "definition": data["definition_name"],
+        "final_state": data["final_state"],
+        "stop_reason": data["stop_reason"],
+        "started_at": fmt(started),
+        "finished_at": fmt(finished),
+        "duration_ms": duration_ms,
+        "total_cost_usd": total_cost,
+        "iterations": iterations,
+        "verified_success": _is_verified_successful(data),
+    }
 
 
 def read_result(path):
