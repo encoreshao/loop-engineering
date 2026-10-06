@@ -255,7 +255,7 @@ L'écriture de `/etc/hosts` et le démarrage du service nginx nécessitent tous 
 
 ## Connecteurs
 
-Un connecteur est un compte auquel les boucles peuvent se connecter : une instance GitLab ou GitHub, un webhook Slack, Telegram ou de messagerie, un espace Notion, une liste de flux RSS, un espace Jira ou Linear, une boîte mail. On les gère depuis la page **System → Connectors** du tableau de bord (`/connectors`). Chaque type déclare des *capacités* (`issues`, `merge_requests`, `pipelines`, `notify`, `feed`, `mail`, `docs`), et une boucle peut exiger une capacité plutôt qu'un produit précis.
+Un connecteur est un compte auquel les boucles peuvent se connecter : une instance GitLab ou GitHub, un webhook Slack, Telegram ou de messagerie, un espace Notion, une liste de flux RSS, un espace Jira ou Linear, une boîte mail, un Google Agenda. On les gère depuis la page **System → Connectors** du tableau de bord (`/connectors`). Chaque type déclare des *capacités* (`issues`, `merge_requests`, `pipelines`, `notify`, `feed`, `mail`, `docs`, `calendar`), et une boucle peut exiger une capacité plutôt qu'un produit précis.
 
 | Type | Capacités | Ce que vous saisissez | Secret |
 | --- | --- | --- | --- |
@@ -269,13 +269,15 @@ Un connecteur est un compte auquel les boucles peuvent se connecter : une instan
 | Jira Cloud | `issues` | URL du site, e-mail | jeton d'API |
 | Linear | `issues` | — | clé d'API |
 | Mailbox | `mail` | externe — gérée dans la configuration d'Inbox Triage | — |
+| Google Calendar | `calendar` (affichée comme Calendar) | ID du calendrier (par défaut `primary`) | connexion Google (lecture seule, `calendar.readonly`) ; le jeton d'actualisation est stocké dans le Trousseau |
 
 **Galerie et formulaire.**
 
-- **Add** ouvre une galerie des types de connecteurs, regroupés en Code hosting, Chat & notifications, Work tracking, Knowledge, Feeds et Mail, avec un champ de recherche pour filtrer.
+- **Add** ouvre une galerie des types de connecteurs, regroupés en Code hosting, Chat & notifications, Work tracking, Knowledge, Feeds et Mail (Outlook s'y trouve), la section Google venant en premier avec Gmail, Google Calendar et Google Chat, avec un champ de recherche pour filtrer. Les cartes suivent l'accent choisi dans **Settings → Appearance** ainsi que la couleur de marque de chaque service, et chaque préréglage de webhook de chat a sa propre description.
 - Chaque tuile et chaque ligne de compte affiche le logo du service (logos Simple Icons intégrés ; les services sans logo — Feishu, DingTalk, le webhook générique — reçoivent une lettre-monogramme).
 - La tuile du webhook de messagerie se déploie en préréglages (voir ci-dessus), chacun avec une courte indication (par exemple, les webhooks Workflows de Teams peuvent exiger des Adaptive Cards) et un lien **Where do I get this?** vers la documentation du service.
 - Le formulaire d'ajout/modification comporte une section **Account** (**Label** et **Connector id** ; l'id est suggéré à partir du label tant que vous ne le modifiez pas), une section **Connection** (les réglages du type) et une section **Credentials** (le secret).
+- **Google Calendar** n'a aucun secret à coller : cliquez sur **Connect with Google** (**Reconnect** une fois connecté) pour vous connecter. Il réutilise le client OAuth Google déjà configuré pour Gmail dans la page de configuration d'Inbox Triage (onglet Gmail ; s'il manque, le formulaire renvoie vers cette page), donc Google Cloud doit avoir la même URI de redirection, `http://127.0.0.1:<port>/oauth/google/callback`. La ligne du compte affiche un marqueur **Connected** / **Not connected**, et **Test** lit le calendrier. Seule la portée en lecture seule `calendar.readonly` est demandée.
 - Les champs obligatoires sont marqués `*`, les autres indiquent « (optional) », et les champs ont des exemples en filigrane. Le champ secret a une bascule **Show**/**Hide**.
 - Boutons : **Save**, **Save and test** (enregistre puis lance la sonde) et **Cancel**. Si l'enregistrement échoue, le formulaire est réaffiché avec vos valeurs non secrètes conservées.
 

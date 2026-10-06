@@ -251,7 +251,7 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 
 ## 连接器
 
-连接器是循环可以接入的账号：GitLab 或 GitHub 实例、Slack、Telegram 或聊天 Webhook、Notion 工作区、RSS 订阅源列表、Jira 或 Linear 工作区、邮箱。在仪表盘的 **System → Connectors** 页面（`/connectors`）中管理。每种类型都声明了*能力*（`issues`、`merge_requests`、`pipelines`、`notify`、`feed`、`mail`、`docs`），循环可以要求某种能力，而不是某个具体产品。
+连接器是循环可以接入的账号：GitLab 或 GitHub 实例、Slack、Telegram 或聊天 Webhook、Notion 工作区、RSS 订阅源列表、Jira 或 Linear 工作区、邮箱、Google 日历。在仪表盘的 **System → Connectors** 页面（`/connectors`）中管理。每种类型都声明了*能力*（`issues`、`merge_requests`、`pipelines`、`notify`、`feed`、`mail`、`docs`、`calendar`），循环可以要求某种能力，而不是某个具体产品。
 
 | 类型 | 能力 | 需要填写 | 密钥 |
 | --- | --- | --- | --- |
@@ -265,13 +265,15 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 | Jira Cloud | `issues` | 站点 URL、邮箱 | API 令牌 |
 | Linear | `issues` | — | API 密钥 |
 | Mailbox | `mail` | 外部账号——在 Inbox Triage 设置中管理 | — |
+| Google Calendar | `calendar`（显示为 Calendar） | 日历 ID（默认 `primary`） | Google 登录（只读，`calendar.readonly`）；刷新令牌保存在钥匙串中 |
 
 **图库与表单。**
 
-- **Add** 会打开连接器类型图库，按 Code hosting、Chat & notifications、Work tracking、Knowledge、Feeds、Mail 分组，并带搜索框用于筛选。
+- **Add** 会打开连接器类型图库，按 Code hosting、Chat & notifications、Work tracking、Knowledge、Feeds、Mail 分组（Outlook 在 Mail 中），最前面是 Google 分组，依次为 Gmail、Google Calendar 和 Google Chat，并带搜索框用于筛选。卡片会跟随 **Settings → Appearance** 中选择的强调色以及各服务自身的品牌色，聊天 Webhook 的每个预设都有各自的说明。
 - 每个卡片和每个账号行都带有对应服务的品牌标志（内联的 Simple Icons 图标；没有图标的服务——Feishu、DingTalk、通用 Webhook——使用字母标记）。
 - 聊天 Webhook 卡片会展开为上述预设，每个预设带一行提示（例如 Teams 的 Workflows Webhook 可能需要 Adaptive Cards）以及指向该服务官方文档的 **Where do I get this?** 链接。
 - 添加/编辑表单包含 **Account** 部分（**Label** 和 **Connector id**；id 会根据 label 自动建议，直到你手动修改）、**Connection** 部分（该类型的设置）和 **Credentials** 部分（密钥）。
+- **Google Calendar** 没有需要粘贴的密钥：点击 **Connect with Google**（已连接时为 **Reconnect**）登录即可。它复用你已在 Inbox Triage 设置页（Gmail 标签页）为 Gmail 配置的 Google OAuth 客户端（缺少时表单会提供指向该页面的链接），因此 Google Cloud 中需要相同的重定向 URI：`http://127.0.0.1:<port>/oauth/google/callback`。账号行会显示 **Connected** / **Not connected** 标记，**Test** 会读取该日历。只请求只读的 `calendar.readonly` 权限范围。
 - 必填项标有 `*`，其余标注「(optional)」，并带有示例占位文字。密钥框带有 **Show**/**Hide** 切换。
 - 按钮有 **Save**、**Save and test**（先保存再探测）和 **Cancel**。保存失败时，表单会重新显示，并保留已填写的非机密值。
 

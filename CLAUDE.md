@@ -209,6 +209,11 @@ per-process secret embedded only in pages this server itself renders —
 never weaken this to "POST-only," which is not a real CSRF defense (see
 the comment above `do_POST`).
 
+`/oauth/google/callback` serves both Inbox Triage and connector (Google
+Calendar) sign-ins: the pending state's `kind` (`mail_auth.create_pending_state`,
+`inbox` by default, `connector`) picks the handler, so one Google Cloud
+redirect URI works for both.
+
 ## Every new UI string goes through `_t()`
 
 The dashboard is translated into Japanese, Simplified Chinese, and French

@@ -254,7 +254,7 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 
 ## コネクタ
 
-コネクタは、ループが接続できるアカウントです。GitLab や GitHub のインスタンス、Slack・Telegram・チャットの Webhook、Notion ワークスペース、RSS フィード一覧、Jira や Linear のワークスペース、メールボックスなどが該当します。ダッシュボードの **System → Connectors** ページ（`/connectors`）で管理します。各タイプは*機能*（`issues`、`merge_requests`、`pipelines`、`notify`、`feed`、`mail`、`docs`）を宣言しており、ループは特定の製品ではなく機能を要求できます。
+コネクタは、ループが接続できるアカウントです。GitLab や GitHub のインスタンス、Slack・Telegram・チャットの Webhook、Notion ワークスペース、RSS フィード一覧、Jira や Linear のワークスペース、メールボックス、Google カレンダーなどが該当します。ダッシュボードの **System → Connectors** ページ（`/connectors`）で管理します。各タイプは*機能*（`issues`、`merge_requests`、`pipelines`、`notify`、`feed`、`mail`、`docs`、`calendar`）を宣言しており、ループは特定の製品ではなく機能を要求できます。
 
 | タイプ | 機能 | 入力項目 | シークレット |
 | --- | --- | --- | --- |
@@ -268,13 +268,15 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 | Jira Cloud | `issues` | サイト URL、メールアドレス | API トークン |
 | Linear | `issues` | — | API キー |
 | Mailbox | `mail` | 外部管理 — Inbox Triage のセットアップで管理 | — |
+| Google Calendar | `calendar`（Calendar と表示） | カレンダー ID（既定は `primary`） | Google サインイン（読み取り専用、`calendar.readonly`）。リフレッシュトークンはキーチェーンに保存 |
 
 **ギャラリーとフォーム。**
 
-- **Add** を開くとコネクタの種類のギャラリーが表示されます。Code hosting、Chat & notifications、Work tracking、Knowledge、Feeds、Mail に分類され、検索ボックスで絞り込めます。
+- **Add** を開くとコネクタの種類のギャラリーが表示されます。Code hosting、Chat & notifications、Work tracking、Knowledge、Feeds、Mail に分類され（Outlook は Mail にあります）、先頭の Google セクションに Gmail、Google Calendar、Google Chat が並びます。検索ボックスで絞り込めます。カードは **Settings → Appearance** で選んだアクセントカラーと各サービスのブランドカラーに合わせて表示され、チャット Webhook の各プリセットには個別の説明があります。
 - 各タイルとアカウント行にはサービスのブランドロゴが付きます（インラインの Simple Icons マーク。マークのないサービス（Feishu、DingTalk、汎用 Webhook）はレターマーク）。
 - チャット Webhook のタイルは上記のプリセットに展開され、それぞれに一行の説明（例：Teams の Workflows Webhook は Adaptive Cards が必要な場合があります）と、そのサービス自身のドキュメントへの **Where do I get this?** リンクが付きます。
 - 追加・編集フォームは **Account** セクション（**Label** と **Connector id**。id は編集するまでラベルから自動提案されます）、**Connection** セクション（種類ごとの設定）、**Credentials** セクション（シークレット）で構成されます。
+- **Google Calendar** には貼り付けるシークレットがありません。**Connect with Google**（接続後は **Reconnect**）をクリックしてサインインします。Inbox Triage のセットアップページ（Gmail タブ）で Gmail 用に設定済みの Google OAuth クライアントを再利用します（未設定の場合はフォームにそのページへのリンクが表示されます）。そのため Google Cloud には同じリダイレクト URI、`http://127.0.0.1:<port>/oauth/google/callback` が必要です。アカウント行には **Connected** / **Not connected** の表示があり、**Test** はカレンダーを読み取ります。要求するスコープは読み取り専用の `calendar.readonly` のみです。
 - 必須項目には `*` が付き、それ以外は「(optional)」と表示され、入力例のプレースホルダーもあります。シークレット欄には **Show**／**Hide** の切り替えがあります。
 - ボタンは **Save**、**Save and test**（保存してからプローブを実行）、**Cancel** です。保存に失敗した場合は、シークレット以外の入力値を保持したままフォームが再表示されます。
 
