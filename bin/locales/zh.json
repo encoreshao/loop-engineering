@@ -752,5 +752,12 @@
   "{name} does not route notifications through connectors": "{name} 不通过连接器发送通知",
   "Connector {id} is a {type} account; its type cannot be changed": "连接器 {id} 是 {type} 账户，无法更改其类型",
   "The secret must not contain control characters or line breaks": "密钥不能包含控制字符或换行符",
-  "Request failed ({kind})": "请求失败（{kind}）"
+  "Request failed ({kind})": "请求失败（{kind}）",
+  "Search connectors": "搜索连接器",
+  "Change": "更改",
+  "Code hosting": "代码托管",
+  "Chat & notifications": "聊天与通知",
+  "Work tracking": "工作跟踪",
+  "Knowledge": "知识库",
+  "Other": "其他"
 }

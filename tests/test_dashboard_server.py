@@ -12892,3 +12892,68 @@ def test_connector_rows_show_translated_capability_labels(monkeypatch):
 
 def test_connector_id_input_pattern_caps_length():
     assert "pattern='[a-z0-9][a-z0-9-]{0,47}'" in ds._connector_form_body("webhook")
+
+
+def test_picker_groups_by_category_with_logos():
+    out = ds._connector_type_picker_html()
+    order = [out.index(_) for _ in ("Code hosting", "Chat &amp; notifications", "Work tracking", "Knowledge", "Feeds", "Mail")]
+    assert order == sorted(order)
+    assert out.count("class='brand-logo") + out.count("brand-lettermark") >= 12
+
+
+def test_picker_has_one_tile_per_webhook_preset():
+    out = ds._connector_type_picker_html()
+    for key in ("feishu", "dingtalk", "wecom", "microsoftteams", "discord", "googlechat"):
+        assert f"type=webhook&amp;preset={key}" in out
+
+
+def test_picker_mail_tile_links_to_inbox_setup():
+    assert "/loops/inbox-triage-loop?view=setup" in ds._connector_type_picker_html()
+
+
+def test_picker_has_search_box_and_tile_names():
+    out = ds._connector_type_picker_html()
+    assert "<input type='search'" in out and "data-name=" in out
+
+
+def test_add_view_preset_prefills_format_hidden():
+    out = ds._connectors_add_body(type_name="webhook", preset="wecom")
+    assert "name='format' value='wecom'" in out and "type='hidden'" in out
+    assert "<select name='format'" not in out
+    assert "/connectors?view=add" in out
+
+
+def test_add_view_unknown_preset_falls_back_to_plain_form():
+    out = ds._connectors_add_body(type_name="webhook", preset="nope")
+    assert "<select name='format'" in out
+
+
+def test_edit_webhook_account_keeps_format_select_and_preset_brand():
+    account = {"id": "w", "type": "webhook", "label": "W", "managed_by": "native",
+               "settings": {"format": "wecom"}}
+    out = ds._connectors_add_body(account_id="w", list_fn=lambda: [account])
+    assert "<select name='format'" in out and "brand-logo" in out
+
+
+def test_account_row_shows_brand_logo():
+    row = ds._connector_account_row_html(
+        {"id": "w", "type": "webhook", "label": "Ops", "settings": {"format": "discord"}}, "", None)
+    assert "brand-logo" in row
+    unknown = ds._connector_account_row_html({"id": "z", "type": "zzz", "label": "Zed"}, "", None)
+    assert "brand-lettermark" in unknown
+
+
+def test_preset_prefill_still_validated(monkeypatch):
+    seen = {}
+
+    def fake_upsert(fields, secret, **kw):
+        seen.update(fields)
+        return False, "Format must be one of: generic, feishu"
+    monkeypatch.setattr(ds.connectors_config, "upsert_account", fake_upsert)
+    with _running_server() as port:
+        status, headers, _ = _post(port, "/connectors/save", {
+            "csrf_token": ds._CSRF_TOKEN, "id": "w", "type": "webhook", "label": "W",
+            "format": "evil", "secret": "https://example.test/hook"})
+    assert status == 303
+    assert seen["format"] == "evil"
+    assert "Format must be one of" in urllib.parse.unquote_plus(headers["Location"])

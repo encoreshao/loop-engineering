@@ -68,6 +68,7 @@ import topic_seen
 # inbox_pages is bin/web/inbox_pages.py - this file's own sibling, so no
 # sys.path insert is needed for it the way the bin/-level imports above
 # need one (see the comment on sys.path.insert just above).
+import brand_logos
 import inbox_pages
 
 # hub is bin/web/hub.py (pure tab/selection helpers for tabbed hub pages).
@@ -5735,6 +5736,21 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
 }}
 
 .project-block + .project-block {{ margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--md-outline-variant); }}
+
+/* Connector gallery + brand logos (see brand_logos.py). Logos sit on a light
+   chip so dark brand colors (Slack purple, Notion black) stay legible in dark mode. */
+.brand-logo {{ flex: none; box-sizing: content-box; padding: 4px; border-radius: 8px; background: #ffffffd9; vertical-align: middle; }}
+svg.brand-logo[fill="currentColor"] {{ color: #181717; }}
+.brand-lettermark {{ display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; padding: 0; background: var(--brand, var(--md-primary)); color: #fff; font-size: 0.8rem; font-weight: 700; }}
+.connector-row-title {{ display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }}
+.connector-search {{ width: 100%; max-width: 24rem; margin: 0.5rem 0 1rem; padding: 0.55rem 0.8rem; border: 1px solid var(--md-outline); border-radius: 8px; background: var(--md-surface-container-lowest); color: var(--md-on-surface); font: inherit; }}
+.connector-category h2 {{ margin: 1.25rem 0 0.6rem; font-size: 1rem; color: var(--md-on-surface-variant); }}
+.connector-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0.75rem; }}
+.connector-tile {{ display: flex; gap: 0.75rem; align-items: flex-start; padding: 0.85rem; border: 1px solid var(--md-outline-variant); border-radius: 12px; background: var(--md-surface-container-low); color: var(--md-on-surface); text-decoration: none; }}
+.connector-tile:hover {{ background: var(--md-surface-container-high); border-color: var(--md-outline); }}
+.connector-tile-body {{ display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }}
+.connector-fixed-value {{ display: inline-flex; gap: 0.6rem; align-items: center; }}
+.section-header .brand-logo {{ margin-right: 0.25rem; }}
 
 /* Shared "nothing to show because setup is missing" state - see
    _empty_state_html - used by the Live GitLab and Memory pages in
@@ -12300,6 +12316,32 @@ def _connector_type_or_none(name):
         return None
 
 
+_PROVIDER_BRANDS = {"gmail": "gmail", "outlook": "microsoftoutlook"}
+
+
+def _connector_brand_key(account):
+    """Brand-logo key for an account: a webhook's preset brand (via its stored
+    format), a mailbox's provider brand, else the type's own brand. "" when
+    unknown, which brand_logo_svg renders as a lettermark."""
+    cls = _connector_type_or_none(account.get("type"))
+    settings = account.get("settings") or {}
+    if account.get("type") == "mailbox":
+        return _PROVIDER_BRANDS.get(str(settings.get("provider", "")).lower(), "")
+    if cls is None:
+        return ""
+    for preset in cls.presets:
+        if dict(preset.settings).get("format") == settings.get("format") and settings.get("format"):
+            return preset.brand
+    return cls.brand
+
+
+def _preset_for_account(cls, account):
+    fmt = ((account or {}).get("settings") or {}).get("format")
+    if not fmt:
+        return None
+    return next((p for p in cls.presets if dict(p.settings).get("format") == fmt), None)
+
+
 def _connector_account_row_html(account, csrf_input, result):
     account_id = account["id"]
     safe_id = html.escape(account_id)
@@ -12342,7 +12384,8 @@ def _connector_account_row_html(account, csrf_input, result):
     disabled = "" if account.get("enabled", True) else f" <span class='pill pill-grey'>{html.escape(_t('Disabled'))}</span>"
     return (
         "<div class='project-block'>"
-        f"<div><strong>{html.escape(account['label'])}</strong> <code>{safe_id}</code>{disabled}</div>"
+        f"<div class='connector-row-title'>{brand_logos.brand_logo_svg(_connector_brand_key(account), account['label'], 24)}"
+        f"<strong>{html.escape(account['label'])}</strong> <code>{safe_id}</code>{disabled}</div>"
         f"<div class='pill-row'>{chips}{badge}{result_html}</div>"
         f"<div class='pill-row'>{buttons}</div>"
         "</div>"
@@ -12384,21 +12427,70 @@ def _connectors_accounts_body(flash=None, flash_ok=True, list_fn=None):
     return _flash_html(flash, flash_ok) + error_html + subtitle + "".join(cards)
 
 
+_CONNECTOR_CATEGORIES = (
+    ("code", "Code hosting"),
+    ("chat", "Chat & notifications"),
+    ("tracking", "Work tracking"),
+    ("knowledge", "Knowledge"),
+    ("feeds", "Feeds"),
+    ("mail", "Mail"),
+    ("other", "Other"),
+)
+
+
+def _connector_tile_html(href, brand, label, description, capabilities):
+    chips = "".join(f"<span class='pill pill-grey'>{html.escape(i18n.t(_CAPABILITY_LABELS.get(c, c)))}</span>"
+                    for c in sorted(capabilities))
+    name = i18n.t(label)
+    return (
+        f"<a class='connector-tile' href='{href}' data-name=\"{html.escape(name.lower(), quote=True)}\">"
+        f"{brand_logos.brand_logo_svg(brand, name, 32)}"
+        f"<span class='connector-tile-body'><strong>{html.escape(name)}</strong>"
+        f"<span class='section-subtitle'>{html.escape(i18n.t(description)) if description else ''}</span>"
+        f"<span class='pill-row'>{chips}</span></span></a>")
+
+
 def _connector_type_picker_html():
     connectors._load_all()
-    tiles = []
+    by_category = {}
     for name, cls in connectors.CONNECTOR_TYPES.items():
+        quoted = urllib.parse.quote(name, safe="")
         if cls.external:
+            tile = _connector_tile_html("/loops/inbox-triage-loop?view=setup", "gmail", cls.label,
+                                        cls.description, cls.capabilities)
+            by_category.setdefault(cls.category, []).append(tile)
+        elif cls.presets:
+            for preset in cls.presets:
+                href = (f"/connectors?view=add&amp;type={quoted}"
+                        f"&amp;preset={urllib.parse.quote(preset.key, safe='')}")
+                by_category.setdefault(cls.category, []).append(_connector_tile_html(
+                    href, preset.brand, preset.label, preset.description or cls.description, cls.capabilities))
+        else:
+            by_category.setdefault(cls.category, []).append(_connector_tile_html(
+                f"/connectors?view=add&amp;type={quoted}", cls.brand, cls.label, cls.description, cls.capabilities))
+    sections = []
+    for key, heading in _CONNECTOR_CATEGORIES:
+        tiles = by_category.get(key)
+        if not tiles:
             continue
-        tiles.append(
-            f"<a class='card' href='/connectors?view=add&amp;type={urllib.parse.quote(name, safe='')}'>"
-            f"<div class='section-header'><span class='material-symbols-outlined' aria-hidden='true'>{html.escape(cls.icon)}</span>"
-            f"<h2>{html.escape(i18n.t(cls.label))}</h2></div></a>")
+        sections.append(f"<section class='connector-category'><h2>{html.escape(i18n.t(heading))}</h2>"
+                        f"<div class='connector-grid'>{''.join(tiles)}</div></section>")
+    search = (f"<input type='search' class='connector-search' id='connector-search' "
+              f"placeholder=\"{html.escape(_t('Search connectors'), quote=True)}\" "
+              f"aria-label=\"{html.escape(_t('Search connectors'), quote=True)}\">")
+    script = (
+        "<script>(function(){var q=document.getElementById('connector-search');if(!q)return;"
+        "q.addEventListener('input',function(){var v=q.value.trim().toLowerCase();"
+        "document.querySelectorAll('.connector-tile').forEach(function(t){"
+        "t.style.display=(!v||(t.getAttribute('data-name')||'').indexOf(v)!==-1)?'':'none';});"
+        "document.querySelectorAll('.connector-category').forEach(function(s){"
+        "var any=s.querySelector('.connector-tile:not([style*=\"none\"])');"
+        "s.style.display=any?'':'none';});});})();</script>")
     return (f"<p class='section-subtitle'>{html.escape(_t('Choose a connector type.'))}</p>"
-            f"<div class='pill-row'>{''.join(tiles)}</div>")
+            f"{search}{''.join(sections)}{script}")
 
 
-def _connector_form_body(type_name, account=None):
+def _connector_form_body(type_name, account=None, preset_key=None):
     """The add/edit form for one native connector type, generated from the
     type's declared fields. A secret value is never rendered: when editing,
     the secret input is empty with a "leave blank to keep" placeholder."""
@@ -12406,6 +12498,12 @@ def _connector_form_body(type_name, account=None):
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
     editing = account is not None
     settings = (account or {}).get("settings") or {}
+    preset = None
+    if editing:
+        preset = _preset_for_account(cls, account)
+    elif preset_key:
+        preset = next((p for p in cls.presets if p.key == preset_key), None)
+    preset_settings = dict(preset.settings) if preset and not editing else {}
 
     def row(label, control, help_text=""):
         help_html = f"<div class='section-subtitle'>{html.escape(i18n.t(help_text))}</div>" if help_text else ""
@@ -12417,10 +12515,17 @@ def _connector_form_body(type_name, account=None):
                                     f"pattern='[a-z0-9][a-z0-9-]{{0,47}}' required>",
             "Lowercase letters, digits and dashes"),
     ]
+    hidden_format = ""
     for field in cls.fields:
-        value = settings.get(field.key, "") if editing else field.default
+        value = settings.get(field.key, "") if editing else preset_settings.get(field.key, field.default)
         name = html.escape(field.key, quote=True)
         req = " required" if field.required else ""
+        if field.key == "format" and field.key in preset_settings:
+            hidden_format = (f"<input type='hidden' name='format' value='{html.escape(value, quote=True)}'>")
+            rows.append(row(i18n.t(field.label),
+                            f"<span class='connector-fixed-value'><code>{html.escape(value)}</code> "
+                            f"<a href='/connectors?view=add'>{html.escape(_t('Change'))}</a></span>"))
+            continue
         if field.kind == "select":
             opts = "".join(
                 f"<option value='{html.escape(o, quote=True)}'{' selected' if o == value else ''}>{html.escape(o)}</option>"
@@ -12440,18 +12545,24 @@ def _connector_form_body(type_name, account=None):
             f"{'' if editing else ' required'}>"))
     original = (f"<input type='hidden' name='original_id' value='{html.escape(account['id'], quote=True)}'>"
                 if editing else "")
+    if preset:
+        header = (f"{brand_logos.brand_logo_svg(preset.brand, i18n.t(preset.label), 32)}"
+                  f"<h2>{html.escape(i18n.t(preset.label))}</h2>")
+        if preset.description:
+            header += f"<span class='section-subtitle'>{html.escape(i18n.t(preset.description))}</span>"
+    else:
+        header = (f"<span class='material-symbols-outlined' aria-hidden='true'>{html.escape(cls.icon)}</span>"
+                  f"<h2>{html.escape(i18n.t(cls.label))}</h2>")
     return (
-        f"<div class='card'><div class='section-header'>"
-        f"<span class='material-symbols-outlined' aria-hidden='true'>{html.escape(cls.icon)}</span>"
-        f"<h2>{html.escape(i18n.t(cls.label))}</h2></div>"
+        f"<div class='card'><div class='section-header'>{header}</div>"
         f"<form method='post' action='/connectors/save' class='project-form' autocomplete='off'>"
-        f"{csrf_input}<input type='hidden' name='type' value='{html.escape(type_name, quote=True)}'>{original}"
+        f"{csrf_input}<input type='hidden' name='type' value='{html.escape(type_name, quote=True)}'>{hidden_format}{original}"
         f"{''.join(rows)}"
         f"<button type='submit' class='btn btn-primary'><span class='material-symbols-outlined' aria-hidden='true'>save</span> "
         f"{html.escape(_t('Save'))}</button></form></div>")
 
 
-def _connectors_add_body(type_name=None, account_id=None, list_fn=None):
+def _connectors_add_body(type_name=None, account_id=None, list_fn=None, preset=None):
     """Add view: the type picker, or the form for ?type= (editing the native
     account ?id=). Unknown/external types fall back to the picker."""
     if list_fn is None:
@@ -12476,7 +12587,7 @@ def _connectors_add_body(type_name=None, account_id=None, list_fn=None):
     cls = _connector_type_or_none(type_name)
     if cls is None or cls.external:
         return _flash_html(_t("Unknown connector type {type}", type=type_name), False) + _connector_type_picker_html()
-    return _connector_form_body(type_name, account=account)
+    return _connector_form_body(type_name, account=account, preset_key=preset)
 
 
 def _only(kwargs, *keys):
@@ -12509,7 +12620,7 @@ def _hubs():
         )),
         "connectors": hub_mod.Hub("connectors", "/connectors", "Connectors", _SECTION_ICON_CONNECTORS, (
             V("accounts", "Accounts", lambda **kw: _connectors_accounts_body(**_only(kw, "flash", "flash_ok"))),
-            V("add", "Add", lambda **kw: _connectors_add_body(kw.get("type"), kw.get("id"))),
+            V("add", "Add", lambda **kw: _connectors_add_body(kw.get("type"), kw.get("id"), preset=kw.get("preset"))),
         )),
         "settings": hub_mod.Hub("settings", "/settings", "Settings", _SECTION_ICON_GENERAL_SETTINGS, (
             V("general", "General", lambda **kw: _general_settings_body(
@@ -12827,7 +12938,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             ctx = {"tab": query.get("tab", [None])[0],
                    "session_id": query.get("session", [None])[0],
                    "type": query.get("type", [None])[0],
-                   "id": query.get("id", [None])[0]}
+                   "id": query.get("id", [None])[0],
+                   "preset": query.get("preset", [None])[0]}
             if "days" in query:
                 try:
                     ctx["days"] = int(query["days"][0])

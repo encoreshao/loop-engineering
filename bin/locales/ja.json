@@ -752,5 +752,12 @@
   "{name} does not route notifications through connectors": "{name} はコネクタ経由で通知を送信しません",
   "Connector {id} is a {type} account; its type cannot be changed": "コネクタ {id} は {type} アカウントです。種類は変更できません",
   "The secret must not contain control characters or line breaks": "シークレットに制御文字や改行を含めることはできません",
-  "Request failed ({kind})": "リクエストに失敗しました ({kind})"
+  "Request failed ({kind})": "リクエストに失敗しました ({kind})",
+  "Search connectors": "コネクタを検索",
+  "Change": "変更",
+  "Code hosting": "コードホスティング",
+  "Chat & notifications": "チャットと通知",
+  "Work tracking": "作業管理",
+  "Knowledge": "ナレッジ",
+  "Other": "その他"
 }
