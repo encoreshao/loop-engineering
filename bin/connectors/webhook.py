@@ -74,7 +74,7 @@ class WebhookConnector(Connector):
 
     def test(self):
         try:
-            self.send("Loop X connector test ✅")
+            self.send(self.test_message())
             return True, i18n.t("Test message sent")
         except Exception as exc:  # noqa: BLE001 - test() must never raise
             return False, describe_post_error(exc)

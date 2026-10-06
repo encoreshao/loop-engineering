@@ -65,7 +65,7 @@ class TelegramConnector(Connector):
 
     def test(self):
         try:
-            self.send("Loop X connector test ✅", _probe=True)
+            self.send(self.test_message(), _probe=True)
             return True, i18n.t("Test message sent")
         except mail_http.MailHTTPError as exc:
             detail = exc.body if exc.body != _REDACTED else ""

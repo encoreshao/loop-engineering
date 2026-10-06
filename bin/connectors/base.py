@@ -97,6 +97,15 @@ class Connector:
             errors.append(i18n.t("{field} is required", field=i18n.t(cls.secret_label)))
         return errors
 
+    def test_message(self):
+        """Plain text for a notify connector's Send test message: names the
+        account so a shared channel shows which connector it came from."""
+        account_id = self.account.get("id", "")
+        label = self.account.get("label") or account_id
+        name = f'"{label}"' if label == account_id else f'"{label}" ({account_id})'
+        return (f"Loop X test message from connector {name}. "
+                "Notifications sent through this connector will appear here.")
+
     def test(self):
         return False, i18n.t("Testing is not supported for {name}", name=i18n.t(self.label or self.type))
 

@@ -559,3 +559,28 @@ def test_gitlab_api_text_errors_redact_url_and_token(monkeypatch):
     with pytest.raises(mail_http.MailHTTPError) as ei:
         c.api_text("/x")
     assert ei.value.status is None and "tok" not in str(ei.value) + str(ei.value.body)
+
+
+def _sent_text(http):
+    body = http.calls[0]["json"]
+    return body.get("text", body.get("content"))
+
+
+def test_test_message_is_plain_and_names_the_connector():
+    for type_, settings, secret in (("slack", {}, "https://hooks.slack.com/services/T/B/X"),
+                                    ("webhook", {"format": "generic"}, "https://example.com/h"),
+                                    ("telegram", {"chat_id": "1"}, "123:abc")):
+        http = FakeHTTP({"ok": True})
+        cls = connectors.get_type(type_)
+        c = cls({"id": "team-alerts", "type": type_, "label": "Team alerts", "settings": settings},
+                secret=secret, http=http)
+        assert c.test()[0], type_
+        text = _sent_text(http)
+        assert text == ('Loop X test message from connector "Team alerts" (team-alerts). '
+                        "Notifications sent through this connector will appear here."), type_
+
+
+def test_test_message_shows_id_once_when_label_matches():
+    c, http = make("slack", {}, secret="https://hooks.slack.com/services/T/B/X")
+    c.test()
+    assert http.calls[0]["json"]["text"].startswith('Loop X test message from connector "x". ')
