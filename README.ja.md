@@ -30,6 +30,7 @@ Loop X Engineering の使命は、Issue のトリアージに奪われる時間�
 - [設定](#設定)
 - [実行方法](#実行方法)
 - [ダッシュボード](#ダッシュボード)
+- [コネクタ](#コネクタ)
 - [スクリプトリファレンス](#スクリプトリファレンス)
 - [安全上の境界](#安全上の境界)
 - [テスト](#テスト)
@@ -128,11 +129,13 @@ bin/scripts/uninstall.sh                 # or: curl -fsSL .../uninstall.sh | bas
 ├── topics.json                  # your config: topics to monitor         │
 ├── loops.json                   # your config: scheduled-loop registry   ├─ gitignored, yours
 ├── instructions.md              # your free-text instructions            │
+├── connectors.json              # your config: connector accounts        │
 ├── ai_cli.json                  # your config: Claude Code vs Codex CLI   ┘
 ├── loop_scheduler_state.json    # managed automatically, not hand-edited
 ├── PROGRESS.md                  # live run state, updated every run
 ├── outputs/                     # ← generated docs & run history live here (gitignored)
 │   ├── daily-review.md          #   latest GitLab-issue-loop report
+│   ├── connectors/test-results.json  #   last Test result per connector account
 │   ├── messages.json             #   Dashboard → Activity message thread
 │   ├── status.json               #   GitLab loop's current/last run status
 │   ├── status/<loop_name>.json   #   every other registered loop's current/last run status
@@ -230,6 +233,7 @@ localhost 専用で依存関係のない（stdlib の Python のみ、JS フレ�
 | **Runs** (`/runs`) | ビュー：Loop Runs — `outputs/loop-runs/` 配下に記録されたすべての実行（処理した Issue またはトピックごとに 1 件）を新しい順に表示 — 読み取り専用。概要ストリップには総実行数、成功/エスカレーション率、平均コスト、実験的な Loop Efficiency Score を表示; History — 過去の各実行のレビューレポートを新しい順に表示; Logs — `logs/loop-engineering.log` の末尾 — GitLab ループ、トピックモニターループ、およびこのダッシュボード自身のチャットアシスタントにわたる、`claude` CLI の各呼び出しの出力 |
 | **Insights** (`/insights`) | ビュー：Analytics — 選択した日数の範囲におけるループのパフォーマンス：Loop Health スコア、成果、品質、リスクと分類、失敗の内訳、学習の傾向; Cost — AI の利用コスト — GitLab Issue ループ自体の期間別コストと、`outputs/loop-runs/` 配下の全実行の合計コスト; Budget — 記録された各実行の最新の予算ステータスと、ループ定義別および日/週/月別の集計; Memory — プロジェクトごとに記録された実行をまたぐ教訓（GitLab Issue ごとに 1 つの markdown ファイル）と、この形式以前に記録されたもの（「Legacy learnings」の下に表示） |
 | **Harness** (`/harness`) | ビュー：Audit — 各ループ定義のスコアと合否チェック |
+| **Connectors** (`/connectors`) | ビュー：Accounts — 種類ごとにまとめた全コネクタアカウント。機能チップ、最後の結果を表示する Test ボタン（通知先は **Send test message**）、外部アカウントには所有ページへのリンク付き「Managed on …」バッジを表示します。Add — 種類を選んでフォームに入力します。シークレットはパスワード欄に入力し、保存後は二度と表示されません（編集時に空欄のままにすると保存済みの値が維持されます） |
 | **Settings** (`/settings`) | ビュー：General — Notifications（`~/.slack/config.json` のデフォルト webhook を管理）、AI CLI（Claude Code または Codex CLI を選択し、それぞれのインストール有無をライブで確認）、Appearance（カラーモード、アクセントテーマ、自動更新間隔 — このブラウザーの `localStorage` に保存）、Instructions（毎回の実行開始時にループが読み込む自由記述の独自指示）— 1 ページ内のタブとしてまとめています (**General** ビューは Notifications / AI CLI / Appearance / Instructions のタブ（`?tab=`）に分かれています); Daemons — すべての `launchd` エージェントのロード状態、編集可能なスケジュール、有効化/無効化に加え、統合スケジューラーが実行する全ループの Registered Loops 内訳（各ループのスケジュールと前回の実行状況。`loops.json` から読み込み）; Skills — このループが依存するすべての外部スキルと、それらが実際にインストールされているか |
 | **README** (`/readme`) | トップバーのヘルプアイコン（`/readme`）に移動：このファイルを、セクションへジャンプできるクイックナビ付きでアプリ内に表示 |
 
@@ -247,6 +251,29 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 ```
 
 `/etc/hosts` への書き込みと nginx サービスの起動にはどちらも `sudo` が必要で、macOS はこの 2 つのステップでパスワードを求めます。`loop.x`/`8420` 以外を使うには `--domain`/`--port` を指定してください。
+
+## コネクタ
+
+コネクタは、ループが接続できるアカウントです。GitLab や GitHub のインスタンス、Slack やチャットの Webhook、RSS フィード一覧、Jira や Linear のワークスペース、メールボックスなどが該当します。ダッシュボードの **System → Connectors** ページ（`/connectors`）で管理します。各タイプは*機能*（`issues`、`merge_requests`、`pipelines`、`notify`、`feed`、`mail`）を宣言しており、ループは特定の製品ではなく機能を要求できます。
+
+| タイプ | 機能 | 入力項目 | シークレット |
+| --- | --- | --- | --- |
+| GitLab | `issues`, `merge_requests`, `pipelines` | URL | パーソナルアクセストークン |
+| GitHub | `issues`, `merge_requests`, `pipelines` | API URL（デフォルト `https://api.github.com`）、ユーザー名 | トークン |
+| Slack webhook | `notify` | — | Webhook URL |
+| Chat webhook | `notify` | 形式：Feishu、DingTalk、Teams、Discord、または generic | Webhook URL |
+| RSS / Atom feeds | `feed` | フィード URL（1 行に 1 件） | — |
+| Jira Cloud | `issues` | サイト URL、メールアドレス | API トークン |
+| Linear | `issues` | — | API キー |
+| Mailbox | `mail` | 外部管理 — Inbox Triage のセットアップで管理 | — |
+
+**データの保存先。** ページ上で追加したアカウントは*ネイティブ*で、シークレット以外の設定は `~/.loop-engineering/connectors.json` に、シークレットは macOS キーチェーンのサービス `loop-engineering.connectors` に保存されます（`LOOP_ENGINEERING_HOME` が設定されている場合は `.sandbox-<hash>` が付くため、サンドボックス実行が本物のシークレットに触れることはありません）。シークレットが `connectors.json` に書き込まれることはなく、保存後に再表示されることもありません。
+
+**外部アカウント**は、すでにそれを管理しているファイルから読み取り専用で取り込まれ、移行は行われません。GitLab インスタンスは `~/.gitlab/config.json`（id はインスタンスのエイリアス）、Slack の Webhook は `~/.slack/config.json`（`slack-default` と、バンドルごとの Webhook に対する `slack-<bundle>`）、メールボックスは `inboxes.json`（id は受信箱の名前）から取得します。編集ページへのリンク付き「Managed on …」バッジが表示され、ここから Test を実行することもできます。
+
+**Test ボタン。** すべてのアカウントに **Test** ボタンがあります（Slack とチャット Webhook は **Send test message**）。最後の結果は `outputs/connectors/test-results.json` に保存されます。
+
+**ループと通知。** **Loops** では、機能を必要とするループに「Needs: …」チップが表示され、その機能を持つコネクタが存在するまで（UI でもサーバー側でも）有効化できません。各ループには **Notify via** の選択もあり、`loops.json` に `notify: [コネクタ id]` として保存されます。`bin/notify.py` はループの通知をそれらのコネクタへ振り分け、`notify` が未設定の場合は従来どおりデフォルトの Slack Webhook に投稿します。CLI からは `python3 bin/notify.py <loop> "<text>"` で試せます。ダッシュボードの AI パネルからもコネクタを一覧できます（チャットツール `connector-list`）。
 
 ## スクリプトリファレンス
 

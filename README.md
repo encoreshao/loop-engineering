@@ -30,6 +30,7 @@ projects you've explicitly told it about.
 - [Configuration](#configuration)
 - [Running it](#running-it)
 - [The dashboard](#the-dashboard)
+- [Connectors](#connectors)
 - [Scripts reference](#scripts-reference)
 - [Safety boundaries](#safety-boundaries)
 - [Testing](#testing)
@@ -128,11 +129,13 @@ Using the default install path, everything lands under one folder:
 ├── topics.json                  # your config: topics to monitor         │
 ├── loops.json                   # your config: scheduled-loop registry   ├─ gitignored, yours
 ├── instructions.md              # your free-text instructions            │
+├── connectors.json              # your config: connector accounts        │
 ├── ai_cli.json                  # your config: Claude Code vs Codex CLI   ┘
 ├── loop_scheduler_state.json    # managed automatically, not hand-edited
 ├── PROGRESS.md                  # live run state, updated every run
 ├── outputs/                     # ← generated docs & run history live here (gitignored)
 │   ├── daily-review.md          #   latest GitLab-issue-loop report
+│   ├── connectors/test-results.json  #   last Test result per connector account
 │   ├── messages.json             #   Dashboard → Activity message thread
 │   ├── status.json               #   GitLab loop's current/last run status
 │   ├── status/<loop_name>.json   #   every other registered loop's current/last run status
@@ -230,6 +233,7 @@ A localhost-only, dependency-free (stdlib Python, no JS framework) web UI, serve
 | **Runs** (`/runs`) | Views: Loop Runs — Every run recorded under `outputs/loop-runs/` (one per issue or topic processed), most recent first — read-only; an overview strip shows total runs, success/escalation rate, average cost, and the experimental Loop Efficiency Score; History — Every past run's review report, newest first; Logs — The tail of `logs/loop-engineering.log` - every `claude` CLI invocation's output, across the GitLab loop, the topic monitor loop, and this dashboard's own chat assistant |
 | **Insights** (`/insights`) | Views: Analytics — The loop's performance over a selectable day window: a Loop Health score, outcomes, quality, risk & classification, failure breakdown, and learning trends; Cost — AI usage cost — the GitLab issue loop's own windowed cost, and total cost across every run under `outputs/loop-runs/`; Budget — Each recorded run's last-known budget status, plus rollups by loop definition and by day/week/month; Memory — Cross-run lessons recorded per project, one markdown file per GitLab issue, plus anything recorded before this format existed (shown under "Legacy learnings") |
 | **Harness** (`/harness`) | Views: Audit — A score and pass/fail checks for each loop definition |
+| **Connectors** (`/connectors`) | Views: Accounts — Every connector account grouped by type, with capability chips, a Test button (**Send test message** for notification targets) showing its last result, and a "Managed on …" badge linking to the owner page for external accounts; Add — Pick a type and fill its form. Secrets go in a password field and are never shown again (leave blank to keep the stored one when editing) |
 | **Settings** (`/settings`) | Views: General — Notifications (manage `~/.slack/config.json`'s default webhook), AI CLI (choose Claude Code or Codex CLI, with a live installed/not-found check for each), Appearance (color mode, accent theme, auto-refresh interval — saved to this browser's `localStorage`), and Instructions (your own free-text instructions, read by the loop at the start of every run) — clustered as tabs on one page (the **General** view is split into Notifications / AI CLI / Appearance / Instructions tabs (`?tab=`)); Daemons — Load state, an editable schedule, and enable/disable for every `launchd` agent, plus a Registered Loops breakdown of every loop the unified scheduler runs (its own schedule and last-run status, read from `loops.json`); Skills — Every external skill this loop depends on, and whether it's actually installed |
 | **README** (`/readme`) | Moved to the topbar's help icon (`/readme`): this file, rendered in-app with a jump-to-section quicknav |
 
@@ -247,6 +251,29 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 ```
 
 Writing `/etc/hosts` and starting the nginx service both need `sudo` — macOS will prompt for your password at those two steps. Pass `--domain`/`--port` to use something other than `loop.x`/`8420`.
+
+## Connectors
+
+A connector is an account the loops can talk to: a GitLab or GitHub instance, a Slack or chat webhook, an RSS feed list, a Jira or Linear workspace, a mailbox. Manage them on the dashboard's **System → Connectors** page (`/connectors`). Each type declares *capabilities* (`issues`, `merge_requests`, `pipelines`, `notify`, `feed`, `mail`), and a loop can require a capability instead of a specific product.
+
+| Type | Capabilities | What you enter | Secret |
+| --- | --- | --- | --- |
+| GitLab | `issues`, `merge_requests`, `pipelines` | URL | personal access token |
+| GitHub | `issues`, `merge_requests`, `pipelines` | API URL (default `https://api.github.com`), username | token |
+| Slack webhook | `notify` | — | webhook URL |
+| Chat webhook | `notify` | format: Feishu, DingTalk, Teams, Discord, or generic | webhook URL |
+| RSS / Atom feeds | `feed` | feed URLs, one per line | — |
+| Jira Cloud | `issues` | site URL, email | API token |
+| Linear | `issues` | — | API key |
+| Mailbox | `mail` | external — managed on Inbox Triage setup | — |
+
+**Where things live.** Accounts you add on the page are *native*: their non-secret settings go in `~/.loop-engineering/connectors.json`, and their secrets go in the macOS Keychain under the service `loop-engineering.connectors` (suffixed `.sandbox-<hash>` whenever `LOOP_ENGINEERING_HOME` is set, so a sandboxed run never touches the real ones). Secrets are never written to `connectors.json` and never shown again after saving.
+
+**External accounts** are read through from the files that already own them, with nothing migrated: GitLab instances from `~/.gitlab/config.json` (id = the instance alias), Slack webhooks from `~/.slack/config.json` (`slack-default`, plus `slack-<bundle>` per bundle webhook), and mailboxes from `inboxes.json` (id = the inbox name). They show a "Managed on …" badge linking to the page where you edit them; you can still Test them here.
+
+**Test buttons.** Every account has a **Test** button (**Send test message** for Slack and chat webhooks); the last result is kept in `outputs/connectors/test-results.json`.
+
+**Loops and notifications.** On **Loops**, a loop that needs a capability shows "Needs: …" chips, and it cannot be enabled (in the UI or by the server) until a connector with that capability exists. Each loop also has a **Notify via** selection, stored as `notify: [connector ids]` in `loops.json`. `bin/notify.py` routes a loop's notification to those connectors; with no `notify` set it posts to the default Slack webhook exactly as before. You can try it from the CLI with `python3 bin/notify.py <loop> "<text>"`. The dashboard's AI panel can also list your connectors (chat tool `connector-list`).
 
 ## Scripts reference
 

@@ -16,8 +16,9 @@ dashboard and tooling around it; follow them without being asked.
 `project_memory.py`, `memory_store.py`, `loop_scheduler.py`,
 `loops_config.py`, `inbox_config.py`, `inbox_triage.py`,
 `inbox_triage_runner.py`, `inbox_seen.py`, `inbox_status.py`,
-`mail_auth.py`, `mail_http.py`, `i18n.py` with its `locales/` catalogs, and the
-`mail_providers/` package). `bin/web/`
+`mail_auth.py`, `mail_http.py`, `connectors_config.py`, `secret_store.py`,
+`notify.py`, `i18n.py` with its `locales/` catalogs, the `connectors/` package
+(one module per connector type), and the `mail_providers/` package). `bin/web/`
 — the dashboard web server (`dashboard_server.py`, `inbox_pages.py`) and
 `hub.py` (pure hub/tab navigation helpers) alone.
 `bin/scripts/` — one-shot shell scripts
@@ -61,7 +62,7 @@ kill %1
 directory everywhere it's resolved — `bin/loop_config.py`,
 `bin/topic_config.py`, `bin/ai_cli_config.py`'s `DEFAULT_CONFIG_PATH`,
 `bin/memory_store.py`'s `DEFAULT_MEMORY_ROOT`, `bin/loops_config.py`'s
-`DEFAULT_CONFIG_PATH`, `bin/loop_scheduler.py`'s `DEFAULT_STATE_PATH`, and
+`DEFAULT_CONFIG_PATH`, `bin/connectors_config.py`'s `DEFAULT_CONFIG_PATH`, `bin/loop_scheduler.py`'s `DEFAULT_STATE_PATH`, and
 `bin/web/dashboard_server.py`'s `CUSTOM_INSTRUCTIONS_PATH`. Leave it
 unset and every one of those falls back to the real path, which is exactly
 why it must always be set before running anything in dev/verification.
@@ -75,6 +76,14 @@ suffixed `.sandbox-<hash>` whenever `LOOP_ENGINEERING_HOME` is set, so a
 sandboxed run (including `bin/inbox_triage_runner.py`) can never read or
 overwrite the real mailbox tokens — tests must still monkeypatch
 `subprocess.run`/`keychain_*` rather than touch any Keychain at all.
+`bin/secret_store.py`'s connector-secret service (`loop-engineering.connectors`,
+a separate service from the mailbox one so deleting a connector can never touch
+a mailbox token) gets the same `.sandbox-<hash>` suffix under
+`LOOP_ENGINEERING_HOME`, via `mail_auth.sandboxed_service`.
+`tests/test_setup.py`'s `run_setup` now always runs `setup.sh` against a temp
+`HOME` (unless a test passes its own): the suite used to scaffold the real
+`~/.loop-engineering/connectors.json` as a side effect of running, the same
+class of leak as the `uninstall.sh` one below.
 Run this way, `dashboard_server.py` is a plain foreground process — no
 `launchd`, no `KeepAlive` — kill it whenever you're done. Same idea for the
 loop scripts themselves (`run-loop-now.sh`, `bin/*.py`): run them with

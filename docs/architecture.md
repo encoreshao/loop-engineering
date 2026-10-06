@@ -300,6 +300,42 @@ Documented gaps, not oversights:
   been run through it yet to know if the formula in §7 is actually a
   useful signal over time.
 
+## Connectors
+
+Connectors are the accounts loops talk to (GitLab, GitHub, Slack/chat
+webhooks, RSS, Jira, Linear, mailboxes). Each connector *type* declares
+capabilities (`issues`, `merge_requests`, `pipelines`, `notify`, `feed`,
+`mail`); loops declare `requires: [capabilities]` rather than a product.
+
+| Module | Responsibility |
+|---|---|
+| `connectors/__init__.py` | `CONNECTOR_TYPES` registry + `get_type(name)` |
+| `connectors/base.py` | `Field`, `Connector` base class, capability constants, `ConnectorError` |
+| `connectors/{gitlab,github,slack,webhook,rss,jira,linear,mailbox}.py` | One module per type: its settings fields, capabilities, and `test()` (plus `send()` for `notify` types) |
+| `connectors_config.py` | The account registry: `list_accounts`/`get_account`/`accounts_with_capability`, `upsert_account`/`delete_account`, `load_connector` |
+| `secret_store.py` | macOS Keychain wrapper for connector secrets (service `loop-engineering.connectors`, sandbox-suffixed under `LOOP_ENGINEERING_HOME`), built on `mail_auth`'s Keychain calls |
+| `notify.py` | Per-loop notification routing (below) |
+
+**Native vs external accounts.** *Native* accounts are the ones added on the
+dashboard's `/connectors` page: non-secret settings live in
+`~/.loop-engineering/connectors.json`, secrets only in the Keychain. *External*
+accounts are read through, never copied or migrated, from the files that
+already own them: `~/.gitlab/config.json` (GitLab instances, id = alias),
+`~/.slack/config.json` (`slack-default`, `slack-<bundle>`), and `inboxes.json`
+(mailboxes, id = inbox name). They carry a `managed_by` marker so the page can
+show a "Managed on …" link instead of edit/delete controls. Last Test results
+are recorded in `outputs/connectors/test-results.json`.
+
+**Notify routing.** `loops_config` accepts an optional `notify: [connector ids]`
+per loop (written only by `set_notify`). `notify.notify(loop_name, text)`
+sends to each listed connector that has the `notify` capability and returns one
+`(connector_id, ok, message)` per target without raising; a loop with no
+`notify` goes to the default Slack webhook via `slack_notify`, as before.
+`python3 bin/notify.py <loop> <text>` is the CLI form. In the dashboard, the
+Loops catalog blocks enabling a loop (UI and server) until a connector with each
+capability in its `requires` exists, and the AI panel exposes a read-only
+`connector-list` chat tool.
+
 ## Where to look next
 
 Each module above links to its own design spec above; browse all of them

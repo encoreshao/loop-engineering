@@ -27,6 +27,7 @@ Loop X Engineering 的使命是把被 issue 分诊占用的时间还给你：它
 - [配置](#配置)
 - [运行](#运行)
 - [仪表盘](#仪表盘)
+- [连接器](#连接器)
 - [脚本参考](#脚本参考)
 - [安全边界](#安全边界)
 - [测试](#测试)
@@ -125,11 +126,13 @@ bin/scripts/uninstall.sh                 # or: curl -fsSL .../uninstall.sh | bas
 ├── topics.json                  # your config: topics to monitor         │
 ├── loops.json                   # your config: scheduled-loop registry   ├─ gitignored, yours
 ├── instructions.md              # your free-text instructions            │
+├── connectors.json              # your config: connector accounts        │
 ├── ai_cli.json                  # your config: Claude Code vs Codex CLI   ┘
 ├── loop_scheduler_state.json    # managed automatically, not hand-edited
 ├── PROGRESS.md                  # live run state, updated every run
 ├── outputs/                     # ← generated docs & run history live here (gitignored)
 │   ├── daily-review.md          #   latest GitLab-issue-loop report
+│   ├── connectors/test-results.json  #   last Test result per connector account
 │   ├── messages.json             #   Dashboard → Activity message thread
 │   ├── status.json               #   GitLab loop's current/last run status
 │   ├── status/<loop_name>.json   #   every other registered loop's current/last run status
@@ -227,6 +230,7 @@ launchctl load -w ~/Library/LaunchAgents/com.hermes.loop-engineering-dashboard.p
 | **Runs** (`/runs`) | 视图：Loop Runs — `outputs/loop-runs/` 下记录的每次运行（每个处理过的 issue 或主题一条），按时间倒序——只读；概览栏显示总运行次数、成功/升级比例、平均成本，以及实验性的 Loop Efficiency Score; History — 每次历史运行的回顾报告，按时间倒序; Logs — `logs/loop-engineering.log` 的末尾部分——包括 GitLab 循环、主题监控循环以及本仪表盘自身聊天助手的每次 `claude` CLI 调用输出 |
 | **Insights** (`/insights`) | 视图：Analytics — 在可选的天数窗口内循环的表现：Loop Health 评分、结果、质量、风险与分类、失败细分以及学习趋势; Cost — AI 使用成本——GitLab issue 循环自身在窗口期内的成本，以及 `outputs/loop-runs/` 下所有运行的总成本; Budget — 每次已记录运行的最新预算状态，以及按循环定义和按日/周/月的汇总; Memory — 按项目记录的跨运行经验，每个 GitLab issue 一个 markdown 文件，以及此格式出现之前记录的内容（显示在 “Legacy learnings” 下） |
 | **Harness** (`/harness`) | 视图：Audit — 每个循环定义的评分及通过/未通过检查项 |
+| **Connectors** (`/connectors`) | 视图：Accounts — 按类型分组的所有连接器账号，带能力标签、显示上次结果的 Test 按钮（通知目标为 **Send test message**），外部账号还有指向其所属页面的「Managed on …」徽标；Add — 选择类型并填写表单。密钥填入密码框，保存后不会再次显示（编辑时留空即保留已存的值） |
 | **Settings** (`/settings`) | 视图：General — Notifications（管理 `~/.slack/config.json` 的默认 webhook）、AI CLI（选择 Claude Code 或 Codex CLI，并实时检查各自是否已安装）、Appearance（颜色模式、强调色主题、自动刷新间隔——保存在当前浏览器的 `localStorage` 中）以及 Instructions（你自己的自由文本指令，循环在每次运行开始时读取）——以标签页形式集中在同一页面 (**General** 视图拆分为 Notifications / AI CLI / Appearance / Instructions 标签页（`?tab=`）); Daemons — 每个 `launchd` 代理的加载状态、可编辑的计划及启用/禁用操作，外加 Registered Loops 分栏，列出统一调度器运行的每个循环（其自身计划和上次运行状态，读取自 `loops.json`）; Skills — 本循环依赖的每个外部 skill，以及它是否确实已安装 |
 | **README** (`/readme`) | 已移至顶栏的帮助图标（`/readme`）：本文件，在应用内渲染，并带有跳转到章节的快速导航 |
 
@@ -244,6 +248,29 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 ```
 
 写入 `/etc/hosts` 和启动 nginx 服务都需要 `sudo`——macOS 会在这两个步骤提示你输入密码。传入 `--domain`/`--port` 可以使用 `loop.x`/`8420` 以外的值。
+
+## 连接器
+
+连接器是循环可以接入的账号：GitLab 或 GitHub 实例、Slack 或聊天 Webhook、RSS 订阅源列表、Jira 或 Linear 工作区、邮箱。在仪表盘的 **System → Connectors** 页面（`/connectors`）中管理。每种类型都声明了*能力*（`issues`、`merge_requests`、`pipelines`、`notify`、`feed`、`mail`），循环可以要求某种能力，而不是某个具体产品。
+
+| 类型 | 能力 | 需要填写 | 密钥 |
+| --- | --- | --- | --- |
+| GitLab | `issues`, `merge_requests`, `pipelines` | URL | 个人访问令牌 |
+| GitHub | `issues`, `merge_requests`, `pipelines` | API URL（默认 `https://api.github.com`）、用户名 | 令牌 |
+| Slack webhook | `notify` | — | Webhook URL |
+| Chat webhook | `notify` | 格式：Feishu、DingTalk、Teams、Discord 或 generic | Webhook URL |
+| RSS / Atom feeds | `feed` | 订阅源 URL，每行一个 | — |
+| Jira Cloud | `issues` | 站点 URL、邮箱 | API 令牌 |
+| Linear | `issues` | — | API 密钥 |
+| Mailbox | `mail` | 外部账号——在 Inbox Triage 设置中管理 | — |
+
+**数据存放位置。** 在页面上添加的账号是*原生*账号：非机密设置保存在 `~/.loop-engineering/connectors.json`，密钥保存在 macOS 钥匙串中，服务名为 `loop-engineering.connectors`（设置了 `LOOP_ENGINEERING_HOME` 时会加上 `.sandbox-<hash>` 后缀，因此沙盒运行永远不会碰到真实密钥）。密钥不会写入 `connectors.json`，保存后也不会再次显示。
+
+**外部账号**直接从原本管理它们的文件中读取，不做任何迁移：GitLab 实例来自 `~/.gitlab/config.json`（id 为实例别名），Slack Webhook 来自 `~/.slack/config.json`（`slack-default`，以及每个 bundle Webhook 对应的 `slack-<bundle>`），邮箱来自 `inboxes.json`（id 为收件箱名称）。它们会显示带链接的「Managed on …」徽标，指向可编辑它们的页面；你仍可在这里对其执行 Test。
+
+**Test 按钮。** 每个账号都有 **Test** 按钮（Slack 和聊天 Webhook 为 **Send test message**）；上次结果保存在 `outputs/connectors/test-results.json`。
+
+**循环与通知。** 在 **Loops** 页面，需要某种能力的循环会显示「Needs: …」标签，在存在具备该能力的连接器之前无法启用（UI 和服务端都会拦截）。每个循环还有 **Notify via** 选项，以 `notify: [连接器 id]` 的形式保存在 `loops.json` 中。`bin/notify.py` 会把循环的通知路由到这些连接器；未设置 `notify` 时，仍和以前一样发送到默认的 Slack Webhook。可以通过命令行试用：`python3 bin/notify.py <loop> "<text>"`。仪表盘的 AI 面板也能列出连接器（聊天工具 `connector-list`）。
 
 ## 脚本参考
 

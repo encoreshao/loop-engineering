@@ -31,6 +31,7 @@ ne touche qu'aux projets que vous lui avez explicitement indiqués.
 - [Configuration](#configuration)
 - [Exécution](#exécution)
 - [Le tableau de bord](#le-tableau-de-bord)
+- [Connecteurs](#connecteurs)
 - [Référence des scripts](#référence-des-scripts)
 - [Garde-fous de sécurité](#garde-fous-de-sécurité)
 - [Tests](#tests)
@@ -129,11 +130,13 @@ Avec le chemin d'installation par défaut, tout se retrouve dans un seul dossier
 ├── topics.json                  # your config: topics to monitor         │
 ├── loops.json                   # your config: scheduled-loop registry   ├─ gitignored, yours
 ├── instructions.md              # your free-text instructions            │
+├── connectors.json              # your config: connector accounts        │
 ├── ai_cli.json                  # your config: Claude Code vs Codex CLI   ┘
 ├── loop_scheduler_state.json    # managed automatically, not hand-edited
 ├── PROGRESS.md                  # live run state, updated every run
 ├── outputs/                     # ← generated docs & run history live here (gitignored)
 │   ├── daily-review.md          #   latest GitLab-issue-loop report
+│   ├── connectors/test-results.json  #   last Test result per connector account
 │   ├── messages.json             #   Dashboard → Activity message thread
 │   ├── status.json               #   GitLab loop's current/last run status
 │   ├── status/<loop_name>.json   #   every other registered loop's current/last run status
@@ -231,6 +234,7 @@ Une interface web accessible uniquement en localhost et sans dépendance (Python
 | **Runs** (`/runs`) | Vues : Loop Runs — Chaque exécution enregistrée sous `outputs/loop-runs/` (une par ticket ou sujet traité), la plus récente en premier — en lecture seule ; un bandeau de synthèse indique le nombre total d'exécutions, le taux de réussite/escalade, le coût moyen et le Loop Efficiency Score expérimental; History — Le rapport de revue de chaque exécution passée, du plus récent au plus ancien; Logs — La fin de `logs/loop-engineering.log` - la sortie de chaque invocation de la CLI `claude`, pour la boucle GitLab, la boucle de surveillance de sujets et l'assistant de chat du tableau de bord lui-même |
 | **Insights** (`/insights`) | Vues : Analytics — Les performances de la boucle sur une fenêtre de jours au choix : un score Loop Health, les résultats, la qualité, le risque et la classification, la répartition des échecs et les tendances d'apprentissage; Cost — Le coût d'utilisation de l'IA — le coût fenêtré propre à la boucle de tickets GitLab, et le coût total de toutes les exécutions sous `outputs/loop-runs/`; Budget — Le dernier état de budget connu de chaque exécution enregistrée, plus des agrégats par définition de boucle et par jour/semaine/mois; Memory — Les enseignements inter-exécutions enregistrés par projet, un fichier markdown par ticket GitLab, plus tout ce qui a été enregistré avant ce format (affiché sous « Legacy learnings ») |
 | **Harness** (`/harness`) | Vues : Audit — Un score et des contrôles réussi/échoué pour chaque définition de boucle |
+| **Connectors** (`/connectors`) | Vues : Accounts — Tous les comptes de connecteurs regroupés par type, avec des pastilles de capacités, un bouton Test (**Send test message** pour les cibles de notification) qui affiche son dernier résultat, et un badge « Managed on … » renvoyant à la page propriétaire pour les comptes externes ; Add — Choisissez un type et remplissez son formulaire. Les secrets se saisissent dans un champ mot de passe et ne sont plus jamais affichés (laissez vide pour conserver la valeur stockée lors d'une modification) |
 | **Settings** (`/settings`) | Vues : General — Notifications (gère le webhook par défaut de `~/.slack/config.json`), AI CLI (choix entre Claude Code et Codex CLI, avec une vérification en direct installé/introuvable pour chacun), Appearance (mode de couleur, thème d'accent, intervalle d'actualisation automatique — enregistrés dans le `localStorage` de ce navigateur) et Instructions (vos propres instructions en texte libre, lues par la boucle au début de chaque exécution) — regroupés en onglets sur une seule page (la vue **General** est répartie en onglets Notifications / AI CLI / Appearance / Instructions (`?tab=`)); Daemons — L'état de chargement, un planning modifiable et l'activation/désactivation de chaque agent `launchd`, plus une vue Registered Loops de chaque boucle exécutée par l'ordonnanceur unifié (son propre planning et l'état de sa dernière exécution, lus depuis `loops.json`); Skills — Chaque skill externe dont dépend cette boucle, et si elle est réellement installée |
 | **README** (`/readme`) | Déplacé vers l'icône d'aide de la barre supérieure (`/readme`) : ce fichier, rendu dans l'application avec une navigation rapide vers chaque section |
 
@@ -248,6 +252,29 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 ```
 
 L'écriture de `/etc/hosts` et le démarrage du service nginx nécessitent tous deux `sudo` — macOS vous demandera votre mot de passe à ces deux étapes. Passez `--domain`/`--port` pour utiliser autre chose que `loop.x`/`8420`.
+
+## Connecteurs
+
+Un connecteur est un compte auquel les boucles peuvent se connecter : une instance GitLab ou GitHub, un webhook Slack ou de messagerie, une liste de flux RSS, un espace Jira ou Linear, une boîte mail. On les gère depuis la page **System → Connectors** du tableau de bord (`/connectors`). Chaque type déclare des *capacités* (`issues`, `merge_requests`, `pipelines`, `notify`, `feed`, `mail`), et une boucle peut exiger une capacité plutôt qu'un produit précis.
+
+| Type | Capacités | Ce que vous saisissez | Secret |
+| --- | --- | --- | --- |
+| GitLab | `issues`, `merge_requests`, `pipelines` | URL | jeton d'accès personnel |
+| GitHub | `issues`, `merge_requests`, `pipelines` | URL de l'API (par défaut `https://api.github.com`), nom d'utilisateur | jeton |
+| Slack webhook | `notify` | — | URL du webhook |
+| Chat webhook | `notify` | format : Feishu, DingTalk, Teams, Discord ou generic | URL du webhook |
+| RSS / Atom feeds | `feed` | URL des flux, une par ligne | — |
+| Jira Cloud | `issues` | URL du site, e-mail | jeton d'API |
+| Linear | `issues` | — | clé d'API |
+| Mailbox | `mail` | externe — gérée dans la configuration d'Inbox Triage | — |
+
+**Où sont stockées les données.** Les comptes ajoutés depuis la page sont *natifs* : leurs réglages non secrets vont dans `~/.loop-engineering/connectors.json`, et leurs secrets dans le Trousseau macOS, sous le service `loop-engineering.connectors` (suffixé `.sandbox-<hash>` dès que `LOOP_ENGINEERING_HOME` est défini, de sorte qu'une exécution en bac à sable ne touche jamais les vrais secrets). Les secrets ne sont jamais écrits dans `connectors.json` ni réaffichés après l'enregistrement.
+
+**Les comptes externes** sont lus directement dans les fichiers qui en sont déjà propriétaires, sans aucune migration : les instances GitLab depuis `~/.gitlab/config.json` (id = alias de l'instance), les webhooks Slack depuis `~/.slack/config.json` (`slack-default`, plus `slack-<bundle>` pour chaque webhook de bundle), et les boîtes mail depuis `inboxes.json` (id = nom de la boîte). Ils affichent un badge « Managed on … » qui renvoie à la page où on les modifie ; vous pouvez tout de même les tester ici.
+
+**Boutons de test.** Chaque compte a un bouton **Test** (**Send test message** pour les webhooks Slack et de messagerie) ; le dernier résultat est conservé dans `outputs/connectors/test-results.json`.
+
+**Boucles et notifications.** Dans **Loops**, une boucle qui exige une capacité affiche des pastilles « Needs: … » et ne peut pas être activée (ni dans l'interface, ni côté serveur) tant qu'aucun connecteur offrant cette capacité n'existe. Chaque boucle dispose aussi d'une sélection **Notify via**, enregistrée sous la forme `notify: [ids de connecteurs]` dans `loops.json`. `bin/notify.py` achemine la notification d'une boucle vers ces connecteurs ; sans `notify`, elle part vers le webhook Slack par défaut, exactement comme avant. Essayez-le en CLI avec `python3 bin/notify.py <loop> "<text>"`. Le panneau IA du tableau de bord peut aussi lister vos connecteurs (outil de chat `connector-list`).
 
 ## Référence des scripts
 
