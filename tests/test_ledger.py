@@ -48,3 +48,31 @@ def test_reads_real_events_dir(tmp_path):
     import events
     events.emit("loop.result", "r9", data={"run_id": "r9", "definition": "x", "final_state": "completed", "iterations": []}, events_dir=tmp_path)
     assert [r.run_id for r in ledger.iter_runs(events_dir=tmp_path)] == ["r9"]
+
+
+def test_legacy_terminal_event_is_complete_not_incomplete():
+    events = [ev("loop.started", "t1", "2026-10-06T09:00:00Z", definition="x"),
+              ev("loop.completed", "t1", "2026-10-06T09:01:00Z", final_state="completed", stop_reason="completed"),
+              ev("loop.started", "t2", "2026-10-06T09:00:00Z", definition="x"),
+              ev("loop.stopped", "t2", "2026-10-06T09:02:00Z")]
+    runs = {r.run_id: r for r in ledger.iter_runs(events_iter=lambda **kw: events)}
+    assert runs["t1"].complete and runs["t1"].final_state == "completed" and runs["t1"].loop_name == "x"
+    assert runs["t1"].total_cost_usd is None and runs["t1"].iterations == []
+    assert runs["t2"].complete and runs["t2"].final_state == "stopped"
+
+
+def test_loop_result_wins_over_terminal_event():
+    events = [ev("loop.failed", "w", "2026-10-06T09:01:00Z", final_state="failed"),
+              ev("loop.result", "w", "2026-10-06T09:00:00Z", run_id="w", definition="x", final_state="completed", iterations=[])]
+    assert ledger.iter_runs(events_iter=lambda **kw: events)[0].final_state == "completed"
+
+
+def test_days_pushes_since_date_down():
+    seen = {}
+    def it(**kw):
+        seen.update(kw)
+        return []
+    ledger.iter_runs(days=3, events_dir="d", events_iter=it)
+    from datetime import datetime, timedelta, timezone
+    assert seen["since_date"] == (datetime.now(timezone.utc) - timedelta(days=4)).strftime("%Y-%m-%d")
+    assert seen["events_dir"] == "d"
