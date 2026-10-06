@@ -626,5 +626,9 @@
   "Which Slack webhook gets this inbox's urgent alerts.": "Le webhook Slack qui reçoit les alertes urgentes de cette boîte.",
   "Leave blank to keep the saved secret.": "Laissez vide pour conserver le secret enregistré.",
   "No inboxes yet. First fill in the Gmail app or Outlook app tab, then add an inbox.": "Aucune boîte pour l'instant. Remplissez d'abord l'onglet Application Gmail ou Application Outlook, puis ajoutez une boîte.",
-  "After adding it, sign in from the Inboxes tab with Connect.": "Après l'ajout, connectez-vous depuis l'onglet Boîtes avec Connecter."
+  "After adding it, sign in from the Inboxes tab with Connect.": "Après l'ajout, connectez-vous depuis l'onglet Boîtes avec Connecter.",
+  "Harness": "Harnais",
+  "General": "Général",
+  "Loops": "Boucles",
+  "Observe": "Observer"
 }

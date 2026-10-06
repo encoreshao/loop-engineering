@@ -626,5 +626,9 @@
   "Which Slack webhook gets this inbox's urgent alerts.": "接收此收件箱紧急提醒的 Slack Webhook。",
   "Leave blank to keep the saved secret.": "留空则保留已保存的密钥。",
   "No inboxes yet. First fill in the Gmail app or Outlook app tab, then add an inbox.": "还没有收件箱。请先填写 Gmail 应用或 Outlook 应用标签页，然后添加收件箱。",
-  "After adding it, sign in from the Inboxes tab with Connect.": "添加后，在收件箱标签页点击“连接”登录。"
+  "After adding it, sign in from the Inboxes tab with Connect.": "添加后，在收件箱标签页点击“连接”登录。",
+  "Harness": "Harness",
+  "General": "常规",
+  "Loops": "循环",
+  "Observe": "观察"
 }

@@ -626,5 +626,9 @@
   "Which Slack webhook gets this inbox's urgent alerts.": "この受信箱の緊急通知を送る Slack Webhook。",
   "Leave blank to keep the saved secret.": "空欄のままにすると保存済みのシークレットを維持します。",
   "No inboxes yet. First fill in the Gmail app or Outlook app tab, then add an inbox.": "受信箱はまだありません。先に Gmail アプリまたは Outlook アプリのタブを入力してから、受信箱を追加してください。",
-  "After adding it, sign in from the Inboxes tab with Connect.": "追加後、受信箱タブの「接続」からサインインしてください。"
+  "After adding it, sign in from the Inboxes tab with Connect.": "追加後、受信箱タブの「接続」からサインインしてください。",
+  "Harness": "ハーネス",
+  "General": "一般",
+  "Loops": "ループ",
+  "Observe": "観測"
 }

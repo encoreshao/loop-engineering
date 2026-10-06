@@ -12128,3 +12128,34 @@ def test_ai_panel_offers_setup_prompts_on_settings_pages():
     assert ds._AI_PROMPT_ADD_TOPIC[2] in topic_prompts
     assert ds._AI_PROMPT_ADD_PROJECT[2] in settings_prompts
     assert ds._AI_PROMPT_ADD_TOPIC[3] is False and ds._AI_PROMPT_ADD_PROJECT[3] is False
+
+
+def test_render_hub_page_runs_default_view_is_loop_runs(monkeypatch):
+    monkeypatch.setattr(ds, "_loop_runs_body", lambda **kw: "<p id='lr'>LR</p>")
+    out = ds.render_hub_page("runs")
+    assert "id='lr'" in out
+    assert "href='/runs?view=history'" in out
+
+
+def test_render_hub_page_selects_view(monkeypatch):
+    monkeypatch.setattr(ds, "_history_body", lambda **kw: "<p id='hist'>H</p>")
+    out = ds.render_hub_page("runs", view="history")
+    assert "id='hist'" in out
+
+
+def test_hub_refresh_follows_view(monkeypatch):
+    monkeypatch.setattr(ds, "_logs_body", lambda **kw: "")
+    monkeypatch.setattr(ds, "_history_body", lambda **kw: "")
+    # _render_shell emits #refresh-note-text only when refresh_note=True
+    assert "id='refresh-note-text'" in ds.render_hub_page("runs", view="logs")
+    assert "id='refresh-note-text'" not in ds.render_hub_page("runs", view="history")
+
+
+def test_render_hub_page_passes_flash_to_body(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        ds, "_daemons_body",
+        lambda flash=None, flash_ok=True, **kw: seen.update(flash=flash, ok=flash_ok) or "",
+    )
+    ds.render_hub_page("settings", view="daemons", flash="Saved", flash_ok=False)
+    assert seen == {"flash": "Saved", "ok": False}

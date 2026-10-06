@@ -68,6 +68,9 @@ import topic_seen
 # need one (see the comment on sys.path.insert just above).
 import inbox_pages
 
+# hub is bin/web/hub.py (pure tab/selection helpers for tabbed hub pages).
+import hub as hub_mod
+
 # Translates a UI string into the current request thread's language (see
 # bin/i18n.py and DashboardHandler._apply_language). Always called with a
 # literal English string so tests/test_i18n.py can check every one of them
@@ -5232,6 +5235,12 @@ html .chat-page.is-empty .activity-composer {{
 .tab-button:hover {{ color: var(--md-on-surface); }}
 .tab-button.is-active {{ color: var(--md-primary); border-bottom-color: var(--md-primary); }}
 .tab-button .material-symbols-outlined {{ font-size: 16px; }}
+/* Hub pages (render_hub_page): one sidebar entry, several tabbed views, each
+   a plain link (?view=<key>) rather than a JS tab. Same tokens as .tab-list. */
+.hub-tabs {{ display: flex; gap: 0.25rem; margin: -0.25rem 0 1rem; border-bottom: 1px solid var(--md-outline-variant); overflow-x: auto; }}
+.hub-tab {{ padding: 0.75rem 1.1rem; margin-bottom: -1px; color: var(--md-on-surface-variant); text-decoration: none; border-bottom: 2px solid transparent; white-space: nowrap; font-size: 0.85rem; font-weight: 500; transition: color 150ms ease, border-color 150ms ease; }}
+.hub-tab:hover {{ color: var(--md-on-surface); }}
+.hub-tab.active {{ color: var(--md-primary); border-bottom-color: var(--md-primary); }}
 /* The GitLab Monitor tab's SVG mark - sized down from its 18px default
    (see _SECTION_ICON_GITLAB) to match the Topic Monitor tab's 16px
    Material Symbols glyph right next to it. */
@@ -12123,6 +12132,61 @@ def render_activity_page(flash=None, flash_ok=True):
         _activity_body(flash=flash, flash_ok=flash_ok),
         refresh=True,
         refresh_note=True,
+    )
+
+
+def _default_badge():
+    return _status_badge_markup(read_status(STATUS_PATH))
+
+
+def _only(kwargs, *keys):
+    return {k: kwargs[k] for k in keys if k in kwargs}
+
+
+def _hubs():
+    """Built per call (not at import) so monkeypatched _*_body functions and
+    per-request translation both apply. View labels are English literals,
+    translated at render time by hub_tab_strip_html."""
+    V = hub_mod.HubView
+    return {
+        "overview": hub_mod.Hub("overview", "/", "Dashboard", _SECTION_ICON_OVERVIEW, (
+            V("overview", "Overview", lambda **kw: _overview_body(**_only(kw, "flash", "flash_ok", "session_id"))),
+            V("activity", "Activity", lambda **kw: _activity_body(**_only(kw, "flash", "flash_ok")), refresh=True),
+        )),
+        "runs": hub_mod.Hub("runs", "/runs", "Runs", _SECTION_ICON_LOOP_RUNS, (
+            V("loop-runs", "Loop Runs", lambda **kw: _loop_runs_body()),
+            V("history", "Run History", lambda **kw: _history_body()),
+            V("logs", "Logs", lambda **kw: _logs_body(), refresh=True),
+        )),
+        "insights": hub_mod.Hub("insights", "/insights", "Insights", _SECTION_ICON_ANALYTICS, (
+            V("analytics", "Analytics", lambda **kw: _analytics_body(days=kw.get("days", 7))),
+            V("cost", "Cost", lambda **kw: _cost_body(days=kw.get("days", 7))),
+            V("budget", "Budget", lambda **kw: _budget_body()),
+            V("memory", "Memory", lambda **kw: _memory_body()),
+        )),
+        "harness": hub_mod.Hub("harness", "/harness", "Harness", _SECTION_ICON_AUDIT, (
+            V("audit", "Audit", lambda **kw: _audit_body()),
+        )),
+        "settings": hub_mod.Hub("settings", "/settings", "Settings", _SECTION_ICON_GENERAL_SETTINGS, (
+            V("general", "General", lambda **kw: _general_settings_body(
+                kw.get("flash"), kw.get("flash_ok", True), active_tab=kw.get("tab") or "notifications")),
+            V("daemons", "Daemons", lambda **kw: _daemons_body(**_only(kw, "flash", "flash_ok"))),
+            V("skills", "Skills", lambda **kw: _skills_body(**_only(kw, "flash", "flash_ok"))),
+        )),
+    }
+
+
+def render_hub_page(hub_key, view=None, flash=None, flash_ok=True, **ctx):
+    """A hub page: the requested view's body under a tab strip (none for a
+    single-view hub), in the shell with that view's own refresh behaviour."""
+    hub = _hubs()[hub_key]
+    current = hub_mod.resolve_view(hub, view)
+    tabs = hub_mod.hub_tab_strip_html(hub.path, hub.views, current.key, translate=i18n.t)
+    body = tabs + current.body_fn(flash=flash, flash_ok=flash_ok, **ctx)
+    badge = current.badge_fn() if current.badge_fn else _default_badge()
+    return _render_shell(
+        f"{i18n.t(hub.label)} · Loop X Engineering", hub.key, badge, body,
+        refresh=current.refresh, refresh_note=current.refresh, lazy_refresh=current.lazy_refresh,
     )
 
 
