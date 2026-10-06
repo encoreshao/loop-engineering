@@ -2419,7 +2419,20 @@ _LOOP_SCHEDULE_FREQUENCIES = ("Daily", "Weekly", "Monthly", "Hourly")
 _LOOP_HOURLY_INTERVAL_CHOICES = ("1", "2", "3", "4", "6", "8", "12", "24")
 
 
-def _loop_schedule_form_html(loop, csrf_input):
+_LOOP_RETURN_TO_DEFAULT = "/settings?view=daemons"
+_LOOP_RETURN_TO_ALLOWED = ("/loops", _LOOP_RETURN_TO_DEFAULT)
+
+
+def _return_to_input_html(return_to):
+    """Hidden `return_to` field telling a /daemons/loops/<name>/... POST
+    where to redirect afterwards; empty when the caller didn't ask for one.
+    Only values in _LOOP_RETURN_TO_ALLOWED are honored server-side."""
+    if not return_to:
+        return ""
+    return f"<input type='hidden' name='return_to' value='{html.escape(return_to, quote=True)}'>"
+
+
+def _loop_schedule_form_html(loop, csrf_input, return_to=None):
     """A time input, a Daily/Weekly/Monthly/Hourly frequency dropdown, and
     whichever of weekday checkboxes (Weekly), a day-of-month dropdown
     (Monthly), or an every-N-hours dropdown (Hourly) that frequency needs
@@ -2465,7 +2478,7 @@ def _loop_schedule_form_html(loop, csrf_input):
     safe_name = html.escape(str(loop.get("name", "?")))
     return (
         f"<form method='post' action='/daemons/loops/{safe_name}/schedule' class='daemon-action-form schedule-form'>"
-        f"{csrf_input}"
+        f"{csrf_input}{_return_to_input_html(return_to)}"
         f"<span class='time-control'{time_style}><input type='time' name='time' value='{time_value}'></span>"
         f"{freq_select}"
         f"<span class='weekday-checks weekly-controls'{weekly_style}>{checkboxes}</span>"
@@ -2476,7 +2489,7 @@ def _loop_schedule_form_html(loop, csrf_input):
     )
 
 
-def _loop_action_html(loop, csrf_input):
+def _loop_action_html(loop, csrf_input, return_to=None):
     """The enable/disable switch for one Registered Loops row - same
     .switch is-on/is-off form pattern as the launchd table's own
     enable/disable action (see render_daemons_page), pointed at
@@ -2490,7 +2503,7 @@ def _loop_action_html(loop, csrf_input):
     if enabled:
         return (
             f"<form method='post' action='/daemons/loops/{safe_name}/disable' class='daemon-action-form'>"
-            f"{csrf_input}"
+            f"{csrf_input}{_return_to_input_html(return_to)}"
             f"<button type='submit' class='switch is-on' role='switch' aria-checked='true' "
             f"aria-label='Disable {safe_name}' title='Disable {safe_name}'>"
             "<span class='switch-thumb'></span></button>"
@@ -2498,7 +2511,7 @@ def _loop_action_html(loop, csrf_input):
         )
     return (
         f"<form method='post' action='/daemons/loops/{safe_name}/enable' class='daemon-action-form'>"
-        f"{csrf_input}"
+        f"{csrf_input}{_return_to_input_html(return_to)}"
         f"<button type='submit' class='switch is-off' role='switch' aria-checked='false' "
         f"aria-label='Enable {safe_name}' title='Enable {safe_name}'>"
         "<span class='switch-thumb'></span></button>"
@@ -7301,7 +7314,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     selected_cli = ai_cli_config.get_selected_cli(ai_cli_config.DEFAULT_CONFIG_PATH)
     ai_cli_name = _AI_CLI_DISPLAY_NAMES[selected_cli]
     ai_cli_badge_html = (
-        f"<a class='pill pill-ai-cli' href='/settings/general?tab=ai-cli'>{_AI_CLI_LOGOS[selected_cli]}{html.escape(ai_cli_name)}</a>"
+        f"<a class='pill pill-ai-cli' href='/settings?tab=ai-cli'>{_AI_CLI_LOGOS[selected_cli]}{html.escape(ai_cli_name)}</a>"
     )
     refresh_html = (
         f"<span class='refresh-note' id='refresh-note-text'>{html.escape(_t('auto-refreshes every {interval}', interval='30s'))}</span>"
@@ -8616,7 +8629,7 @@ def _overview_body(flash=None, flash_ok=True, session_id=None):
 </aside>
 {flash_html}
 <div class='chat-hero'>
-<a class='chat-announce' href='/activity'><span class='material-symbols-outlined' aria-hidden='true'>auto_awesome</span><span class='chat-announce-text'>{html.escape(announce_text)}</span><span class='material-symbols-outlined chat-announce-arrow' aria-hidden='true'>arrow_forward</span></a>
+<a class='chat-announce' href='/?view=activity'><span class='material-symbols-outlined' aria-hidden='true'>auto_awesome</span><span class='chat-announce-text'>{html.escape(announce_text)}</span><span class='material-symbols-outlined chat-announce-arrow' aria-hidden='true'>arrow_forward</span></a>
 <h1 class='chat-hero-title'>{hero_title_html}</h1>
 </div>
 <div class='chat-thread activity-messages-grid'>
@@ -8636,8 +8649,8 @@ def _overview_body(flash=None, flash_ok=True, session_id=None):
 </div>
 </div>
 <div class='chat-hero-links'>
-<a class='btn btn-neutral chat-link-pill' href='/activity'><span class='material-symbols-outlined' aria-hidden='true'>bolt</span>{html.escape(_t('Loop activity'))}</a>
-<a class='btn btn-neutral chat-link-pill' href='/gitlab'><span class='material-symbols-outlined' aria-hidden='true'>merge</span>{html.escape(_t('Live GitLab'))}</a>
+<a class='btn btn-neutral chat-link-pill' href='/?view=activity'><span class='material-symbols-outlined' aria-hidden='true'>bolt</span>{html.escape(_t('Loop activity'))}</a>
+<a class='btn btn-neutral chat-link-pill' href='/loops/gitlab-loop'><span class='material-symbols-outlined' aria-hidden='true'>merge</span>{html.escape(_t('Live GitLab'))}</a>
 </div>
 </div>
 """
@@ -9340,7 +9353,7 @@ def render_gitlab_live_fragment():
     if not live:
         return _empty_state_html(
             html.escape(_t("No projects configured yet, so there's nothing to check for issues or MRs."), quote=False),
-            "/settings", html.escape(_t("Set up a project")),
+            "/loops/gitlab-loop?view=projects", html.escape(_t("Set up a project")),
         )
 
     # Issues assigned to you are what the loop actually works next, so they
@@ -10269,7 +10282,7 @@ def _memory_body():
         )
     memory_html = "".join(memory_sections) or _empty_state_html(
         html.escape(_t("No projects configured yet, so there is no memory recorded."), quote=False),
-        "/settings", html.escape(_t("Set up a project"), quote=False),
+        "/loops/gitlab-loop?view=projects", html.escape(_t("Set up a project"), quote=False),
     )
 
     body = f"""
@@ -10309,7 +10322,7 @@ def _topic_latest_data_html(topics, history_dir=None):
     if history_dir is None:
         history_dir = TOPIC_MONITOR_HISTORY_DIR
     if not topics:
-        settings_link = "<a href='/topic-monitor/settings'>" + html.escape(_t("Topic Settings")) + "</a>"
+        settings_link = "<a href='/loops/topic-loop?view=topics'>" + html.escape(_t("Topic Settings")) + "</a>"
         return "<p>" + _t("No topics configured yet. Add one on the {link} page.", link=settings_link) + "</p>"
 
     blocks = []
@@ -10414,7 +10427,7 @@ def _topic_monitor_body(flash=None, flash_ok=True):
     if not topics:
         topics_html = _empty_state_html(
             html.escape(_t("No enabled topics, so there's nothing to monitor."), quote=False),
-            "/topic-monitor/settings", html.escape(_t("Manage topics"), quote=False),
+            "/loops/topic-loop?view=topics", html.escape(_t("Manage topics"), quote=False),
         )
         latest_data_section = ""
     else:
@@ -10455,7 +10468,7 @@ def _topic_monitor_body(flash=None, flash_ok=True):
 </div>
 """
 
-    history_link = '<a href="/history">' + html.escape(_t("Run History")) + "</a>"
+    history_link = '<a href="/runs?view=history">' + html.escape(_t("Run History")) + "</a>"
     topic_monitor_subtitle = _t(
         "Status for every configured topic. Saved briefings are on the {link} page.", link=history_link,
     )
@@ -10619,7 +10632,7 @@ def _topic_settings_body(flash=None, flash_ok=True):
 </div>
 """
 
-    monitor_link = '<a href="/topic-monitor">' + html.escape(_t("Topic Monitor")) + "</a>"
+    monitor_link = '<a href="/loops/topic-loop">' + html.escape(_t("Topic Monitor")) + "</a>"
     topic_settings_subtitle = _t(
         "Add, edit, or delete topics. Live status is on the {link} page.", link=monitor_link,
     )
@@ -11847,7 +11860,7 @@ def _analytics_body(days=7):
     health_report = health.compute_health_score(metrics_report, cost_report)
 
     days_selector_html = "".join(
-        f"<a href='/analytics?days={n}' class=\"{'active' if n == days else ''}\">{html.escape(_t('{n}d', n=n))}</a>"
+        f"<a href='/insights?days={n}' class=\"{'active' if n == days else ''}\">{html.escape(_t('{n}d', n=n))}</a>"
         for n in (7, 30, 90)
     )
 
@@ -11927,7 +11940,7 @@ def _cost_body(days=7):
     cost_summary = loop_serialize.summarize_run_costs(results_dir=LOOP_RUNS_DIR)
 
     days_selector_html = "".join(
-        f"<a href='/cost?days={n}' class=\"{'active' if n == days else ''}\">{html.escape(_t('{n}d', n=n))}</a>"
+        f"<a href='/insights?view=cost&days={n}' class=\"{'active' if n == days else ''}\">{html.escape(_t('{n}d', n=n))}</a>"
         for n in (7, 30, 90)
     )
 
@@ -12030,7 +12043,7 @@ def _activity_body(flash=None, flash_ok=True):
     elif not has_projects:
         gitlab_run_now_html = _run_now_action_html(
             "/run-now", "", csrf_input,
-            disabled_hint_html=_t("No projects configured yet - <a href='/settings'>add one on the GitLab page</a>."),
+            disabled_hint_html=_t("No projects configured yet - <a href='/loops/gitlab-loop?view=projects'>add one on the GitLab page</a>."),
         )
     else:
         gitlab_run_now_html = _run_now_action_html(
@@ -12076,7 +12089,7 @@ def _activity_body(flash=None, flash_ok=True):
         topic_run_now_html = _run_now_action_html(
             "/topic-monitor/run-now", "", csrf_input,
             disabled_hint_html=(
-                _t("No topics configured yet - <a href='/topic-monitor/settings'>add one on the Topic Settings page</a>.")
+                _t("No topics configured yet - <a href='/loops/topic-loop?view=topics'>add one on the Topic Settings page</a>.")
             ),
         )
     else:
@@ -12223,7 +12236,7 @@ def loop_is_visible(loop, status_path_fn=None):
     (its status file exists); otherwise it is only "Available"."""
     if status_path_fn is None:
         status_path_fn = status_path_for_loop
-    if loop.get("enabled"):
+    if loop.get("enabled", True):
         return True
     return Path(status_path_fn(loop.get("name", "?"))).exists()
 
@@ -12244,10 +12257,10 @@ def _loops_catalog_row(loop, csrf_input, pages):
     return (
         f"<tr data-loop='{safe_name}'>"
         f"<td>{icon} {label}</td>"
-        f"<td>{_loop_schedule_form_html(loop, csrf_input)}</td>"
+        f"<td>{_loop_schedule_form_html(loop, csrf_input, return_to='/loops')}</td>"
         f"<td>{_status_badge_markup(loop_status)}</td>"
         f"<td>{last_run}</td>"
-        f"<td>{_loop_action_html(loop, csrf_input)} {open_html}</td>"
+        f"<td>{_loop_action_html(loop, csrf_input, return_to='/loops')} {open_html}</td>"
         "</tr>"
     )
 
@@ -12487,7 +12500,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             # only a CSRF-checked POST /inbox/inboxes/<name>/connect mints.
             # The flash never carries the code or any token.
             ok, message = inbox_pages.handle_google_callback(urllib.parse.parse_qs(split.query))
-            self._redirect_with_flash(ok, message, location="/inbox/setup?tab=inboxes")
+            self._redirect_with_flash(ok, message, location="/loops/inbox-triage-loop?view=setup&tab=inboxes")
             return
 
         if split.path == "/inbox/connect/status":
@@ -12659,7 +12672,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._forbidden()
                 return
             ok, message = stop_gitlab_loop()
-            self._redirect_with_flash(ok, message, location="/activity")
+            self._redirect_with_flash(ok, message, location="/?view=activity")
             return
 
         if self.path == "/topic-monitor/stop":
@@ -12667,7 +12680,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._forbidden()
                 return
             ok, message = stop_topic_loop()
-            self._redirect_with_flash(ok, message, location="/activity")
+            self._redirect_with_flash(ok, message, location="/?view=activity")
             return
 
         if self.path.startswith("/history/") and self.path.endswith("/delete"):
@@ -12676,7 +12689,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             name = urllib.parse.unquote(self.path[len("/history/"):-len("/delete")])
             ok, message = delete_history_file(name, HISTORY_DIR)
-            self._redirect_with_flash(ok, message, location="/history")
+            self._redirect_with_flash(ok, message, location="/runs?view=history")
             return
 
         if self.path.startswith("/topic-monitor/history/") and self.path.endswith("/delete"):
@@ -12685,7 +12698,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             name = urllib.parse.unquote(self.path[len("/topic-monitor/history/"):-len("/delete")])
             ok, message = delete_history_file(name, TOPIC_MONITOR_HISTORY_DIR)
-            self._redirect_with_flash(ok, message, location="/history")
+            self._redirect_with_flash(ok, message, location="/runs?view=history")
             return
 
         if self.path == "/topic-monitor/run-now":
@@ -12693,7 +12706,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._forbidden()
                 return
             ok, message = trigger_topic_monitor_run()
-            self._redirect_with_flash(ok, message, location="/topic-monitor")
+            self._redirect_with_flash(ok, message, location="/loops/topic-loop")
             return
 
         if self.path == "/topic-monitor/topics":
@@ -12717,11 +12730,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if original_name and original_name != name.strip():
                 ok, message = topic_config.rename_topic(original_name, name, topic_config.DEFAULT_CONFIG_PATH)
                 if not ok:
-                    self._redirect_with_flash(False, message, location="/topic-monitor/settings")
+                    self._redirect_with_flash(False, message, location="/loops/topic-loop?view=topics")
                     return
                 _migrate_topic_rename(original_name, name.strip())
             ok, message = topic_config.upsert_topic(name, label, brief, slack_bundle, topic_config.DEFAULT_CONFIG_PATH)
-            self._redirect_with_flash(ok, message, location="/topic-monitor/settings")
+            self._redirect_with_flash(ok, message, location="/loops/topic-loop?view=topics")
             return
 
         if self.path.startswith("/topic-monitor/topics/") and self.path.endswith("/delete"):
@@ -12730,7 +12743,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             name = urllib.parse.unquote(self.path[len("/topic-monitor/topics/"):-len("/delete")])
             ok, message = topic_config.delete_topic(name, topic_config.DEFAULT_CONFIG_PATH)
-            self._redirect_with_flash(ok, message, location="/topic-monitor/settings")
+            self._redirect_with_flash(ok, message, location="/loops/topic-loop?view=topics")
             return
 
         if self.path.startswith("/topic-monitor/topics/") and self.path.endswith("/enable"):
@@ -12739,7 +12752,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             name = urllib.parse.unquote(self.path[len("/topic-monitor/topics/"):-len("/enable")])
             ok, message = topic_config.set_enabled(name, True)
-            self._redirect_with_flash(ok, message, location="/topic-monitor/settings")
+            self._redirect_with_flash(ok, message, location="/loops/topic-loop?view=topics")
             return
 
         if self.path.startswith("/topic-monitor/topics/") and self.path.endswith("/disable"):
@@ -12748,7 +12761,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             name = urllib.parse.unquote(self.path[len("/topic-monitor/topics/"):-len("/disable")])
             ok, message = topic_config.set_enabled(name, False)
-            self._redirect_with_flash(ok, message, location="/topic-monitor/settings")
+            self._redirect_with_flash(ok, message, location="/loops/topic-loop?view=topics")
             return
 
         if self.path.startswith("/gitlab/issues/") and (self.path.endswith("/enable") or self.path.endswith("/disable")):
@@ -12780,7 +12793,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._forbidden()
                 return
             ok, message = trigger_skills_install()
-            self._redirect_with_flash(ok, message, location="/skills")
+            self._redirect_with_flash(ok, message, location="/settings?view=skills")
             return
 
         # Checked ahead of the generic /daemons/<file>/... routes below,
@@ -12793,7 +12806,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             name = urllib.parse.unquote(self.path[len("/daemons/loops/"):-len("/enable")])
             ok, message = loops_config.set_enabled(name, True)
-            self._redirect_with_flash(ok, message)
+            self._redirect_with_flash(ok, message, location=self._loop_return_to(body))
             return
 
         if self.path.startswith("/daemons/loops/") and self.path.endswith("/disable"):
@@ -12802,7 +12815,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             name = urllib.parse.unquote(self.path[len("/daemons/loops/"):-len("/disable")])
             ok, message = loops_config.set_enabled(name, False)
-            self._redirect_with_flash(ok, message)
+            self._redirect_with_flash(ok, message, location=self._loop_return_to(body))
             return
 
         if self.path.startswith("/daemons/loops/") and self.path.endswith("/schedule"):
@@ -12834,7 +12847,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 ok, message = False, _t("Invalid schedule value: {value}", value=repr(time_value))
             else:
                 ok, message = loops_config.set_schedule(name, schedule)
-            self._redirect_with_flash(ok, message)
+            self._redirect_with_flash(ok, message, location=self._loop_return_to(body))
             return
 
         if self.path.startswith("/daemons/") and self.path.endswith("/enable"):
@@ -12979,7 +12992,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
             webhook_url = form.get("webhook_url", [""])[0]
             ok, message = update_slack_webhook(webhook_url, SLACK_CONFIG_PATH)
-            self._redirect_with_flash(ok, message, location="/settings/general?tab=notifications")
+            self._redirect_with_flash(ok, message, location="/settings?tab=notifications")
             return
 
         if self.path == "/notifications/block-templates":
@@ -12992,7 +13005,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             notification_key = form.get("notification_key", [""])[0]
             blocks_json = form.get("blocks_json", ["[]"])[0]
             ok, message = upsert_block_template(name, blocks_json, notification_key, original_name=original_name)
-            self._redirect_with_flash(ok, message, location="/settings/general?tab=notifications")
+            self._redirect_with_flash(ok, message, location="/settings?tab=notifications")
             return
 
         if self.path.startswith("/notifications/block-templates/") and self.path.endswith("/delete"):
@@ -13001,7 +13014,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             name = urllib.parse.unquote(self.path[len("/notifications/block-templates/"):-len("/delete")])
             ok, message = delete_block_template(name)
-            self._redirect_with_flash(ok, message, location="/settings/general?tab=notifications")
+            self._redirect_with_flash(ok, message, location="/settings?tab=notifications")
             return
 
         if self.path.startswith("/notifications/block-templates/") and self.path.endswith("/test"):
@@ -13010,7 +13023,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             name = urllib.parse.unquote(self.path[len("/notifications/block-templates/"):-len("/test")])
             ok, message = send_test_block_template(name)
-            self._redirect_with_flash(ok, message, location="/settings/general?tab=notifications")
+            self._redirect_with_flash(ok, message, location="/settings?tab=notifications")
             return
 
         if self.path == "/ai-cli":
@@ -13020,7 +13033,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
             cli = form.get("cli", [""])[0]
             ok, message = ai_cli_config.set_selected_cli(cli, ai_cli_config.DEFAULT_CONFIG_PATH)
-            self._redirect_with_flash(ok, message, location="/settings/general?tab=ai-cli")
+            self._redirect_with_flash(ok, message, location="/settings?tab=ai-cli")
             return
 
         if self.path == "/settings/loop-config":
@@ -13072,7 +13085,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
             instructions_text = form.get("instructions", [""])[0]
             ok, message = write_custom_instructions(instructions_text)
-            self._redirect_with_flash(ok, message, location="/settings/general?tab=instructions")
+            self._redirect_with_flash(ok, message, location="/settings?tab=instructions")
             return
 
         if self.path == "/activity/messages":
@@ -13177,7 +13190,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._forbidden()
                 return
             ok, message = trigger_inbox_triage_run()
-            self._redirect_with_flash(ok, message, location="/inbox")
+            self._redirect_with_flash(ok, message, location="/loops/inbox-triage-loop")
             return
 
         if self.path.startswith("/inbox/"):
@@ -13223,7 +13236,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(message)
 
-    def _redirect_with_flash(self, ok, message, location="/daemons"):
+    @staticmethod
+    def _loop_return_to(body):
+        """The redirect target for a loop enable/disable/schedule POST: the
+        form's `return_to` only when it is exactly one of
+        _LOOP_RETURN_TO_ALLOWED (an allowlist, never a prefix/URL check, so
+        it can't be an open redirect); otherwise the Daemons view."""
+        form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
+        value = form.get("return_to", [""])[0]
+        return value if value in _LOOP_RETURN_TO_ALLOWED else _LOOP_RETURN_TO_DEFAULT
+
+    def _redirect_with_flash(self, ok, message, location="/settings?view=daemons"):
         """Standard POST-redirect-GET: 303 back to `location` with the
         result carried as query params, so a refresh of the resulting page
         doesn't resubmit the action. Every render_*_page()/do_GET route that

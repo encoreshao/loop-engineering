@@ -1518,7 +1518,7 @@ def test_render_shell_shows_selected_ai_cli_badge_for_claude(monkeypatch, tmp_pa
     body = ds._render_shell("Test Page", "overview", "<span>badge</span>", "<p>body</p>")
 
     assert "Claude Code" in body
-    assert "href='/settings/general?tab=ai-cli'" in body
+    assert "href='/settings?tab=ai-cli'" in body
 
 
 def test_render_shell_ai_cli_badge_uses_theme_accent_color(monkeypatch, tmp_path):
@@ -1526,7 +1526,7 @@ def test_render_shell_ai_cli_badge_uses_theme_accent_color(monkeypatch, tmp_path
 
     body = ds._render_shell("Test Page", "overview", "<span>badge</span>", "<p>body</p>")
 
-    assert "<a class='pill pill-ai-cli' href='/settings/general?tab=ai-cli'>" in body
+    assert "<a class='pill pill-ai-cli' href='/settings?tab=ai-cli'>" in body
     assert ".pill-ai-cli {{ background: var(--md-nav-active-surface); color: var(--md-nav-active-on-surface); }}".replace("{{", "{").replace("}}", "}") in body
 
 
@@ -2304,7 +2304,7 @@ def _post(port, path, fields=None):
         conn.close()
 
 
-def _flash_from_location(location, prefix="/daemons?"):
+def _flash_from_location(location, prefix="/settings?view=daemons&"):
     assert location is not None and location.startswith(prefix)
     return urllib.parse.parse_qs(urllib.parse.urlsplit(location).query)
 
@@ -3856,7 +3856,7 @@ def test_render_activity_page_disables_gitlab_run_now_when_no_projects_configure
     assert "action='/run-now'" not in output
     assert "<button type='button' class='btn btn-primary' disabled>" in output
     assert "No projects configured yet" in output
-    assert "<a href='/settings'>" in output
+    assert "<a href='/loops/gitlab-loop?view=projects'>" in output
 
 
 def test_render_activity_page_shows_topic_monitor_section(tmp_path, monkeypatch):
@@ -3924,7 +3924,7 @@ def test_render_activity_page_disables_topic_run_now_when_no_topics_configured(t
 
     assert "action='/topic-monitor/run-now'" not in output
     assert "No topics configured yet" in output
-    assert "<a href='/topic-monitor/settings'>" in output
+    assert "<a href='/loops/topic-loop?view=topics'>" in output
 
 
 def test_render_activity_page_shows_stop_button_while_a_topic_is_running(tmp_path, monkeypatch):
@@ -5063,7 +5063,7 @@ def test_history_delete_route_success(monkeypatch, tmp_path):
         token = _fetch_csrf_token(port, "/daemons")
         status, headers, _body = _post(port, "/history/2026-08-21.md/delete", {"csrf_token": token})
         assert status == 303
-        parsed = _flash_from_location(headers.get("Location"), prefix="/history?")
+        parsed = _flash_from_location(headers.get("Location"), prefix="/runs?view=history&")
         assert parsed["ok"] == ["1"]
     assert not (history_dir / "2026-08-21.md").exists()
 
@@ -5095,7 +5095,7 @@ def test_topic_monitor_history_delete_route_success(monkeypatch, tmp_path):
         token = _fetch_csrf_token(port, "/daemons")
         status, headers, _body = _post(port, "/topic-monitor/history/2026-08-22-ai-news.md/delete", {"csrf_token": token})
         assert status == 303
-        parsed = _flash_from_location(headers.get("Location"), prefix="/history?")
+        parsed = _flash_from_location(headers.get("Location"), prefix="/runs?view=history&")
         assert parsed["ok"] == ["1"]
     assert not (topic_history_dir / "2026-08-22-ai-news.md").exists()
 
@@ -5263,7 +5263,7 @@ def test_render_gitlab_live_fragment_shows_empty_state_with_settings_link_when_n
 
     assert "class='empty-state'" in output
     assert "<span class='material-symbols-outlined' aria-hidden='true'>folder_off</span>" in output
-    assert "<a class='btn btn-primary empty-state-action' href='/settings'>" in output
+    assert "<a class='btn btn-primary empty-state-action' href='/loops/gitlab-loop?view=projects'>" in output
     assert "<p>(no projects configured)</p>" not in output
 
 
@@ -5546,7 +5546,7 @@ def test_render_memory_page_shows_empty_state_with_settings_link_when_no_project
 
     assert "class='empty-state'" in output
     assert "<span class='material-symbols-outlined' aria-hidden='true'>folder_off</span>" in output
-    assert "<a class='btn btn-primary empty-state-action' href='/settings'>" in output
+    assert "<a class='btn btn-primary empty-state-action' href='/loops/gitlab-loop?view=projects'>" in output
 
 
 def test_render_memory_page_renders_markdown_and_metadata(monkeypatch, tmp_path):
@@ -5654,7 +5654,7 @@ def test_render_topic_monitor_page_shows_empty_state_with_topic_settings_link_wh
 
     assert "class='empty-state'" in output
     assert "<span class='material-symbols-outlined' aria-hidden='true'>folder_off</span>" in output
-    assert "<a class='btn btn-primary empty-state-action' href='/topic-monitor/settings'>" in output
+    assert "<a class='btn btn-primary empty-state-action' href='/loops/topic-loop?view=topics'>" in output
 
 
 def test_render_topic_monitor_page_auto_refreshes(monkeypatch, tmp_path):
@@ -5978,7 +5978,7 @@ def test_topic_monitor_topics_route_renames_and_migrates_history(monkeypatch, tm
             "brief": "New brief.", "slack_bundle": "", "csrf_token": ds._CSRF_TOKEN,
         })
         assert status == 303
-        parsed = _flash_from_location(headers.get("Location"), prefix="/topic-monitor/settings?")
+        parsed = _flash_from_location(headers.get("Location"), prefix="/loops/topic-loop?view=topics&")
         assert parsed["ok"] == ["1"]
 
     assert topic_config.list_names(topics_path) == ["ai-updates"]
@@ -6004,7 +6004,7 @@ def test_topic_monitor_topics_route_rename_collision_leaves_topics_untouched(mon
             "brief": "Brief.", "slack_bundle": "", "csrf_token": ds._CSRF_TOKEN,
         })
         assert status == 303
-        parsed = _flash_from_location(headers.get("Location"), prefix="/topic-monitor/settings?")
+        parsed = _flash_from_location(headers.get("Location"), prefix="/loops/topic-loop?view=topics&")
         assert parsed["ok"] == ["0"]
 
     assert topic_config.list_names(topics_path) == ["ai-news", "rust-lang"]
@@ -6088,7 +6088,7 @@ def test_topic_monitor_topics_disable_route_success(monkeypatch, tmp_path):
     with _running_server() as port:
         status, headers, _body = _post(port, "/topic-monitor/topics/ai-news/disable", {"csrf_token": ds._CSRF_TOKEN})
         assert status == 303
-        parsed = _flash_from_location(headers.get("Location"), prefix="/topic-monitor/settings?")
+        parsed = _flash_from_location(headers.get("Location"), prefix="/loops/topic-loop?view=topics&")
         assert parsed["ok"] == ["1"]
     assert topic_config.get_topic("ai-news", topics_path)["enabled"] is False
 
@@ -6114,7 +6114,7 @@ def test_topic_monitor_topics_enable_route_success(monkeypatch, tmp_path):
     with _running_server() as port:
         status, headers, _body = _post(port, "/topic-monitor/topics/ai-news/enable", {"csrf_token": ds._CSRF_TOKEN})
         assert status == 303
-        parsed = _flash_from_location(headers.get("Location"), prefix="/topic-monitor/settings?")
+        parsed = _flash_from_location(headers.get("Location"), prefix="/loops/topic-loop?view=topics&")
         assert parsed["ok"] == ["1"]
     assert topic_config.get_topic("ai-news", topics_path)["enabled"] is True
 
@@ -7129,7 +7129,7 @@ def test_instructions_route_saves_and_redirects(tmp_path, monkeypatch):
             "instructions": "Always write tests first.", "csrf_token": token,
         })
         assert status == 303
-        assert headers.get("Location", "").startswith("/settings/general?tab=instructions")
+        assert headers.get("Location", "").startswith("/settings?tab=instructions")
 
     assert ds.read_custom_instructions(path) == "Always write tests first."
 
@@ -7250,7 +7250,7 @@ def test_slack_route_update_webhook_blank_rejected(monkeypatch, tmp_path):
         token = _fetch_csrf_token(port, "/settings/general")
         status, headers, _body = _post(port, "/notifications/webhook", {"webhook_url": "", "csrf_token": token})
         assert status == 303
-        flash_query = _flash_from_location(headers["Location"], prefix="/settings/general?tab=notifications&")
+        flash_query = _flash_from_location(headers["Location"], prefix="/settings?tab=notifications&")
         assert flash_query["ok"] == ["0"]
     assert ds.read_slack_config(slack_path)["webhook_url"] == "https://hooks.slack.com/services/original"
 
@@ -7295,7 +7295,7 @@ def test_block_templates_test_route_success(monkeypatch, tmp_path):
         token = _fetch_csrf_token(port, "/settings/general")
         status, headers, _body = _post(port, "/notifications/block-templates/t/test", {"csrf_token": token})
         assert status == 303
-        flash_query = _flash_from_location(headers["Location"], prefix="/settings/general?tab=notifications&")
+        flash_query = _flash_from_location(headers["Location"], prefix="/settings?tab=notifications&")
         assert flash_query["ok"] == ["1"]
 
 
@@ -7441,7 +7441,7 @@ def test_do_post_ai_cli_with_valid_csrf_token_switches_cli(monkeypatch, tmp_path
         token = _fetch_csrf_token(port, path="/settings/general")
         status, headers, _body = _post(port, "/ai-cli", {"csrf_token": token, "cli": "codex"})
         assert status == 303
-        assert headers["Location"].startswith("/settings/general?tab=ai-cli&")
+        assert headers["Location"].startswith("/settings?tab=ai-cli&")
         assert ai_cli_config.get_selected_cli(config_path) == "codex"
 
 
@@ -8898,7 +8898,7 @@ def test_gitlab_stop_route_stops_a_running_loop(monkeypatch, tmp_path):
             token = _fetch_csrf_token(port, "/daemons")
             status, headers, _body = _post(port, "/gitlab/stop", {"csrf_token": token})
             assert status == 303
-            flash_query = _flash_from_location(headers["Location"], prefix="/activity?")
+            flash_query = _flash_from_location(headers["Location"], prefix="/?view=activity&")
             assert flash_query["ok"] == ["1"]
         proc.wait(timeout=5)
         assert ds.read_status(status_path)["state"] == "stopped"
@@ -8937,7 +8937,7 @@ def test_topic_monitor_stop_route_stops_a_running_topic(monkeypatch, tmp_path):
             token = _fetch_csrf_token(port, "/daemons")
             status, headers, _body = _post(port, "/topic-monitor/stop", {"csrf_token": token})
             assert status == 303
-            flash_query = _flash_from_location(headers["Location"], prefix="/activity?")
+            flash_query = _flash_from_location(headers["Location"], prefix="/?view=activity&")
             assert flash_query["ok"] == ["1"]
         proc.wait(timeout=5)
         topics = ds.read_topic_status(topic_status_path)["topics"]
@@ -11239,7 +11239,7 @@ def test_google_callback_route_redirects_to_inboxes_tab():
         conn.request("GET", "/oauth/google/callback?state=bad&code=x")
         location = conn.getresponse().getheader("Location")
         conn.close()
-    assert location.startswith("/inbox/setup?tab=inboxes&")
+    assert location.startswith("/loops/inbox-triage-loop?view=setup&tab=inboxes&")
 
 
 def test_nav_has_inbox_pages_in_groups():
@@ -11395,10 +11395,10 @@ def test_every_inbox_post_requires_csrf(tmp_path, monkeypatch):
 
 
 def test_inbox_post_with_valid_csrf_dispatches_and_redirects(tmp_path, monkeypatch):
-    monkeypatch.setattr(ds.inbox_pages, "handle_post", lambda path, form, redirect_uri: {"ok": True, "message": "Saved", "location": "/inbox/setup"})
+    monkeypatch.setattr(ds.inbox_pages, "handle_post", lambda path, form, redirect_uri: {"ok": True, "message": "Saved", "location": "/loops/inbox-triage-loop?view=setup"})
     with _running_server() as port:
         status, headers, _ = _post(port, "/inbox/inboxes", {"csrf_token": ds._CSRF_TOKEN})
-    assert status == 303 and headers["Location"].startswith("/inbox/setup?")
+    assert status == 303 and headers["Location"].startswith("/loops/inbox-triage-loop?view=setup&")
 
 
 def test_inbox_connect_google_redirects_offsite(monkeypatch):
@@ -11416,7 +11416,7 @@ def test_google_callback_route_bad_state_redirects_with_error(monkeypatch):
         location = response.getheader("Location")
         conn.close()
     assert response.status == 303
-    assert location.startswith("/inbox/setup?") and "ok=0" in location
+    assert location.startswith("/loops/inbox-triage-loop?view=setup&") and "ok=0" in location
 
 
 def test_connect_status_route_returns_json(monkeypatch):
@@ -12312,3 +12312,99 @@ def test_loops_route_serves_catalog_and_loop_pages_still_work(monkeypatch):
     monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [])
     assert "data-section='available'" in ds.render_loops_catalog_page()
     assert ds.render_loop_page("nope") is None
+
+
+# --- Task 6: POST redirects and in-page links point at hub/loop pages ---
+
+def test_no_post_redirects_to_legacy_paths():
+    import re
+    src = Path(ds.__file__).read_text() + Path(ds.inbox_pages.__file__).read_text()
+    targets = set(re.findall(r'location="([^"?]+)', src))
+    stale = targets & set(ds._LEGACY_REDIRECTS)
+    assert not stale, stale
+
+
+def test_no_in_page_links_to_legacy_paths():
+    import re
+    src = Path(ds.__file__).read_text() + Path(ds.inbox_pages.__file__).read_text()
+    hrefs = set(re.findall(r"""href=(?:'|")(/[^'"?#{]*)""", src))
+    # /inbox/history, /loop-runs/<id>, /history/<name> are real sub-routes.
+    stale = {h for h in hrefs if h in ds._LEGACY_REDIRECTS}
+    assert not stale, stale
+
+
+def test_gitlab_empty_state_links_point_at_projects_view():
+    src = Path(ds.__file__).read_text()
+    assert "href='/settings'" not in src
+    assert '"/settings", html.escape(_t("Set up a project"' not in src
+
+
+def test_default_redirect_location_is_settings_daemons_view():
+    import inspect
+    sig = inspect.signature(ds.DashboardHandler._redirect_with_flash)
+    assert sig.parameters["location"].default == "/settings?view=daemons"
+
+
+def test_gitlab_instance_save_redirects_to_projects_view(monkeypatch):
+    monkeypatch.setattr(ds, "upsert_gitlab_instance", lambda *a, **k: (True, "Saved"))
+    monkeypatch.setattr(ds.loops_config, "set_enabled", lambda *a, **k: (True, "x"))
+    with _running_server() as port:
+        status, headers, _ = _post(port, "/settings/gitlab/instances", {
+            "csrf_token": ds._CSRF_TOKEN, "name": "acme", "url": "https://g.example.com", "token": "t"})
+    assert status == 303
+    assert headers["Location"].startswith("/loops/gitlab-loop?view=projects&flash=")
+
+
+def _toggle_location(monkeypatch, path, form):
+    monkeypatch.setattr(ds.loops_config, "set_enabled", lambda *a, **k: (True, "ok"))
+    monkeypatch.setattr(ds.loops_config, "set_schedule", lambda *a, **k: (True, "ok"))
+    with _running_server() as port:
+        status, headers, _ = _post(port, path, {"csrf_token": ds._CSRF_TOKEN, **form})
+    assert status == 303
+    return headers["Location"]
+
+
+def test_loop_toggle_default_redirect_is_daemons_view(monkeypatch):
+    loc = _toggle_location(monkeypatch, "/daemons/loops/topic-loop/enable", {})
+    assert loc.startswith("/settings?view=daemons&flash=")
+
+
+def test_loop_toggle_honors_return_to_loops(monkeypatch):
+    for action in ("enable", "disable"):
+        loc = _toggle_location(monkeypatch, f"/daemons/loops/topic-loop/{action}", {"return_to": "/loops"})
+        assert loc.startswith("/loops?flash=")
+    loc = _toggle_location(monkeypatch, "/daemons/loops/topic-loop/schedule",
+                           {"return_to": "/loops", "time": "09:00", "frequency": "Daily"})
+    assert loc.startswith("/loops?flash=")
+
+
+def test_loop_toggle_rejects_other_return_to(monkeypatch):
+    for bad in ("https://evil.example/", "//evil", "/runs", "/loops?x=1", ""):
+        loc = _toggle_location(monkeypatch, "/daemons/loops/topic-loop/enable", {"return_to": bad})
+        assert loc.startswith("/settings?view=daemons&flash="), (bad, loc)
+
+
+def test_loop_toggle_with_return_to_still_requires_csrf(monkeypatch):
+    called = []
+    monkeypatch.setattr(ds.loops_config, "set_enabled", lambda *a, **k: called.append(a) or (True, "x"))
+    with _running_server() as port:
+        status, _h, _b = _post(port, "/daemons/loops/topic-loop/enable", {"return_to": "/loops"})
+    assert status == 403 and called == []
+
+
+def test_loop_forms_emit_return_to_only_when_given():
+    loop = {"name": "topic-loop", "enabled": True, "schedule": {}}
+    assert "return_to" not in ds._loop_action_html(loop, "")
+    assert "return_to" not in ds._loop_schedule_form_html(loop, "")
+    assert "name='return_to' value='/loops'" in ds._loop_action_html(loop, "", return_to="/loops")
+    assert "name='return_to' value='/loops'" in ds._loop_schedule_form_html(loop, "", return_to="/loops")
+
+
+def test_loops_catalog_rows_pass_return_to_loops(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [{"name": "gitlab-loop", "enabled": True}])
+    monkeypatch.setattr(ds, "status_path_for_loop", lambda n, base_dir=None: tmp_path / f"{n}.json")
+    assert "name='return_to' value='/loops'" in ds._loops_catalog_body()
+
+
+def test_loop_is_visible_entry_without_enabled_key_is_enabled():
+    assert ds.loop_is_visible({"name": "x"}, status_path_fn=lambda n: Path("/nonexistent"))

@@ -14,7 +14,7 @@ CSRF = "<input type='hidden' name='csrf_token' value=\"T\">"
 
 def test_inbox_body_empty_state_links_to_setup():
     body = inbox_pages.render_inbox_body({"default_categories": [], "inboxes": []}, {"inboxes": {}}, CSRF)
-    assert "/inbox/setup" in body and "No inboxes yet" in body
+    assert "/loops/inbox-triage-loop?view=setup" in body and "No inboxes yet" in body
 
 
 def test_inbox_body_escapes_and_shows_status_and_urgent():
@@ -92,7 +92,7 @@ def _add_inbox(provider="gmail"):
 
 def test_save_inbox_splits_lines(sandbox):
     result = _add_inbox()
-    assert result["ok"] and result["location"] == "/inbox/setup?tab=inboxes"
+    assert result["ok"] and result["location"] == "/loops/inbox-triage-loop?view=setup&tab=inboxes"
     assert inbox_config.get_inbox("w")["vip_senders"] == ["@vip.com", "boss@x.com"]
 
 
@@ -411,7 +411,7 @@ def test_setup_inbox_card_shows_paused_pill_when_disabled():
 
 def test_setup_inboxes_tab_empty_state_links_to_add():
     body = _panel(_setup({"default_categories": [], "inboxes": []}), "inboxes")
-    assert "href='/inbox/setup?tab=add'" in body
+    assert "href='/loops/inbox-triage-loop?view=setup&tab=add'" in body
 
 
 def test_setup_add_tab_has_editable_name_and_no_connection():
@@ -456,20 +456,20 @@ def test_setup_fallback_select_without_injected_renderer():
 def test_post_locations_carry_the_tab(sandbox, monkeypatch):
     bad_add = inbox_pages.handle_post("/inbox/inboxes", _form(is_new="1", name="Bad Name", label="", provider="gmail",
                                                               account="x"), "http://cb")
-    assert not bad_add["ok"] and bad_add["location"] == "/inbox/setup?tab=add"
-    assert _add_inbox()["location"] == "/inbox/setup?tab=inboxes"
+    assert not bad_add["ok"] and bad_add["location"] == "/loops/inbox-triage-loop?view=setup&tab=add"
+    assert _add_inbox()["location"] == "/loops/inbox-triage-loop?view=setup&tab=inboxes"
     edit = inbox_pages.handle_post("/inbox/inboxes", _form(is_new="0", name="w", label="W", provider="gmail",
                                                            account="me@example.com"), "http://cb")
-    assert edit["location"] == "/inbox/setup?tab=inboxes"
+    assert edit["location"] == "/loops/inbox-triage-loop?view=setup&tab=inboxes"
     monkeypatch.setattr(mail_auth, "get_access_token", lambda inbox: (_ for _ in ()).throw(mail_auth.ReauthRequired("x")))
     for verb in ("connect", "test", "disconnect"):
-        assert inbox_pages.handle_post(f"/inbox/inboxes/w/{verb}", {}, "http://cb")["location"] == "/inbox/setup?tab=inboxes"
+        assert inbox_pages.handle_post(f"/inbox/inboxes/w/{verb}", {}, "http://cb")["location"] == "/loops/inbox-triage-loop?view=setup&tab=inboxes"
     google = inbox_pages.handle_post("/inbox/oauth-client", _form(provider="google", client_id="g", client_secret="s"), "http://cb")
-    assert google["location"] == "/inbox/setup?tab=gmail"
+    assert google["location"] == "/loops/inbox-triage-loop?view=setup&tab=gmail"
     ms = inbox_pages.handle_post("/inbox/oauth-client", _form(provider="microsoft", client_id="m"), "http://cb")
-    assert ms["location"] == "/inbox/setup?tab=outlook"
-    assert inbox_pages.handle_post("/inbox/inboxes/w/pause", {}, "http://cb")["location"] == "/inbox"
-    assert inbox_pages.handle_post("/inbox/inboxes/w/delete", {}, "http://cb")["location"] == "/inbox/setup?tab=inboxes"
+    assert ms["location"] == "/loops/inbox-triage-loop?view=setup&tab=outlook"
+    assert inbox_pages.handle_post("/inbox/inboxes/w/pause", {}, "http://cb")["location"] == "/loops/inbox-triage-loop"
+    assert inbox_pages.handle_post("/inbox/inboxes/w/delete", {}, "http://cb")["location"] == "/loops/inbox-triage-loop?view=setup&tab=inboxes"
 
 
 def test_inbox_empty_state_uses_email_icon():

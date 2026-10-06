@@ -74,7 +74,7 @@ def render_inbox_body(config, status, csrf_input):
         f"<div class='page-title'><h1>{e(_t('Inbox Triage'))}</h1>"
         "<p class='subtitle'>" + e(_t("Status for every connected inbox. Drafts are saved to your mailbox and never "
                                       "delivered automatically - nothing is archived, deleted, or sent on your behalf."))
-        + f" <a href='/inbox/setup'>{e(_t('Setup'))}</a> &middot; <a href='/inbox/history'>{e(_t('History'))}</a></p></div>"
+        + f" <a href='/loops/inbox-triage-loop?view=setup'>{e(_t('Setup'))}</a> &middot; <a href='/inbox/history'>{e(_t('History'))}</a></p></div>"
     )
     if not inboxes:
         return head + (
@@ -84,7 +84,7 @@ def render_inbox_body(config, status, csrf_input):
             + e(_t("No inboxes yet. Connect Gmail or Outlook from Inbox Setup to start "
                    "triaging - drafts are saved to your mailbox and never delivered automatically."))
             + "</p>"
-            "<a class='btn btn-primary empty-state-action' href='/inbox/setup'>"
+            "<a class='btn btn-primary empty-state-action' href='/loops/inbox-triage-loop?view=setup'>"
             f"<span class='material-symbols-outlined' aria-hidden='true'>settings</span> {e(_t('Set up an inbox'))}</a>"
             "</div></div>"
         )
@@ -425,7 +425,7 @@ def render_setup_body(config, oauth, csrf_input, redirect_uri, status=None, sele
             "<p class='empty-state-message'>"
             + e(_t("No inboxes yet. First fill in the Gmail app or Outlook app tab, then add an inbox."))
             + "</p>"
-            "<a class='btn btn-primary empty-state-action' href='/inbox/setup?tab=add'>"
+            "<a class='btn btn-primary empty-state-action' href='/loops/inbox-triage-loop?view=setup&tab=add'>"
             f"<span class='material-symbols-outlined' aria-hidden='true'>add</span> {e(_t('Add inbox'))}</a>"
             "</div></div>"
         )
@@ -552,8 +552,8 @@ def _split_lines(text):
 
 # Where an Inbox Setup action lands afterwards - the tab it came from
 # (render_setup_body reads ?tab=; _redirect_with_flash appends &flash=).
-_INBOXES_TAB = "/inbox/setup?tab=inboxes"
-_OAUTH_TABS = {"google": "/inbox/setup?tab=gmail", "microsoft": "/inbox/setup?tab=outlook"}
+_INBOXES_TAB = "/loops/inbox-triage-loop?view=setup&tab=inboxes"
+_OAUTH_TABS = {"google": "/loops/inbox-triage-loop?view=setup&tab=gmail", "microsoft": "/loops/inbox-triage-loop?view=setup&tab=outlook"}
 
 
 def _result(ok, message, location=_INBOXES_TAB):
@@ -631,7 +631,7 @@ def _handle_post(path, form, redirect_uri):
         if provider == "google" and not secret:
             secret = (inbox_config.load_oauth().get("google") or {}).get("client_secret", "")
         ok, message = inbox_config.save_oauth_client(provider, _value(form, "client_id"), secret)
-        return _result(ok, message, location=_OAUTH_TABS.get(provider, "/inbox/setup"))
+        return _result(ok, message, location=_OAUTH_TABS.get(provider, "/loops/inbox-triage-loop?view=setup"))
     if path == "/inbox/inboxes":
         fields = {
             "name": _value(form, "name"), "label": _value(form, "label"), "provider": _value(form, "provider"),
@@ -643,7 +643,7 @@ def _handle_post(path, form, redirect_uri):
         is_new = _value(form, "is_new") == "1"
         ok, message = inbox_config.upsert_inbox(fields, is_new=is_new)
         # A failed add goes back to the Add inbox tab it was typed on.
-        return _result(ok, message, location="/inbox/setup?tab=add" if is_new and not ok else _INBOXES_TAB)
+        return _result(ok, message, location="/loops/inbox-triage-loop?view=setup&tab=add" if is_new and not ok else _INBOXES_TAB)
     match = re.match(r"^/inbox/inboxes/([a-z0-9][a-z0-9-]*)/(connect|disconnect|test|pause|delete)$", path)
     if not match:
         return None
@@ -658,7 +658,7 @@ def _handle_post(path, form, redirect_uri):
         return _test_connection(inbox)
     if verb == "pause":
         ok, message = inbox_config.set_enabled(name, not inbox.get("enabled", True))
-        return _result(ok, message, location="/inbox")
+        return _result(ok, message, location="/loops/inbox-triage-loop")
     try:
         mail_auth.keychain_delete(name)
     except mail_auth.KeychainError as exc:
