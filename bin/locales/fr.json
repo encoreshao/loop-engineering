@@ -792,5 +792,10 @@
   "Sign in with Google to grant read-only access. The refresh token is stored in your macOS Keychain, never shown again.": "Connectez-vous avec Google pour accorder un accès en lecture seule. Le jeton d'actualisation est stocké dans votre trousseau macOS, jamais réaffiché.",
   "Use primary for your main calendar, or a calendar's ID from its Google Calendar settings": "Utilisez primary pour votre agenda principal, ou l'ID d'un agenda figurant dans ses paramètres Google Agenda",
   "{type} connects with Google sign-in; it does not take a pasted secret": "{type} se connecte via la connexion Google ; il n'accepte pas de secret collé",
-  "{type} does not use Google sign-in": "{type} n'utilise pas la connexion Google"
+  "{type} does not use Google sign-in": "{type} n'utilise pas la connexion Google",
+  "Google": "Google",
+  "Gmail": "Gmail",
+  "Outlook": "Outlook",
+  "Gmail inbox managed on the Inbox Triage page.": "Boîte Gmail gérée sur la page Inbox Triage.",
+  "Outlook inbox managed on the Inbox Triage page.": "Boîte Outlook gérée sur la page Inbox Triage."
 }

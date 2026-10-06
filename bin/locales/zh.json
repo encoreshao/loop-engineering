@@ -792,5 +792,10 @@
   "Sign in with Google to grant read-only access. The refresh token is stored in your macOS Keychain, never shown again.": "使用 Google 登录以授予只读访问权限。刷新令牌存储在你的 macOS 钥匙串中，不会再次显示。",
   "Use primary for your main calendar, or a calendar's ID from its Google Calendar settings": "主日历请使用 primary，其他日历请使用其 Google 日历设置中的日历 ID",
   "{type} connects with Google sign-in; it does not take a pasted secret": "{type} 通过 Google 登录连接，不接受粘贴的密钥",
-  "{type} does not use Google sign-in": "{type} 不使用 Google 登录"
+  "{type} does not use Google sign-in": "{type} 不使用 Google 登录",
+  "Google": "Google",
+  "Gmail": "Gmail",
+  "Outlook": "Outlook",
+  "Gmail inbox managed on the Inbox Triage page.": "在 Inbox Triage 页面管理的 Gmail 收件箱。",
+  "Outlook inbox managed on the Inbox Triage page.": "在 Inbox Triage 页面管理的 Outlook 收件箱。"
 }

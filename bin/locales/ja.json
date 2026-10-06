@@ -792,5 +792,10 @@
   "Sign in with Google to grant read-only access. The refresh token is stored in your macOS Keychain, never shown again.": "Google でサインインして読み取り専用のアクセスを許可します。リフレッシュトークンは macOS キーチェーンに保存され、再表示されません。",
   "Use primary for your main calendar, or a calendar's ID from its Google Calendar settings": "メインのカレンダーには primary を、それ以外は Google カレンダーの設定にあるカレンダー ID を使用します",
   "{type} connects with Google sign-in; it does not take a pasted secret": "{type} は Google サインインで接続します。貼り付けたシークレットは受け付けません",
-  "{type} does not use Google sign-in": "{type} は Google サインインを使用しません"
+  "{type} does not use Google sign-in": "{type} は Google サインインを使用しません",
+  "Google": "Google",
+  "Gmail": "Gmail",
+  "Outlook": "Outlook",
+  "Gmail inbox managed on the Inbox Triage page.": "Gmail の受信トレイ（Inbox Triage ページで管理）。",
+  "Outlook inbox managed on the Inbox Triage page.": "Outlook の受信トレイ（Inbox Triage ページで管理）。"
 }

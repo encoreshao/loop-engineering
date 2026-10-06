@@ -460,3 +460,10 @@ def test_calendar_list_events_shapes_items():
     assert q["timeMin"] == ["2026-10-06T00:00:00Z"] and q["timeMax"] == ["2026-10-08T00:00:00Z"]
     assert q["maxResults"] == ["5"] and q["singleEvents"] == ["true"] and q["orderBy"] == ["startTime"]
     assert http.calls[0]["token"] == "AT"
+
+
+def test_googlechat_preset_overrides_category_to_google():
+    from connectors import webhook
+    chat = next(p for p in webhook.WebhookConnector.presets if p.key == "googlechat")
+    assert chat.category == "google"
+    assert all(p.category == "" for p in webhook.WebhookConnector.presets if p.key != "googlechat")

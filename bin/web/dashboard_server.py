@@ -12527,6 +12527,7 @@ def _connectors_accounts_body(flash=None, flash_ok=True, list_fn=None):
 
 
 _CONNECTOR_CATEGORIES = (
+    ("google", "Google"),
     ("code", "Code hosting"),
     ("chat", "Chat & notifications"),
     ("tracking", "Work tracking"),
@@ -12539,7 +12540,8 @@ _CONNECTOR_CATEGORIES = (
 
 _CONNECTOR_SEARCH_ALIASES = {
     "wecom": "wechat weixin 微信 企业微信",
-    "gmail": "gmail outlook email mail",
+    "gmail": "gmail google mail email",
+    "microsoftoutlook": "outlook microsoft email mail hotmail",
     "feishu": "feishu lark 飞书",
     "dingtalk": "dingtalk 钉钉",
     "microsoftteams": "teams",
@@ -12562,26 +12564,44 @@ def _connector_tile_html(href, brand, label, description, capabilities, type_key
         f"<span class='pill-row'>{chips}</span></span></a>")
 
 
+# Explicit tile order inside the Google section (by brand), not dict order.
+_GOOGLE_TILE_ORDER = ("gmail", "googlecalendar", "googlechat")
+
+# The mailbox type is one connector type but two gallery tiles: (category,
+# brand, label, description, setup tab). Both open Inbox Triage setup.
+_MAILBOX_TILES = (
+    ("google", "gmail", "Gmail", "Gmail inbox managed on the Inbox Triage page.", "gmail"),
+    ("mail", "microsoftoutlook", "Outlook", "Outlook inbox managed on the Inbox Triage page.", "outlook"),
+)
+
+
 def _connector_type_picker_html():
     connectors._load_all()
     by_category = {}
+    brand_of = {}  # id(tile) -> brand, for the Google section's explicit order
     for name, cls in connectors.CONNECTOR_TYPES.items():
         quoted = urllib.parse.quote(name, safe="")
         if cls.external:
-            tile = _connector_tile_html("/loops/inbox-triage-loop?view=setup", "gmail", cls.label,
-                                        cls.description, cls.capabilities, type_key=name)
-            by_category.setdefault(cls.category, []).append(tile)
+            for category, brand, label, description, tab in _MAILBOX_TILES:
+                tile = _connector_tile_html(f"/loops/inbox-triage-loop?view=setup&amp;tab={tab}", brand, label,
+                                            description, cls.capabilities, type_key=name)
+                brand_of[id(tile)] = brand
+                by_category.setdefault(category, []).append(tile)
         elif cls.presets:
             for preset in cls.presets:
                 href = (f"/connectors?view=add&amp;type={quoted}"
                         f"&amp;preset={urllib.parse.quote(preset.key, safe='')}")
-                by_category.setdefault(cls.category, []).append(_connector_tile_html(
+                tile = _connector_tile_html(
                     href, preset.brand, preset.label, preset.description or cls.description, cls.capabilities,
-                    type_key=name, preset_key=preset.key))
+                    type_key=name, preset_key=preset.key)
+                brand_of[id(tile)] = preset.brand
+                by_category.setdefault(preset.category or cls.category, []).append(tile)
         else:
-            by_category.setdefault(cls.category, []).append(_connector_tile_html(
+            tile = _connector_tile_html(
                 f"/connectors?view=add&amp;type={quoted}", cls.brand, cls.label, cls.description, cls.capabilities,
-                type_key=name))
+                type_key=name)
+            brand_of[id(tile)] = cls.brand
+            by_category.setdefault(cls.category, []).append(tile)
     known = {key for key, _ in _CONNECTOR_CATEGORIES}
     for category in [c for c in by_category if c not in known]:
         # A type whose category this gallery doesn't list yet still shows,
@@ -12592,7 +12612,14 @@ def _connector_type_picker_html():
         tiles = by_category.get(key)
         if not tiles:
             continue
-        sections.append(f"<section class='connector-category'><h2>{html.escape(i18n.t(heading))}</h2>"
+        if key == "google":
+            tiles = sorted(tiles, key=lambda t: _GOOGLE_TILE_ORDER.index(brand_of[id(t)])
+                           if brand_of.get(id(t)) in _GOOGLE_TILE_ORDER else len(_GOOGLE_TILE_ORDER))
+            mark = brand_logos.brand_logo_svg("google", "", 20)
+        else:
+            mark = ""
+        sections.append(f"<section class='connector-category' data-category='{key}'>"
+                        f"<h2>{mark}{html.escape(i18n.t(heading))}</h2>"
                         f"<div class='connector-grid'>{''.join(tiles)}</div></section>")
     search = (f"<input type='search' class='connector-search' id='connector-search' "
               f"placeholder=\"{html.escape(_t('Search connectors'), quote=True)}\" "

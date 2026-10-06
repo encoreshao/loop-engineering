@@ -48,7 +48,7 @@ class WebhookConnector(Connector):
         Preset("discord", "Discord", "discord", settings=(("format", "discord"),),
                docs_url="https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks"),
         Preset("googlechat", "Google Chat", "googlechat", settings=(("format", "googlechat"),),
-               docs_url="https://developers.google.com/workspace/chat/quickstart/webhooks"),
+               docs_url="https://developers.google.com/workspace/chat/quickstart/webhooks", category="google"),
         Preset("generic", "Generic webhook", "webhook", settings=(("format", "generic"),)),
     )
 

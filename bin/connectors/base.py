@@ -44,6 +44,7 @@ class Preset:
     description: str = ""
     settings: tuple = field(default_factory=tuple)
     docs_url: str = ""
+    category: str = ""  # overrides the type's category in the gallery; empty = type's
 
 
 class Connector:

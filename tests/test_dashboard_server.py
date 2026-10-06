@@ -12896,7 +12896,7 @@ def test_connector_id_input_pattern_caps_length():
 
 def test_picker_groups_by_category_with_logos():
     out = ds._connector_type_picker_html()
-    order = [out.index(_) for _ in ("Code hosting", "Chat &amp; notifications", "Work tracking", "Knowledge", "Feeds", "Mail")]
+    order = [out.index(f"data-category='{_}'") for _ in ("google", "code", "chat", "tracking", "knowledge", "feeds", "mail")]
     assert order == sorted(order)
     assert out.count("class='brand-logo") + out.count("brand-lettermark") >= 12
 
@@ -13128,8 +13128,10 @@ def test_picker_search_matches_aliases_and_keys():
     out = ds._connector_type_picker_html()
     wecom = [t for t in _tile_for(out, "preset=wecom")][0]
     assert "wechat" in wecom and "weixin" in wecom and "微信" in wecom
-    mail = [t for t in _tile_for(out, "inbox-triage-loop")][0]
-    assert "gmail" in mail and "outlook" in mail
+    gmail = _tile_for(out, "tab=gmail")[0]
+    assert "gmail" in gmail and "google" in gmail
+    outlook = _tile_for(out, "tab=outlook")[0]
+    assert "outlook" in outlook and "hotmail" in outlook
     assert "lark" in _tile_for(out, "preset=feishu")[0]
     assert "tg" in _tile_for(out, "type=telegram")[0].split('data-name="')[1]
 
@@ -13383,11 +13385,51 @@ def test_account_row_shows_google_connection_state():
 
 
 def test_picker_renders_unknown_category_under_other(monkeypatch):
+    from connectors.base import Connector
+    class Odd(Connector):
+        type = "odd_thing"
+        label = "Odd Thing"
+        category = "zzz-unknown"
+        description = "x"
+    ds.connectors._load_all()
+    monkeypatch.setitem(ds.connectors.CONNECTOR_TYPES, "odd_thing", Odd)
     out = ds._connector_type_picker_html()
-    assert "type=google_calendar" in out
-    tile_pos = out.index("type=google_calendar")
-    other_pos = out.index(">Other</h2>")
-    assert tile_pos > other_pos
+    assert "type=odd_thing" in out
+    assert out.index("type=odd_thing") > out.index(">Other</h2>")
+
+
+def test_google_category_first():
+    out = ds._connector_type_picker_html()
+    first_h2 = re.search(r"<h2[^>]*>(.*?)</h2>", out).group(1)
+    assert "Google" in first_h2
+
+
+def test_google_section_contains_gmail_calendar_chat_in_order():
+    out = ds._connector_type_picker_html()
+    google = out.split("data-category='google'")[1].split("data-category=")[0]
+    assert google.index("Gmail") < google.index("Google Calendar") < google.index("Google Chat")
+
+
+def test_google_chat_not_in_chat_section():
+    out = ds._connector_type_picker_html()
+    chat = out.split("data-category='chat'")[1].split("data-category=")[0]
+    assert "<strong>Google Chat</strong>" not in chat
+
+
+def test_outlook_tile_in_mail_section():
+    out = ds._connector_type_picker_html()
+    mail = out.split("data-category='mail'")[1].split("data-category=")[0]
+    assert "Outlook" in mail and "/loops/inbox-triage-loop?view=setup" in mail
+    assert "Gmail" not in mail
+
+
+def test_google_category_first_in_ja():
+    ds.i18n.set_language("ja")
+    try:
+        out = ds._connector_type_picker_html()
+        assert out.index("data-category='google'") < out.index("data-category='code'")
+    finally:
+        ds.i18n.set_language("en")
 
 
 def test_google_calendar_brand_logo_is_svg():
