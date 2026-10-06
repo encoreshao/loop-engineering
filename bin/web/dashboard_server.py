@@ -8936,7 +8936,7 @@ def render_loop_run_detail_page(run_id):
     )
 
 
-def render_audit_page(loops_dir=None):
+def _audit_body(loops_dir=None):
     """Audit page - runs loop_audit.audit_definition over every
     loops/*/loop.yaml (the live loop definitions this repo actually
     runs, not templates/), the same check-and-score logic
@@ -8959,7 +8959,7 @@ def render_audit_page(loops_dir=None):
 <p>{html.escape(_t('No loop definitions found under loops/.'))}</p>
 </section></div>
 """
-        return _render_shell("Audit · Loop X Engineering", "audit", _status_badge_markup(status), body)
+        return body
 
     cards = []
     for path in paths:
@@ -8996,7 +8996,18 @@ def render_audit_page(loops_dir=None):
 {"".join(cards)}
 </div>
 """
-    return _render_shell("Audit · Loop X Engineering", "audit", _status_badge_markup(status), body)
+    return body
+
+
+def render_audit_page(loops_dir=None):
+    """Full page: audit body inside the shell (body: _audit_body)."""
+    status = read_status(STATUS_PATH)
+    return _render_shell(
+        "Audit · Loop X Engineering",
+        "audit",
+        _status_badge_markup(status),
+        _audit_body(loops_dir=loops_dir),
+    )
 
 
 def _budget_dimension_tile_html(icon, label, dimension):
@@ -9062,7 +9073,7 @@ def _budget_rollup_section_html(title, rows, key_field, key_header):
 """
 
 
-def render_budget_page():
+def _budget_body():
     """Budget page - shows every persisted LoopRuntime run's last-known
     budget status: loop_budget.BudgetController.check's own output,
     already computed and stored per iteration in
@@ -9094,7 +9105,7 @@ def render_budget_page():
 <p>{_t('No runs yet - run {command} to produce one.', command='<code>bin/loop_cli.py run &lt;loop.yaml&gt;</code>')}</p>
 </section></div>
 """
-        return _render_shell("Budget · Loop X Engineering", "budget", _status_badge_markup(status), body)
+        return body
 
     rollup_sections = "".join([
         _budget_rollup_section_html(
@@ -9155,7 +9166,18 @@ def render_budget_page():
 {"".join(rows)}
 </div>
 """
-    return _render_shell("Budget · Loop X Engineering", "budget", _status_badge_markup(status), body)
+    return body
+
+
+def render_budget_page():
+    """Full page: budget body inside the shell (body: _budget_body)."""
+    status = read_status(STATUS_PATH)
+    return _render_shell(
+        "Budget · Loop X Engineering",
+        "budget",
+        _status_badge_markup(status),
+        _budget_body(),
+    )
 
 
 def _logs_body():
@@ -10116,7 +10138,7 @@ def render_readme_page():
     return _render_shell("README · Loop X Engineering", "readme", _status_badge_markup(status), body)
 
 
-def render_memory_page():
+def _memory_body():
     """Project Memory page: per-project task memory recorded by the
     automated review loop - one markdown file per GitLab issue
     (memory_store.list_task_memories), plus any entries recorded before
@@ -10232,7 +10254,18 @@ def render_memory_page():
 </section>
 </div>
 """
-    return _render_shell("Memory · Loop X Engineering", "memory", _status_badge_markup(status), body)
+    return body
+
+
+def render_memory_page():
+    """Full page: memory body inside the shell (body: _memory_body)."""
+    status = read_status(STATUS_PATH)
+    return _render_shell(
+        "Memory · Loop X Engineering",
+        "memory",
+        _status_badge_markup(status),
+        _memory_body(),
+    )
 
 
 def _topic_latest_data_html(topics, history_dir=None):
@@ -11671,7 +11704,7 @@ def _trend_section_html(days):
 """
 
 
-def render_analytics_page(days=7):
+def _analytics_body(days=7):
     """The loop's performance-at-a-glance page - see
     docs/superpowers/specs/2026-09-05-analytics-dashboard-design.md (and
     the later Sprint 5/6 specs for the sections they each added). Reads
@@ -11725,7 +11758,18 @@ def render_analytics_page(days=7):
 </div>
 """
     status = read_status(STATUS_PATH)
-    return _render_shell("Analytics · Loop X Engineering", "analytics", _status_badge_markup(status), body)
+    return body
+
+
+def render_analytics_page(days=7):
+    """Full page: analytics body inside the shell (body: _analytics_body)."""
+    status = read_status(STATUS_PATH)
+    return _render_shell(
+        "Analytics · Loop X Engineering",
+        "analytics",
+        _status_badge_markup(status),
+        _analytics_body(days=days),
+    )
 
 
 def _loop_runtime_cost_section_html(cost_summary):
@@ -11752,7 +11796,7 @@ def _loop_runtime_cost_section_html(cost_summary):
 """
 
 
-def render_cost_page(days=7):
+def _cost_body(days=7):
     """Cost page - see docs/superpowers/specs/2026-09-05-analytics-dashboard-design.md
     for the original Cost section this was split out of (Analytics kept
     every other section). Two cards: the GitLab issue loop's own cost
@@ -11789,7 +11833,18 @@ def render_cost_page(days=7):
 </div>
 """
     status = read_status(STATUS_PATH)
-    return _render_shell("Cost · Loop X Engineering", "cost", _status_badge_markup(status), body)
+    return body
+
+
+def render_cost_page(days=7):
+    """Full page: cost body inside the shell (body: _cost_body)."""
+    status = read_status(STATUS_PATH)
+    return _render_shell(
+        "Cost · Loop X Engineering",
+        "cost",
+        _status_badge_markup(status),
+        _cost_body(days=days),
+    )
 
 
 def _activity_body(flash=None, flash_ok=True):
