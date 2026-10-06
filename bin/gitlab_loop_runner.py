@@ -146,7 +146,7 @@ _GATE_DISALLOWED_TOOLS = "Bash(bash *open_merge_request.sh*) Bash(git push origi
 
 GATE_OVERRIDE = """## Harness gate is ON for this run \u2014 this overrides the merge-request step
 
-Do NOT run open_merge_request.sh and do NOT push. When your fix is committed on loop/issue-<iid> and your own checks pass, write this JSON to the path in $LOOP_HANDOFF_PATH and stop:
+Do NOT run open_merge_request.sh and do NOT push. When your fix is committed on loop/issue-<iid> and your own checks pass, write this JSON to <handoff_path> (also in $LOOP_HANDOFF_PATH) and stop:
 
 {"action": "fix", "branch": "loop/issue-<iid>", "target_branch": "<target>", "title": "Fix #<iid>: <short title>", "summary": "<2-4 sentences for the MR description>"}
 
@@ -167,7 +167,10 @@ def _gate_prompt_and_env(prompt, alias, issue_iid, repo_root, run_id):
     if not run_id:
         raise ValueError("gate mode needs a run_id (argument or LOOP_RUN_ID) to locate the handoff file")
     path = handoff_path(run_id, alias, issue_iid, repo_root=repo_root)
-    return f"{prompt}\n\n{GATE_OVERRIDE}", {"LOOP_HANDOFF_PATH": str(path)}
+    # The path is stated literally: the agent's Write tool needs one and no
+    # allowlisted command prints environment variables.
+    override = GATE_OVERRIDE.replace("<handoff_path>", str(path))
+    return f"{prompt}\n\n{override}", {"LOOP_HANDOFF_PATH": str(path)}
 
 
 def _run_build_run_prompt(script_args, repo_root):

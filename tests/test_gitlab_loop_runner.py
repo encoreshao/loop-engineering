@@ -1248,7 +1248,10 @@ def test_gate_prompt_appends_override(monkeypatch, tmp_path):
     monkeypatch.setattr(glr, "_invoke_cli_with_prompt", lambda prompt, **kw: captured.update(prompt=prompt, **kw) or {"cost_usd": 0})
     glr.invoke_batch_issue_agent("web", 7, repo_root=tmp_path, timeout_seconds=5, gate=True, run_id="run_x",
                                  feedback="FEEDBACK")
-    assert captured["prompt"].startswith("BASE PROMPT") and captured["prompt"].endswith(glr.GATE_OVERRIDE)
+    handoff = str(glr.handoff_path("run_x", "web", 7, repo_root=tmp_path))
+    assert captured["prompt"].startswith("BASE PROMPT")
+    assert captured["prompt"].endswith(glr.GATE_OVERRIDE.replace("<handoff_path>", handoff))
+    assert handoff in captured["prompt"] and "<handoff_path>" not in captured["prompt"]
     assert captured["prompt"].index("FEEDBACK") < captured["prompt"].index("Harness gate is ON")
     assert captured["env"]["LOOP_HANDOFF_PATH"].endswith("outputs/handoffs/run_x/web-7.json")
     assert captured["gate"] is True
