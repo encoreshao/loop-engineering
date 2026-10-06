@@ -10479,13 +10479,16 @@ def _topic_monitor_body(flash=None, flash_ok=True):
     return body
 
 
+def _topic_status_badge_markup():
+    return _status_badge_markup(read_status(STATUS_PATH))
+
+
 def render_topic_monitor_page(flash=None, flash_ok=True):
     """Full page: topic_monitor body inside the shell (body: _topic_monitor_body)."""
-    status = read_status(STATUS_PATH)
     return _render_shell(
         "Topic Monitor · Loop X Engineering",
         "topic_monitor",
-        _status_badge_markup(status),
+        _topic_status_badge_markup(),
         _topic_monitor_body(flash=flash, flash_ok=flash_ok),
         refresh=True,
         refresh_note=True,
@@ -10688,13 +10691,16 @@ def _inbox_body(flash=None, flash_ok=True):
     return body
 
 
+def _inbox_status_badge_markup():
+    return _status_badge_markup(read_status(STATUS_PATH))
+
+
 def render_inbox_page(flash=None, flash_ok=True):
     """Full page: inbox body inside the shell (body: _inbox_body)."""
-    status = read_status(STATUS_PATH)
     return _render_shell(
         "Inbox Triage · Loop X Engineering",
         "inbox",
-        _status_badge_markup(status),
+        _inbox_status_badge_markup(),
         _inbox_body(flash=flash, flash_ok=flash_ok),
         refresh=True,
         refresh_note=True,
@@ -12190,6 +12196,44 @@ def render_hub_page(hub_key, view=None, flash=None, flash_ok=True, **ctx):
     )
 
 
+def _loop_pages():
+    """Per-loop tabbed pages keyed by registry loop name; built per call like
+    _hubs(). Inner Inbox Setup tabs use ?tab=, the view param is ?view=."""
+    V = hub_mod.HubView
+    topic_badge = lambda: _topic_status_badge_markup()
+    inbox_badge = lambda: _inbox_status_badge_markup()
+    return {
+        "gitlab-loop": hub_mod.Hub("loops", "/loops/gitlab-loop", "GitLab Issues", _SECTION_ICON_GITLAB, (
+            V("live", "Live", lambda **kw: _gitlab_body(), refresh=True, lazy_refresh=True),
+            V("projects", "Projects", lambda **kw: _gitlab_projects_body(**_only(kw, "flash", "flash_ok"))),
+        )),
+        "topic-loop": hub_mod.Hub("loops", "/loops/topic-loop", "Topic Monitor", _SECTION_ICON_TOPIC_MONITOR, (
+            V("live", "Live", lambda **kw: _topic_monitor_body(**_only(kw, "flash", "flash_ok")), refresh=True, badge_fn=topic_badge),
+            V("topics", "Topics", lambda **kw: _topic_settings_body(**_only(kw, "flash", "flash_ok")), badge_fn=topic_badge),
+        )),
+        "inbox-triage-loop": hub_mod.Hub("loops", "/loops/inbox-triage-loop", "Inbox Triage", _SECTION_ICON_INBOX, (
+            V("live", "Live", lambda **kw: _inbox_body(**_only(kw, "flash", "flash_ok")), refresh=True, badge_fn=inbox_badge),
+            V("setup", "Setup", lambda **kw: _inbox_setup_body(kw.get("port"), kw.get("flash"), kw.get("flash_ok", True), active_tab=kw.get("tab")), badge_fn=inbox_badge),
+        )),
+    }
+
+
+def render_loop_page(name, view=None, flash=None, flash_ok=True, **ctx):
+    """A loop's tabbed page; None for an unknown loop name (caller 404s)."""
+    page = _loop_pages().get(name)
+    if page is None:
+        return None
+    current = hub_mod.resolve_view(page, view)
+    tabs = hub_mod.hub_tab_strip_html(page.path, page.views, current.key, translate=i18n.t)
+    title = f"<div class='page-title'><h1>{html.escape(i18n.t(page.label))}</h1></div>"
+    body = title + tabs + current.body_fn(flash=flash, flash_ok=flash_ok, **ctx)
+    badge = current.badge_fn() if current.badge_fn else _default_badge()
+    return _render_shell(
+        f"{i18n.t(page.label)} · Loop X Engineering", f"loop:{name}", badge, body,
+        refresh=current.refresh, refresh_note=current.refresh, lazy_refresh=current.lazy_refresh,
+    )
+
+
 _LEGACY_REDIRECTS = {
     "/activity": "/?view=activity",
     "/gitlab": "/loops/gitlab-loop",
@@ -12258,6 +12302,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 _HUB_PATHS[split.path], view=query.get("view", [None])[0],
                 flash=query.get("flash", [None])[0],
                 flash_ok=query.get("ok", ["1"])[0] != "0", **ctx))
+            return
+
+        if split.path.startswith("/loops/") and split.path.count("/") == 2:
+            query = urllib.parse.parse_qs(split.query)
+            page = render_loop_page(
+                split.path[len("/loops/"):], view=query.get("view", [None])[0],
+                flash=query.get("flash", [None])[0],
+                flash_ok=query.get("ok", ["1"])[0] != "0",
+                port=self.server.server_port, tab=query.get("tab", [None])[0])
+            if page is None:
+                self._not_found()
+                return
+            self._send_html(page)
             return
 
         if split.path == "/activity/messages/fragment":

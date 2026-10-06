@@ -12236,3 +12236,31 @@ def test_gitlab_post_handlers_redirect_to_gitlab_loop_projects(tmp_path, monkeyp
         status, headers, _ = _post(port, "/settings/gitlab/default", {"csrf_token": token, "instance": "x"})
         assert status == 303
         assert headers["Location"].startswith("/loops/gitlab-loop?view=projects")
+
+
+def test_loop_page_gitlab_live_default(monkeypatch):
+    monkeypatch.setattr(ds, "_gitlab_body", lambda **kw: "<p id='gl'></p>")
+    out = ds.render_loop_page("gitlab-loop")
+    assert "id='gl'" in out and "href='/loops/gitlab-loop?view=projects'" in out
+
+
+def test_loop_page_inbox_setup_receives_port(monkeypatch):
+    seen = {}
+    def fake_setup(port, flash=None, flash_ok=True, active_tab=None):
+        seen["port"] = port
+        return ""
+    monkeypatch.setattr(ds, "_inbox_setup_body", fake_setup)
+    ds.render_loop_page("inbox-triage-loop", view="setup", port=18420)
+    assert seen["port"] == 18420
+
+
+def test_loop_page_unknown_name_404():
+    assert ds.render_loop_page("nope") is None
+    assert ds.render_loop_page("../etc") is None
+
+
+def test_loop_pages_shape():
+    pages = ds._loop_pages()
+    assert set(pages) == {"gitlab-loop", "topic-loop", "inbox-triage-loop"}
+    for name, page in pages.items():
+        assert page.path == f"/loops/{name}" and page.key == "loops"
