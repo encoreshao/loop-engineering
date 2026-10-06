@@ -13716,3 +13716,13 @@ def test_post_loop_settings_requires_csrf_then_saves(monkeypatch, tmp_path):
                                     {"csrf_token": token, "interests": "rails", "evil": "x"})
     assert status == 303 and headers["Location"].startswith("/loops/rss-watch-loop")
     assert calls == [("rss-watch-loop", {"interests": "rails"}, ("interests",))]
+
+
+def test_catalog_shows_template_description(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [
+        {"name": "rss-watch-loop", "enabled": False, "description": "Ranks <new> entries & more."}])
+    monkeypatch.setattr(ds.connectors_config, "accounts_with_capability", lambda cap, **kw: [])
+    monkeypatch.setattr(ds, "status_path_for_loop", lambda n, base_dir=None: tmp_path / f"{n}.json")
+    out = ds._loops_catalog_body()
+    assert "<p class='loop-description'>Ranks &lt;new&gt; entries &amp; more.</p>" in out
+    assert "rss-watch-loop</span>" in out  # the name stays the row title

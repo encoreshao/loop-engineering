@@ -342,6 +342,70 @@ Loops catalog blocks enabling a loop (UI and server) until a connector with each
 capability in its `requires` exists, and the AI panel exposes a read-only
 `connector-list` chat tool.
 
+## LoopKit
+
+`bin/loopkit.py` is a small plugin runner for "discover items, ask the model
+about each, act on the answer" loops. The four plugin loops (Daily Digest, MR
+Review, Pipeline Doctor, RSS Watch) are modules under `bin/loop_plugins/`; each
+one's `loops.json` entry points its `entry_point` at that module, whose
+`__main__` block hands a `LoopPlugin` subclass instance to `loopkit.main`. Each plugin also has
+a loop definition and prompt under `loops/<definition_dir>/` (`loop.yaml`,
+`prompt.md`) and a spec under `docs/tasks/`.
+
+**Plugin contract.** A `LoopPlugin` sets `loop_name`, `definition_dir`,
+`max_items_per_run`, `output_keys` (the JSON keys the answer must contain) and
+optionally `settings_fields` (connector `Field`s the dashboard renders as the
+loop's Settings tab; values land in the entry's `settings`). It implements
+`discover(ctx)` returning `WorkItem`s (`key`, `title`, `url`, `payload`) and
+`after_item(item, answer, ctx)` returning an `Outcome` (`done`, `skipped` or
+`failed`); `digest(outcomes, ctx)` optionally returns the run's notification
+text. `build_prompt` fills `{{item_json}}`/`{{settings_json}}` into the
+definition's `prompt.md`, and `call_model` defaults to the sealed call.
+
+**Run algorithm (`run_plugin`).**
+
+1. Take a per-loop exclusive `flock` (`outputs/loops/<name>/run.lock`); a
+   second concurrent run returns immediately. The kernel drops the lock when
+   the process exits, so a killed run never leaves it stuck.
+2. Load the `LoopDefinition` and the loop's `settings`, then call `discover`.
+   A discovery crash notifies `<loop> FAILED during discovery` and re-raises.
+3. Drop items already in the seen store (unless `--force`) and cap the list at
+   `max_items_per_run`.
+4. Run each item through `LoopRuntime` with an output-contract verifier (plus
+   any verifiers in the definition): an answer that is not valid JSON with the
+   required keys is retried with the violation fed back. Only a COMPLETED run
+   reaches `after_item`.
+5. Write a history markdown file and `last-run.json`, call `digest`, notify,
+   and send a second notification if any item failed.
+
+**Sealed model calls.** `bin/agents/sealed.py` is the one hardened Claude call
+every plugin uses on untrusted content: no tools, no MCP servers, prompt on
+stdin, no session persistence, hooks disabled. It is Claude-only; codex is
+refused because it always gives the model a shell and records the prompt.
+
+**`chat_*` helpers.** `chat_text`, `chat_url` and `chat_link` sanitize
+untrusted text before it goes into any chat message (control characters
+stripped, whitespace collapsed, `<`/`>` replaced so no Slack control sequence
+can form, only plain http(s) URLs kept, links rendered as `label (url)`).
+
+**Seen store and persistence.** `bin/seen_store.py` keeps
+`outputs/loops/<name>/seen.json` (`{key: iso timestamp}`, entries older than 30
+days dropped on save). An item is marked seen only when its outcome is `done`
+or `skipped`, and the store is saved right after each such item, so a crash or
+SIGTERM mid-run never re-runs work already acted on, while `failed` items
+retry next run.
+
+**Per-item isolation.** A model failure, verification failure, `after_item`
+exception or any other crash in one item becomes a `failed` outcome (with the
+exception class and message in the summary) and the loop moves on to the next
+item.
+
+**`routes_notifications` and `notify`.** The four plugin entries declare
+`"routes_notifications": true` and a `requires` capability. `run_plugin` sends
+through `notify.notify(loop_name, text)`, so the dashboard's **Notify via**
+selection (`notify: [connector ids]`) decides where digests and failure notices
+go, defaulting to the Slack webhook when unset.
+
 ## Where to look next
 
 Each module above links to its own design spec above; browse all of them

@@ -24,6 +24,7 @@ Loop X Engineering の使命は、Issue のトリアージに奪われる時間�
 ## 目次
 
 - [仕組み](#仕組み)
+- [ループ](#ループ)
 - [必要要件](#必要要件)
 - [クイックスタート](#クイックスタート)
 - [ディレクトリ構成](#ディレクトリ構成)
@@ -57,6 +58,22 @@ Loop X Engineering の使命は、Issue のトリアージに奪われる時間�
 2 つ目の独立したループ（`run-loop-now.sh topic-loop`）は、GitLab の代わりに Web 全般の任意のトピックを監視します。詳しくは [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md) を参照してください。
 
 3 つ目のループ（`run-loop-now.sh inbox-triage-loop`）は Gmail と Outlook の受信トレイをトリアージします。新しい未読メッセージをそれぞれ `Loop/*` ラベルに分類し、緊急のものにはスレッド形式の返信を下書き（送信はしません）し、Slack ダイジェストとダッシュボードの **Loops → Inbox Triage** ページで報告します。詳しくは [`docs/tasks/inbox-triage-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/inbox-triage-loop.md) を参照してください。
+
+## ループ
+
+`config/loops.json.template` には 7 つのループが同梱されています。それぞれダッシュボードの **Loops** に専用ページがあり、`docs/tasks/` に個別の仕様があります。スケジュールはそのページで編集でき、下記の既定値はテンプレートのものです。
+
+| ループ | 内容 | 必要なもの | 既定のスケジュール | Loop X の外への書き込み |
+| --- | --- | --- | --- | --- |
+| GitLab issues | 割り当てられた Issue を処理：修正・回答・エスカレーション | GitLab 設定（`~/.gitlab/config.json`） | 平日 10:00 | ブランチとマージリクエスト（マージはしない）、Issue コメント、Slack |
+| Topic monitor | 指定トピックをウェブで調査し、毎日ブリーフィングを送信 | トピック（`topics.json`） | 毎日 10:00 | Slack ダイジェスト |
+| Inbox triage | 新着メールにラベルを付け、緊急メールへの返信を下書き（既定では無効） | メールボックス（`mail` ケイパビリティ） | 平日 09:00 | メールのラベルと下書き（送信はしない） |
+| Daily Digest | 朝の1通のまとめ：ToDo、担当 Issue、レビュー待ちの MR、今日の会議、昨日の Loop X の作業（既定では無効） | `issues` コネクタ（カレンダーは任意） | 平日 09:30 | 通知のみ |
+| MR Review | あなたがレビュアーのマージリクエストを事前レビュー（既定では無効） | `merge_requests` コネクタ（GitLab） | 2 時間ごと | GitLab のドラフトノートのみ。公開・承認・通常ノートの投稿は一切しない |
+| Pipeline Doctor | 追跡中のプロジェクトと自分の MR の失敗した CI パイプラインを診断し、繰り返す失敗を指摘（既定では無効） | `pipelines` コネクタ（GitLab） | 毎時 | 通知のみ |
+| RSS Watch | フィードの新着エントリを関心に合わせてランク付けし、短いダイジェストを送信（既定では無効） | `feed` コネクタ（RSS） | 毎日 08:00 | 通知のみ |
+
+後ろの 4 つは LoopKit プラグイン（`bin/loopkit.py`、`bin/loop_plugins/`）です。モデルはツールも MCP サーバーも持たない密閉状態で実行され、項目ごとに分離されるため 1 件の失敗で実行全体が止まらず、通知はループの **Notify via** コネクタ経由で送られます。詳しくは [`docs/architecture.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/architecture.md#loopkit) を参照してください。
 
 ## 必要要件
 

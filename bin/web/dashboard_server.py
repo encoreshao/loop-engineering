@@ -13537,7 +13537,11 @@ def _loops_catalog_row(loop, csrf_input, pages, notify_accounts=()):
     safe_name = html.escape(name)
     page = pages.get(name) or _generic_loop_page(name, loop)
     icon = page.icon if page else _SECTION_ICON_OVERVIEW
-    label = html.escape(i18n.t(page.label) if page else name)
+    bespoke = _loop_pages().get(name)
+    label = html.escape(i18n.t(bespoke.label) if bespoke else name)
+    description = str(loop.get("description") or "")
+    description_html = (
+        f"<p class='loop-description'>{html.escape(i18n.t(description))}</p>" if description else "")
     loop_status = read_status(status_path_for_loop(name))
     updated = loop_status.get("updated_at")
     last_run = html.escape(_relative_time(updated)) if updated else html.escape(_t("never"))
@@ -13550,6 +13554,7 @@ def _loops_catalog_row(loop, csrf_input, pages, notify_accounts=()):
         f"<tr data-loop='{safe_name}'>"
         f"<td>{icon} <span class='loop-label'>{label}</span>"
         f"{(' ' + _loop_requirement_chips_html(missing)) if missing else ''}"
+        f"{description_html}"
         f"{_loop_notify_form_html(loop, csrf_input, notify_accounts)}</td>"
         f"<td>{_loop_schedule_form_html(loop, csrf_input, return_to='/loops')}</td>"
         f"<td>{_status_badge_markup(loop_status)}</td>"

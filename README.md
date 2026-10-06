@@ -24,6 +24,7 @@ projects you've explicitly told it about.
 ## Table of contents
 
 - [How it works](#how-it-works)
+- [Loops](#loops)
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
 - [Directory layout](#directory-layout)
@@ -57,6 +58,22 @@ Reusable, cross-run lessons (fix patterns, gotchas) get recorded per issue as ma
 A second, independent loop (`run-loop-now.sh topic-loop`) watches arbitrary topics on the wider web instead of GitLab — see [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md).
 
 A third loop (`run-loop-now.sh inbox-triage-loop`) triages Gmail and Outlook inboxes: it categorises each new unread message into a `Loop/*` label, drafts (never sends) a threaded reply to anything urgent, and reports via a Slack digest and the dashboard's **Loops → Inbox Triage** page — see [`docs/tasks/inbox-triage-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/inbox-triage-loop.md).
+
+## Loops
+
+Seven loops ship in `config/loops.json.template`; each has its own page under **Loops** in the dashboard and its own spec under `docs/tasks/`. A loop's schedule is editable on that page; the defaults below come from the template.
+
+| Loop | What it does | Needs | Default schedule | Writes outside Loop X |
+| --- | --- | --- | --- | --- |
+| GitLab issues | Works your assigned issues: fixes, answers or escalates each one | GitLab config (`~/.gitlab/config.json`) | Weekdays 10:00 | Branches and merge requests (never merged), issue comments, Slack |
+| Topic monitor | Researches your topics on the web and sends a daily briefing | Topics (`topics.json`) | Daily 10:00 | Slack digest |
+| Inbox triage | Labels new mail and drafts replies to urgent messages (disabled by default) | A mailbox (`mail` capability) | Weekdays 09:00 | Mail labels and drafts (never sends) |
+| Daily Digest | One morning brief: todos, assigned issues, MRs awaiting your review, today's meetings and what Loop X did yesterday (disabled by default) | `issues` connector (calendar optional) | Weekdays 09:30 | Notifications only |
+| MR Review | Pre-reviews merge requests where you are a reviewer (disabled by default) | `merge_requests` connector (GitLab) | Every 2 hours | GitLab draft notes only; never publishes, approves or posts a normal note |
+| Pipeline Doctor | Diagnoses failed CI pipelines on tracked projects and your open MRs, and flags recurring failures (disabled by default) | `pipelines` connector (GitLab) | Hourly | Notifications only |
+| RSS Watch | Ranks new feed entries against your interests and sends a short digest (disabled by default) | `feed` connector (RSS) | Daily 08:00 | Notifications only |
+
+The last four are LoopKit plugins (`bin/loopkit.py`, `bin/loop_plugins/`): they run the model sealed (no tools, no MCP servers), isolate each item so one failure never stops the run, and send through the loop's **Notify via** connectors. See [`docs/architecture.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/architecture.md#loopkit).
 
 ## Requirements
 

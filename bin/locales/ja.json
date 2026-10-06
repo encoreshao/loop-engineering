@@ -816,5 +816,12 @@
   "{name} has no settings": "{name} には設定がありません",
   "Comma-separated topics you care about": "関心のあるトピック（カンマ区切り）",
   "Interests": "関心事",
-  "Rails security, Postgres performance, AI coding agents": "Rails のセキュリティ、Postgres のパフォーマンス、AI コーディングエージェント"
+  "Rails security, Postgres performance, AI coding agents": "Rails のセキュリティ、Postgres のパフォーマンス、AI コーディングエージェント",
+  "Works your assigned GitLab issues: fixes, answers or escalates each one.": "割り当てられた GitLab イシューを処理します：修正、回答、またはエスカレーションを行います。",
+  "Researches your topics on the web and sends a daily briefing.": "指定したトピックをウェブで調査し、毎日ブリーフィングを送信します。",
+  "Labels new mail and drafts replies to urgent messages.": "新着メールにラベルを付け、緊急のメッセージには返信を下書きします。",
+  "One morning brief: todos, assigned issues, MRs awaiting your review, today's meetings and what Loop X did yesterday.": "朝の1通のまとめ：ToDo、担当イシュー、レビュー待ちのMR、今日の会議、昨日の Loop X の作業。",
+  "Pre-reviews merge requests where you're a reviewer and leaves GitLab draft notes for you to publish.": "あなたがレビュアーのマージリクエストを事前レビューし、公開用の GitLab ドラフトノートを残します。",
+  "Diagnoses failed CI pipelines on your tracked projects and your open MRs, and flags failures that keep recurring.": "追跡中のプロジェクトとあなたのオープンな MR で失敗した CI パイプラインを診断し、繰り返し発生する失敗を知らせます。",
+  "Ranks new entries from your RSS/Atom feeds against your interests and sends a short daily digest.": "RSS/Atom フィードの新着エントリをあなたの関心に合わせてランク付けし、短い日次ダイジェストを送信します。"
 }

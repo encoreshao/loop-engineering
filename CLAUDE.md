@@ -17,10 +17,14 @@ dashboard and tooling around it; follow them without being asked.
 `loops_config.py`, `inbox_config.py`, `inbox_triage.py`,
 `inbox_triage_runner.py`, `inbox_seen.py`, `inbox_status.py`,
 `mail_auth.py`, `mail_http.py`, `connectors_config.py`, `secret_store.py`,
-`notify.py`, `i18n.py` with its `locales/` catalogs, the `connectors/` package
-(one module per connector type), and the `mail_providers/` package). `bin/loop_plugins/`
-— LoopKit plugin modules (own `_allowed_tools()` glob pattern, since `*`
-doesn't cross `/`). `bin/web/`
+`notify.py`, `loopkit.py` (the LoopKit plugin runner), `seen_store.py` (its
+per-loop de-dup store), `i18n.py` with its `locales/` catalogs, the
+`connectors/` package (one module per connector type), the `agents/` package
+(`agents/sealed.py` is the hardened tool-less model call), and the
+`mail_providers/` package). `bin/loop_plugins/`
+— LoopKit plugin modules (they have their own pattern in
+`bin/gitlab_loop_runner.py`'s `_allowed_tools()` glob, since `*` doesn't cross
+`/`). `bin/web/`
 — the dashboard web server (`dashboard_server.py`, `inbox_pages.py`),
 `hub.py` (pure hub/tab navigation helpers) and `brand_logos.py` (connector
 brand marks) alone. Logos are inline Simple Icons SVG (CC0) only — never load

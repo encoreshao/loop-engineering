@@ -25,6 +25,7 @@ ne touche qu'aux projets que vous lui avez explicitement indiqués.
 ## Table des matières
 
 - [Comment ça marche](#comment-ça-marche)
+- [Boucles](#boucles)
 - [Prérequis](#prérequis)
 - [Démarrage rapide](#démarrage-rapide)
 - [Arborescence des répertoires](#arborescence-des-répertoires)
@@ -58,6 +59,22 @@ Les enseignements réutilisables d'une exécution à l'autre (schémas de correc
 Une deuxième boucle, indépendante (`run-loop-now.sh topic-loop`), surveille des sujets arbitraires sur le web plutôt que GitLab — voir [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md).
 
 Une troisième boucle (`run-loop-now.sh inbox-triage-loop`) trie les boîtes de réception Gmail et Outlook : elle classe chaque nouveau message non lu sous un libellé `Loop/*`, rédige (sans jamais l'envoyer) un brouillon de réponse dans le fil pour tout ce qui est urgent, et rend compte via un récapitulatif Slack et la page **Loops → Inbox Triage** du tableau de bord — voir [`docs/tasks/inbox-triage-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/inbox-triage-loop.md).
+
+## Boucles
+
+Sept boucles sont livrées dans `config/loops.json.template` ; chacune a sa page sous **Loops** dans le tableau de bord et sa propre spécification sous `docs/tasks/`. Le planning se modifie sur cette page ; les valeurs par défaut ci-dessous viennent du modèle.
+
+| Boucle | Ce qu'elle fait | Prérequis | Planning par défaut | Ce qu'elle écrit hors de Loop X |
+| --- | --- | --- | --- | --- |
+| GitLab issues | Traite vos tickets assignés : corrige, répond ou escalade | Config GitLab (`~/.gitlab/config.json`) | Jours ouvrés 10:00 | Branches et merge requests (jamais fusionnées), commentaires de tickets, Slack |
+| Topic monitor | Recherche vos sujets sur le web et envoie un briefing quotidien | Sujets (`topics.json`) | Tous les jours 10:00 | Digest Slack |
+| Inbox triage | Étiquette les nouveaux e-mails et rédige des brouillons de réponse aux messages urgents (désactivée par défaut) | Une boîte mail (capacité `mail`) | Jours ouvrés 09:00 | Étiquettes et brouillons (n'envoie jamais) |
+| Daily Digest | Un récapitulatif matinal : tâches, tickets assignés, MR à relire, réunions du jour, ce que Loop X a fait hier (désactivée par défaut) | Connecteur `issues` (agenda facultatif) | Jours ouvrés 09:30 | Notifications uniquement |
+| MR Review | Pré-relit les merge requests dont vous êtes relecteur (désactivée par défaut) | Connecteur `merge_requests` (GitLab) | Toutes les 2 heures | Notes brouillon GitLab uniquement ; ne publie, n'approuve ni ne poste jamais de note normale |
+| Pipeline Doctor | Diagnostique les pipelines CI en échec sur les projets suivis et vos MR, et signale les échecs récurrents (désactivée par défaut) | Connecteur `pipelines` (GitLab) | Toutes les heures | Notifications uniquement |
+| RSS Watch | Classe les nouvelles entrées de flux selon vos centres d'intérêt et envoie un court digest (désactivée par défaut) | Connecteur `feed` (RSS) | Tous les jours 08:00 | Notifications uniquement |
+
+Les quatre dernières sont des plugins LoopKit (`bin/loopkit.py`, `bin/loop_plugins/`) : le modèle s'exécute en mode scellé (sans outils ni serveurs MCP), chaque élément est isolé pour qu'un échec n'arrête pas l'exécution, et les notifications passent par les connecteurs **Notify via** de la boucle. Voir [`docs/architecture.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/architecture.md#loopkit).
 
 ## Prérequis
 

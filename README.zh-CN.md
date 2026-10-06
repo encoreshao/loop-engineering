@@ -21,6 +21,7 @@ Loop X Engineering 的使命是把被 issue 分诊占用的时间还给你：它
 ## 目录
 
 - [工作原理](#工作原理)
+- [循环](#循环)
 - [环境要求](#环境要求)
 - [快速开始](#快速开始)
 - [目录结构](#目录结构)
@@ -54,6 +55,22 @@ Loop X Engineering 的使命是把被 issue 分诊占用的时间还给你：它
 第二个独立的循环（`run-loop-now.sh topic-loop`）不监控 GitLab，而是监控更广泛网络上的任意主题——参见 [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md)。
 
 第三个循环（`run-loop-now.sh inbox-triage-loop`）对 Gmail 和 Outlook 收件箱进行分诊：它将每封新的未读邮件归类到一个 `Loop/*` 标签，为紧急邮件起草（绝不发送）一封串联回复，并通过 Slack 汇总和仪表盘的 **Loops → Inbox Triage** 页面进行报告——参见 [`docs/tasks/inbox-triage-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/inbox-triage-loop.md)。
+
+## 循环
+
+`config/loops.json.template` 内置 7 个循环；每个在仪表盘的 **Loops** 下都有独立页面，并在 `docs/tasks/` 下有各自的规格说明。调度可在该页面修改，下表为模板中的默认值。
+
+| 循环 | 作用 | 所需条件 | 默认调度 | 对 Loop X 之外的写入 |
+| --- | --- | --- | --- | --- |
+| GitLab issues | 处理分配给你的 issue：修复、答复或上报 | GitLab 配置（`~/.gitlab/config.json`） | 工作日 10:00 | 分支与合并请求（绝不合并）、issue 评论、Slack |
+| Topic monitor | 在网上调研你的主题并发送每日简报 | 主题（`topics.json`） | 每天 10:00 | Slack 摘要 |
+| Inbox triage | 为新邮件打标签，并为紧急邮件起草回复（默认禁用） | 邮箱（`mail` 能力） | 工作日 09:00 | 邮件标签与草稿（绝不发送） |
+| Daily Digest | 一份晨间简报：待办、分配给你的 issue、等你评审的 MR、今天的会议、Loop X 昨天做了什么（默认禁用） | `issues` 连接器（日历可选） | 工作日 09:30 | 仅通知 |
+| MR Review | 预先评审你担任评审人的合并请求（默认禁用） | `merge_requests` 连接器（GitLab） | 每 2 小时 | 仅 GitLab 草稿备注；从不发布、批准或发表普通备注 |
+| Pipeline Doctor | 诊断所跟踪项目和你名下 MR 中失败的 CI 流水线，并标出反复出现的失败（默认禁用） | `pipelines` 连接器（GitLab） | 每小时 | 仅通知 |
+| RSS Watch | 按你的兴趣为订阅源新条目排序并发送简短摘要（默认禁用） | `feed` 连接器（RSS） | 每天 08:00 | 仅通知 |
+
+后四个是 LoopKit 插件（`bin/loopkit.py`、`bin/loop_plugins/`）：模型在密封环境中运行（无工具、无 MCP 服务器），每个条目相互隔离，单个失败不会中断整次运行，并通过该循环的 **Notify via** 连接器发送通知。详见 [`docs/architecture.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/architecture.md#loopkit)。
 
 ## 环境要求
 

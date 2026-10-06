@@ -197,3 +197,12 @@ def test_connector_labels_have_translations(lang):
     assert len(keys) > 8
     catalog = _catalog(lang)
     assert sorted(k for k in keys if not catalog.get(k)) == []
+
+
+@pytest.mark.parametrize("lang", ["ja", "zh", "fr"])
+def test_loop_template_descriptions_have_translations(lang):
+    template = json.loads((ROOT / "config" / "loops.json.template").read_text("utf-8"))
+    descriptions = [e["description"] for e in template]
+    assert len(descriptions) == len(template)  # every shipped loop has one
+    catalog = _catalog(lang)
+    assert sorted(d for d in descriptions if not catalog.get(d)) == []
