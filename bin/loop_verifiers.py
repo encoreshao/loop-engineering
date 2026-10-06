@@ -5,11 +5,17 @@ docs/superpowers/specs/2026-09-06-loop-runtime-foundation-design.md.
 `Verifier` interface stays uniform for future verifier types that do need
 it, e.g. a diff-scope verifier reading the current worktree path out of
 context)."""
+import dataclasses
 import shlex
 import subprocess
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
+
+import loop_config
+
+_OUTPUT_TAIL_CHARS = 4000
 
 
 def _decode_or_empty(value):
@@ -135,7 +141,70 @@ class DiffVerifier(Verifier):
         )
 
 
-def build_verifiers(specs, cwd=None):
+class ProjectCommandsVerifier(Verifier):
+    """Re-runs the project's own test_cmd/lint_cmd (from projects.json)
+    inside the worktree the agent used for this issue. No worktree means
+    the agent made no code change, so there is nothing to verify (a
+    vacuous pass). Empty/missing commands are skipped."""
+
+    def __init__(self, name, alias, issue_iid, timeout_seconds,
+                 project_fn=None, worktree_root_fn=None, runner=None):
+        self.name = name
+        self.alias = alias
+        self.issue_iid = issue_iid
+        self.timeout_seconds = timeout_seconds
+        self.project_fn = project_fn
+        self.worktree_root_fn = worktree_root_fn
+        self.runner = runner
+
+    def verify(self, context) -> VerificationResult:
+        start = time.monotonic()
+        project_fn = self.project_fn or loop_config.get_project
+        worktree_root_fn = self.worktree_root_fn or loop_config.get_worktree_root
+        project = project_fn(self.alias)
+        worktree = Path(worktree_root_fn()) / f"{Path(project['local_path']).name}-issue-{self.issue_iid}"
+        if not worktree.is_dir():
+            return VerificationResult(self.name, True, None, 0, "no worktree - nothing to verify", {"vacuous": True})
+
+        commands, chunks, passed = [], [], True
+        for kind in ("test", "lint"):
+            command = project.get(f"{kind}_cmd")
+            if not command:
+                continue
+            verifier_cls = self.runner or CommandVerifier
+            result = verifier_cls(
+                name=f"{self.name}_{kind}", command=command, cwd=worktree, timeout_seconds=self.timeout_seconds,
+            ).verify(context)
+            passed = passed and result.passed
+            commands.append({"kind": kind, "command": command, "passed": result.passed, "exit_code": result.exit_code})
+            chunks.append(f"$ {command}\n{result.output[-_OUTPUT_TAIL_CHARS:]}")
+
+        return VerificationResult(
+            name=self.name,
+            passed=passed,
+            exit_code=0 if passed else 1,
+            duration_ms=int((time.monotonic() - start) * 1000),
+            output="\n".join(chunks),
+            evidence={"commands": commands},
+        )
+
+
+class ObserveOnly(Verifier):
+    """Wraps a verifier so it is recorded but never fails the loop; the
+    real outcome is kept in evidence["observed_passed"]."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    def verify(self, context) -> VerificationResult:
+        result = self.inner.verify(context)
+        return dataclasses.replace(
+            result, passed=True,
+            evidence={**result.evidence, "observed_passed": result.passed, "mode": "observe"},
+        )
+
+
+def build_verifiers(specs, cwd=None, issue=None, mode="observe"):
     """Build real Verifier instances from raw LoopDefinition.verifiers
     spec dicts - see docs/superpowers/specs/2026-09-07-loop-cli-design.md.
     Fails loud (ValueError) on an unknown type or a spec missing its
@@ -153,6 +222,14 @@ def build_verifiers(specs, cwd=None):
             if "allowed_paths" not in spec:
                 raise ValueError(f"verifier {name!r}: type 'git_diff' requires an 'allowed_paths' key")
             verifiers.append(DiffVerifier(name=name, allowed_paths=spec["allowed_paths"], cwd=cwd))
+        elif spec_type == "project_commands":
+            if not issue:
+                raise ValueError(f"verifier {name!r}: type 'project_commands' requires issue context")
+            verifier = ProjectCommandsVerifier(
+                name=name, alias=issue["alias"], issue_iid=issue["issue_iid"],
+                timeout_seconds=issue["timeout_seconds"],
+            )
+            verifiers.append(ObserveOnly(verifier) if mode == "observe" else verifier)
         else:
             raise ValueError(f"verifier {name!r}: unknown verifier type {spec_type!r}")
     return verifiers

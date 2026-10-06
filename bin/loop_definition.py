@@ -15,6 +15,8 @@ _STOP_CONDITION_DEFAULTS = {
     "no_progress_iterations": 2,
 }
 
+_VERIFICATION_MODES = ("observe", "gate")
+
 _RETRY_DEFAULTS = {
     "enabled": True,
     "max_attempts": 2,
@@ -46,6 +48,7 @@ class ContextConfig:
 @dataclass
 class VerificationConfig:
     required: list = field(default_factory=list)
+    mode: str = "observe"
 
 
 @dataclass
@@ -105,6 +108,13 @@ class LoopDefinition:
         retry_data = data.get("retry", {})
         permissions_data = data.get("permissions", {})
 
+        verification_mode = verification_data.get("mode", "observe")
+        if verification_mode not in _VERIFICATION_MODES:
+            raise ValueError(
+                f"LoopDefinition: verification.mode must be one of {sorted(_VERIFICATION_MODES)}, "
+                f"got {verification_mode!r}"
+            )
+
         return LoopDefinition(
             name=data["name"],
             version=data["version"],
@@ -113,7 +123,9 @@ class LoopDefinition:
             agent=AgentConfig(provider=agent_data.get("provider"), model=agent_data.get("model")),
             context=ContextConfig(sources=context_data.get("sources", [])),
             actions=data.get("actions", []),
-            verification=VerificationConfig(required=verification_data.get("required", [])),
+            verification=VerificationConfig(
+                required=verification_data.get("required", []), mode=verification_mode
+            ),
             stop_conditions=StopConditions(
                 max_iterations=stop_conditions_data.get("max_iterations", _STOP_CONDITION_DEFAULTS["max_iterations"]),
                 max_runtime_minutes=stop_conditions_data.get(

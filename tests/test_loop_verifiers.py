@@ -207,3 +207,63 @@ def test_build_verifiers_raises_when_command_missing_for_command_type():
 def test_build_verifiers_raises_when_allowed_paths_missing_for_git_diff_type():
     with pytest.raises(ValueError, match="allowed_paths"):
         build_verifiers([{"name": "diff", "type": "git_diff"}])
+
+
+import loop_verifiers as lv
+
+
+def _project(tmp_path, test_cmd="true", lint_cmd="true"):
+    return {"local_path": str(tmp_path / "repo"), "test_cmd": test_cmd, "lint_cmd": lint_cmd}
+
+
+def test_no_worktree_is_vacuous_pass(tmp_path):
+    v = lv.ProjectCommandsVerifier("pc", "web", 7, 30, project_fn=lambda a: _project(tmp_path),
+                                   worktree_root_fn=lambda: tmp_path / "wt")
+    r = v.verify({})
+    assert r.passed and r.evidence["vacuous"] is True
+
+
+def test_runs_test_and_lint_in_worktree(tmp_path):
+    (tmp_path / "wt" / "repo-issue-7").mkdir(parents=True)
+    v = lv.ProjectCommandsVerifier("pc", "web", 7, 30, project_fn=lambda a: _project(tmp_path, "pwd", "false"),
+                                   worktree_root_fn=lambda: tmp_path / "wt")
+    r = v.verify({})
+    assert r.passed is False
+    assert [c["kind"] for c in r.evidence["commands"]] == ["test", "lint"]
+    assert "repo-issue-7" in r.output
+
+
+def test_empty_commands_are_skipped(tmp_path):
+    (tmp_path / "wt" / "repo-issue-7").mkdir(parents=True)
+    v = lv.ProjectCommandsVerifier("pc", "web", 7, 30, project_fn=lambda a: _project(tmp_path, "true", ""),
+                                   worktree_root_fn=lambda: tmp_path / "wt")
+    r = v.verify({})
+    assert r.passed and [c["kind"] for c in r.evidence["commands"]] == ["test"]
+
+
+def test_output_tail_bounded(tmp_path):
+    (tmp_path / "wt" / "repo-issue-7").mkdir(parents=True)
+    v = lv.ProjectCommandsVerifier("pc", "web", 7, 30,
+                                   project_fn=lambda a: _project(tmp_path, "python3 -c \"print('x'*100000); raise SystemExit(1)\"", ""),
+                                   worktree_root_fn=lambda: tmp_path / "wt")
+    assert len(v.verify({}).output) < 4200
+
+
+def test_observe_only_never_fails():
+    class Bad(lv.Verifier):
+        def verify(self, context): return lv.VerificationResult("x", False, 1, 5, "boom", {})
+    r = lv.ObserveOnly(Bad()).verify({})
+    assert r.passed is True and r.evidence == {"observed_passed": False, "mode": "observe"} and r.output == "boom"
+
+
+def test_build_verifiers_project_commands_needs_issue():
+    with pytest.raises(ValueError):
+        lv.build_verifiers([{"name": "pc", "type": "project_commands"}])
+
+
+def test_build_verifiers_gate_mode_unwrapped():
+    issue = {"alias": "web", "issue_iid": 7, "timeout_seconds": 30}
+    vs = lv.build_verifiers([{"name": "pc", "type": "project_commands"}], issue=issue, mode="gate")
+    assert isinstance(vs[0], lv.ProjectCommandsVerifier)
+    vs = lv.build_verifiers([{"name": "pc", "type": "project_commands"}], issue=issue, mode="observe")
+    assert isinstance(vs[0], lv.ObserveOnly)

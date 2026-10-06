@@ -194,3 +194,18 @@ def test_from_yaml_reads_real_file(tmp_path):
 
     assert d.name == "gitlab-issue-fixer"
     assert d.trigger.type == "schedule"
+
+
+def test_verification_mode_defaults_to_observe():
+    d = LoopDefinition.from_dict({**EXAMPLE, "verification": {}})
+    assert d.verification.mode == "observe"
+
+
+def test_verification_mode_accepts_gate():
+    d = LoopDefinition.from_dict({**EXAMPLE, "verification": {"mode": "gate"}})
+    assert d.verification.mode == "gate"
+
+
+def test_verification_mode_rejects_unknown():
+    with pytest.raises(ValueError):
+        LoopDefinition.from_dict({**EXAMPLE, "verification": {"mode": "yolo"}})
