@@ -9410,7 +9410,7 @@ def render_gitlab_live_fragment():
     return "".join(gitlab_sections)
 
 
-def render_gitlab_page():
+def _gitlab_body():
     """Live GitLab page shell. Renders instantly - the actual data (slow:
     a subprocess + real GitLab API call per configured project) is fetched
     by the browser from /gitlab/live after the page paints, replacing the
@@ -9433,9 +9433,20 @@ def render_gitlab_page():
 </section>
 </div>
 """
+    return body
+
+
+def render_gitlab_page():
+    """Full page: gitlab body inside the shell (body: _gitlab_body)."""
+    status = read_status(STATUS_PATH)
     return _render_shell(
-        "Live GitLab · Loop X Engineering", "gitlab", _status_badge_markup(status), body,
-        refresh=True, refresh_note=True, lazy_refresh=True,
+        "Live GitLab · Loop X Engineering",
+        "gitlab",
+        _status_badge_markup(status),
+        _gitlab_body(),
+        refresh=True,
+        refresh_note=True,
+        lazy_refresh=True,
     )
 
 
@@ -9455,7 +9466,7 @@ _ACCENT_CHOICES = (
 )
 
 
-def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifications"):
+def _general_settings_body(flash=None, flash_ok=True, active_tab="notifications"):
     """The combined Settings page (served at /settings/general): four
     app-level preferences that used to each get their own top-level nav
     entry - Notifications (Slack webhook), AI CLI (Claude Code vs Codex),
@@ -10072,7 +10083,18 @@ def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifica
 {tab_panels}
 </div>
 """
-    return _render_shell("Settings · Loop X Engineering", "general_settings", _status_badge_markup(status), body)
+    return body
+
+
+def render_general_settings_page(flash=None, flash_ok=True, active_tab="notifications"):
+    """Full page: general_settings body inside the shell (body: _general_settings_body)."""
+    status = read_status(STATUS_PATH)
+    return _render_shell(
+        "Settings · Loop X Engineering",
+        "general_settings",
+        _status_badge_markup(status),
+        _general_settings_body(flash=flash, flash_ok=flash_ok, active_tab=active_tab),
+    )
 
 
 def _localized_readme_path(readme_path=None):
@@ -10704,7 +10726,7 @@ def render_inbox_history_page(name=None):
     return _render_shell("Inbox Triage history · Loop X Engineering", "inbox", _status_badge_markup(status), body)
 
 
-def render_skills_page(flash=None, flash_ok=True):
+def _skills_body(flash=None, flash_ok=True):
     """Skills page: every external skill (from the `encore-skills` library)
     this loop depends on, whether it's actually installed on this machine
     right now (SKILLS_ROOT, checked live via get_skills_status), and which
@@ -10803,7 +10825,18 @@ def render_skills_page(flash=None, flash_ok=True):
 </section>
 </div>
 """
-    return _render_shell("Skills · Loop X Engineering", "skills", _status_badge_markup(status), body)
+    return body
+
+
+def render_skills_page(flash=None, flash_ok=True):
+    """Full page: skills body inside the shell (body: _skills_body)."""
+    status = read_status(STATUS_PATH)
+    return _render_shell(
+        "Skills · Loop X Engineering",
+        "skills",
+        _status_badge_markup(status),
+        _skills_body(flash=flash, flash_ok=flash_ok),
+    )
 
 
 _WEEKDAY_LABELS = (("0", "Su"), ("1", "Mo"), ("2", "Tu"), ("3", "We"), ("4", "Th"), ("5", "Fr"), ("6", "Sa"))
@@ -10866,7 +10899,7 @@ def _schedule_form_html(daemon, csrf_input):
     )
 
 
-def render_daemons_page(flash=None, flash_ok=True):
+def _daemons_body(flash=None, flash_ok=True):
     """Launchd Daemons page: load state, schedule, and enable/disable
     controls for every launchd daemon in this project.
 
@@ -10982,7 +11015,18 @@ def render_daemons_page(flash=None, flash_ok=True):
 </section>
 </div>
 """
-    return _render_shell("Daemons · Loop X Engineering", "daemons", _status_badge_markup(status), body)
+    return body
+
+
+def render_daemons_page(flash=None, flash_ok=True):
+    """Full page: daemons body inside the shell (body: _daemons_body)."""
+    status = read_status(STATUS_PATH)
+    return _render_shell(
+        "Daemons · Loop X Engineering",
+        "daemons",
+        _status_badge_markup(status),
+        _daemons_body(flash=flash, flash_ok=flash_ok),
+    )
 
 
 def render_settings_fragment():
@@ -11283,7 +11327,7 @@ def render_settings_fragment():
 """
 
 
-def render_settings_page(flash=None, flash_ok=True):
+def _gitlab_projects_body(flash=None, flash_ok=True):
     """The GitLab page shell (nav key stays "settings" - only its visible
     label changed - to avoid clashing with the existing "gitlab" nav
     key/route, which is the unrelated Live GitLab issues/MRs page).
@@ -11315,7 +11359,18 @@ def render_settings_page(flash=None, flash_ok=True):
 <div class="lazy-loading"><div class="md-spinner"></div><p class="loading-text">{html.escape(_t('Loading settings'))}<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span></p></div>
 </div>
 """
-    return _render_shell("GitLab · Loop X Engineering", "settings", _status_badge_markup(status), body)
+    return body
+
+
+def render_settings_page(flash=None, flash_ok=True):
+    """Full page: settings body inside the shell (body: _gitlab_projects_body)."""
+    status = read_status(STATUS_PATH)
+    return _render_shell(
+        "GitLab · Loop X Engineering",
+        "settings",
+        _status_badge_markup(status),
+        _gitlab_projects_body(flash=flash, flash_ok=flash_ok),
+    )
 
 
 def _stat_tile_html(icon, label, value, tooltip=None):
