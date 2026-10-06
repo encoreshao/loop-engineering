@@ -14,6 +14,7 @@ loop(s) are due — there is no longer a separate `launchd/*.plist` per task.
 | Daily GitLab issue loop | [`docs/tasks/gitlab-issue-loop.md`](docs/tasks/gitlab-issue-loop.md) | Weekdays 10:00, from its `loops.json` entry |
 | Topic monitor loop | [`docs/tasks/topic-monitor-loop.md`](docs/tasks/topic-monitor-loop.md) | Every day 10:00 by default, from its `loops.json` entry |
 | Inbox Triage loop | [docs/tasks/inbox-triage-loop.md](docs/tasks/inbox-triage-loop.md) | Weekdays 09:00 once enabled, from its loops.json entry (disabled by default) |
+| Daily Digest loop | [`docs/tasks/daily-digest-loop.md`](docs/tasks/daily-digest-loop.md) | Weekdays 09:30 once enabled, from its `loops.json` entry (disabled by default) |
 
 Each task gets its own spec under `docs/tasks/`, its own instructions doc,
 and its own entry script — the topic monitor loop answered the "own

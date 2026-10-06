@@ -25,5 +25,17 @@
     "timeout_seconds": 3600,
     "log_suffix": "-inbox-triage-loop",
     "emit_run_events": false
+  },
+  {
+    "name": "daily-digest-loop",
+    "entry_point": "bin.loop_plugins.daily_digest",
+    "description": "One morning brief: todos, assigned issues, MRs awaiting your review, today's meetings and what Loop X did yesterday.",
+    "schedule": {"frequency": "weekly", "weekdays": [1, 2, 3, 4, 5], "hour": 9, "minute": 30},
+    "enabled": false,
+    "timeout_seconds": 900,
+    "log_suffix": "-daily-digest-loop",
+    "emit_run_events": false,
+    "routes_notifications": true,
+    "requires": ["issues"]
   }
 ]
