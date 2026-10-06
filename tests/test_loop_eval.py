@@ -288,4 +288,5 @@ def test_run_all_every_shipped_case_passes():
     assert failures == [], f"eval cases failed: {[(f.case_name, f.detail) for f in failures]}"
     assert {o.case_name for o in outcomes} == {
         "success", "retry", "no-progress", "budget", "unsafe-action", "ambiguous-task",
+        "verification-gate", "retry-then-pass",
     }

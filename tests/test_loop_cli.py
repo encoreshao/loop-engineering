@@ -637,7 +637,7 @@ def test_eval_reports_all_cases_pass_by_default():
     result = _run("eval")
 
     assert result.returncode == 0
-    assert "6/6 cases passed" in result.stdout
+    assert "8/8 cases passed" in result.stdout
     assert "FAIL" not in result.stdout
 
 
