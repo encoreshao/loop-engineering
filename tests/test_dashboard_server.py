@@ -1451,18 +1451,16 @@ def test_dashboard_server_integration_daemons_route():
 
 def test_dashboard_server_integration_topic_monitor_route():
     with _running_server() as port:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/topic-monitor", timeout=10) as resp:
-            assert resp.status == 200
-            assert b"Topic Monitor" in resp.read()
+        status, headers, _ = _raw_get(port, "/topic-monitor")
+        assert status == 301
+        assert headers["Location"] == "/loops/topic-loop"
 
 
 def test_dashboard_server_integration_topic_settings_route():
     with _running_server() as port:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/topic-monitor/settings", timeout=10) as resp:
-            assert resp.status == 200
-            body = resp.read()
-            assert b"Topic Settings" in body
-            assert b"<a href='/topic-monitor/settings' title='Topic Settings' class='active'>" in body
+        status, headers, _ = _raw_get(port, "/topic-monitor/settings")
+        assert status == 301
+        assert headers["Location"] == "/loops/topic-loop?view=topics"
 
 
 def test_dashboard_server_integration_topic_monitor_history_route(tmp_path, monkeypatch):
@@ -1627,9 +1625,10 @@ def test_dashboard_server_integration_gitlab_and_learnings_routes_survive_missin
     monkeypatch.setattr(loop_config, "DEFAULT_CONFIG_PATH", tmp_path / "does-not-exist" / "projects.json")
 
     with _running_server() as port:
-        for path in ("/gitlab", "/learnings"):
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=10) as response:
-                assert response.status == 200
+        status, headers, _ = _raw_get(port, "/gitlab")
+        assert (status, headers["Location"]) == (301, "/loops/gitlab-loop")
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/learnings", timeout=10) as response:
+            assert response.status == 200
 
 
 class _FakeCompletedProcess:
@@ -6677,7 +6676,9 @@ def test_dashboard_server_integration_settings_route(monkeypatch, tmp_path):
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/settings", timeout=10) as response:
             assert response.status == 200
             body = response.read().decode("utf-8")
-            assert "<h1>GitLab</h1>" in body
+            assert "Settings" in body
+        status, headers, _ = _raw_get(port, "/gitlab")
+        assert (status, headers["Location"]) == (301, "/loops/gitlab-loop")
 
 
 def test_dashboard_server_integration_slack_route(monkeypatch, tmp_path):
@@ -7166,7 +7167,7 @@ def test_settings_route_set_default_success(monkeypatch, tmp_path):
         token = _fetch_csrf_token(port, "/settings/fragment")
         status, headers, _body = _post(port, "/settings/gitlab/default", {"instance": "b", "csrf_token": token})
         assert status == 303
-        flash_query = _flash_from_location(headers["Location"], prefix="/settings?")
+        flash_query = _flash_from_location(headers["Location"], prefix="/loops/gitlab-loop?view=projects&")
         assert flash_query["ok"] == ["1"]
     assert ds.read_gitlab_config(gitlab_path)["default"] == "b"
 
@@ -8750,11 +8751,12 @@ def test_dashboard_server_integration_activity_route(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "MESSAGES_PATH", tmp_path / "does-not-exist-messages.json")
 
     with _running_server() as port:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/activity", timeout=10) as response:
+        status, headers, _ = _raw_get(port, "/activity")
+        assert (status, headers["Location"]) == (301, "/?view=activity")
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/?view=activity", timeout=10) as response:
             assert response.status == 200
             body = response.read().decode("utf-8")
             assert "Activity" in body
-            assert "<a href='/activity' title='Activity' class='active'>" in body
 
 
 def test_activity_route_send_message_requires_csrf(monkeypatch, tmp_path):
@@ -11227,8 +11229,8 @@ def test_inbox_setup_page_tab_query_selects_tab(tmp_path, monkeypatch):
     _inbox_setup_env(tmp_path, monkeypatch, [])
     assert "tab-button is-active' data-tab-target='gmail'" in ds.render_inbox_setup_page(8420)
     with _running_server() as port:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/inbox/setup?tab=add", timeout=10) as resp:
-            assert "tab-button is-active' data-tab-target='add'" in resp.read().decode("utf-8")
+        status, headers, _ = _raw_get(port, "/inbox/setup?tab=add")
+        assert (status, headers["Location"]) == (301, "/loops/inbox-triage-loop?view=setup&tab=add")
 
 
 def test_google_callback_route_redirects_to_inboxes_tab():
@@ -11253,10 +11255,13 @@ def test_inbox_pages_render_over_http(tmp_path, monkeypatch):
     monkeypatch.setattr(ds.inbox_status, "DEFAULT_STATUS_PATH", tmp_path / "status.json")
     monkeypatch.setattr(ds.inbox_pages, "DEFAULT_HISTORY_DIR", tmp_path / "history")
     with _running_server() as port:
-        for path, needle in (("/inbox", "Inbox Triage"), ("/inbox/setup", "Connect Gmail"), ("/inbox/history", "Inbox Triage history")):
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=10) as resp:
-                assert resp.status == 200
-                assert needle in resp.read().decode("utf-8")
+        for path, target in (("/inbox", "/loops/inbox-triage-loop"),
+                             ("/inbox/setup", "/loops/inbox-triage-loop?view=setup")):
+            status, headers, _ = _raw_get(port, path)
+            assert (status, headers["Location"]) == (301, target)
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/inbox/history", timeout=10) as resp:
+            assert resp.status == 200
+            assert "Inbox Triage history" in resp.read().decode("utf-8")
         with pytest.raises(urllib.error.HTTPError) as info:
             urllib.request.urlopen(f"http://127.0.0.1:{port}/inbox/history/..%2F..%2Fsecret.md", timeout=10)
         assert info.value.code == 404
@@ -11274,8 +11279,8 @@ def test_inbox_pages_show_a_malformed_config_instead_of_a_500(tmp_path, monkeypa
         assert html.escape(str(config_path)) in page
     with _running_server() as port:
         for path in ("/inbox", "/inbox/setup"):
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=10) as resp:
-                assert resp.status == 200
+            status, _headers, _ = _raw_get(port, path)
+            assert status == 301
 
 
 def test_render_inbox_history_page_renders_markdown_table_and_escapes_script(tmp_path, monkeypatch):
@@ -12159,3 +12164,75 @@ def test_render_hub_page_passes_flash_to_body(monkeypatch):
     )
     ds.render_hub_page("settings", view="daemons", flash="Saved", flash_ok=False)
     assert seen == {"flash": "Saved", "ok": False}
+
+
+# --- hub routes + legacy 301 redirects ---------------------------------------
+
+@pytest.mark.parametrize("old,new", [
+    ("/activity", "/?view=activity"),
+    ("/gitlab", "/loops/gitlab-loop"),
+    ("/topic-monitor/settings", "/loops/topic-loop?view=topics"),
+    ("/inbox/setup", "/loops/inbox-triage-loop?view=setup"),
+    ("/history", "/runs?view=history"),
+    ("/memory", "/insights?view=memory"),
+    ("/audit", "/harness"),
+    ("/settings/general", "/settings"),
+    ("/daemons", "/settings?view=daemons"),
+])
+def test_legacy_redirect_target(old, new):
+    assert ds.legacy_redirect_target(old, "") == new
+
+
+def test_legacy_redirect_preserves_flash_query():
+    assert ds.legacy_redirect_target("/daemons", "flash=Boom&ok=0") == "/settings?view=daemons&flash=Boom&ok=0"
+    assert ds.legacy_redirect_target("/settings/general", "tab=ai-cli&flash=x&ok=1") == "/settings?tab=ai-cli&flash=x&ok=1"
+
+
+def test_non_legacy_path_has_no_redirect():
+    assert ds.legacy_redirect_target("/runs", "") is None
+    assert ds.legacy_redirect_target("/history/2026-09-10.md", "") is None
+
+
+def _raw_get(port, path):
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    try:
+        conn.request("GET", path)
+        response = conn.getresponse()
+        return response.status, dict(response.getheaders()), response.read().decode("utf-8")
+    finally:
+        conn.close()
+
+
+def test_legacy_paths_301_with_mapped_location():
+    with _running_server() as port:
+        for old, new in [("/activity", "/?view=activity"),
+                         ("/gitlab", "/loops/gitlab-loop"),
+                         ("/daemons?flash=Hi&ok=0", "/settings?view=daemons&flash=Hi&ok=0"),
+                         ("/settings/general?tab=ai-cli", "/settings?tab=ai-cli")]:
+            status, headers, _ = _raw_get(port, old)
+            assert status == 301, old
+            assert headers["Location"] == new
+
+
+def test_hub_routes_serve_200():
+    with _running_server() as port:
+        for path in ["/", "/runs", "/runs?view=logs", "/insights", "/insights?view=cost&days=30",
+                     "/harness", "/settings", "/settings?view=skills", "/settings?tab=ai-cli"]:
+            status, _, body = _raw_get(port, path)
+            assert status == 200, path
+            assert "Loop X Engineering" in body
+
+
+def test_settings_hub_shows_flash():
+    with _running_server() as port:
+        _, _, body = _raw_get(port, "/settings?view=daemons&flash=Boom&ok=0")
+        assert "flash-danger" in body and "Boom" in body
+
+
+def test_gitlab_post_handlers_redirect_to_gitlab_loop_projects(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "GITLAB_CONFIG_PATH", tmp_path / "gitlab.json")
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/settings")
+        status, headers, _ = _post(port, "/settings/gitlab/default", {"csrf_token": token, "instance": "x"})
+        assert status == 303
+        assert headers["Location"].startswith("/loops/gitlab-loop?view=projects")

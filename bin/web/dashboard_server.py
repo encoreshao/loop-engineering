@@ -12190,6 +12190,41 @@ def render_hub_page(hub_key, view=None, flash=None, flash_ok=True, **ctx):
     )
 
 
+_LEGACY_REDIRECTS = {
+    "/activity": "/?view=activity",
+    "/gitlab": "/loops/gitlab-loop",
+    "/topic-monitor": "/loops/topic-loop",
+    "/topic-monitor/settings": "/loops/topic-loop?view=topics",
+    "/inbox": "/loops/inbox-triage-loop",
+    "/inbox/setup": "/loops/inbox-triage-loop?view=setup",
+    "/loop-runs": "/runs",
+    "/history": "/runs?view=history",
+    "/logs": "/runs?view=logs",
+    "/analytics": "/insights",
+    "/cost": "/insights?view=cost",
+    "/budget": "/insights?view=budget",
+    "/memory": "/insights?view=memory",
+    "/audit": "/harness",
+    "/settings/general": "/settings",
+    "/daemons": "/settings?view=daemons",
+    "/skills": "/settings?view=skills",
+}
+
+_HUB_PATHS = {"/": "overview", "/runs": "runs", "/insights": "insights",
+              "/harness": "harness", "/settings": "settings"}
+
+
+def legacy_redirect_target(path, query):
+    """The hub/loop URL a pre-overhaul dashboard path 301s to, with the
+    original query string appended; None when the path isn't a legacy one."""
+    target = _LEGACY_REDIRECTS.get(path)
+    if target is None:
+        return None
+    if not query:
+        return target
+    return f"{target}{'&' if '?' in target else '?'}{query}"
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     def _apply_language(self):
         """Pin this request thread's UI language (bin/i18n.py) before any
@@ -12202,12 +12237,27 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._apply_language()
         split = urllib.parse.urlsplit(self.path)
 
-        if split.path == "/":
+        target = legacy_redirect_target(split.path, split.query)
+        if target is not None:
+            self.send_response(301)
+            self.send_header("Location", target)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
+        if split.path in _HUB_PATHS:
             query = urllib.parse.parse_qs(split.query)
-            flash = query.get("flash", [None])[0]
-            flash_ok = query.get("ok", ["1"])[0] != "0"
-            session_id = query.get("session", [None])[0]
-            self._send_html(render_overview_page(flash=flash, flash_ok=flash_ok, session_id=session_id))
+            ctx = {"tab": query.get("tab", [None])[0],
+                   "session_id": query.get("session", [None])[0]}
+            if "days" in query:
+                try:
+                    ctx["days"] = int(query["days"][0])
+                except ValueError:
+                    ctx["days"] = 7
+            self._send_html(render_hub_page(
+                _HUB_PATHS[split.path], view=query.get("view", [None])[0],
+                flash=query.get("flash", [None])[0],
+                flash_ok=query.get("ok", ["1"])[0] != "0", **ctx))
             return
 
         if split.path == "/activity/messages/fragment":
@@ -12220,14 +12270,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_html(render_chat_history_fragment(active_session_id=query.get("session", [None])[0]))
             return
 
-        if split.path == "/history":
-            self._send_html(render_history_page())
-            return
-
-        if split.path == "/loop-runs":
-            self._send_html(render_loop_runs_page())
-            return
-
         if split.path.startswith("/loop-runs/"):
             run_id = split.path[len("/loop-runs/"):]
             page = render_loop_run_detail_page(run_id)
@@ -12237,113 +12279,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_html(page)
             return
 
-        if split.path == "/cost":
-            query = urllib.parse.parse_qs(split.query)
-            days_raw = query.get("days", ["7"])[0]
-            try:
-                days = int(days_raw)
-            except ValueError:
-                days = 7
-            self._send_html(render_cost_page(days=days))
-            return
-
-        if split.path == "/audit":
-            self._send_html(render_audit_page())
-            return
-
-        if split.path == "/budget":
-            self._send_html(render_budget_page())
-            return
-
-        if split.path == "/logs":
-            self._send_html(render_logs_page())
-            return
-
-        if split.path == "/gitlab":
-            self._send_html(render_gitlab_page())
-            return
-
         if split.path == "/gitlab/live":
             self._send_html(render_gitlab_live_fragment())
             return
 
         if split.path == "/learnings":
             self.send_response(301)
-            self.send_header("Location", "/memory")
+            self.send_header("Location", "/insights?view=memory")
             self.send_header("Content-Length", "0")
             self.end_headers()
-            return
-
-        if split.path == "/memory":
-            self._send_html(render_memory_page())
-            return
-
-        if split.path == "/topic-monitor":
-            query = urllib.parse.parse_qs(split.query)
-            flash = query.get("flash", [None])[0]
-            flash_ok = query.get("ok", ["1"])[0] != "0"
-            self._send_html(render_topic_monitor_page(flash=flash, flash_ok=flash_ok))
-            return
-
-        if split.path == "/topic-monitor/settings":
-            query = urllib.parse.parse_qs(split.query)
-            flash = query.get("flash", [None])[0]
-            flash_ok = query.get("ok", ["1"])[0] != "0"
-            self._send_html(render_topic_settings_page(flash=flash, flash_ok=flash_ok))
-            return
-
-        if split.path == "/daemons":
-            query = urllib.parse.parse_qs(split.query)
-            flash = query.get("flash", [None])[0]
-            flash_ok = query.get("ok", ["1"])[0] != "0"
-            self._send_html(render_daemons_page(flash=flash, flash_ok=flash_ok))
             return
 
         if split.path == "/readme":
             self._send_html(render_readme_page())
             return
 
-        if split.path == "/skills":
-            query = urllib.parse.parse_qs(split.query)
-            flash = query.get("flash", [None])[0]
-            flash_ok = query.get("ok", ["1"])[0] != "0"
-            self._send_html(render_skills_page(flash=flash, flash_ok=flash_ok))
-            return
-
-        if split.path == "/settings":
-            query = urllib.parse.parse_qs(split.query)
-            flash = query.get("flash", [None])[0]
-            flash_ok = query.get("ok", ["1"])[0] != "0"
-            self._send_html(render_settings_page(flash=flash, flash_ok=flash_ok))
-            return
-
         if split.path == "/settings/fragment":
             self._send_html(render_settings_fragment())
-            return
-
-        if split.path == "/settings/general":
-            query = urllib.parse.parse_qs(split.query)
-            flash = query.get("flash", [None])[0]
-            flash_ok = query.get("ok", ["1"])[0] != "0"
-            active_tab = query.get("tab", ["notifications"])[0]
-            self._send_html(render_general_settings_page(flash=flash, flash_ok=flash_ok, active_tab=active_tab))
-            return
-
-        if split.path == "/analytics":
-            query = urllib.parse.parse_qs(split.query)
-            days_raw = query.get("days", ["7"])[0]
-            try:
-                days = int(days_raw)
-            except ValueError:
-                days = 7
-            self._send_html(render_analytics_page(days=days))
-            return
-
-        if split.path == "/activity":
-            query = urllib.parse.parse_qs(split.query)
-            flash = query.get("flash", [None])[0]
-            flash_ok = query.get("ok", ["1"])[0] != "0"
-            self._send_html(render_activity_page(flash=flash, flash_ok=flash_ok))
             return
 
         if split.path == "/activity/chat-stream":
@@ -12392,22 +12344,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_html(_render_shell(
                 title, "topic_monitor", _status_badge_markup(status), body, refresh=False, refresh_note=False
             ))
-            return
-
-        if split.path == "/inbox":
-            query = urllib.parse.parse_qs(split.query)
-            flash = query.get("flash", [None])[0]
-            flash_ok = query.get("ok", ["1"])[0] != "0"
-            self._send_html(render_inbox_page(flash=flash, flash_ok=flash_ok))
-            return
-
-        if split.path == "/inbox/setup":
-            query = urllib.parse.parse_qs(split.query)
-            flash = query.get("flash", [None])[0]
-            flash_ok = query.get("ok", ["1"])[0] != "0"
-            active_tab = query.get("tab", [None])[0]
-            self._send_html(render_inbox_setup_page(self.server.server_address[1], flash=flash, flash_ok=flash_ok,
-                                                    active_tab=active_tab))
             return
 
         if split.path == "/oauth/google/callback":
@@ -12824,7 +12760,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             # GITLAB_CONFIG_PATH at call time (see the None-sentinel pattern used
             # throughout this file's config helpers), so this is no longer load-bearing.
             ok, message = set_default_gitlab_instance(instance, GITLAB_CONFIG_PATH)
-            self._redirect_with_flash(ok, message, location="/settings")
+            self._redirect_with_flash(ok, message, location="/loops/gitlab-loop?view=projects")
             return
 
         if self.path == "/settings/gitlab/instances":
@@ -12836,7 +12772,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             url = form.get("url", [""])[0]
             token = form.get("token", [""])[0]
             ok, message = upsert_gitlab_instance(alias, url, token, GITLAB_CONFIG_PATH)
-            self._redirect_with_flash(ok, message, location="/settings")
+            self._redirect_with_flash(ok, message, location="/loops/gitlab-loop?view=projects")
             return
 
         if self.path.startswith("/settings/gitlab/instances/") and self.path.endswith("/delete"):
@@ -12845,7 +12781,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             alias = urllib.parse.unquote(self.path[len("/settings/gitlab/instances/"):-len("/delete")])
             ok, message = delete_gitlab_instance(alias, GITLAB_CONFIG_PATH)
-            self._redirect_with_flash(ok, message, location="/settings")
+            self._redirect_with_flash(ok, message, location="/loops/gitlab-loop?view=projects")
             return
 
         if self.path == "/settings/gitlab/projects":
@@ -12858,7 +12794,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             instance = form.get("instance", [""])[0]
             bundle = form.get("bundle", [""])[0]
             ok, message = upsert_gitlab_project(alias, project_id, instance, bundle, GITLAB_CONFIG_PATH)
-            self._redirect_with_flash(ok, message, location="/settings")
+            self._redirect_with_flash(ok, message, location="/loops/gitlab-loop?view=projects")
             return
 
         if self.path.startswith("/settings/gitlab/projects/") and self.path.endswith("/delete"):
@@ -12867,7 +12803,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             alias = urllib.parse.unquote(self.path[len("/settings/gitlab/projects/"):-len("/delete")])
             ok, message = delete_gitlab_project(alias, GITLAB_CONFIG_PATH)
-            self._redirect_with_flash(ok, message, location="/settings")
+            self._redirect_with_flash(ok, message, location="/loops/gitlab-loop?view=projects")
             return
 
         if self.path == "/settings/access-bundles":
@@ -12880,7 +12816,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             token = form.get("token", [""])[0]
             webhook_url = form.get("webhook_url", [""])[0]
             ok, message = upsert_access_bundle(name, instance, token, webhook_url, GITLAB_CONFIG_PATH, SLACK_CONFIG_PATH)
-            self._redirect_with_flash(ok, message, location="/settings")
+            self._redirect_with_flash(ok, message, location="/loops/gitlab-loop?view=projects")
             return
 
         if self.path.startswith("/settings/access-bundles/") and self.path.endswith("/delete"):
@@ -12889,7 +12825,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             name = urllib.parse.unquote(self.path[len("/settings/access-bundles/"):-len("/delete")])
             ok, message = delete_access_bundle(name, GITLAB_CONFIG_PATH, SLACK_CONFIG_PATH)
-            self._redirect_with_flash(ok, message, location="/settings")
+            self._redirect_with_flash(ok, message, location="/loops/gitlab-loop?view=projects")
             return
 
         if self.path.startswith("/settings/access-bundles/") and self.path.endswith("/clear-webhook"):
@@ -12898,7 +12834,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             name = urllib.parse.unquote(self.path[len("/settings/access-bundles/"):-len("/clear-webhook")])
             ok, message = clear_bundle_webhook(name, SLACK_CONFIG_PATH)
-            self._redirect_with_flash(ok, message, location="/settings")
+            self._redirect_with_flash(ok, message, location="/loops/gitlab-loop?view=projects")
             return
 
         if self.path == "/notifications/webhook":
@@ -12961,7 +12897,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             worktree_root = form.get("worktree_root", [""])[0]
             gitlab_instance = form.get("gitlab_instance", [""])[0]
             ok, message = update_loop_project_settings(assignee_username, worktree_root, gitlab_instance)
-            self._redirect_with_flash(ok, message, location="/settings")
+            self._redirect_with_flash(ok, message, location="/loops/gitlab-loop?view=projects")
             return
 
         if self.path == "/settings/loop-projects":
@@ -12982,7 +12918,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 alias, project_id, local_path, target_branch, install_cmd, lint_cmd, test_cmd, instance,
                 original_alias=original_alias,
             )
-            self._redirect_with_flash(ok, message, location="/settings")
+            self._redirect_with_flash(ok, message, location="/loops/gitlab-loop?view=projects")
             return
 
         if self.path.startswith("/settings/loop-projects/") and self.path.endswith("/delete"):
@@ -12991,7 +12927,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             alias = urllib.parse.unquote(self.path[len("/settings/loop-projects/"):-len("/delete")])
             ok, message = delete_tracked_project(alias)
-            self._redirect_with_flash(ok, message, location="/settings")
+            self._redirect_with_flash(ok, message, location="/loops/gitlab-loop?view=projects")
             return
 
         if self.path == "/instructions":
