@@ -158,6 +158,14 @@ class ProjectCommandsVerifier(Verifier):
         self.runner = runner
 
     def verify(self, context) -> VerificationResult:
+        # Never raises: LoopRuntime calls verifiers unguarded, and a
+        # misconfigured project or missing binary must not crash a batch.
+        try:
+            return self._verify(context)
+        except Exception as exc:  # noqa: BLE001
+            return VerificationResult(self.name, False, None, 0, f"{type(exc).__name__}: {exc}", {"error": True})
+
+    def _verify(self, context) -> VerificationResult:
         start = time.monotonic()
         project_fn = self.project_fn or loop_config.get_project
         worktree_root_fn = self.worktree_root_fn or loop_config.get_worktree_root

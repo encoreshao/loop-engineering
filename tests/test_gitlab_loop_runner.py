@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin"))
 import gitlab_loop_runner as glr
+import loop_verifiers as lv
 
 import pytest
 
@@ -14,6 +15,56 @@ from conftest import SANITIZED_PATH
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFINITION_PATH = REPO_ROOT / "loops" / "gitlab-issue" / "loop.yaml"
+
+
+class FakeResult:
+    def __init__(self, name, passed, output, evidence=None):
+        self.name, self.passed, self.output, self.evidence = name, passed, output, evidence or {}
+        self.exit_code, self.duration_ms = (0 if passed else 1), 1
+
+
+class FakeIteration:
+    def __init__(self, verification_results):
+        self.verification_results = verification_results
+
+
+class FakeVerifier(lv.Verifier):
+    def __init__(self, passed, observed_passed=None):
+        self.passed, self.observed = passed, observed_passed
+
+    def verify(self, context):
+        ev = {} if self.observed is None else {"observed_passed": self.observed, "mode": "observe"}
+        return lv.VerificationResult("project_commands", self.passed, 0, 1, "out", ev)
+
+
+class SequenceVerifier(lv.Verifier):
+    def __init__(self, seq, output="out"):
+        self.seq, self.output = seq, output
+
+    def verify(self, context):
+        p = next(self.seq)
+        return lv.VerificationResult("project_commands", p, 0 if p else 1, 1, self.output, {})
+
+
+_DEFINITION_YAML = """
+name: test-loop
+version: 1
+trigger: {{type: schedule, schedule: "0 10 * * 1-5"}}
+goal: {{type: issue_resolution}}
+actions: [modify_code]
+verification: {{required: [project_commands], mode: {mode}}}
+verifiers:
+  - {{name: project_commands, type: project_commands}}
+stop_conditions: {{max_iterations: {max_iterations}, max_runtime_minutes: 30, max_cost_usd: 3, no_progress_iterations: 2}}
+human_gates: [merge]
+retry: {{enabled: true, max_attempts: {max_attempts}}}
+"""
+
+
+def definition(tmp_path, mode="observe", max_iterations=2, max_attempts=2):
+    path = tmp_path / "loop.yaml"
+    path.write_text(_DEFINITION_YAML.format(mode=mode, max_iterations=max_iterations, max_attempts=max_attempts))
+    return glr.LoopDefinition.from_yaml(path)
 
 
 @pytest.fixture(autouse=True)
@@ -47,10 +98,10 @@ def slack_calls(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _no_real_project_config(monkeypatch, tmp_path):
-    """Safe default for the loop_config lookups _external_verify_issue
-    makes (added in gitlab-issue-external-verification): a project with
+    """Safe default for the loop_config lookups the external
+    verifier (ProjectCommandsVerifier) makes: a project with
     no test_cmd/lint_cmd and a worktree root that will never have a
-    matching directory created under it, so `_external_verify_issue` is a
+    matching directory created under it, so the external verifier is a
     guaranteed no-op unless a test explicitly overrides these two - same
     shape of safety net as _no_real_ai_cli/slack_calls above, for the same
     reason (CLAUDE.md's development-mode rule: never reach real
@@ -237,7 +288,8 @@ def test_invoke_issue_agent_raises_on_nonzero_exit(tmp_path, monkeypatch):
 def test_run_all_issues_writes_one_result_per_issue(tmp_path, monkeypatch):
     calls = []
 
-    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
+    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
+                    feedback=None, gate=False):
         calls.append((alias, issue_iid))
         return {"changed": True, "cost_usd": 0.1}
 
@@ -273,7 +325,8 @@ def test_run_all_issues_writes_one_result_per_issue(tmp_path, monkeypatch):
 
 
 def test_run_all_issues_continues_after_one_issue_fails(tmp_path, monkeypatch):
-    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
+    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
+                    feedback=None, gate=False):
         if issue_iid == 1:
             raise RuntimeError("agent crashed")
         return {"changed": True, "cost_usd": 0.1}
@@ -302,7 +355,8 @@ def test_run_all_issues_continues_after_one_issue_fails(tmp_path, monkeypatch):
 def test_run_all_issues_skips_issues_disabled_in_issue_tracking_config(tmp_path, monkeypatch):
     calls = []
 
-    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
+    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
+                    feedback=None, gate=False):
         calls.append((alias, issue_iid))
         return {"changed": True, "cost_usd": 0.1}
 
@@ -335,7 +389,7 @@ def test_run_all_issues_skips_issues_disabled_in_issue_tracking_config(tmp_path,
 def test_run_single_issue_writes_its_own_result(tmp_path, monkeypatch):
     monkeypatch.setattr(
         glr, "invoke_issue_agent",
-        lambda alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None: {
+        lambda alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None, feedback=None, gate=False: {
             "changed": True, "cost_usd": 0.2,
         },
     )
@@ -377,7 +431,8 @@ def _read_events(events_dir):
 
 
 def _fake_per_issue_invoker(calls, failing_iids=()):
-    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
+    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
+                    feedback=None, gate=False):
         calls.append(("issue", alias, issue_iid, timeout_seconds))
         if issue_iid in failing_iids:
             raise RuntimeError(f"agent crashed on {issue_iid}")
@@ -387,7 +442,8 @@ def _fake_per_issue_invoker(calls, failing_iids=()):
 
 
 def _fake_wrapup_invoker(calls, exc=None):
-    def fake_wrapup(repo_root=None, timeout_seconds=900, unified_log_path=None):
+    def fake_wrapup(repo_root=None, timeout_seconds=900, unified_log_path=None,
+                    feedback=None, gate=False):
         calls.append(("wrapup",))
         if exc is not None:
             raise exc
@@ -501,68 +557,14 @@ def test_run_single_issue_still_uses_the_dashboard_invoker(tmp_path, monkeypatch
     assert calls == [("issue", "harbor", 7, 1800)]
 
 
-def test_external_verify_issue_returns_empty_when_no_worktree_exists(tmp_path, monkeypatch):
-    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {
-        "local_path": "/some/repo", "test_cmd": "true", "lint_cmd": "true",
-    })
-    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(tmp_path / "worktrees"))
-
-    assert glr._external_verify_issue("harbor", 42, timeout_seconds=5) == []
-
-
-def test_external_verify_issue_runs_test_and_lint_when_worktree_exists(tmp_path, monkeypatch):
-    worktree_root = tmp_path / "worktrees"
-    (worktree_root / "repo-issue-42").mkdir(parents=True)
-    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {
-        "local_path": "/some/repo", "test_cmd": "true", "lint_cmd": "false",
-    })
-    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(worktree_root))
-
-    results = glr._external_verify_issue("harbor", 42, timeout_seconds=5)
-
-    assert [r.name for r in results] == ["external_test", "external_lint"]
-    assert results[0].passed is True
-    assert results[1].passed is False
-
-
-def test_external_verify_issue_skips_commands_the_project_does_not_configure(tmp_path, monkeypatch):
-    worktree_root = tmp_path / "worktrees"
-    (worktree_root / "repo-issue-9").mkdir(parents=True)
-    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {
-        "local_path": "/some/repo", "test_cmd": "true",
-    })
-    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(worktree_root))
-
-    results = glr._external_verify_issue("harbor", 9, timeout_seconds=5)
-
-    assert [r.name for r in results] == ["external_test"]
-
-
-def test_external_verify_issue_returns_empty_when_project_has_no_commands_configured(tmp_path, monkeypatch):
-    worktree_root = tmp_path / "worktrees"
-    (worktree_root / "repo-issue-1").mkdir(parents=True)
-    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {"local_path": "/some/repo"})
-    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(worktree_root))
-
-    assert glr._external_verify_issue("harbor", 1, timeout_seconds=5) == []
-
-
-def test_external_verify_issue_never_raises_on_unexpected_error(tmp_path, monkeypatch):
-    def _boom(alias):
-        raise RuntimeError("config exploded")
-
-    monkeypatch.setattr(glr.loop_config, "get_project", _boom)
-
-    assert glr._external_verify_issue("harbor", 1, timeout_seconds=5, repo_root=tmp_path) == []
-
-
 def test_run_one_issue_derives_its_timeout_from_max_runtime_minutes(tmp_path):
     from loop_definition import LoopDefinition
 
     definition = LoopDefinition.from_yaml(DEFINITION_PATH)
     captured = []
 
-    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
+    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
+                    feedback=None, gate=False):
         captured.append(timeout_seconds)
         return {"changed": True, "cost_usd": 0.0}
 
@@ -574,10 +576,22 @@ def test_run_one_issue_derives_its_timeout_from_max_runtime_minutes(tmp_path):
     assert captured == [definition.stop_conditions.max_runtime_minutes * 60]
 
 
-def test_run_one_issue_appends_external_verification_without_changing_final_state(tmp_path, monkeypatch):
-    from loop_definition import LoopDefinition
+def _fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
+                 feedback=None, gate=False):
+    return {"changed": True, "cost_usd": 0.0}
 
-    definition = LoopDefinition.from_yaml(DEFINITION_PATH)
+
+def test_external_verifier_runs_inside_runtime_in_observe_mode(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(glr, "invoke_batch_issue_agent", lambda *a, **k: calls.append(k) or {"cost_usd": 0.1})
+    monkeypatch.setattr(glr, "build_verifiers", lambda specs, cwd=None, issue=None, mode="observe":
+                        [FakeVerifier(passed=True, observed_passed=False)])
+    result = glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="observe"), tmp_path, tmp_path,
+                                agent_invoker=glr.invoke_batch_issue_agent, events_dir=tmp_path)
+    assert result.final_state.value == "completed" and len(calls) == 1
+
+
+def test_observe_mode_failing_checks_do_not_change_outcome_but_are_recorded(tmp_path, monkeypatch):
     worktree_root = tmp_path / "worktrees"
     (worktree_root / "harbor-issue-3").mkdir(parents=True)
     monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {
@@ -585,110 +599,139 @@ def test_run_one_issue_appends_external_verification_without_changing_final_stat
     })
     monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(worktree_root))
 
-    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
-        return {"changed": True, "cost_usd": 0.0}
-
     result = glr._run_one_issue(
-        "run_x", "harbor", 3, definition, tmp_path / "loop-runs", REPO_ROOT,
-        agent_invoker=fake_invoke, events_dir=tmp_path / "events",
+        "run_x", "harbor", 3, definition(tmp_path), tmp_path / "loop-runs", REPO_ROOT,
+        agent_invoker=_fake_invoke, events_dir=tmp_path / "events",
     )
 
-    # The single most important assertion in this plan: a failing
-    # external check must NOT flip an already-completed issue.
+    # A failing external check must NOT flip an already-completed issue
+    # in observe mode, nor trigger a retry.
     assert result.final_state.value == "completed"
-    names = [v.name for v in result.iterations[-1].verification_results]
-    assert names == ["external_test"]
-    assert result.iterations[-1].verification_results[0].passed is False
+    assert len(result.iterations) == 1
+    recorded = result.iterations[-1].verification_results
+    assert [v.name for v in recorded] == ["project_commands"]
+    assert recorded[0].passed is True and recorded[0].evidence["observed_passed"] is False
 
 
-def test_run_one_issue_appends_nothing_when_no_worktree_exists(tmp_path, monkeypatch):
-    from loop_definition import LoopDefinition
-
-    definition = LoopDefinition.from_yaml(DEFINITION_PATH)
-    # _no_real_project_config's default worktree_root never has a matching
-    # directory created under it, so this exercises the "no worktree" path
-    # even though get_project below configures a real test_cmd.
-    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {"local_path": "/x/harbor", "test_cmd": "true"})
-
-    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
-        return {"changed": True, "cost_usd": 0.0}
-
-    result = glr._run_one_issue(
-        "run_x", "harbor", 1, definition, tmp_path / "loop-runs", REPO_ROOT,
-        agent_invoker=fake_invoke, events_dir=tmp_path / "events",
-    )
-
-    assert result.iterations[-1].verification_results == []
-
-
-def test_run_one_issue_emits_verification_external_skipped_when_no_worktree_exists(tmp_path, monkeypatch):
-    """The whole point of this observe-only phase is to gather real signal
-    about whether the mechanism works - an operator must be able to tell
-    "ran cleanly, nothing to verify" apart from "silently broken for
-    weeks". Reuses test_run_one_issue_appends_nothing_when_no_worktree_
-    exists's setup (the _no_real_project_config autouse fixture's worktree
-    root never has a matching directory created under it)."""
-    from loop_definition import LoopDefinition
+def test_no_worktree_is_vacuous_and_emits_external_skipped(tmp_path, monkeypatch):
     import events as events_module
 
-    definition = LoopDefinition.from_yaml(DEFINITION_PATH)
+    # _no_real_project_config's default worktree root never has a matching
+    # directory, so this is the "no worktree" path.
     monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {"local_path": "/x/harbor", "test_cmd": "true"})
-
-    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
-        return {"changed": True, "cost_usd": 0.0}
-
     events_dir = tmp_path / "events"
-    glr._run_one_issue(
-        "run_x", "harbor", 1, definition, tmp_path / "loop-runs", REPO_ROOT,
-        agent_invoker=fake_invoke, events_dir=events_dir,
+    result = glr._run_one_issue(
+        "run_x", "harbor", 1, definition(tmp_path, mode="gate"), tmp_path / "loop-runs", REPO_ROOT,
+        agent_invoker=_fake_invoke, events_dir=events_dir,
     )
 
+    assert result.final_state.value == "completed"
     recorded = list(events_module.iter_events(events_dir=events_dir))
     skipped = [e for e in recorded if e["event_type"] == "verification.external_skipped"]
     assert len(skipped) == 1
-    assert skipped[0]["project"] == "harbor"
-    assert skipped[0]["issue_iid"] == 1
+    assert skipped[0]["project"] == "harbor" and skipped[0]["issue_iid"] == 1
+    assert not [e for e in recorded if e["event_type"] == "verification.external_completed"]
 
 
-def test_external_verify_issue_truncates_long_output_for_storage(tmp_path, monkeypatch):
-    worktree_root = tmp_path / "worktrees"
-    (worktree_root / "repo-issue-42").mkdir(parents=True)
-    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {
-        "local_path": "/some/repo", "test_cmd": "python3 -c \"print('x' * 2000)\"",
-    })
-    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(worktree_root))
-
-    results = glr._external_verify_issue("harbor", 42, timeout_seconds=5)
-
-    assert len(results) == 1
-    assert len(results[0].output) <= 800
-
-
-def test_run_one_issue_emits_verification_external_completed_events(tmp_path, monkeypatch):
-    from loop_definition import LoopDefinition
+def test_external_completed_event_carries_mode_and_observed_result(tmp_path, monkeypatch):
     import events as events_module
 
-    definition = LoopDefinition.from_yaml(DEFINITION_PATH)
     worktree_root = tmp_path / "worktrees"
     (worktree_root / "harbor-issue-5").mkdir(parents=True)
     monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {
-        "local_path": "/x/harbor", "test_cmd": "true", "lint_cmd": "true",
+        "local_path": "/x/harbor", "test_cmd": "true", "lint_cmd": "false",
     })
     monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(worktree_root))
 
-    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
-        return {"changed": True, "cost_usd": 0.0}
-
     events_dir = tmp_path / "events"
     glr._run_one_issue(
-        "run_x", "harbor", 5, definition, tmp_path / "loop-runs", REPO_ROOT,
-        agent_invoker=fake_invoke, events_dir=events_dir,
+        "run_x", "harbor", 5, definition(tmp_path), tmp_path / "loop-runs", REPO_ROOT,
+        agent_invoker=_fake_invoke, events_dir=events_dir,
     )
 
     recorded = list(events_module.iter_events(events_dir=events_dir))
-    external_events = [e for e in recorded if e["event_type"] == "verification.external_completed"]
-    assert [e["data"]["verifier"] for e in external_events] == ["external_test", "external_lint"]
-    assert all(e["data"]["passed"] is True for e in external_events)
+    external = [e for e in recorded if e["event_type"] == "verification.external_completed"]
+    assert len(external) == 1
+    assert external[0]["data"] == {
+        "verifier": "project_commands", "passed": True, "observed_passed": False,
+        "mode": "observe", "iteration": 1,
+    }
+
+
+def test_misconfigured_project_never_crashes_a_batch(tmp_path, monkeypatch):
+    def _boom(alias):
+        raise RuntimeError("config exploded")
+
+    monkeypatch.setattr(glr.loop_config, "get_project", _boom)
+    result = glr._run_one_issue(
+        "run_x", "harbor", 1, definition(tmp_path), tmp_path / "loop-runs", REPO_ROOT,
+        agent_invoker=_fake_invoke, events_dir=tmp_path / "events",
+    )
+    assert result.final_state.value == "completed"
+    assert result.iterations[-1].verification_results[0].evidence["observed_passed"] is False
+
+
+def test_stored_verifier_output_is_bounded(tmp_path, monkeypatch):
+    worktree_root = tmp_path / "worktrees"
+    (worktree_root / "repo-issue-42").mkdir(parents=True)
+    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {
+        "local_path": "/some/repo", "test_cmd": "python3 -c \"print('x' * 50000)\"",
+    })
+    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(worktree_root))
+    result = glr._run_one_issue(
+        "run_x", "harbor", 42, definition(tmp_path), tmp_path / "loop-runs", REPO_ROOT,
+        agent_invoker=_fake_invoke, events_dir=tmp_path / "events",
+    )
+    assert len(result.iterations[-1].verification_results[0].output) <= 4200
+
+
+def test_gate_failure_retries_with_feedback(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(glr, "invoke_batch_issue_agent", lambda *a, **k: calls.append(k) or {"cost_usd": 0.1})
+    seq = iter([False, True])
+    monkeypatch.setattr(glr, "build_verifiers", lambda specs, cwd=None, issue=None, mode="observe":
+                        [SequenceVerifier(seq, output="$ bundle exec rspec\n1 example, 1 failure")])
+    result = glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="gate"), tmp_path, tmp_path,
+                                agent_invoker=glr.invoke_batch_issue_agent, events_dir=tmp_path)
+    assert len(calls) == 2
+    assert calls[0].get("feedback") is None
+    assert "1 example, 1 failure" in calls[1]["feedback"]
+    assert calls[0]["gate"] is True
+    assert result.final_state.value == "completed"
+
+
+def test_feedback_is_bounded():
+    prev = FakeIteration(verification_results=[FakeResult("pc", False, "x" * 50_000)])
+    assert len(glr.format_feedback(prev)) <= 6000
+
+
+def test_feedback_has_header_and_failing_output_tail():
+    prev = FakeIteration(verification_results=[FakeResult("pc", False, "$ rspec\nlots\nFAILED")])
+    text = glr.format_feedback(prev)
+    assert text.startswith("## Previous attempt failed external verification")
+    assert "$ rspec" in text and "FAILED" in text
+
+
+def test_same_failure_twice_stops_no_progress(monkeypatch, tmp_path):
+    monkeypatch.setattr(glr, "invoke_batch_issue_agent", lambda *a, **k: {"cost_usd": 0.1})
+    monkeypatch.setattr(glr, "build_verifiers", lambda *a, **k: [SequenceVerifier(iter([False, False]), output="same")])
+    result = glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="gate", max_iterations=3, max_attempts=3),
+                                tmp_path, tmp_path, agent_invoker=glr.invoke_batch_issue_agent, events_dir=tmp_path)
+    assert result.final_state.value in ("blocked", "escalated", "stopped")
+    assert "progress" in (result.stop_reason or "")
+
+
+def test_invokers_append_feedback_to_the_prompt(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(glr, "build_batch_issue_prompt", lambda alias, iid, repo_root=None: "BASE")
+    monkeypatch.setattr(glr, "build_prompt", lambda alias=None, issue_iid=None, repo_root=None: "SINGLE")
+    monkeypatch.setattr(glr, "_invoke_cli_with_prompt", lambda prompt, **k: seen.append(prompt) or {})
+    glr.invoke_batch_issue_agent("web", 7, repo_root=tmp_path, feedback="FIX IT", gate=True)
+    glr.invoke_issue_agent("web", 7, repo_root=tmp_path, feedback="FIX IT")
+    glr.invoke_batch_issue_agent("web", 7, repo_root=tmp_path)
+    assert seen[0].startswith("BASE") and seen[0].endswith("FIX IT")
+    assert seen[1].startswith("SINGLE") and seen[1].endswith("FIX IT")
+    assert seen[2] == "BASE"
 
 
 # --- Batch prompt builders (real subprocess against build_run_prompt.sh) ------
@@ -744,7 +787,8 @@ def _fake_per_issue_invoker_with_usage(calls, usages):
     payload per issue_iid (from `usages`), so the aggregation path from
     _invoke_cli_with_prompt's return value through to run.completed's
     emitted data can be exercised end-to-end."""
-    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
+    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
+                    feedback=None, gate=False):
         calls.append(("issue", alias, issue_iid, timeout_seconds))
         usage = usages[issue_iid]
         return {"changed": True, "cost_usd": usage["cost_usd"], "usage": usage}
@@ -813,7 +857,8 @@ def test_main_omits_token_fields_when_nothing_was_actually_priced(tmp_path, monk
 def _fake_unpriced_invoker(calls):
     """Every issue comes back with `cost_usd: None` - the Codex path (which
     reports no cost at all), or a Claude run whose cost extraction failed."""
-    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
+    def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
+                    feedback=None, gate=False):
         calls.append(("issue", alias, issue_iid, timeout_seconds))
         return {"changed": True, "cost_usd": None}
 

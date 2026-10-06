@@ -37,7 +37,7 @@ from loop_definition import LoopDefinition
 from loop_runtime import LoopRuntime
 from loop_serialize import write_result
 from loop_state import LoopState
-from loop_verifiers import CommandVerifier, build_verifiers
+from loop_verifiers import build_verifiers
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DEFINITION_PATH = REPO_ROOT / "loops" / "gitlab-issue" / "loop.yaml"
@@ -335,26 +335,32 @@ def _invoke_cli_with_prompt(prompt, repo_root=None, timeout_seconds=900, unified
     return {"changed": True, "cost_usd": cost_usd, "usage": usage}
 
 
-def invoke_issue_agent(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
+def _with_feedback(prompt, feedback):
+    return f"{prompt}\n\n{feedback}" if feedback else prompt
+
+
+def invoke_issue_agent(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
+                       feedback=None, gate=False):
     """The dashboard's on-demand single-issue invocation, unchanged: the
     2-arg prompt, which does its own full "End of run"."""
     if repo_root is None:
         repo_root = REPO_ROOT
     repo_root = Path(repo_root)
-    prompt = build_prompt(alias, issue_iid, repo_root=repo_root)
+    prompt = _with_feedback(build_prompt(alias, issue_iid, repo_root=repo_root), feedback)
     return _invoke_cli_with_prompt(
         prompt, repo_root=repo_root, timeout_seconds=timeout_seconds,
         unified_log_path=unified_log_path, alias=alias, issue_iid=issue_iid,
     )
 
 
-def invoke_batch_issue_agent(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None):
+def invoke_batch_issue_agent(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
+                             feedback=None, gate=False):
     """One issue inside the scheduled batch: no "End of run" here - the
     batch's single wrap-up call below does that once for the whole run."""
     if repo_root is None:
         repo_root = REPO_ROOT
     repo_root = Path(repo_root)
-    prompt = build_batch_issue_prompt(alias, issue_iid, repo_root=repo_root)
+    prompt = _with_feedback(build_batch_issue_prompt(alias, issue_iid, repo_root=repo_root), feedback)
     return _invoke_cli_with_prompt(
         prompt, repo_root=repo_root, timeout_seconds=timeout_seconds,
         unified_log_path=unified_log_path, alias=alias, issue_iid=issue_iid,
@@ -375,54 +381,58 @@ def invoke_batch_end_of_run_agent(repo_root=None, timeout_seconds=900, unified_l
     )
 
 
-def _external_verify_issue(alias, issue_iid, timeout_seconds, repo_root=None):
-    """Independently re-run `alias`'s real test_cmd/lint_cmd (from
-    ~/.loop-engineering/projects.json) against the worktree this issue's
-    agent call actually used, if it made one - see
-    docs/superpowers/specs/2026-09-13-gitlab-issue-external-verification-design.md.
-    Observe-only: the caller folds these into the persisted LoopResult's
-    verification_results for visibility (Loop Runs/Budget/Audit,
-    loop_serialize's "verified successful" count), but never uses them to
-    change final_state/stop_reason - that stays exactly what LoopRuntime
-    already decided from the agent's own report.
+_FEEDBACK_HEADER = (
+    "## Previous attempt failed external verification\n\n"
+    "The loop re-ran this project's own checks in your worktree after your last attempt. "
+    "Fix the cause, re-run the same commands yourself, and only then finish.\n\n"
+)
+_FEEDBACK_MAX_CHARS = 6000
+_FEEDBACK_PER_RESULT_CHARS = 2500
 
-    Returns [] (not an error) when there's no worktree - an issue the
-    agent answered without a code change has nothing to externally
-    verify. Never raises: any unexpected failure (a misconfigured
-    project, an unreadable projects.json) is caught, logged, and treated
-    as "no results" - this must never be what crashes a real batch run."""
-    try:
-        project = loop_config.get_project(alias)
-        worktree_root = loop_config.get_worktree_root()
-        worktree_path = Path(worktree_root) / f"{Path(project['local_path']).name}-issue-{issue_iid}"
-        if not worktree_path.is_dir():
-            return []
 
-        results = []
-        for kind, command in (("test", project.get("test_cmd")), ("lint", project.get("lint_cmd"))):
-            if not command:
-                continue
-            verifier = CommandVerifier(
-                name=f"external_{kind}", command=command, cwd=worktree_path, timeout_seconds=timeout_seconds,
-            )
-            verification_result = verifier.verify({})
-            # Truncate for storage only, not for the check itself: passed/
-            # exit_code are unaffected. Before this plan, verification_
-            # results was always [] for this loop, so CommandVerifier's own
-            # unbounded output never mattered; now every issue's result.json
-            # can carry up to two full test-suite outputs, which would grow
-            # outputs/loop-runs/ unbounded and slow every dashboard page that
-            # json.load()s it. Scoped to this call site rather than
-            # CommandVerifier itself, which is shared by templates/evals too.
-            verification_result.output = verification_result.output[-_STDERR_EXCERPT_CHARS:]
-            results.append(verification_result)
-        return results
-    except Exception as exc:  # noqa: BLE001 - see docstring: must never crash a real batch run
-        _append_unified_log(
-            f"external verification for {alias} #{issue_iid} failed: {type(exc).__name__}: {exc}",
-            repo_root=repo_root,
+def format_feedback(previous_iteration):
+    """Failure feedback for the next attempt: each failed verifier's output
+    tail (its output already carries `$ <command>` headers), bounded."""
+    parts = [
+        r.output[-_FEEDBACK_PER_RESULT_CHARS:]
+        for r in previous_iteration.verification_results if not r.passed
+    ]
+    return (_FEEDBACK_HEADER + "\n\n".join(parts))[:_FEEDBACK_MAX_CHARS]
+
+
+def _iteration_failed_verification(iteration):
+    return any(not r.passed for r in iteration.verification_results)
+
+
+def _emit_verification_events(run_id, issue_run_id, alias, issue_iid, mode, iteration, events_dir=None):
+    """external_skipped for a vacuous pass (no worktree / no commands),
+    external_completed otherwise - the vocabulary bin/metrics.py reads. An
+    iteration that never reached verification (agent failed, budget stop)
+    also counts as skipped."""
+    results = iteration.verification_results
+    if not results:
+        _emit_best_effort(
+            "verification.external_skipped", run_id=run_id, issue_run_id=issue_run_id,
+            project=alias, issue_iid=issue_iid, events_dir=events_dir,
         )
-        return []
+    for result in results:
+        evidence = result.evidence or {}
+        if evidence.get("vacuous") or evidence.get("commands") == []:
+            _emit_best_effort(
+                "verification.external_skipped", run_id=run_id, issue_run_id=issue_run_id,
+                project=alias, issue_iid=issue_iid, events_dir=events_dir,
+            )
+            continue
+        _emit_best_effort(
+            "verification.external_completed", run_id=run_id, issue_run_id=issue_run_id,
+            project=alias, issue_iid=issue_iid,
+            data={
+                "verifier": result.name, "passed": result.passed,
+                "observed_passed": evidence.get("observed_passed", result.passed),
+                "mode": mode, "iteration": iteration.iteration,
+            },
+            events_dir=events_dir,
+        )
 
 
 def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
@@ -432,27 +442,46 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
     CLAUDE.md's dependency-injection rule - a def-time default would bind
     the function object at import and make
     `monkeypatch.setattr(glr, "invoke_issue_agent", ...)` silently
-    ineffective. Also runs _external_verify_issue after `runtime.start()`
-    returns (which may invoke the agent multiple times across retries)
-    (observe-only - see that function's own docstring)."""
+    ineffective. External verification (the `project_commands` verifier) runs
+    inside LoopRuntime: observe mode records it without changing the outcome,
+    gate mode fails the iteration and retries with `format_feedback`."""
     if agent_invoker is None:
         agent_invoker = invoke_issue_agent
     issue_run_id = f"{run_id}_{alias}_{issue_iid}"
     timeout_seconds = definition.stop_conditions.max_runtime_minutes * 60
+    mode = definition.verification.mode
+    gate = mode == "gate"
     raw_costs = []
     raw_usages = []
 
     def agent_fn(context):
+        previous = context.get("previous")
+        feedback = format_feedback(previous) if previous and _iteration_failed_verification(previous) else None
         agent_result = agent_invoker(
             alias, issue_iid, repo_root=repo_root, timeout_seconds=timeout_seconds,
+            feedback=feedback, gate=gate,
         )
         if isinstance(agent_result, dict):
             raw_costs.append(agent_result.get("cost_usd"))
             raw_usages.append(agent_result.get("usage"))
         return agent_result
 
-    verifiers = build_verifiers(definition.verifiers, cwd=None)
-    runtime = LoopRuntime(agent_fn=agent_fn, verifiers=verifiers, events_dir=events_dir)
+    verifiers = build_verifiers(
+        definition.verifiers, cwd=None,
+        issue={"alias": alias, "issue_iid": issue_iid, "timeout_seconds": timeout_seconds}, mode=mode,
+    )
+    emitted_iterations = []
+
+    def on_iteration(_run_id, _loop_id, _definition_name, iterations):
+        # Called with the cumulative list after every iteration; emit only
+        # the newest one's verification events.
+        latest = iterations[-1]
+        if latest.iteration in emitted_iterations:
+            return
+        emitted_iterations.append(latest.iteration)
+        _emit_verification_events(run_id, issue_run_id, alias, issue_iid, mode, latest, events_dir=events_dir)
+
+    runtime = LoopRuntime(agent_fn=agent_fn, verifiers=verifiers, events_dir=events_dir, on_iteration=on_iteration)
     result = runtime.start(definition, run_id=issue_run_id)
     # LoopRuntime coerces a None cost_usd to 0 on its way into the budget
     # (`total_cost_usd += agent_result.get("cost_usd") or 0`), so the
@@ -464,28 +493,6 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
     # so outputs/loop-runs/<run>/result.json's shape is unchanged.
     setattr(result, _AGENT_COST_ATTR, _sum_or_none(raw_costs))
     setattr(result, _AGENT_USAGE_ATTR, _sum_usages(raw_usages))
-
-    if result.iterations:
-        external_results = _external_verify_issue(alias, issue_iid, timeout_seconds, repo_root=repo_root)
-        if external_results:
-            result.iterations[-1].verification_results.extend(external_results)
-            for external_result in external_results:
-                _emit_best_effort(
-                    "verification.external_completed", run_id=run_id, issue_run_id=issue_run_id,
-                    project=alias, issue_iid=issue_iid,
-                    data={"verifier": external_result.name, "passed": external_result.passed},
-                    events_dir=events_dir,
-                )
-        else:
-            # Distinguishes "ran cleanly, nothing to verify" from "has been
-            # silently broken for weeks" - see the final-review finding this
-            # addresses: previously every empty-result exit from
-            # _external_verify_issue (no worktree, no commands configured,
-            # or an unexpected exception) was outwardly indistinguishable.
-            _emit_best_effort(
-                "verification.external_skipped", run_id=run_id, issue_run_id=issue_run_id,
-                project=alias, issue_iid=issue_iid, events_dir=events_dir,
-            )
 
     write_result(result, results_dir=results_dir)
     return result

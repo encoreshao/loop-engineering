@@ -32,25 +32,25 @@ actions:
   - run_tests
   - create_merge_request
 
+# `project_commands` is resolved per issue at runtime: it re-runs the issue
+# project's own test_cmd/lint_cmd (from projects.json) inside the worktree the
+# agent used, via bin/loop_verifiers.py's ProjectCommandsVerifier. No worktree
+# (the agent made no code change) is a vacuous pass, not a failure.
+# mode: observe records the real result in the iteration's evidence
+# (`observed_passed`) but always passes, so outcomes are unchanged; mode: gate
+# makes a failure fail the iteration, and LoopRuntime retries with the failing
+# output as feedback. Stay on observe until the Harness page shows the agent's
+# own "fixed" claim agreeing with this check; flipping is a one-line change.
 verification:
-  required: []
+  required: [project_commands]
+  mode: observe
 
-# Deliberately empty: this field assumes one static command + cwd for
-# the whole loop, but this loop spans many projects (different
-# test_cmd/lint_cmd per project, from projects.json) and a different
-# worktree per issue - the wrong shape for that. Real external
-# verification now happens anyway: bin/gitlab_loop_runner.py's
-# _external_verify_issue independently re-runs each project's own
-# test_cmd/lint_cmd against the issue's actual worktree at runtime, not
-# through this field. It is currently observe-only (recorded, but never
-# changes an issue's outcome) - see
-# docs/superpowers/specs/2026-09-13-gitlab-issue-external-verification-design.md.
-# `loop audit` still FAILs this loop's `verification` check regardless:
-# it has no way to see this dynamic, runtime-only mechanism.
-verifiers: []
+verifiers:
+  - name: project_commands
+    type: project_commands
 
 stop_conditions:
-  max_iterations: 1
+  max_iterations: 2
   # Bounds each issue independently, nested inside run-loop.sh's outer
   # 21600s (6h) whole-batch sanity timeout - which is sized to leave room
   # for a double-digit issue count at this budget plus the end-of-run
@@ -61,17 +61,11 @@ stop_conditions:
   # (a project's own bundle install + rspec suite is the dominant cost and
   # has never been measured here).
   max_runtime_minutes: 30
-  # Neither of these is enforced mid-call: with max_iterations 1 the
-  # BudgetController is only consulted before the single agent call (when
-  # nothing has been spent) and after it, and no-progress detection needs
-  # at least two iterations to compare. The per-issue subprocess timeout
-  # derived from max_runtime_minutes above is the only real, enforced
-  # bound today - same honesty as the `verifiers: []` note above. This
-  # same value now also bounds each of up to two external-verification
-  # subprocess calls per issue (test_cmd, lint_cmd - see
-  # bin/gitlab_loop_runner.py's _external_verify_issue), run sequentially
-  # after the agent call, so the real worst-case per-issue ceiling is up
-  # to 3x this value, not 1x.
+  # Each iteration is one agent call plus the verifier's test_cmd and
+  # lint_cmd runs, each bounded by this same value, so the worst-case
+  # per-issue ceiling is max_iterations x 3 x this value (6x with the
+  # current 2 iterations); in observe mode only one iteration ever runs.
+  # The cost budget is only checked between iterations.
   max_cost_usd: 3
   no_progress_iterations: 2
 
@@ -79,9 +73,8 @@ human_gates:
   - merge
   - production_deploy
 
-# Retry is meaningless with no external verifier to disagree with the
-# agent's own self-report - explicitly disabled rather than left at the
-# library default of enabled/2 attempts.
+# Retry only ever triggers in gate mode (observe-mode verification always
+# passes); the retry carries the failing command output as feedback.
 retry:
-  enabled: false
-  max_attempts: 1
+  enabled: true
+  max_attempts: 2

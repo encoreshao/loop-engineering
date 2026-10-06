@@ -9,13 +9,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFINITION_PATH = REPO_ROOT / "loops" / "gitlab-issue" / "loop.yaml"
 
 
-def test_real_definition_has_no_verifiers_and_retry_disabled():
+def test_real_definition_verifies_externally_in_observe_mode_with_one_retry():
     definition = LoopDefinition.from_yaml(DEFINITION_PATH)
 
     assert definition.name == "gitlab-issue-loop"
-    assert definition.verifiers == []
-    assert definition.retry.enabled is False
-    assert definition.stop_conditions.max_iterations == 1
+    assert definition.verifiers == [{"name": "project_commands", "type": "project_commands"}]
+    assert definition.verification.required == ["project_commands"]
+    assert definition.verification.mode == "observe"
+    assert definition.retry.enabled is True and definition.retry.max_attempts == 2
+    assert definition.stop_conditions.max_iterations == 2
     # 30, not an invented number: it matches this repo's own
     # LoopDefinition/BudgetController default and
     # templates/gitlab-issue/loop.yaml, and bounds each issue independently
@@ -34,16 +36,10 @@ def test_real_definition_passes_loop_cli_validate():
     assert "Loop configuration valid." in result.stdout
 
 
-def test_real_definition_audit_honestly_flags_the_verification_gap():
-    """loop audit legitimately FAILs the verification check for this
-    definition (a code-mutating action, modify_code, with no configured
-    verifiers) - this is the "known, accepted limitation" from the design
-    doc surfacing correctly, not a bug to hide from the audit tool."""
+def test_real_definition_audit_passes_the_verification_check():
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "bin" / "loop_cli.py"), "audit", str(DEFINITION_PATH)],
         capture_output=True, text=True,
     )
-    assert result.returncode == 1
-    assert "verification" in result.stdout
-    assert "FAIL" in result.stdout
-    assert "Loop Ready Score" in result.stdout
+    assert result.returncode == 0
+    assert "PASS  verification" in result.stdout

@@ -267,3 +267,21 @@ def test_build_verifiers_gate_mode_unwrapped():
     assert isinstance(vs[0], lv.ProjectCommandsVerifier)
     vs = lv.build_verifiers([{"name": "pc", "type": "project_commands"}], issue=issue, mode="observe")
     assert isinstance(vs[0], lv.ObserveOnly)
+
+
+def test_project_commands_verify_never_raises_on_config_error(tmp_path):
+    def boom(alias):
+        raise KeyError(alias)
+    v = lv.ProjectCommandsVerifier("pc", "web", 7, 30, project_fn=boom, worktree_root_fn=lambda: tmp_path / "wt")
+    r = v.verify({})
+    assert r.passed is False and r.exit_code is None
+    assert r.output.startswith("KeyError:") and r.evidence == {"error": True}
+
+
+def test_project_commands_verify_never_raises_on_missing_binary(tmp_path):
+    (tmp_path / "wt" / "repo-issue-7").mkdir(parents=True)
+    v = lv.ProjectCommandsVerifier("pc", "web", 7, 30,
+                                   project_fn=lambda a: _project(tmp_path, "no-such-binary-xyz --flag", ""),
+                                   worktree_root_fn=lambda: tmp_path / "wt")
+    r = v.verify({})
+    assert r.passed is False and r.output.startswith("FileNotFoundError:") and r.evidence == {"error": True}
