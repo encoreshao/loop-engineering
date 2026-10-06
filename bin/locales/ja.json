@@ -764,7 +764,6 @@
   "Hide": "非表示",
   "(optional)": "（任意）",
   "Changing the id renames this connector.": "ID を変更するとこのコネクタの名前が変わります。",
-  "e.g. Work GitLab": "例: 仕事用 GitLab",
   "Stored in your macOS Keychain, never shown again.": "macOS のキーチェーンに保存され、再表示されることはありません。",
   "Credentials": "認証情報",
   "Where do I get this?": "取得方法",
@@ -797,5 +796,11 @@
   "Gmail": "Gmail",
   "Outlook": "Outlook",
   "Gmail inbox managed on the Inbox Triage page.": "Gmail の受信トレイ（Inbox Triage ページで管理）。",
-  "Outlook inbox managed on the Inbox Triage page.": "Outlook の受信トレイ（Inbox Triage ページで管理）。"
+  "Outlook inbox managed on the Inbox Triage page.": "Outlook の受信トレイ（Inbox Triage ページで管理）。",
+  "Post notifications to a Feishu group through a custom bot webhook.": "カスタムボットの Webhook 経由で Feishu グループに通知を送信します。",
+  "Post notifications to a DingTalk group through a custom robot webhook.": "カスタムロボットの Webhook 経由で DingTalk グループに通知を送信します。",
+  "Post notifications to a Discord channel through an incoming webhook.": "受信 Webhook 経由で Discord チャンネルに通知を送信します。",
+  "Post notifications to a Google Chat space through an incoming webhook.": "受信 Webhook 経由で Google Chat スペースに通知を送信します。",
+  "Post JSON notifications to any webhook URL.": "任意の Webhook URL に JSON 通知を送信します。",
+  "e.g. Work {name}": "例: 仕事用 {name}"
 }

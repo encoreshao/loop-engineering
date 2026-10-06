@@ -33,9 +33,13 @@ class WebhookConnector(Connector):
     description = "Post notifications to Feishu, DingTalk, WeCom, Teams, Discord, Google Chat or any webhook."
     docs_url = ""
     presets = (
-        Preset("feishu", "Feishu", "feishu", settings=(("format", "feishu"),),
+        Preset("feishu", "Feishu", "feishu",
+               description="Post notifications to a Feishu group through a custom bot webhook.",
+               settings=(("format", "feishu"),),
                docs_url="https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot"),
-        Preset("dingtalk", "DingTalk", "dingtalk", settings=(("format", "dingtalk"),),
+        Preset("dingtalk", "DingTalk", "dingtalk",
+               description="Post notifications to a DingTalk group through a custom robot webhook.",
+               settings=(("format", "dingtalk"),),
                docs_url="https://open.dingtalk.com/document/robots/custom-robot-access"),
         Preset("wecom", "WeCom 企业微信", "wecom",
                description="Group bot webhook. Personal WeChat has no bot API.",
@@ -45,11 +49,17 @@ class WebhookConnector(Connector):
                description="Teams Workflows webhooks may require Adaptive Cards.",
                settings=(("format", "teams"),),
                docs_url="https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook"),
-        Preset("discord", "Discord", "discord", settings=(("format", "discord"),),
+        Preset("discord", "Discord", "discord",
+               description="Post notifications to a Discord channel through an incoming webhook.",
+               settings=(("format", "discord"),),
                docs_url="https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks"),
-        Preset("googlechat", "Google Chat", "googlechat", settings=(("format", "googlechat"),),
+        Preset("googlechat", "Google Chat", "googlechat",
+               description="Post notifications to a Google Chat space through an incoming webhook.",
+               settings=(("format", "googlechat"),),
                docs_url="https://developers.google.com/workspace/chat/quickstart/webhooks", category="google"),
-        Preset("generic", "Generic webhook", "webhook", settings=(("format", "generic"),)),
+        Preset("generic", "Generic webhook", "webhook",
+               description="Post JSON notifications to any webhook URL.",
+               settings=(("format", "generic"),)),
     )
 
     def __init__(self, account, secret=None, http=None):

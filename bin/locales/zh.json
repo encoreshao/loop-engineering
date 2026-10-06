@@ -764,7 +764,6 @@
   "Hide": "隐藏",
   "(optional)": "（可选）",
   "Changing the id renames this connector.": "更改 ID 会重命名此连接器。",
-  "e.g. Work GitLab": "例如：工作 GitLab",
   "Stored in your macOS Keychain, never shown again.": "保存在 macOS 钥匙串中，不会再次显示。",
   "Credentials": "凭据",
   "Where do I get this?": "如何获取？",
@@ -797,5 +796,11 @@
   "Gmail": "Gmail",
   "Outlook": "Outlook",
   "Gmail inbox managed on the Inbox Triage page.": "在 Inbox Triage 页面管理的 Gmail 收件箱。",
-  "Outlook inbox managed on the Inbox Triage page.": "在 Inbox Triage 页面管理的 Outlook 收件箱。"
+  "Outlook inbox managed on the Inbox Triage page.": "在 Inbox Triage 页面管理的 Outlook 收件箱。",
+  "Post notifications to a Feishu group through a custom bot webhook.": "通过自定义机器人 Webhook 向飞书群发送通知。",
+  "Post notifications to a DingTalk group through a custom robot webhook.": "通过自定义机器人 Webhook 向钉钉群发送通知。",
+  "Post notifications to a Discord channel through an incoming webhook.": "通过传入 Webhook 向 Discord 频道发送通知。",
+  "Post notifications to a Google Chat space through an incoming webhook.": "通过传入 Webhook 向 Google Chat 空间发送通知。",
+  "Post JSON notifications to any webhook URL.": "向任意 Webhook URL 发送 JSON 通知。",
+  "e.g. Work {name}": "例如：工作 {name}"
 }

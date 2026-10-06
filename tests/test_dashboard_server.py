@@ -13458,8 +13458,12 @@ def test_tile_css_never_underlines_text():
 
 def test_tile_css_uses_accent_tokens_and_reduced_motion():
     css = ds._STYLE
-    block = css[css.index(".connector-tile"):]
+    start = css.index(".connector-gallery, .connector-hero {{".replace("{{", "{"))
+    block = css[start:css.index("@media (prefers-reduced-motion: reduce)", start)]
     assert "--md-nav-active-surface" in block and "--md-nav-active-on-surface" in block
+    assert ':root:not([data-color-mode="dark"]) .connector-gallery' in block
+    assert ':root[data-color-mode="light"] .connector-gallery' in block
+    assert ".connector-tile:hover" in block and "var(--cg-accent)" in block
     reduce_blocks = css.split("@media (prefers-reduced-motion: reduce)")[1:]
     assert any(".connector-tile" in b[:1500] for b in reduce_blocks)
 
@@ -13477,3 +13481,21 @@ def test_picker_sections_show_tile_count_badge():
 def test_connector_form_header_carries_brand_color():
     out = ds._connector_form_body("gitlab")
     assert re.search(r"class='connector-hero'[^>]*style='--brand:#FC6D26'", out)
+
+
+def test_connector_form_label_placeholder_names_the_type():
+    out = ds._connector_form_body("github")
+    assert "placeholder=\"e.g. Work GitHub\"" in out
+    assert "Work GitLab" not in out
+    preset = ds._connector_form_body("webhook", preset_key="feishu")
+    assert "placeholder=\"e.g. Work Feishu\"" in preset
+
+
+def test_tile_description_has_full_text_title():
+    out = ds._connector_type_picker_html()
+    assert re.search(r"<span class='connector-tile-desc' title=\"Read issues, pull requests[^\"]*\">", out)
+
+
+def test_connector_search_focus_keeps_forced_colors_outline():
+    rule = re.search(r"\.connector-search:focus[^{]*\{([^}]*)\}", ds._STYLE).group(1)
+    assert "outline: 2px solid transparent" in rule and "outline: none" not in rule

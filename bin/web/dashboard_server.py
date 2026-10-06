@@ -5764,6 +5764,9 @@ svg.brand-logo[fill="currentColor"] {{ color: #181717; }}
   --cg-chip-fg: var(--md-on-surface-variant);
   --cg-glow: transparent;
   --cg-shadow: rgba(0, 0, 0, 0.35);
+  --cg-badge-bg: var(--cg-chip-bg);
+  --cg-badge-fg: var(--cg-chip-fg);
+  --cg-rule: transparent;
 }}
 @supports (color: color-mix(in srgb, red 50%, blue)) {{
   .connector-gallery, .connector-hero {{
@@ -5788,14 +5791,18 @@ svg.brand-logo[fill="currentColor"] {{ color: #181717; }}
     --cg-chip-bg: var(--md-nav-active-surface);
     --cg-chip-fg: var(--md-nav-on-surface);
     --cg-shadow: rgba(30, 30, 40, 0.16);
+    --cg-badge-bg: var(--md-nav-active-on-surface);
+    --cg-badge-fg: #FFFFFF;
+    --cg-rule: var(--md-nav-active-on-surface);
   }}
   @supports (color: color-mix(in srgb, red 50%, blue)) {{
     :root:not([data-color-mode="dark"]) .connector-gallery,
     :root:not([data-color-mode="dark"]) .connector-hero {{
-      --cg-card: color-mix(in srgb, var(--md-nav-surface) 45%, #FFFFFF);
-      --cg-panel: color-mix(in srgb, var(--md-nav-surface) 70%, var(--md-surface));
-      --cg-border: color-mix(in srgb, var(--md-nav-active-surface) 55%, var(--md-outline-variant));
-      --cg-chip-bg: color-mix(in srgb, var(--md-nav-active-surface) 70%, #FFFFFF);
+      --cg-card: color-mix(in srgb, var(--md-nav-active-surface) 35%, #FFFFFF);
+      --cg-card-hover: color-mix(in srgb, var(--md-nav-active-surface) 20%, #FFFFFF);
+      --cg-panel: color-mix(in srgb, var(--md-nav-active-surface) 60%, var(--md-nav-surface));
+      --cg-border: color-mix(in srgb, var(--md-nav-active-on-surface) 28%, var(--md-nav-active-surface));
+      --cg-chip-bg: color-mix(in srgb, var(--md-nav-active-surface) 82%, var(--md-nav-active-on-surface));
       --cg-glow-mix: 26%;
       --cg-shadow-base: rgba(30, 30, 40, 0.14);
     }}
@@ -5811,14 +5818,18 @@ svg.brand-logo[fill="currentColor"] {{ color: #181717; }}
   --cg-chip-bg: var(--md-nav-active-surface);
   --cg-chip-fg: var(--md-nav-on-surface);
   --cg-shadow: rgba(30, 30, 40, 0.16);
+  --cg-badge-bg: var(--md-nav-active-on-surface);
+  --cg-badge-fg: #FFFFFF;
+  --cg-rule: var(--md-nav-active-on-surface);
 }}
 @supports (color: color-mix(in srgb, red 50%, blue)) {{
   :root[data-color-mode="light"] .connector-gallery,
   :root[data-color-mode="light"] .connector-hero {{
-    --cg-card: color-mix(in srgb, var(--md-nav-surface) 45%, #FFFFFF);
-    --cg-panel: color-mix(in srgb, var(--md-nav-surface) 70%, var(--md-surface));
-    --cg-border: color-mix(in srgb, var(--md-nav-active-surface) 55%, var(--md-outline-variant));
-    --cg-chip-bg: color-mix(in srgb, var(--md-nav-active-surface) 70%, #FFFFFF);
+    --cg-card: color-mix(in srgb, var(--md-nav-active-surface) 35%, #FFFFFF);
+    --cg-card-hover: color-mix(in srgb, var(--md-nav-active-surface) 20%, #FFFFFF);
+    --cg-panel: color-mix(in srgb, var(--md-nav-active-surface) 60%, var(--md-nav-surface));
+    --cg-border: color-mix(in srgb, var(--md-nav-active-on-surface) 28%, var(--md-nav-active-surface));
+    --cg-chip-bg: color-mix(in srgb, var(--md-nav-active-surface) 82%, var(--md-nav-active-on-surface));
     --cg-glow-mix: 26%;
     --cg-shadow-base: rgba(30, 30, 40, 0.14);
   }}
@@ -5836,11 +5847,11 @@ svg.brand-logo[fill="currentColor"] {{ color: #181717; }}
 .connector-search-wrap .material-symbols-outlined {{ position: absolute; left: 0.9rem; font-size: 20px; color: var(--md-on-surface-variant); pointer-events: none; }}
 .connector-search {{ width: 100%; height: 2.75rem; padding: 0 1rem 0 2.75rem; border: 1px solid var(--cg-border); border-radius: 999px; background: var(--cg-card); color: var(--md-on-surface); font: inherit; font-size: 0.92rem; box-sizing: border-box; transition: border-color 150ms ease, box-shadow 150ms ease; }}
 .connector-search::placeholder {{ color: var(--md-on-surface-variant); }}
-.connector-search:focus, .connector-search:focus-visible {{ outline: none; border-color: var(--cg-accent); box-shadow: 0 0 0 3px var(--md-outline-variant); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cg-accent) 25%, transparent); }}
+.connector-search:focus, .connector-search:focus-visible {{ outline: 2px solid transparent; border-color: var(--cg-accent); box-shadow: 0 0 0 3px var(--md-outline-variant); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cg-accent) 25%, transparent); }}
 .connector-category {{ margin: 0 0 1.75rem; }}
-.connector-category h2 {{ display: flex; align-items: center; gap: 0.55rem; margin: 0 0 0.85rem; font-size: 1rem; font-weight: 500; color: var(--md-on-surface); }}
+.connector-category h2 {{ display: flex; align-items: center; gap: 0.55rem; margin: 0 0 0.85rem; padding-bottom: 0.45rem; background: linear-gradient(var(--cg-rule), var(--cg-rule)) left bottom / 2rem 2px no-repeat; font-size: 1rem; font-weight: 500; color: var(--md-on-surface); }}
 .connector-category h2 .brand-logo {{ padding: 0; background: none; }}
-.connector-count {{ display: inline-flex; align-items: center; justify-content: center; min-width: 1.4rem; height: 1.4rem; padding: 0 0.4rem; box-sizing: border-box; border-radius: 999px; background: var(--cg-chip-bg); color: var(--cg-chip-fg); font-size: 0.72rem; font-weight: 500; }}
+.connector-count {{ display: inline-flex; align-items: center; justify-content: center; min-width: 1.4rem; height: 1.4rem; padding: 0 0.4rem; box-sizing: border-box; border-radius: 999px; background: var(--cg-badge-bg); color: var(--cg-badge-fg); font-size: 0.72rem; font-weight: 500; }}
 /* Google leads the gallery: its section sits on its own accent panel. */
 .connector-category[data-category="google"] {{ padding: 1.1rem 1.25rem 1.25rem; border: 1px solid var(--cg-border); border-radius: 20px; background: var(--cg-panel); }}
 .connector-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 1rem; }}
@@ -12732,7 +12743,7 @@ def _connector_tile_html(href, brand, label, description, capabilities, type_key
         f"<span class='connector-tile-head'><span class='connector-tile-mark'>"
         f"{brand_logos.brand_logo_svg(brand, name, 26)}</span>"
         f"<strong class='connector-tile-name'>{html.escape(name)}</strong></span>"
-        f"<span class='connector-tile-desc'>{desc}</span>"
+        f"<span class='connector-tile-desc' title=\"{desc}\">{desc}</span>"
         f"<span class='connector-tile-caps'>{chips}</span></a>")
 
 
@@ -12874,13 +12885,14 @@ def _connector_form_body(type_name, account=None, preset_key=None, submitted=Non
     def described(field_id, help_text):
         return f" aria-describedby='{field_id}-help'" if help_text else ""
 
+    type_title = i18n.t(preset.label) if preset else i18n.t(cls.label)
     id_help = _t("Lowercase letters, digits and dashes")
     if editing:
         id_help += " " + _t("Changing the id renames this connector.")
     account_rows = [
         row("cf-label", _t("Label"),
             f"<input type='text' id='cf-label' name='label' value='{html.escape(label_value, quote=True)}' "
-            f"placeholder=\"{html.escape(_t('e.g. Work GitLab'), quote=True)}\" required>", required=True),
+            f"placeholder=\"{html.escape(_t('e.g. Work {name}', name=type_title), quote=True)}\" required>", required=True),
         row("cf-id", _t("Connector id"),
             f"<input type='text' id='cf-id' name='id' value='{html.escape(id_value, quote=True)}' "
             f"pattern='[a-z0-9][a-z0-9-]{{0,47}}' maxlength='48'{_CONNECTOR_TECH_INPUT_ATTRS}"

@@ -467,3 +467,11 @@ def test_googlechat_preset_overrides_category_to_google():
     chat = next(p for p in webhook.WebhookConnector.presets if p.key == "googlechat")
     assert chat.category == "google"
     assert all(p.category == "" for p in webhook.WebhookConnector.presets if p.key != "googlechat")
+
+
+def test_webhook_preset_descriptions_are_distinct_and_non_empty():
+    cls = connectors.get_type("webhook")
+    descriptions = [p.description for p in cls.presets]
+    assert all(d.strip() for d in descriptions)
+    assert len(set(descriptions)) == len(descriptions)
+    assert cls.description not in descriptions

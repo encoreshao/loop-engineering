@@ -764,7 +764,6 @@
   "Hide": "Masquer",
   "(optional)": "(facultatif)",
   "Changing the id renames this connector.": "Modifier l'identifiant renomme ce connecteur.",
-  "e.g. Work GitLab": "p. ex. GitLab pro",
   "Stored in your macOS Keychain, never shown again.": "Stocké dans votre trousseau macOS, jamais réaffiché.",
   "Credentials": "Identifiants",
   "Where do I get this?": "Où l'obtenir ?",
@@ -797,5 +796,11 @@
   "Gmail": "Gmail",
   "Outlook": "Outlook",
   "Gmail inbox managed on the Inbox Triage page.": "Boîte Gmail gérée sur la page Inbox Triage.",
-  "Outlook inbox managed on the Inbox Triage page.": "Boîte Outlook gérée sur la page Inbox Triage."
+  "Outlook inbox managed on the Inbox Triage page.": "Boîte Outlook gérée sur la page Inbox Triage.",
+  "Post notifications to a Feishu group through a custom bot webhook.": "Envoyer des notifications vers un groupe Feishu via le webhook d'un bot personnalisé.",
+  "Post notifications to a DingTalk group through a custom robot webhook.": "Envoyer des notifications vers un groupe DingTalk via le webhook d'un robot personnalisé.",
+  "Post notifications to a Discord channel through an incoming webhook.": "Envoyer des notifications vers un salon Discord via un webhook entrant.",
+  "Post notifications to a Google Chat space through an incoming webhook.": "Envoyer des notifications vers un espace Google Chat via un webhook entrant.",
+  "Post JSON notifications to any webhook URL.": "Envoyer des notifications JSON vers n'importe quelle URL de webhook.",
+  "e.g. Work {name}": "p. ex. {name} pro"
 }
