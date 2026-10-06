@@ -13775,9 +13775,9 @@ def _gate_ev(event_type, iid, data=None, project="web", run_id="r"):
 
 def test_gate_stats_agreement_rate():
     events = [
-        {"event_type": "issue.completed", "project": "web", "issue_iid": 1, "data": {}, "run_id": "r"},
+        {"event_type": "issue.completed", "project": "web", "issue_iid": 1, "data": {"action": "fix"}, "run_id": "r"},
         {"event_type": "verification.external_completed", "project": "web", "issue_iid": 1, "data": {"observed_passed": True}, "run_id": "r"},
-        {"event_type": "issue.completed", "project": "web", "issue_iid": 2, "data": {}, "run_id": "r"},
+        {"event_type": "issue.completed", "project": "web", "issue_iid": 2, "data": {"action": "fix"}, "run_id": "r"},
         {"event_type": "verification.external_completed", "project": "web", "issue_iid": 2, "data": {"observed_passed": False}, "run_id": "r"},
     ]
     s = ds.gate_stats(events_iter=lambda days: events)
@@ -13792,9 +13792,9 @@ def test_gate_stats_uses_last_iteration_and_excludes_verifier_errors():
     events = [
         _gate_ev("verification.external_completed", 1, {"observed_passed": False, "iteration": 1}),
         _gate_ev("verification.external_completed", 1, {"observed_passed": True, "iteration": 2}),
-        _gate_ev("issue.completed", 1),
+        _gate_ev("issue.completed", 1, {"action": "fix"}),
         _gate_ev("verification.external_completed", 2, {"observed_passed": False, "error": True}),
-        _gate_ev("issue.completed", 2),
+        _gate_ev("issue.completed", 2, {"action": "fix"}),
     ]
     s = ds.gate_stats(events_iter=lambda days: events)
     assert s["issues"] == 1 and s["agreement_rate"] == 1.0
@@ -13825,7 +13825,7 @@ def test_gates_body_renders_tiles_table_and_loop_modes(tmp_path):
     )
     events = [
         _gate_ev("verification.external_completed", 1, {"observed_passed": True}),
-        _gate_ev("issue.completed", 1),
+        _gate_ev("issue.completed", 1, {"action": "fix"}),
     ]
     html_out = ds._gates_body(loops_dir=tmp_path, events_iter=lambda days: events)
     assert "100%" in html_out and "90%" in html_out
@@ -13845,10 +13845,35 @@ def test_gate_stats_ignores_gate_mode_verdicts_for_agreement():
     events = [
         _gate_ev("verification.external_completed", 1, {"observed_passed": False, "mode": "gate", "iteration": 1}),
         _gate_ev("verification.external_completed", 1, {"observed_passed": True, "mode": "gate", "iteration": 2}),
-        _gate_ev("issue.completed", 1),
+        _gate_ev("issue.completed", 1, {"action": "fix"}),
         _gate_ev("verification.external_completed", 2, {"observed_passed": True, "mode": "observe"}),
-        _gate_ev("issue.completed", 2),
+        _gate_ev("issue.completed", 2, {"action": "fix"}),
     ]
     s = ds.gate_stats(events_iter=lambda days: events)
     assert s["issues"] == 1 and s["agreement_rate"] == 1.0
     assert s["retried_then_passed"] == 1
+
+
+def test_gate_stats_agreement_counts_only_fix_completions():
+    events = [
+        _gate_ev("verification.external_completed", 1, {"observed_passed": True}),
+        _gate_ev("issue.completed", 1, {"action": "fix"}),
+        # An answer or a wait on a stale worktree is not an "agent said fixed" claim.
+        _gate_ev("verification.external_completed", 2, {"observed_passed": False}),
+        _gate_ev("issue.completed", 2, {"action": "answer"}),
+        _gate_ev("verification.external_completed", 3, {"observed_passed": False}),
+        _gate_ev("issue.completed", 3, {"action": "wait_for_review"}),
+        # No completion at all (escalated, or nothing claimed): not counted either.
+        _gate_ev("verification.external_completed", 4, {"observed_passed": True}),
+        _gate_ev("verification.external_completed", 5, {"observed_passed": False}),
+        _gate_ev("issue.completed", 5, {"action": "fix"}),
+    ]
+    s = ds.gate_stats(events_iter=lambda days: events)
+    assert s["issues"] == 2 and s["agreement_rate"] == 0.5
+    assert s["by_project"]["web"]["issues"] == 2
+
+
+def test_gate_stats_counts_run_incomplete_as_an_escalation_not_a_block():
+    events = [_gate_ev("issue.escalated", 1, {"reason": "run_incomplete", "gated": True})]
+    s = ds.gate_stats(events_iter=lambda days: events)
+    assert s["escalated_verification"] == 1 and s["gated_blocks"] == 0

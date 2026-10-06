@@ -9260,16 +9260,20 @@ def render_loop_run_detail_page(run_id):
     )
 
 
-_GATE_ESCALATION_REASONS = ("verification_failed", "handoff_invalid", "mr_open_failed", "project_config_error")
+_GATE_ESCALATION_REASONS = (
+    "verification_failed", "handoff_invalid", "mr_open_failed", "project_config_error", "run_incomplete",
+)
 _GATE_AGREEMENT_THRESHOLD = 0.9
 
 
 def gate_stats(days=7, events_iter=None):
-    """Observe-mode agreement and gate outcomes from the event log: per
-    issue (run_id + project + issue_iid), the LAST non-error
-    verification.external_completed's observed_passed vs whether the issue
-    emitted issue.completed. Verifier config errors (data.error) are
-    excluded from agreement."""
+    """Observe-mode agreement and gate outcomes from the event log: over
+    the issues (run_id + project + issue_iid) whose issue.completed says
+    data.action == "fix" - the agent's "fixed" claim - the share whose LAST
+    non-error verification.external_completed observed a pass. Answers,
+    waits and escalations claim no fix (a verdict on them is usually a
+    stale worktree from an earlier run), so they are left out. Verifier
+    config errors (data.error) are excluded too."""
     if events_iter is None:
         def events_iter(days):
             since = (datetime.now(timezone.utc).date() - timedelta(days=days - 1)).isoformat()
@@ -9280,7 +9284,7 @@ def gate_stats(days=7, events_iter=None):
                 "escalated_verification": 0, "policy_denied": 0}
 
     total, by_project = blank(), {}
-    last_verdict, completed, retried = {}, set(), set()
+    last_verdict, fixed, retried = {}, set(), set()
     agree = {}
 
     def bucket(project):
@@ -9298,7 +9302,8 @@ def gate_stats(days=7, events_iter=None):
             if data.get("observed_passed") and (data.get("iteration") or 1) >= 2:
                 retried.add(key)
         elif kind == "issue.completed":
-            completed.add(key)
+            if data.get("action") == "fix":
+                fixed.add(key)
         elif kind == "issue.escalated":
             reason = data.get("reason")
             if reason in _GATE_ESCALATION_REASONS and data.get("gated"):
@@ -9313,10 +9318,12 @@ def gate_stats(days=7, events_iter=None):
                 bucket(project)["policy_denied"] += 1
 
     for key, verdict in last_verdict.items():
+        if key not in fixed:
+            continue
         for t in [total] + ([bucket(key[1])] if key[1] else []):
             t["issues"] += 1
             agree.setdefault(id(t), 0)
-            agree[id(t)] += int(verdict == (key in completed))
+            agree[id(t)] += int(verdict)
     for key in retried:
         for t in [total] + ([bucket(key[1])] if key[1] else []):
             t["retried_then_passed"] += 1
