@@ -489,3 +489,48 @@ def test_webhook_preset_descriptions_are_distinct_and_non_empty():
     assert all(d.strip() for d in descriptions)
     assert len(set(descriptions)) == len(descriptions)
     assert cls.description not in descriptions
+
+
+class _FakeResp:
+    def __init__(self, data): self.data = data; self.read_sizes = []
+    def read(self, n=-1): self.read_sizes.append(n); return self.data if n < 0 else self.data[:n]
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+def test_gitlab_api_text_returns_text_with_token_header(monkeypatch):
+    import urllib.request
+    seen = {}
+    def fake(req, timeout=None):
+        seen["url"] = req.full_url; seen["headers"] = dict(req.header_items()); seen["timeout"] = timeout
+        return _FakeResp("boom ✓\n".encode())
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    c, _ = make("gitlab", {"url": "https://gl.example/"}, secret="tok")
+    assert c.api_text("/projects/9/jobs/5/trace", timeout=7) == "boom ✓\n"
+    assert seen["url"] == "https://gl.example/api/v4/projects/9/jobs/5/trace"
+    assert seen["headers"]["Private-token"] == "tok" and seen["timeout"] == 7
+
+
+def test_gitlab_api_text_caps_read_at_2mb(monkeypatch):
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: _FakeResp(b"x" * (3 * 1024 * 1024)))
+    c, _ = make("gitlab", {"url": "https://gl.example"})
+    assert len(c.api_text("/t")) == 2 * 1024 * 1024
+
+
+def test_gitlab_api_text_errors_redact_url_and_token(monkeypatch):
+    import io, urllib.error, urllib.request
+    import mail_http
+    def boom(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 404, "nf", {}, io.BytesIO(b"secret-body tok"))
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    c, _ = make("gitlab", {"url": "https://gl.example"}, secret="tok")
+    with pytest.raises(mail_http.MailHTTPError) as ei:
+        c.api_text("/projects/9/jobs/5/trace")
+    text = str(ei.value) + repr(ei.value.url) + str(ei.value.body)
+    assert ei.value.status == 404 and "tok" not in text and "gl.example" not in text
+    def net(req, timeout=None): raise urllib.error.URLError("dns tok")
+    monkeypatch.setattr(urllib.request, "urlopen", net)
+    with pytest.raises(mail_http.MailHTTPError) as ei:
+        c.api_text("/x")
+    assert ei.value.status is None and "tok" not in str(ei.value) + str(ei.value.body)

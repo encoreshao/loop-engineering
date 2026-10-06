@@ -49,5 +49,17 @@
     "emit_run_events": false,
     "routes_notifications": true,
     "requires": ["merge_requests"]
+  },
+  {
+    "name": "pipeline-doctor-loop",
+    "entry_point": "bin.loop_plugins.pipeline_doctor",
+    "description": "Diagnoses failed CI pipelines on your tracked projects and your open MRs, and flags failures that keep recurring.",
+    "schedule": {"frequency": "hourly", "interval_hours": 1},
+    "enabled": false,
+    "timeout_seconds": 1800,
+    "log_suffix": "-pipeline-doctor-loop",
+    "emit_run_events": false,
+    "routes_notifications": true,
+    "requires": ["pipelines"]
   }
 ]
