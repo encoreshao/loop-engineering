@@ -12447,6 +12447,23 @@ def test_connectors_accounts_body_escapes_and_shows_last_result(monkeypatch, tmp
     assert "x<y" not in out.replace("x&lt;y", "")
 
 
+def test_connectors_accounts_body_wraps_cards_in_grid(monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [
+        _gh_account(id="gh1", type="github", label="GH"),
+        {"id": "slack1", "type": "slack", "label": "SL", "enabled": True,
+         "settings": {}, "managed_by": "native"}])
+    out = ds._connectors_accounts_body(None, True)
+    # Check that grid wrapper exists
+    assert "<div class='grid connector-accounts'>" in out
+    # Check that both card type headers are inside the grid (grid opens before both headings and closes after)
+    grid_start = out.index("<div class='grid connector-accounts'>")
+    gh_pos = out.find("GH")
+    sl_pos = out.find("SL")
+    grid_end = out.rfind("</div>")  # Last closing div should be the grid close
+    assert grid_start < gh_pos < grid_end
+    assert grid_start < sl_pos < grid_end
+
+
 def test_connectors_notify_row_uses_send_test_message(monkeypatch):
     monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [
         _gh_account(id="w", type="webhook", label="W", settings={"format": "feishu"})])

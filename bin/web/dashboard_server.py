@@ -12705,7 +12705,7 @@ def _connectors_accounts_body(flash=None, flash_ok=True, list_fn=None):
         cards.append(f"<div class='card'><p class='section-subtitle'>{html.escape(_t('No connectors yet.'))} "
                      f"<a href='/connectors?view=add'>{html.escape(_t('Add a connector'))}</a></p></div>")
     subtitle = (f"<p class='section-subtitle'>{html.escape(_t('Accounts the loops can read from or notify through.'))}</p>")
-    return _flash_html(flash, flash_ok) + error_html + subtitle + "".join(cards)
+    return _flash_html(flash, flash_ok) + error_html + subtitle + f"<div class='grid connector-accounts'>{''.join(cards)}</div>"
 
 
 _CONNECTOR_CATEGORIES = (
