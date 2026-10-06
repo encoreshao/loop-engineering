@@ -47,4 +47,5 @@ def hub_tab_strip_html(hub_path, views, active_key, translate, extra_query=""):
             f"<a class='{cls}' href='{html.escape(href)}'{current}>"
             f"{html.escape(translate(view.label))}</a>"
         )
-    return f"<nav class='hub-tabs' role='tablist'>{''.join(links)}</nav>"
+    label = html.escape(translate("Page sections"))
+    return f"<nav class='hub-tabs' aria-label='{label}'>{''.join(links)}</nav>"

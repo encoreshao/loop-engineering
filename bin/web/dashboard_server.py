@@ -6433,7 +6433,6 @@ _SECTION_ICON_LOOP_RUNS = "<span class='material-symbols-outlined' aria-hidden='
 _SECTION_ICON_ANALYTICS = "<span class='material-symbols-outlined' aria-hidden='true'>monitoring</span>"
 _SECTION_ICON_COST = "<span class='material-symbols-outlined' aria-hidden='true'>payments</span>"
 _SECTION_ICON_AUDIT = "<span class='material-symbols-outlined' aria-hidden='true'>fact_check</span>"
-_SECTION_ICON_BUDGET = "<span class='material-symbols-outlined' aria-hidden='true'>account_balance_wallet</span>"
 _SECTION_ICON_RISK = "<span class='material-symbols-outlined' aria-hidden='true'>warning</span>"
 _SECTION_ICON_FAILURE = "<span class='material-symbols-outlined' aria-hidden='true'>error</span>"
 
@@ -6754,11 +6753,13 @@ def _sidebar_loop_children(active_page, loops=None, status_path_fn=None):
     if loops is None:
         try:
             loops = loops_config.list_loops()
-        except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError):
+        except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError, AttributeError):
             loops = []
     pages = _loop_pages()
     links = []
     for loop in loops:
+        if not isinstance(loop, dict):
+            continue
         name = str(loop.get("name", ""))
         page = pages.get(name)
         if page is None or not loop_is_visible(loop, status_path_fn):
@@ -8734,7 +8735,6 @@ def _history_body():
     sections rather than one merged list: the two loops' history entries
     link to different detail routes and aren't otherwise distinguishable
     by filename alone."""
-    status = read_status(STATUS_PATH)
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
 
     gitlab_entries = []
@@ -8827,7 +8827,6 @@ def _loop_runs_body():
     docs/superpowers/specs/2026-09-07-dashboard-loop-runs-page-design.md.
     Read-only: these runs come from a separate `loop run` process, there
     is nothing here to trigger or delete (yet)."""
-    status = read_status(STATUS_PATH)
     paths = list(reversed(loop_serialize.list_results(results_dir=LOOP_RUNS_DIR)))
 
     if not paths:
@@ -8999,7 +8998,6 @@ def _audit_body(loops_dir=None):
         loops_dir = LOOPS_DIR
     loops_dir = Path(loops_dir)
 
-    status = read_status(STATUS_PATH)
     paths = sorted(loops_dir.glob("*/loop.yaml")) if loops_dir.exists() else []
 
     if not paths:
@@ -9135,7 +9133,6 @@ def _budget_body():
     rendering; the By loop/day/week/month rollups above it are new
     aggregation via loop_budget.summarize_by_loop/summarize_by_time
     (V2 tech plan section 23)."""
-    status = read_status(STATUS_PATH)
     paths = list(reversed(loop_serialize.list_results(results_dir=LOOP_RUNS_DIR)))
 
     runs_with_budget = []
@@ -9247,7 +9244,6 @@ def _logs_body():
     starts and ends. Auto-refreshes like every other page whose data
     changes out from under a reader (Live GitLab, Topic Monitor,
     Activity)."""
-    status = read_status(STATUS_PATH)
     tail = read_unified_log_tail()
     if tail:
         entries = _parse_unified_log_entries(tail)
@@ -9469,7 +9465,6 @@ def _gitlab_body():
     by the browser from /gitlab/live after the page paints, replacing the
     data-lazy-load placeholder below (see render_gitlab_live_fragment and
     _render_shell's lazy-load script)."""
-    status = read_status(STATUS_PATH)
 
     body = f"""
 <div class="page-title">
@@ -9543,7 +9538,6 @@ def _general_settings_body(flash=None, flash_ok=True, active_tab="notifications"
     back on that same tab instead of resetting to the first one. An
     unrecognized value falls back to "notifications", same as an absent
     one."""
-    status = read_status(STATUS_PATH)
     slack_config = read_slack_config(SLACK_CONFIG_PATH)
     current_cli = ai_cli_config.get_selected_cli(ai_cli_config.DEFAULT_CONFIG_PATH)
     current_text = read_custom_instructions()
@@ -10226,7 +10220,6 @@ def _memory_body():
     which pill is clickable. Falls back to the old plain pill when the
     alias's URL can't be resolved (no gitlab-config entry for it yet)
     rather than linking to a guessed, possibly-wrong URL."""
-    status = read_status(STATUS_PATH)
     memory = get_project_memory()
     learning_report = learning.build_learning_report()
     lesson_stats_by_id = {entry["lesson_id"]: entry for entry in learning_report["lessons"]}
@@ -10420,7 +10413,6 @@ def _topic_monitor_body(flash=None, flash_ok=True):
     `flash`/`flash_ok` carry a POST-redirect-GET result from the "Run now"
     button's /topic-monitor/run-now route, same convention as
     render_overview_page's own /run-now button."""
-    status = read_status(STATUS_PATH)
     # Disabled topics are configuration, not something to show a live status
     # card for here - they never run, so a status card for one would either
     # go stale forever or (for one that's never run) just repeat the same
@@ -10582,7 +10574,6 @@ def _topic_settings_body(flash=None, flash_ok=True):
     `flash`/`flash_ok` carry a POST-redirect-GET result from
     /topic-monitor/topics, /topic-monitor/topics/<name>/delete, or
     /topic-monitor/topics/<name>/enable|disable."""
-    status = read_status(STATUS_PATH)
     topics = get_configured_topics()
     bundles = read_gitlab_config(GITLAB_CONFIG_PATH).get("bundles", {})
 
@@ -10716,12 +10707,9 @@ def _inbox_config_for_page():
 def _inbox_body(flash=None, flash_ok=True):
     """Inbox Triage page: read-only status for every connected inbox (see
     inbox_pages.render_inbox_body). Config/status come from inbox_config/
-    inbox_status, not this dashboard's own GitLab-loop STATUS_PATH - that's
-    only read here for the shared topbar badge every page shows (see
-    _status_badge_markup). One of the "Live" group's auto-refreshing pages
+    inbox_status, not this dashboard's own GitLab-loop STATUS_PATH. One of the "Live" group's auto-refreshing pages
     (see _render_shell's own docstring) - a run's state/counts/urgent list
     can change out from under a reader the same way Topic Monitor's can."""
-    status = read_status(STATUS_PATH)
 
     flash_html = ""
     if flash:
@@ -10769,7 +10757,6 @@ def _inbox_setup_body(port, flash=None, flash_ok=True, active_tab=None):
     and the Slack bundle names in (same source as
     render_topic_settings_page) since inbox_pages can't import this
     module."""
-    status = read_status(STATUS_PATH)
     bundles = read_gitlab_config(GITLAB_CONFIG_PATH).get("bundles", {})
 
     flash_html = ""
@@ -10851,7 +10838,6 @@ def _skills_body(flash=None, flash_ok=True):
     While an install is already running (skills_install_status.json's
     state), the button is replaced with a pending notice instead of
     letting a second install stack on top of it."""
-    status = read_status(STATUS_PATH)
     skills = get_skills_status()
     install_status = read_status(SKILLS_INSTALL_STATUS_PATH)
     installing = install_status.get("state") == "installing"
@@ -11000,6 +10986,15 @@ def _schedule_form_html(daemon, csrf_input):
     )
 
 
+def _flash_html(flash, flash_ok=True):
+    """The POST-redirect-GET result banner; flash text is untrusted, so it is
+    always html.escape()d. Empty string when there is nothing to show."""
+    if not flash:
+        return ""
+    flash_class = "flash-success" if flash_ok else "flash-danger"
+    return f"<div class='flash {flash_class}'>{html.escape(str(flash))}</div>"
+
+
 def _daemons_body(flash=None, flash_ok=True):
     """Launchd Daemons page: load state, schedule, and enable/disable
     controls for every launchd daemon in this project.
@@ -11009,13 +11004,9 @@ def _daemons_body(flash=None, flash_ok=True):
     DashboardHandler._redirect_with_flash). `flash` may contain launchctl's
     own stderr output, which is untrusted text, so it always goes through
     html.escape()."""
-    status = read_status(STATUS_PATH)
     daemons = get_daemons_status(LAUNCHD_DIR)
 
-    flash_html = ""
-    if flash:
-        flash_class = "flash-success" if flash_ok else "flash-danger"
-        flash_html = f"<div class='flash {flash_class}'>{html.escape(str(flash))}</div>"
+    flash_html = _flash_html(flash, flash_ok)
 
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
 
@@ -11441,7 +11432,6 @@ def _gitlab_projects_body(flash=None, flash_ok=True):
     /settings/* POST routes, same convention as render_daemons_page - shown
     immediately rather than behind the lazy-load fetch since it only
     depends on the redirect's query string, not any config read."""
-    status = read_status(STATUS_PATH)
 
     flash_html = ""
     if flash:
@@ -11913,7 +11903,6 @@ def _analytics_body(days=7):
 {_trend_section_html(days)}
 </div>
 """
-    status = read_status(STATUS_PATH)
     return body
 
 
@@ -11988,7 +11977,6 @@ def _cost_body(days=7):
 {_loop_runtime_cost_section_html(cost_summary)}
 </div>
 """
-    status = read_status(STATUS_PATH)
     return body
 
 
@@ -12296,13 +12284,14 @@ def _loops_catalog_row(loop, csrf_input, pages):
     )
 
 
-def _loops_catalog_body():
+def _loops_catalog_body(flash=None, flash_ok=True):
     """The /loops catalog: loops that are enabled or have run vs. the rest.
     Never raises on a missing/malformed loops.json (renders empty sections)."""
     try:
         loops = loops_config.list_loops()
-    except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError):
+    except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError, AttributeError):
         loops = []
+    loops = [l for l in loops if isinstance(l, dict)]
     pages = _loop_pages()
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
     active = [l for l in loops if loop_is_visible(l)]
@@ -12327,13 +12316,15 @@ def _loops_catalog_body():
 
     return (
         f"<div class='page-title'><h1>{html.escape(_t('Loops'))}</h1></div>"
+        + _flash_html(flash, flash_ok)
         + section("Active loops", active)
         + section("Available loops", available, " data-section='available'")
     )
 
 
-def render_loops_catalog_page():
-    return _render_shell("Loops · Loop X Engineering", "loops", _default_badge(), _loops_catalog_body())
+def render_loops_catalog_page(flash=None, flash_ok=True):
+    return _render_shell(
+        "Loops · Loop X Engineering", "loops", _default_badge(), _loops_catalog_body(flash, flash_ok))
 
 
 def render_loop_page(name, view=None, flash=None, flash_ok=True, **ctx):
@@ -12423,7 +12414,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
 
         if split.path == "/loops":
-            self._send_html(render_loops_catalog_page())
+            query = urllib.parse.parse_qs(split.query)
+            self._send_html(render_loops_catalog_page(
+                flash=query.get("flash", [None])[0],
+                flash_ok=query.get("ok", ["1"])[0] != "0"))
             return
 
         if split.path.startswith("/loops/") and split.path.count("/") == 2:
@@ -13284,7 +13278,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         reads `flash`/`ok` html.escape()s the flash text before display,
         since it can contain untrusted text (launchctl's stderr, or a
         rejected-write error message). `location` may already carry its own
-        query string (e.g. "/settings/general?tab=ai-cli", so the redirect
+        query string (e.g. "/settings?tab=ai-cli", so the redirect
         lands back on the right tab) - `flash`/`ok` are appended with `&` in
         that case rather than a second `?`."""
         query = urllib.parse.urlencode({"flash": message, "ok": "1" if ok else "0"}, quote_via=urllib.parse.quote)

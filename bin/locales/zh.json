@@ -485,6 +485,7 @@
   "Today": "今天",
   "Today's log (tail):": "今日日志（末尾）：",
   "Toggle sidebar": "切换侧边栏",
+  "Page sections": "页面分区",
   "Token": "令牌",
   "Token is required for a new bundle": "新凭据包需要提供令牌",
   "Token is required for a new instance": "新实例需要提供令牌",

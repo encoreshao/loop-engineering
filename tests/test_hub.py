@@ -47,3 +47,9 @@ def test_tab_strip_escapes_translated_label():
 def test_tab_strip_single_view_renders_nothing():
     views = (hub.HubView("x", "Only", lambda **kw: ""),)
     assert hub.hub_tab_strip_html("/demo", views, "x", translate=lambda s: s) == ""
+
+
+def test_tab_strip_nav_has_aria_label_not_tablist_role():
+    out = hub.hub_tab_strip_html("/demo", _views(), "a", translate=lambda s: "T:" + s)
+    assert "role='tablist'" not in out
+    assert "aria-label='T:Page sections'" in out

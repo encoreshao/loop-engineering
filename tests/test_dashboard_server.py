@@ -12228,7 +12228,7 @@ def test_loops_catalog_renders_without_loops_json(monkeypatch):
     assert "data-section='available'" in ds._loops_catalog_body()
 
 
-def test_loops_route_serves_catalog_and_loop_pages_still_work(monkeypatch):
+def test_render_loops_catalog_page_and_unknown_loop_page_directly(monkeypatch):
     monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [])
     assert "data-section='available'" in ds.render_loops_catalog_page()
     assert ds.render_loop_page("nope") is None
@@ -12328,3 +12328,58 @@ def test_loops_catalog_rows_pass_return_to_loops(monkeypatch, tmp_path):
 
 def test_loop_is_visible_entry_without_enabled_key_is_enabled():
     assert ds.loop_is_visible({"name": "x"}, status_path_fn=lambda n: Path("/nonexistent"))
+
+
+# --- Final review fixes ---
+
+def test_loops_catalog_shows_flash_over_http(monkeypatch):
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [])
+    with _running_server() as port:
+        _, _, body = _raw_get(port, "/loops?flash=Boom&ok=0")
+        assert "flash flash-danger" in body and "Boom" in body
+        _, _, body = _raw_get(port, "/loops?flash=Fine&ok=1")
+        assert "flash flash-success" in body and "Fine" in body
+
+
+def test_loop_toggle_failure_flash_visible_on_catalog(monkeypatch):
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [])
+    monkeypatch.setattr(ds.loops_config, "set_enabled", lambda *a, **k: (False, "Kaboom"))
+    with _running_server() as port:
+        status, headers, _ = _post(port, "/daemons/loops/topic-loop/enable", {
+            "csrf_token": ds._CSRF_TOKEN, "return_to": "/loops"})
+        assert status == 303
+        assert headers["Location"].startswith("/loops?flash=")
+        _, _, body = _raw_get(port, headers["Location"])
+        assert "flash-danger" in body and "Kaboom" in body
+
+
+def test_loops_http_routes(monkeypatch):
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [])
+    with _running_server() as port:
+        assert _raw_get(port, "/loops")[0] == 200
+        assert _raw_get(port, "/loops/topic-loop?view=topics")[0] == 200
+        assert _raw_get(port, "/loops/nope")[0] == 404
+        assert _raw_get(port, "/loops/..%2Fetc")[0] == 404
+
+
+def test_sidebar_survives_non_dict_loops(monkeypatch):
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: ["x"])
+    out = ds._sidebar_html("overview")
+    assert "sidebar-group-label" in out
+
+
+def test_nav_and_hub_labels_are_in_every_catalog():
+    import json
+    labels = set()
+    for hub in ds._hubs().values():
+        labels.add(hub.label)
+        labels.update(v.label for v in hub.views)
+    for page in ds._loop_pages().values():
+        labels.add(page.label)
+        labels.update(v.label for v in page.views)
+    labels.update(item[2] for item in ds._NAV_ITEMS)
+    labels.update(g[0] for g in ds._NAV_GROUPS if g[0])
+    for lang in ("ja", "zh", "fr"):
+        cat = json.loads((Path(ds.__file__).parent.parent / "locales" / f"{lang}.json").read_text())
+        missing = sorted(l for l in labels if l not in cat)
+        assert not missing, (lang, missing)
