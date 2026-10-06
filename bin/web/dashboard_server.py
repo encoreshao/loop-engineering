@@ -10348,7 +10348,7 @@ def _topic_latest_data_html(topics, history_dir=None):
     return "".join(blocks)
 
 
-def render_topic_monitor_page(flash=None, flash_ok=True):
+def _topic_monitor_body(flash=None, flash_ok=True):
     """Topic Monitor page: every configured topic's current status (from
     write-topic-status), in its own "Topics" section. Adding/editing/
     deleting topics lives on its own page instead (render_topic_settings_page,
@@ -10467,9 +10467,19 @@ def render_topic_monitor_page(flash=None, flash_ok=True):
 </div>
 {latest_data_section}
 """
+    return body
+
+
+def render_topic_monitor_page(flash=None, flash_ok=True):
+    """Full page: topic_monitor body inside the shell (body: _topic_monitor_body)."""
+    status = read_status(STATUS_PATH)
     return _render_shell(
-        "Topic Monitor · Loop X Engineering", "topic_monitor", _status_badge_markup(status), body,
-        refresh=True, refresh_note=True,
+        "Topic Monitor · Loop X Engineering",
+        "topic_monitor",
+        _status_badge_markup(status),
+        _topic_monitor_body(flash=flash, flash_ok=flash_ok),
+        refresh=True,
+        refresh_note=True,
     )
 
 
@@ -10506,7 +10516,7 @@ def _topic_action_html(topic, csrf_input):
     )
 
 
-def render_topic_settings_page(flash=None, flash_ok=True):
+def _topic_settings_body(flash=None, flash_ok=True):
     """Topic Settings page: adding/editing/deleting topics - split out of
     render_topic_monitor_page (see its docstring) so editing configuration
     doesn't clutter that page's at-a-glance status view. Reachable from the
@@ -10617,7 +10627,18 @@ def render_topic_settings_page(flash=None, flash_ok=True):
 </section>
 </div>
 """
-    return _render_shell("Topic Settings · Loop X Engineering", "topic_settings", _status_badge_markup(status), body)
+    return body
+
+
+def render_topic_settings_page(flash=None, flash_ok=True):
+    """Full page: topic_settings body inside the shell (body: _topic_settings_body)."""
+    status = read_status(STATUS_PATH)
+    return _render_shell(
+        "Topic Settings · Loop X Engineering",
+        "topic_settings",
+        _status_badge_markup(status),
+        _topic_settings_body(flash=flash, flash_ok=flash_ok),
+    )
 
 
 def _inbox_config_for_page():
@@ -10636,7 +10657,7 @@ def _inbox_config_for_page():
                 f"<div class='flash flash-danger'>{html.escape(message)}</div>")
 
 
-def render_inbox_page(flash=None, flash_ok=True):
+def _inbox_body(flash=None, flash_ok=True):
     """Inbox Triage page: read-only status for every connected inbox (see
     inbox_pages.render_inbox_body). Config/status come from inbox_config/
     inbox_status, not this dashboard's own GitLab-loop STATUS_PATH - that's
@@ -10655,9 +10676,19 @@ def render_inbox_page(flash=None, flash_ok=True):
 
     config, config_error_html = _inbox_config_for_page()
     body = flash_html + config_error_html + inbox_pages.render_inbox_body(config, inbox_status.read(), csrf_input)
+    return body
+
+
+def render_inbox_page(flash=None, flash_ok=True):
+    """Full page: inbox body inside the shell (body: _inbox_body)."""
+    status = read_status(STATUS_PATH)
     return _render_shell(
-        "Inbox Triage · Loop X Engineering", "inbox", _status_badge_markup(status), body,
-        refresh=True, refresh_note=True,
+        "Inbox Triage · Loop X Engineering",
+        "inbox",
+        _status_badge_markup(status),
+        _inbox_body(flash=flash, flash_ok=flash_ok),
+        refresh=True,
+        refresh_note=True,
     )
 
 
@@ -10669,7 +10700,7 @@ def inbox_redirect_uri(port):
     return f"http://127.0.0.1:{port}/oauth/google/callback"
 
 
-def render_inbox_setup_page(port, flash=None, flash_ok=True, active_tab=None):
+def _inbox_setup_body(port, flash=None, flash_ok=True, active_tab=None):
     """Inbox Setup page: the OAuth-client + per-inbox connect/test wizard
     (see inbox_pages.render_setup_body). `port` is this server's own
     listening port (self.server.server_address[1] in do_GET), needed to
@@ -10695,7 +10726,18 @@ def render_inbox_setup_page(port, flash=None, flash_ok=True, active_tab=None):
         status=inbox_status.read(), select_html=_custom_select, slack_bundles=list(bundles),
         active_tab=active_tab,
     )
-    return _render_shell("Inbox Setup · Loop X Engineering", "inbox_setup", _status_badge_markup(status), body)
+    return body
+
+
+def render_inbox_setup_page(port, flash=None, flash_ok=True, active_tab=None):
+    """Full page: inbox_setup body inside the shell (body: _inbox_setup_body)."""
+    status = read_status(STATUS_PATH)
+    return _render_shell(
+        "Inbox Setup · Loop X Engineering",
+        "inbox_setup",
+        _status_badge_markup(status),
+        _inbox_setup_body(port=port, flash=flash, flash_ok=flash_ok, active_tab=active_tab),
+    )
 
 
 def render_inbox_history_page(name=None):
