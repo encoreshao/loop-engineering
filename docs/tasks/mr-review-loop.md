@@ -32,3 +32,21 @@ under Review, and submit to publish them (or discard them).
   general draft note prefixed with `path:line`.
 - Fetch errors log only the exception class name; one failing account or MR
   does not stop the others.
+
+## Re-runs, partial failures and read-only tokens
+
+- Before posting, the loop lists the MR's draft notes and deletes only those
+  carrying the "Loop X pre-review" signature (earlier partial runs, older
+  SHAs); your own drafts are never touched. Draft POST/DELETE calls are never
+  auto-retried (`max_attempts=1`).
+- If a write fails after at least one draft was posted, the item is `done`
+  ("N draft notes (partial: <ExcClass>)") and marked seen, so it is not
+  re-posted as a duplicate set. If nothing was posted, the item fails and
+  retries next run.
+- A 401/403 on a draft write (token lacks the `api` scope) marks the item
+  `skipped` ("token needs the api scope to write draft notes"), which is
+  recorded as seen for that MR SHA, so the same SHA is not re-reviewed (and
+  re-billed) every run. Other MRs/new SHAs still reach the model once each
+  until the token is fixed.
+- Markdown images in finding bodies are neutralised (`![` becomes `!` + a
+  zero-width space + `[`).

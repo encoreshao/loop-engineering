@@ -22,6 +22,11 @@ _MAX_DIFF_PAGES = 20
 _SEVERITIES = ("nit", "minor", "major", "blocker")
 _SIGNATURE = "\n\n_— Loop X pre-review_"
 _MENTION = re.compile(r"(?<![\w@])@")
+_DENIED_MESSAGE = "token needs the api scope to write draft notes"
+
+
+class DraftWriteDenied(Exception):
+    """GitLab refused a draft-note write with 401/403 (read-only token)."""
 
 
 def item_key(account_id, project_id, iid, head_sha):
@@ -46,43 +51,67 @@ def build_diff_text(changes, cap=DIFF_CAP_BYTES):
         size += len(chunk)
     text = "".join(parts)
     if truncated:
-        text += f"\n[diff truncated at {cap} bytes]"
+        text += f"\n[diff truncated at {cap} characters]"
     return text, truncated
 
 
 def _defuse(text):
     """Draft notes are Markdown on GitLab: break word-start @mentions so a
     model-echoed @all / @group cannot notify anyone."""
-    return _MENTION.sub("@​", str(text))
+    return _MENTION.sub("@\u200b", str(text)).replace("![", "!\u200b[")
+
+
+def _drafts_path(mr):
+    return f"/projects/{mr['project_id']}/merge_requests/{mr['iid']}/draft_notes"
 
 
 def _post_draft(conn, mr, note, position=None):
-    path = f"/projects/{mr['project_id']}/merge_requests/{mr['iid']}/draft_notes"
     body = {"note": note}
     if position is not None:
         body["position"] = position
-    return conn.api("POST", path, json_body=body)
+    # Non-idempotent: never auto-retry (a timeout after creation would duplicate it).
+    return conn.api("POST", _drafts_path(mr), json_body=body, max_attempts=1)
+
+
+def _clear_old_drafts(conn, mr):
+    """Delete this loop's own earlier drafts (partial runs, older SHAs).
+    Drafts without the Loop X signature are never touched."""
+    rows = conn.api("GET", _drafts_path(mr) + "?per_page=100")
+    for row in rows if isinstance(rows, list) else []:
+        if isinstance(row, dict) and row.get("id") is not None and _SIGNATURE.strip() in str(row.get("note") or ""):
+            conn.api("DELETE", f"{_drafts_path(mr)}/{int(row['id'])}", max_attempts=1)
 
 
 def post_review(conn, mr, answer):
+    """Returns {"drafts", "fallback_general"} (+ "partial": ExcClass when a
+    failure hit after at least one draft was posted). Raises DraftWriteDenied
+    on 401/403, and the original error when nothing was posted."""
     refs = mr["diff_refs"]
     drafts = fallback = 0
-    for f in answer.get("findings") or []:
-        note = f"**[{f['severity']}]** {_defuse(f['body'])}{_SIGNATURE}"
-        position = {"position_type": "text", "base_sha": refs["base_sha"], "start_sha": refs["start_sha"],
-                    "head_sha": refs["head_sha"], "new_path": f["path"], "new_line": f["line"]}
-        try:
-            _post_draft(conn, mr, note, position)
-        except mail_http.MailHTTPError as exc:
-            if exc.status not in (400, 422):
-                raise
-            _post_draft(conn, mr, f"`{f['path']}:{f['line']}` {note}")
-            fallback += 1
-        drafts += 1
-    summary = _defuse(str(answer.get("summary") or "").strip())
-    if summary:
-        _post_draft(conn, mr, f"**Summary:** {summary}{_SIGNATURE}")
-        drafts += 1
+    try:
+        _clear_old_drafts(conn, mr)
+        for f in answer.get("findings") or []:
+            note = f"**[{f['severity']}]** {_defuse(f['body'])}{_SIGNATURE}"
+            position = {"position_type": "text", "base_sha": refs["base_sha"], "start_sha": refs["start_sha"],
+                        "head_sha": refs["head_sha"], "new_path": f["path"], "new_line": f["line"]}
+            try:
+                _post_draft(conn, mr, note, position)
+            except mail_http.MailHTTPError as exc:
+                if exc.status not in (400, 422):
+                    raise
+                _post_draft(conn, mr, f"`{f['path']}:{f['line']}` {note}")
+                fallback += 1
+            drafts += 1
+        summary = _defuse(str(answer.get("summary") or "").strip())
+        if summary:
+            _post_draft(conn, mr, f"**Summary:** {summary}{_SIGNATURE}")
+            drafts += 1
+    except Exception as exc:  # noqa: BLE001
+        if drafts:
+            return {"drafts": drafts, "fallback_general": fallback, "partial": type(exc).__name__}
+        if isinstance(exc, mail_http.MailHTTPError) and exc.status in (401, 403):
+            raise DraftWriteDenied(_DENIED_MESSAGE) from None
+        raise
     return {"drafts": drafts, "fallback_general": fallback}
 
 
@@ -179,9 +208,18 @@ class MRReview(loopkit.LoopPlugin):
         summary = answer.get("summary")
         cleaned = {"summary": summary.strip()[:MAX_SUMMARY] if isinstance(summary, str) else "",
                    "findings": kept}
-        result = poster(loader(payload["account"]), payload, cleaned)
+        try:
+            result = poster(loader(payload["account"]), payload, cleaned)
+        except DraftWriteDenied as exc:
+            # "skipped" is marked seen for this MR SHA, so a read-only token
+            # does not pay for the same model call on every run.
+            return loopkit.Outcome(item.key, "skipped", str(exc), url=payload.get("web_url", ""))
         blockers = sum(1 for f in kept if f["severity"] == "blocker")
-        return loopkit.Outcome(item.key, "done", f"{result['drafts']} draft notes ({blockers} blocker)",
+        if result.get("partial"):
+            summary_text = f"{result['drafts']} draft notes (partial: {result['partial']})"
+        else:
+            summary_text = f"{len(kept)} findings + summary ({blockers} blocker)"
+        return loopkit.Outcome(item.key, "done", summary_text,
                                url=payload.get("web_url", ""),
                                data={"title": item.title, "drafts": result["drafts"], "blockers": blockers})
 

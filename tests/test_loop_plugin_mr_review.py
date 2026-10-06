@@ -22,6 +22,10 @@ class Conn:
         return {}
 
 
+def _posts(conn):
+    return [c[2] for c in conn.calls if c[0] == "POST"]
+
+
 def test_new_head_sha_is_new_item():
     assert mr.item_key("work", 9, 7, "aaa") != mr.item_key("work", 9, 7, "bbb")
     assert mr.item_key("work", 9, 7, "h") == "mr:work:9!7@h"
@@ -30,7 +34,7 @@ def test_new_head_sha_is_new_item():
 def test_diff_over_cap_is_truncated_with_marker():
     big = [{"new_path": "x", "diff": "+" + "y" * 200_000}]
     text, truncated = mr.build_diff_text(big, cap=1000)
-    assert truncated and len(text) <= 1200 and "[diff truncated" in text
+    assert truncated and len(text) <= 1200 and "[diff truncated" in text and "characters" in text
 
 
 def test_small_diff_not_truncated():
@@ -42,10 +46,10 @@ def test_findings_only_posted_as_draft_notes():
     conn = Conn()
     mr.post_review(conn, MR, {"summary": "s", "findings": [{"path": "app/a.rb", "line": 2, "severity": "blocker", "body": "eval on params"}]})
     paths = [p for _, p, _ in conn.calls]
-    assert all(p.endswith("/draft_notes") for p in paths)
+    assert all(p.split("?")[0].endswith("/draft_notes") for p in paths)
     assert not any("bulk_publish" in p or "approve" in p or p.endswith("/notes") for p in paths)
-    assert all(m == "POST" for m, _, _ in conn.calls)
-    first = conn.calls[0][2]
+    assert all(m in ("GET", "POST") for m, _, _ in conn.calls)
+    first = [c for c in conn.calls if c[0] == "POST"][0][2]
     assert first["position"] == {"position_type": "text", "base_sha": "b", "start_sha": "s", "head_sha": "h", "new_path": "app/a.rb", "new_line": 2}
     assert first["note"].startswith("**[blocker]** eval on params")
 
@@ -54,8 +58,8 @@ def test_position_rejected_falls_back_to_general_draft():
     conn = Conn(fail_position=True)
     out = mr.post_review(conn, MR, {"summary": "s", "findings": [{"path": "app/a.rb", "line": 2, "severity": "major", "body": "x"}]})
     assert out["fallback_general"] == 1
-    assert conn.calls[1][2]["note"].startswith("`app/a.rb:2`")
-    assert "position" not in conn.calls[1][2]
+    assert _posts(conn)[1]["note"].startswith("`app/a.rb:2`")
+    assert "position" not in _posts(conn)[1]
 
 
 def test_other_http_errors_propagate():
@@ -69,10 +73,69 @@ def test_other_http_errors_propagate():
 def test_mentions_defused_in_posted_text():
     conn = Conn()
     mr.post_review(conn, MR, {"summary": "cc @all", "findings": [{"path": "app/a.rb", "line": 2, "severity": "major", "body": "ping @group/team and a@b.com"}]})
-    notes = [c[2]["note"] for c in conn.calls]
+    notes = [b["note"] for b in _posts(conn)]
     assert "@​all" in notes[1] and "@​group" in notes[0]
     assert "a@b.com" in notes[0]
     assert not any(" @all" in n or " @group" in n for n in notes)
+
+
+class Fake2(Conn):
+    """GET lists existing drafts; optional failure on the Nth POST."""
+    def __init__(self, existing=(), fail_on=None, status=502):
+        super().__init__(); self.existing = list(existing); self.fail_on = fail_on; self.status = status; self.posts = 0; self.kw = []
+    def api(self, method, path, json_body=None, **kw):
+        self.calls.append((method, path, json_body)); self.kw.append((method, kw))
+        if method == "GET": return self.existing
+        if method == "POST":
+            self.posts += 1
+            if self.fail_on and self.posts >= self.fail_on:
+                raise mail_http.MailHTTPError(self.status, "x", "u")
+        return {}
+
+
+F3 = [{"path": "app/a.rb", "line": 2, "severity": "major", "body": str(i)} for i in range(3)]
+
+
+def test_old_loopx_drafts_deleted_foreign_untouched():
+    conn = Fake2(existing=[{"id": 11, "note": "x\n\n_\u2014 Loop X pre-review_"}, {"id": 12, "note": "my own draft"}])
+    mr.post_review(conn, MR, {"summary": "s", "findings": F3[:1]})
+    deletes = [p for m, p, _ in conn.calls if m == "DELETE"]
+    assert deletes == ["/projects/9/merge_requests/7/draft_notes/11"]
+    assert conn.calls[0][0] == "GET" and conn.calls.index(("DELETE", deletes[0], None)) < next(i for i, c in enumerate(conn.calls) if c[0] == "POST")
+
+
+def test_draft_writes_never_retry():
+    conn = Fake2(existing=[{"id": 11, "note": "_\u2014 Loop X pre-review_"}])
+    mr.post_review(conn, MR, {"summary": "s", "findings": F3[:1]})
+    writes = [kw for m, kw in conn.kw if m in ("POST", "DELETE")]
+    assert writes and all(kw.get("max_attempts") == 1 for kw in writes)
+
+
+def test_partial_failure_is_done_and_seen():
+    conn = Fake2(fail_on=2)
+    out = _plugin_with(conn).after_item(_item(), {"summary": "s", "findings": F3}, C())
+    assert out.status == "done" and out.summary == "1 draft notes (partial: MailHTTPError)"
+
+
+def test_failure_with_nothing_posted_raises():
+    with pytest.raises(mail_http.MailHTTPError):
+        mr.post_review(Fake2(fail_on=1), MR, {"summary": "s", "findings": F3})
+
+
+def test_read_only_token_skips_item_so_it_is_seen():
+    conn = Fake2(fail_on=1, status=403)
+    out = _plugin_with(conn).after_item(_item(), {"summary": "s", "findings": F3}, C())
+    assert out.status == "skipped" and out.summary == "token needs the api scope to write draft notes"
+
+
+def test_images_neutralised_in_body():
+    conn = Conn()
+    mr.post_review(conn, MR, {"summary": "", "findings": [{"path": "a", "line": 1, "severity": "major", "body": "![x](http://t/p.png)"}]})
+    assert "![" not in _posts(conn)[0]["note"]
+
+
+def _plugin_with(conn):
+    return mr.MRReview(loader=lambda i: conn)
 
 
 def _plugin(posted):
@@ -115,7 +178,7 @@ def test_after_item_outcome_counts_blockers():
     posted = []
     out = _plugin(posted).after_item(_item(), {"summary": "s", "findings": [
         {"path": "app/a.rb", "line": 2, "severity": "blocker", "body": "b"}]}, C())
-    assert out.status == "done" and out.summary == "1 draft notes (1 blocker)" and out.url == MR["web_url"]
+    assert out.status == "done" and out.summary == "1 findings + summary (1 blocker)" and out.url == MR["web_url"]
 
 
 def test_digest_text_is_chat_safe():
