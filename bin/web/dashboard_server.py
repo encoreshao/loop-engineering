@@ -13227,7 +13227,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             name = urllib.parse.unquote(self.path[len("/daemons/loops/"):-len("/enable")])
             try:
                 loop = loops_config.get_loop(name)
-            except (KeyError, FileNotFoundError, json.JSONDecodeError, TypeError):
+            except (KeyError, ValueError, FileNotFoundError, json.JSONDecodeError, TypeError):
                 loop = None
             met, missing = loop_requirements_met(loop) if loop else (True, [])
             if not met:

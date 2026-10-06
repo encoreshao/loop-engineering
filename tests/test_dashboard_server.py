@@ -12691,3 +12691,29 @@ def test_post_enable_refused_when_requirements_missing(monkeypatch, tmp_path):
         status, headers, _ = _post(port, "/daemons/loops/rss-watch-loop/disable",
                                    {"csrf_token": token, "return_to": "/loops"})
     assert enabled == [("rss-watch-loop", False)]
+
+
+@pytest.fixture(autouse=True)
+def _no_real_connector_accounts(monkeypatch):
+    """Default every dashboard test to zero connector accounts so none reads
+    the real ~/.gitlab, ~/.slack, connectors.json or inboxes.json; tests
+    that need accounts monkeypatch these again."""
+    monkeypatch.setattr(ds.connectors_config, "accounts_with_capability", lambda cap, **kw: [])
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [])
+
+
+def test_connector_account_stub_is_active_by_default():
+    assert ds.connectors_config.accounts_with_capability("notify") == []
+    assert ds.connectors_config.list_accounts() == []
+
+
+def test_post_enable_invalid_loop_name_flashes_error_not_500(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [])
+    monkeypatch.setattr(ds, "status_path_for_loop", lambda n, base_dir=None: tmp_path / "none.json")
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/loops")
+        status, headers, _ = _post(port, "/daemons/loops/a%20b/enable",
+                                   {"csrf_token": token, "return_to": "/loops"})
+        assert status == 303 and headers["Location"].startswith("/loops?") and "ok=0" in headers["Location"]
+        status, headers, _ = _post(port, "/loops/a%20b/notify", {"csrf_token": token, "notify": "x"})
+        assert status == 303 and "ok=0" in headers["Location"]
