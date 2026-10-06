@@ -759,5 +759,14 @@
   "Chat & notifications": "Chat et notifications",
   "Work tracking": "Suivi du travail",
   "Knowledge": "Connaissances",
-  "Other": "Autre"
+  "Other": "Autre",
+  "Show": "Afficher",
+  "Hide": "Masquer",
+  "(optional)": "(facultatif)",
+  "Changing the id renames this connector.": "Modifier l'identifiant renomme ce connecteur.",
+  "e.g. Work GitLab": "p. ex. GitLab pro",
+  "Stored in your macOS Keychain, never shown again.": "Stocké dans votre trousseau macOS, jamais réaffiché.",
+  "Credentials": "Identifiants",
+  "Where do I get this?": "Où l'obtenir ?",
+  "Save and test": "Enregistrer et tester"
 }

@@ -5751,6 +5751,34 @@ svg.brand-logo[fill="currentColor"] {{ color: #181717; }}
 .connector-tile-body {{ display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }}
 .connector-fixed-value {{ display: inline-flex; gap: 0.6rem; align-items: center; }}
 .section-header .brand-logo {{ margin-right: 0.25rem; }}
+/* Connector add/edit form (_connector_form_body): labels above full-width
+   inputs, short fields two-up from 900px, required marked by a glyph. */
+.connector-form {{ display: flex; flex-direction: column; gap: 1.25rem; margin-top: 1rem; }}
+.connector-section {{ border: 0; margin: 0; padding: 0; min-width: 0; }}
+.connector-section legend {{ padding: 0; margin-bottom: 0.6rem; font-weight: 500; font-size: 0.95rem; color: var(--md-on-surface); }}
+.connector-fields {{ display: grid; grid-template-columns: 1fr; gap: 0.9rem 1.25rem; }}
+@media (min-width: 900px) {{ .connector-fields {{ grid-template-columns: 1fr 1fr; }} .connector-field-wide {{ grid-column: 1 / -1; }} }}
+.connector-field {{ display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }}
+.connector-field label, .connector-field-label {{ font-size: 0.85rem; font-weight: 500; color: var(--md-on-surface); }}
+.field-required {{ color: var(--md-error); font-weight: 700; }}
+.field-optional {{ font-weight: 400; color: var(--md-on-surface-variant); }}
+.field-help {{ font-size: 0.8rem; }}
+.connector-field input, .connector-field select, .connector-field textarea {{
+  box-sizing: border-box; width: 100%; padding: 0.55rem 0.75rem; border: 1px solid var(--md-outline);
+  border-radius: 8px; background: var(--md-surface-container-lowest); color: var(--md-on-surface); font: inherit; }}
+.connector-field textarea {{ resize: vertical; }}
+.connector-field input:focus-visible, .connector-field select:focus-visible, .connector-field textarea:focus-visible {{
+  outline: 2px solid var(--md-primary); outline-offset: 1px; border-color: var(--md-primary); }}
+.connector-field input:user-invalid, .connector-field textarea:user-invalid {{ border-color: var(--md-error); }}
+.secret-input-row {{ display: flex; gap: 0.5rem; align-items: center; }}
+.secret-input-row input {{ flex: 1 1 auto; }}
+.secret-toggle {{ flex: none; }}
+.secret-toggle[hidden] {{ display: none; }}
+.connector-docs-link {{ display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; }}
+.connector-docs-link .material-symbols-outlined {{ font-size: 1rem; }}
+.connector-actions {{ display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }}
+.connector-cancel {{ background: transparent; color: var(--md-primary); }}
+.connector-cancel:hover {{ background: var(--md-surface-container-high); }}
 
 /* Shared "nothing to show because setup is missing" state - see
    _empty_state_html - used by the Live GitLab and Memory pages in
@@ -12309,6 +12337,45 @@ def _connector_renamed_or_deleted(old_id, new_id=None, results_path=None):
         pass
 
 
+def _run_connector_test(account_id):
+    """Probe one account (the Test button and "Save and test"), recording the
+    result unless the id is unknown. Returns (ok, message); never raises."""
+    record = True
+    try:
+        ok, message = connectors_config.load_connector(account_id).test()
+    except KeyError as exc:
+        if exc.args[:1] == (account_id,):
+            # Unknown id: nothing to attach a result to.
+            ok, message, record = False, _t("No connector with id {id}", id=account_id), False
+        else:  # e.g. a hand-edited entry naming an unknown type
+            from connectors.base import describe_http_error
+            ok, message = False, describe_http_error(exc)
+    except connectors_config.ConnectorConfigError as exc:
+        ok, message = False, _t("Could not read connectors: {detail}", detail=exc)
+    except Exception as exc:  # noqa: BLE001 - a probe must never 500 the page
+        from connectors.base import describe_http_error
+        ok, message = False, describe_http_error(exc)
+    if record:
+        try:
+            _record_connector_test_result(account_id, ok, message)
+        except OSError:
+            pass
+    return ok, message
+
+
+def _connector_submitted_values(form):
+    """The non-secret values a failed save re-renders: label, id, the
+    type's declared fields only (never arbitrary POST keys), original_id
+    and the preset context."""
+    cls = _connector_type_or_none(form.get("type", ""))
+    declared = [f.key for f in cls.fields] if cls else []
+    return {
+        "label": form.get("label", ""), "id": form.get("id", ""),
+        "settings": {k: form.get(k, "") for k in declared},
+        "original_id": form.get("original_id", "").strip(), "preset": form.get("preset", ""),
+    }
+
+
 def _connector_type_or_none(name):
     try:
         return connectors.get_type(name)
@@ -12490,84 +12557,190 @@ def _connector_type_picker_html():
             f"{search}{''.join(sections)}{script}")
 
 
-def _connector_form_body(type_name, account=None, preset_key=None):
+_CONNECTOR_TECH_INPUT_ATTRS = " spellcheck='false' autocapitalize='off' autocomplete='off'"
+
+
+def _connector_form_script():
+    """Id auto-suggest (adding only, stops once the id is edited) and the
+    secret show/hide toggle. Progressive enhancement: the toggle is `hidden`
+    until this runs, and the form posts the same fields without it."""
+    return (
+        "<script>(function(){var f=document.getElementById('connector-form');if(!f)return;"
+        "var l=f.querySelector('[name=label]'),i=f.querySelector('[name=id]');"
+        "if(l&&i&&f.getAttribute('data-suggest-id')==='1'){var edited=i.value!=='';"
+        "i.addEventListener('input',function(){edited=true;});"
+        "l.addEventListener('input',function(){if(edited)return;"
+        "i.value=l.value.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')"
+        ".slice(0,48).replace(/-+$/,'');});}"
+        "var b=f.querySelector('.secret-toggle'),s=f.querySelector('[name=secret]');"
+        f"if(b&&s){{var SHOW={json.dumps(_t('Show'))},HIDE={json.dumps(_t('Hide'))};b.hidden=false;"
+        "b.addEventListener('click',function(){var show=s.type==='password';"
+        "s.type=show?'text':'password';b.setAttribute('aria-pressed',show?'true':'false');"
+        "b.textContent=show?HIDE:SHOW;});}"
+        "})();</script>")
+
+
+def _connector_form_body(type_name, account=None, preset_key=None, submitted=None):
     """The add/edit form for one native connector type, generated from the
     type's declared fields. A secret value is never rendered: when editing,
-    the secret input is empty with a "leave blank to keep" placeholder."""
+    the secret input is empty with a "leave blank to keep" placeholder.
+
+    `submitted` re-renders a failed save: {"label", "id", "settings",
+    "original_id", "preset"} holding only declared, non-secret values."""
     cls = connectors.get_type(type_name)
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
-    editing = account is not None
-    settings = (account or {}).get("settings") or {}
+    if submitted is not None:
+        original_id = submitted.get("original_id", "")
+        label_value, id_value = submitted.get("label", ""), submitted.get("id", "")
+        settings = submitted.get("settings") or {}
+        preset_key = submitted.get("preset") or None
+    else:
+        original_id = account["id"] if account is not None else ""
+        label_value, id_value = (account or {}).get("label", ""), (account or {}).get("id", "")
+        settings = (account or {}).get("settings") or {}
+    editing = bool(original_id)
     preset = None
     if editing:
-        preset = _preset_for_account(cls, account)
+        preset = _preset_for_account(cls, {"settings": settings})
     elif preset_key:
         preset = next((p for p in cls.presets if p.key == preset_key), None)
     preset_settings = dict(preset.settings) if preset and not editing else {}
+    use_settings = editing or submitted is not None
 
-    def row(label, control, help_text=""):
-        help_html = f"<div class='section-subtitle'>{html.escape(i18n.t(help_text))}</div>" if help_text else ""
-        return f"<label class='project-field'><span>{html.escape(label)}</span>{control}{help_html}</label>"
+    def row(field_id, label, control, required=False, help_text="", wide=False):
+        marker = (f" <span class='field-required' aria-hidden='true'>*</span>" if required
+                  else f" <span class='field-optional'>{html.escape(_t('(optional)'))}</span>")
+        help_html = (f"<span class='field-help section-subtitle' id='{field_id}-help'>{html.escape(help_text)}</span>"
+                     if help_text else "")
+        cls_attr = "connector-field connector-field-wide" if wide else "connector-field"
+        return (f"<div class='{cls_attr}'><label for='{field_id}'>{html.escape(label)}{marker}</label>"
+                f"{control}{help_html}</div>")
 
-    rows = [
-        row(i18n.t("Label"), f"<input type='text' name='label' value='{html.escape((account or {}).get('label', ''), quote=True)}' required>"),
-        row(i18n.t("Connector id"), f"<input type='text' name='id' value='{html.escape((account or {}).get('id', ''), quote=True)}' "
-                                    f"pattern='[a-z0-9][a-z0-9-]{{0,47}}' required>",
-            "Lowercase letters, digits and dashes"),
+    def described(field_id, help_text):
+        return f" aria-describedby='{field_id}-help'" if help_text else ""
+
+    id_help = _t("Lowercase letters, digits and dashes")
+    if editing:
+        id_help += " " + _t("Changing the id renames this connector.")
+    account_rows = [
+        row("cf-label", _t("Label"),
+            f"<input type='text' id='cf-label' name='label' value='{html.escape(label_value, quote=True)}' "
+            f"placeholder=\"{html.escape(_t('e.g. Work GitLab'), quote=True)}\" required>", required=True),
+        row("cf-id", _t("Connector id"),
+            f"<input type='text' id='cf-id' name='id' value='{html.escape(id_value, quote=True)}' "
+            f"pattern='[a-z0-9][a-z0-9-]{{0,47}}' maxlength='48'{_CONNECTOR_TECH_INPUT_ATTRS}"
+            f"{described('cf-id', id_help)} required>", required=True, help_text=id_help),
     ]
     hidden_format = ""
+    field_rows = []
     for field in cls.fields:
-        value = settings.get(field.key, "") if editing else preset_settings.get(field.key, field.default)
+        if use_settings:
+            value = settings.get(field.key, "")
+        else:
+            value = preset_settings.get(field.key, field.default)
+        field_id = "cf-" + re.sub(r"[^a-z0-9_-]", "-", field.key.lower())
         name = html.escape(field.key, quote=True)
         req = " required" if field.required else ""
+        help_text = i18n.t(field.help) if field.help else ""
+        placeholder = i18n.t(field.placeholder) if " " in field.placeholder else field.placeholder
+        ph = f" placeholder='{html.escape(placeholder, quote=True)}'" if placeholder else ""
         if field.key == "format" and field.key in preset_settings:
-            hidden_format = (f"<input type='hidden' name='format' value='{html.escape(value, quote=True)}'>")
-            rows.append(row(i18n.t(field.label),
-                            f"<span class='connector-fixed-value'><code>{html.escape(value)}</code> "
-                            f"<a href='/connectors?view=add'>{html.escape(_t('Change'))}</a></span>"))
+            fixed = preset_settings[field.key]
+            hidden_format = f"<input type='hidden' name='format' value='{html.escape(fixed, quote=True)}'>"
+            field_rows.append(
+                f"<div class='connector-field'><span class='connector-field-label'>{html.escape(i18n.t(field.label))}</span>"
+                f"<span class='connector-fixed-value'><code>{html.escape(fixed)}</code> "
+                f"<a href='/connectors?view=add'>{html.escape(_t('Change'))}</a></span></div>")
             continue
+        attrs = f"name='{name}' id='{field_id}'{described(field_id, help_text)}{req}"
+        wide = False
         if field.kind == "select":
             opts = "".join(
                 f"<option value='{html.escape(o, quote=True)}'{' selected' if o == value else ''}>{html.escape(o)}</option>"
                 for o in field.options)
-            control = f"<select name='{name}'{req}>{opts}</select>"
+            control = f"<select {attrs}>{opts}</select>"
         elif field.kind == "textarea":
-            control = f"<textarea name='{name}' rows='3'{req}>{html.escape(value)}</textarea>"
+            wide = True
+            control = f"<textarea {attrs} rows='3'{ph}{_CONNECTOR_TECH_INPUT_ATTRS}>{html.escape(value)}</textarea>"
         else:
-            input_type = "url" if field.kind == "url" else "text"
-            control = f"<input type='{input_type}' name='{name}' value='{html.escape(value, quote=True)}'{req}>"
-        rows.append(row(i18n.t(field.label), control, field.help))
+            kind_attrs = {"url": "type='url' inputmode='url'", "email": "type='email' inputmode='email'"}.get(
+                field.kind, "type='text'")
+            control = (f"<input {kind_attrs} {attrs} value='{html.escape(value, quote=True)}'{ph}"
+                       f"{_CONNECTOR_TECH_INPUT_ATTRS}>")
+        field_rows.append(row(field_id, i18n.t(field.label), control, required=field.required,
+                              help_text=help_text, wide=wide))
+    secret_html = ""
     if cls.secret_label:
         placeholder = html.escape(_t("•••• saved — leave blank to keep") if editing else "", quote=True)
-        rows.append(row(
-            i18n.t(cls.secret_label),
-            f"<input type='password' name='secret' autocomplete='new-password' placeholder='{placeholder}'"
-            f"{'' if editing else ' required'}>"))
-    original = (f"<input type='hidden' name='original_id' value='{html.escape(account['id'], quote=True)}'>"
+        note = _t("Stored in your macOS Keychain, never shown again.")
+        secret_input = (
+            f"<span class='secret-input-row'><input type='password' id='cf-secret' name='secret' "
+            f"autocomplete='new-password' spellcheck='false' autocapitalize='off' placeholder='{placeholder}' "
+            f"aria-describedby='cf-secret-help'{'' if editing else ' required'}>"
+            f"<button type='button' class='btn btn-neutral secret-toggle' aria-pressed='false' "
+            f"aria-controls='cf-secret' hidden>{html.escape(_t('Show'))}</button></span>")
+        secret_html = (f"<fieldset class='connector-section'><legend>{html.escape(_t('Credentials'))}</legend>"
+                       f"<div class='connector-fields'>"
+                       f"{row('cf-secret', i18n.t(cls.secret_label), secret_input, required=not editing, help_text=note, wide=True)}"
+                       f"</div></fieldset>")
+    original = (f"<input type='hidden' name='original_id' value='{html.escape(original_id, quote=True)}'>"
                 if editing else "")
+    preset_input = (f"<input type='hidden' name='preset' value='{html.escape(preset.key, quote=True)}'>"
+                    if preset and not editing else "")
     if preset:
-        header = (f"{brand_logos.brand_logo_svg(preset.brand, i18n.t(preset.label), 32)}"
-                  f"<h2>{html.escape(i18n.t(preset.label))}</h2>")
-        if preset.description:
-            header += f"<span class='section-subtitle'>{html.escape(i18n.t(preset.description))}</span>"
+        title, description = i18n.t(preset.label), preset.description or cls.description
+        logo = brand_logos.brand_logo_svg(preset.brand, title, 32)
     else:
-        header = (f"<span class='material-symbols-outlined' aria-hidden='true'>{html.escape(cls.icon)}</span>"
-                  f"<h2>{html.escape(i18n.t(cls.label))}</h2>")
+        title, description = i18n.t(cls.label), cls.description
+        logo = (brand_logos.brand_logo_svg(cls.brand, title, 32) if cls.brand else
+                f"<span class='material-symbols-outlined' aria-hidden='true'>{html.escape(cls.icon)}</span>")
+    docs_url = (preset.docs_url if preset and preset.docs_url else cls.docs_url) or ""
+    docs_html = ""
+    if docs_url.startswith("https://"):
+        docs_html = (f"<a class='connector-docs-link' href='{html.escape(docs_url, quote=True)}' target='_blank' "
+                     f"rel='noopener noreferrer'>{html.escape(_t('Where do I get this?'))}"
+                     f"<span class='material-symbols-outlined' aria-hidden='true'>open_in_new</span></a>")
+    chips = "".join(f"<span class='pill pill-grey'>{html.escape(i18n.t(_CAPABILITY_LABELS.get(c, c)))}</span>"
+                    for c in sorted(cls.capabilities))
+    desc_html = f"<p class='section-subtitle'>{html.escape(i18n.t(description))}</p>" if description else ""
+    header = (f"<div class='section-header'>{logo}<h2>{html.escape(title)}</h2></div>"
+              f"{desc_html}<div class='pill-row'>{chips}{docs_html}</div>")
+    connection_html = ""
+    if field_rows:
+        connection_html = (f"<fieldset class='connector-section'><legend>{html.escape(_t('Connection'))}</legend>"
+                           f"<div class='connector-fields'>{''.join(field_rows)}</div></fieldset>")
+    suggest = "" if editing else " data-suggest-id='1'"
     return (
-        f"<div class='card'><div class='section-header'>{header}</div>"
-        f"<form method='post' action='/connectors/save' class='project-form' autocomplete='off'>"
-        f"{csrf_input}<input type='hidden' name='type' value='{html.escape(type_name, quote=True)}'>{hidden_format}{original}"
-        f"{''.join(rows)}"
+        f"<div class='card connector-form-card'>{header}"
+        f"<form method='post' action='/connectors/save' class='project-form connector-form' id='connector-form' "
+        f"autocomplete='off'{suggest}>"
+        f"{csrf_input}<input type='hidden' name='type' value='{html.escape(type_name, quote=True)}'>"
+        f"{hidden_format}{preset_input}{original}"
+        f"<fieldset class='connector-section'><legend>{html.escape(_t('Account'))}</legend>"
+        f"<div class='connector-fields'>{''.join(account_rows)}</div></fieldset>"
+        f"{connection_html}{secret_html}"
+        f"<div class='connector-actions'>"
         f"<button type='submit' class='btn btn-primary'><span class='material-symbols-outlined' aria-hidden='true'>save</span> "
-        f"{html.escape(_t('Save'))}</button></form></div>")
+        f"{html.escape(_t('Save'))}</button>"
+        f"<button type='submit' class='btn btn-neutral' name='then_test' value='1'>"
+        f"<span class='material-symbols-outlined' aria-hidden='true'>check_circle</span> {html.escape(_t('Save and test'))}</button>"
+        f"<a class='btn connector-cancel' href='/connectors'>{html.escape(_t('Cancel'))}</a></div>"
+        f"</form>{_connector_form_script()}</div>")
 
 
-def _connectors_add_body(type_name=None, account_id=None, list_fn=None, preset=None):
+def _connectors_add_body(type_name=None, account_id=None, list_fn=None, preset=None,
+                         flash=None, flash_ok=True, submitted=None):
     """Add view: the type picker, or the form for ?type= (editing the native
-    account ?id=). Unknown/external types fall back to the picker."""
+    account ?id=). Unknown/external types fall back to the picker.
+    `submitted` (with `flash`) re-renders a failed save's form."""
     if list_fn is None:
         list_fn = connectors_config.list_accounts
     connectors._load_all()
+    if submitted is not None:
+        cls = _connector_type_or_none(type_name)
+        if cls is None or cls.external:
+            return _flash_html(flash, flash_ok) + _connector_type_picker_html()
+        return _flash_html(flash, flash_ok) + _connector_form_body(type_name, submitted=submitted)
     account = None
     if account_id:
         try:
@@ -12620,7 +12793,9 @@ def _hubs():
         )),
         "connectors": hub_mod.Hub("connectors", "/connectors", "Connectors", _SECTION_ICON_CONNECTORS, (
             V("accounts", "Accounts", lambda **kw: _connectors_accounts_body(**_only(kw, "flash", "flash_ok"))),
-            V("add", "Add", lambda **kw: _connectors_add_body(kw.get("type"), kw.get("id"), preset=kw.get("preset"))),
+            V("add", "Add", lambda **kw: _connectors_add_body(
+                kw.get("type"), kw.get("id"), preset=kw.get("preset"), flash=kw.get("flash"),
+                flash_ok=kw.get("flash_ok", True), submitted=kw.get("submitted"))),
         )),
         "settings": hub_mod.Hub("settings", "/settings", "Settings", _SECTION_ICON_GENERAL_SETTINGS, (
             V("general", "General", lambda **kw: _general_settings_body(
@@ -13228,12 +13403,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             form = {k: v[0] for k, v in urllib.parse.parse_qs(
                 body.decode("utf-8", errors="replace"), keep_blank_values=True).items()}
-            fields = {k: v for k, v in form.items() if k not in ("csrf_token", "secret", "original_id")}
+            fields = {k: v for k, v in form.items()
+                      if k not in ("csrf_token", "secret", "original_id", "preset", "then_test")}
+            secret = form.get("secret", "")
             ok, message = connectors_config.upsert_account(
-                fields, form.get("secret", ""), original_id=form.get("original_id", ""))
+                fields, secret, original_id=form.get("original_id", ""))
             old_id, new_id = form.get("original_id", "").strip(), form.get("id", "").strip()
-            if ok and old_id and new_id and old_id != new_id:
+            if not ok:
+                # Re-render (200) with the submitted non-secret values; the
+                # secret is never echoed, even inside an error message.
+                if secret.strip():
+                    message = str(message).replace(secret, "••••").replace(secret.strip(), "••••")
+                self._send_html(render_hub_page(
+                    "connectors", view="add", flash=message, flash_ok=False,
+                    type=form.get("type", ""), submitted=_connector_submitted_values(form)))
+                return
+            if old_id and new_id and old_id != new_id:
                 _connector_renamed_or_deleted(old_id, new_id)
+            if form.get("then_test") == "1":
+                test_ok, test_message = _run_connector_test(new_id)
+                ok, message = test_ok, f"{message} — {test_message}"
             self._redirect_with_flash(ok, message, location="/connectors")
             return
 
@@ -13254,27 +13443,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._forbidden()
                 return
             form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
-            account_id = form.get("id", [""])[0]
-            record = True
-            try:
-                ok, message = connectors_config.load_connector(account_id).test()
-            except KeyError as exc:
-                if exc.args[:1] == (account_id,):
-                    # Unknown id: nothing to attach a result to.
-                    ok, message, record = False, _t("No connector with id {id}", id=account_id), False
-                else:  # e.g. a hand-edited entry naming an unknown type
-                    from connectors.base import describe_http_error
-                    ok, message = False, describe_http_error(exc)
-            except connectors_config.ConnectorConfigError as exc:
-                ok, message = False, _t("Could not read connectors: {detail}", detail=exc)
-            except Exception as exc:  # noqa: BLE001 - a probe must never 500 the page
-                from connectors.base import describe_http_error
-                ok, message = False, describe_http_error(exc)
-            if record:
-                try:
-                    _record_connector_test_result(account_id, ok, message)
-                except OSError:
-                    pass
+            ok, message = _run_connector_test(form.get("id", [""])[0])
             self._redirect_with_flash(ok, message, location="/connectors")
             return
 

@@ -12951,9 +12951,166 @@ def test_preset_prefill_still_validated(monkeypatch):
         return False, "Format must be one of: generic, feishu"
     monkeypatch.setattr(ds.connectors_config, "upsert_account", fake_upsert)
     with _running_server() as port:
-        status, headers, _ = _post(port, "/connectors/save", {
+        status, headers, body = _post(port, "/connectors/save", {
             "csrf_token": ds._CSRF_TOKEN, "id": "w", "type": "webhook", "label": "W",
             "format": "evil", "secret": "https://example.test/hook"})
-    assert status == 303
+    # A failed save re-renders the form (Task 4) rather than redirecting.
+    assert status == 200
     assert seen["format"] == "evil"
-    assert "Format must be one of" in urllib.parse.unquote_plus(headers["Location"])
+    assert "Format must be one of" in body
+
+
+# --- Connectors UX Task 4: rebuilt add/edit form ---
+
+def test_form_has_sections_docs_link_and_required_markers():
+    out = ds._connector_form_body("jira")
+    assert "Where do I get this?" in out and "rel='noopener noreferrer'" in out
+    assert "target='_blank'" in out and "href='https://support.atlassian.com/" in out
+    assert "type='email'" in out and "placeholder='https://your-team.atlassian.net'" in out
+    assert "type='url'" in out and "inputmode='url'" in out
+    assert out.count("required") >= 3
+    assert "<legend>Account</legend>" in out and "<legend>Connection</legend>" in out
+    assert "spellcheck='false'" in out and "autocapitalize='off'" in out
+    assert "class='field-required'" in out  # asterisk glyph, not color alone
+
+
+def test_form_optional_marker_placeholder_and_help():
+    out = ds._connector_form_body("github")
+    assert "(optional)" in out and "placeholder='octocat'" in out
+    rss = ds._connector_form_body("rss")
+    assert "One feed URL per line" in rss and "aria-describedby=" in rss
+
+
+def test_docs_link_prefers_preset_and_is_omitted_when_empty():
+    feishu = ds._connector_form_body("webhook", preset_key="feishu")
+    assert "href='https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot'" in feishu
+    assert "Where do I get this?" not in ds._connector_form_body("webhook", preset_key="generic")
+    assert "Where do I get this?" not in ds._connector_form_body("rss")
+
+
+def test_secret_has_toggle_and_keychain_note():
+    out = ds._connector_form_body("github")
+    assert "aria-pressed='false'" in out and "Keychain" in out
+    assert "type='password'" in out and "value=" not in out.split("type='password'")[1].split(">")[0]
+    assert "type='button'" in out and '"Show"' in out and '"Hide"' in out
+
+
+def test_form_works_without_js_markers():
+    out = ds._connector_form_body("github")
+    assert "<form method='post' action='/connectors/save'" in out
+    assert "name='id'" in out and "name='label'" in out  # usable without the script
+    assert "name='then_test' value='1'" in out and "href='/connectors'" in out
+    assert out.count("<script>") == 1
+
+
+def test_form_id_suggest_only_when_adding_and_rename_note_when_editing():
+    adding = ds._connector_form_body("github")
+    assert "data-suggest-id='1'" in adding
+    edit = ds._connector_form_body("github", account=_gh_account())
+    assert "data-suggest-id='1'" not in edit
+    assert "Changing the id renames this connector" in edit
+
+
+def _failing_upsert(seen, message="Username is required"):
+    def fake(fields, secret, original_id="", **kw):
+        seen.append({"fields": fields, "secret": secret, "original_id": original_id})
+        return False, message
+    return fake
+
+
+def test_failed_save_rerender_keeps_values_but_not_secret(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ds.connectors_config, "upsert_account", _failing_upsert(seen))
+    with _running_server() as port:
+        status, headers, body = _post(port, "/connectors/save", {
+            "csrf_token": ds._CSRF_TOKEN, "type": "github", "label": "My GH", "id": "my-gh",
+            "api_url": "https://api.github.com", "username": "u", "secret": "SUPERSECRET",
+            "evil": "<NOT-ECHOED>"})
+    assert status == 200 and "Location" not in headers
+    assert "flash-danger" in body and "Username is required" in body
+    assert "value='My GH'" in body and "value='my-gh'" in body
+    assert "value='https://api.github.com'" in body and "value='u'" in body
+    assert "SUPERSECRET" not in body and "NOT-ECHOED" not in body
+    assert "<form method='post' action='/connectors/save'" in body
+    assert seen[0]["fields"] == {"type": "github", "label": "My GH", "id": "my-gh",
+                                 "api_url": "https://api.github.com", "username": "u",
+                                 "evil": "<NOT-ECHOED>"}
+
+
+def test_failed_save_scrubs_secret_echoed_in_error(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ds.connectors_config, "upsert_account",
+                        _failing_upsert(seen, "Could not store the secret: bad SUPERSECRET"))
+    with _running_server() as port:
+        status, _, body = _post(port, "/connectors/save", {
+            "csrf_token": ds._CSRF_TOKEN, "type": "github", "label": "L", "id": "l",
+            "secret": "SUPERSECRET"})
+    assert status == 200 and "SUPERSECRET" not in body and "Could not store the secret" in body
+
+
+def test_failed_save_keeps_preset_and_original_id(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ds.connectors_config, "upsert_account", _failing_upsert(seen, "nope"))
+    with _running_server() as port:
+        _, _, preset_body = _post(port, "/connectors/save", {
+            "csrf_token": ds._CSRF_TOKEN, "type": "webhook", "label": "W", "id": "w",
+            "format": "wecom", "preset": "wecom", "secret": "https://hook.example/SECRETPATH"})
+        _, _, edit_body = _post(port, "/connectors/save", {
+            "csrf_token": ds._CSRF_TOKEN, "type": "github", "label": "GH", "id": "gh2",
+            "original_id": "gh", "api_url": "https://api.github.com"})
+    assert "name='format' value='wecom'" in preset_body and "<select name='format'" not in preset_body
+    assert "name='preset' value='wecom'" in preset_body and "SECRETPATH" not in preset_body
+    assert "name='original_id' value='gh'" in edit_body and "value='gh2'" in edit_body
+    assert "leave blank to keep" in edit_body
+    assert "preset" not in seen[0]["fields"] and "then_test" not in seen[0]["fields"]
+
+
+def test_failed_save_unknown_type_shows_picker(monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "upsert_account", _failing_upsert([], "Unknown connector type zz"))
+    with _running_server() as port:
+        status, _, body = _post(port, "/connectors/save", {
+            "csrf_token": ds._CSRF_TOKEN, "type": "zz", "label": "Z", "id": "z", "secret": "SUPERSECRET"})
+    assert status == 200 and "Unknown connector type zz" in body and "SUPERSECRET" not in body
+    assert "connector-search" in body
+
+
+def test_save_and_test_runs_test_once(monkeypatch, tmp_path):
+    calls = []
+
+    class C:
+        def test(self):
+            calls.append(1)
+            return True, "Connected as u"
+    monkeypatch.setattr(ds.connectors_config, "upsert_account", lambda *a, **k: (True, "Saved connector gh"))
+    monkeypatch.setattr(ds.connectors_config, "load_connector", lambda i, **kw: calls.append(i) or C())
+    with _running_server() as port:
+        status, headers, _ = _post(port, "/connectors/save", {
+            "csrf_token": ds._CSRF_TOKEN, "type": "github", "label": "GH", "id": "gh",
+            "secret": "tok", "then_test": "1"})
+    assert status == 303 and calls == ["gh", 1]
+    flash = _flash(headers["Location"])
+    assert "Saved connector gh" in flash and "Connected as u" in flash
+    recorded = json.loads(ds.CONNECTOR_TEST_RESULTS_PATH.read_text())
+    assert recorded["gh"]["ok"] is True and recorded["gh"]["message"] == "Connected as u"
+
+
+def test_save_without_then_test_does_not_test(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ds.connectors_config, "upsert_account", lambda *a, **k: (True, "Saved"))
+    monkeypatch.setattr(ds.connectors_config, "load_connector", lambda i, **kw: calls.append(i))
+    with _running_server() as port:
+        status, _, _ = _post(port, "/connectors/save", {
+            "csrf_token": ds._CSRF_TOKEN, "type": "github", "label": "GH", "id": "gh"})
+    assert status == 303 and calls == []
+
+
+def test_failed_save_and_test_does_not_run_test(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ds.connectors_config, "upsert_account", _failing_upsert([], "nope"))
+    monkeypatch.setattr(ds.connectors_config, "load_connector", lambda i, **kw: calls.append(i))
+    with _running_server() as port:
+        status, _, _ = _post(port, "/connectors/save", {
+            "csrf_token": ds._CSRF_TOKEN, "type": "github", "label": "GH", "id": "gh",
+            "then_test": "1"})
+    assert status == 200 and calls == []
+    assert not ds.CONNECTOR_TEST_RESULTS_PATH.exists()

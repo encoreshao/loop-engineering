@@ -759,5 +759,14 @@
   "Chat & notifications": "チャットと通知",
   "Work tracking": "作業管理",
   "Knowledge": "ナレッジ",
-  "Other": "その他"
+  "Other": "その他",
+  "Show": "表示",
+  "Hide": "非表示",
+  "(optional)": "（任意）",
+  "Changing the id renames this connector.": "ID を変更するとこのコネクタの名前が変わります。",
+  "e.g. Work GitLab": "例: 仕事用 GitLab",
+  "Stored in your macOS Keychain, never shown again.": "macOS のキーチェーンに保存され、再表示されることはありません。",
+  "Credentials": "認証情報",
+  "Where do I get this?": "取得方法",
+  "Save and test": "保存してテスト"
 }

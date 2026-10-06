@@ -759,5 +759,14 @@
   "Chat & notifications": "聊天与通知",
   "Work tracking": "工作跟踪",
   "Knowledge": "知识库",
-  "Other": "其他"
+  "Other": "其他",
+  "Show": "显示",
+  "Hide": "隐藏",
+  "(optional)": "（可选）",
+  "Changing the id renames this connector.": "更改 ID 会重命名此连接器。",
+  "e.g. Work GitLab": "例如：工作 GitLab",
+  "Stored in your macOS Keychain, never shown again.": "保存在 macOS 钥匙串中，不会再次显示。",
+  "Credentials": "凭据",
+  "Where do I get this?": "如何获取？",
+  "Save and test": "保存并测试"
 }
