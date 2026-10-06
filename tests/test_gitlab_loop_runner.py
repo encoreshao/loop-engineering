@@ -1455,7 +1455,7 @@ def test_gate_events_are_emitted(tmp_path):
     recorded = list(events_module.iter_events(events_dir=tmp_path / "ev"))
     done = [e for e in recorded if e["event_type"] == "issue.completed"]
     esc = [e for e in recorded if e["event_type"] == "issue.escalated"]
-    assert done[0]["data"] == {"outcome": "mr_opened", "gated": True}
+    assert done[0]["data"] == {"outcome": "mr_opened", "gated": True, "action": "fix", "mr_url": None}
     assert esc[0]["data"]["reason"] == "verification_failed"
 
 
@@ -1498,3 +1498,29 @@ def test_gate_mode_calls_finalize_and_survives_its_failure(monkeypatch, tmp_path
     result = glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="gate"), tmp_path, tmp_path,
                                 agent_invoker=_fake_invoke, events_dir=tmp_path)
     assert result.final_state.value == "completed" and result.gate_outcome is None
+
+
+def test_mr_url_is_parsed_from_opener_output(tmp_path):
+    import events as events_module
+    out = "remote: View merge request for loop/issue-7:\nremote:   https://gl.example.com/grp/web/-/merge_requests/12\n"
+    _finalize(tmp_path, completed_result(), opener=lambda *a: (True, out))
+    done = [e for e in events_module.iter_events(events_dir=tmp_path / "ev") if e["event_type"] == "issue.completed"]
+    assert done[0]["data"]["mr_url"] == "https://gl.example.com/grp/web/-/merge_requests/12"
+
+
+def test_project_config_error_escalates_instead_of_stranding_the_fix(tmp_path, monkeypatch):
+    import events as events_module
+
+    def boom(alias):
+        raise KeyError(alias)
+    monkeypatch.setattr(glr.loop_config, "get_project", boom)
+    notes, hp = [], tmp_path / "h.json"
+    hp.write_text(_FIX)
+    out = glr.finalize_gated_issue(completed_result(), "web", 7, "run", tmp_path, handoff=hp,
+                                   notifier=lambda *a: notes.append(a), events_dir=tmp_path / "ev")
+    assert out == "escalated:project_config_error" and len(notes) == 1
+    esc = [e for e in events_module.iter_events(events_dir=tmp_path / "ev") if e["event_type"] == "issue.escalated"]
+    assert esc[0]["data"]["reason"] == "project_config_error"
+    out = glr.finalize_gated_issue(completed_result(), "web", 7, "run", tmp_path, handoff=hp,
+                                   project={"local_path": "/x"}, notifier=lambda *a: None, events_dir=tmp_path / "ev")
+    assert out == "escalated:project_config_error"

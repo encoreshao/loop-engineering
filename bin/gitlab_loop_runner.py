@@ -585,18 +585,35 @@ def finalize_gated_issue(result, alias, issue_iid, run_id, repo_root, handoff=No
     """Gate mode's last step: open the MR (only after verification passed)
     or escalate. Returns "mr_opened" | "answered" | "escalated:<reason>".
     GitLab/Slack calls are best-effort and never raise out of here."""
-    if project is None:
-        project = loop_config.get_project(alias)
     if handoff is None:
         handoff = handoff_path(run_id, alias, issue_iid, repo_root=repo_root)
     issue_run_id = f"{run_id}_{alias}_{issue_iid}"
-    notes_path = f"/projects/{urllib.parse.quote(str(project['project_id']), safe='')}/issues/{issue_iid}"
 
     def log(text):
         try:
             _append_unified_log(f"gate finalize {alias} #{issue_iid}: {text}", repo_root=repo_root)
         except OSError:
             pass
+
+    def notify(reason):
+        message = f"Loop escalated {alias} #{issue_iid} ({reason}); see the issue for details."
+        try:
+            (notifier or _notify_slack_best_effort)(message)
+        except Exception as exc:  # noqa: BLE001
+            log(f"notify failed: {type(exc).__name__}: {exc}")
+
+    try:
+        if project is None:
+            project = loop_config.get_project(alias)
+        notes_path = f"/projects/{urllib.parse.quote(str(project['project_id']), safe='')}/issues/{issue_iid}"
+        project["local_path"], project["instance"]
+    except Exception as exc:  # noqa: BLE001 - the committed fix must not be stranded silently
+        log(f"project config error: {type(exc).__name__}: {exc}")
+        _emit_best_effort("issue.escalated", run_id=run_id, issue_run_id=issue_run_id, project=alias,
+                          issue_iid=issue_iid, data={"reason": "project_config_error", "gated": True},
+                          events_dir=events_dir)
+        notify("project_config_error")
+        return "escalated:project_config_error"
 
     def api(method, path, body):
         nonlocal gitlab
@@ -615,11 +632,7 @@ def finalize_gated_issue(result, alias, issue_iid, run_id, repo_root, handoff=No
         api("POST", f"{notes_path}/notes", {"body": _escalation_comment(issue_iid, reason, failure_text)})
         api("PUT", notes_path, {"add_labels": _NEEDS_HUMAN_LABEL})
         emit("issue.escalated", {"reason": reason, "gated": True})
-        message = f"Loop escalated {alias} #{issue_iid} ({reason}); see the issue for details."
-        try:
-            (notifier or _notify_slack_best_effort)(message)
-        except Exception as exc:  # noqa: BLE001
-            log(f"notify failed: {type(exc).__name__}: {exc}")
+        notify(reason)
         return f"escalated:{reason}"
 
     data = read_handoff(handoff, issue_iid)
@@ -648,7 +661,11 @@ def finalize_gated_issue(result, alias, issue_iid, run_id, repo_root, handoff=No
         f"Verified by the loop with:\n{checks}\n\n{data.get('summary') or ''}"
     ).rstrip()
     api("POST", f"{notes_path}/notes", {"body": body})
-    emit("issue.completed", {"outcome": "mr_opened", "gated": True})
+    # Same shape the batch wrap-up reads from an agent-emitted fix event.
+    found = re.search(r"https?://\S+/merge_requests/\d+", str(detail))
+    emit("issue.completed", {
+        "outcome": "mr_opened", "gated": True, "action": "fix", "mr_url": found.group(0) if found else None,
+    })
     return "mr_opened"
 
 
