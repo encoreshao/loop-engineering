@@ -8533,7 +8533,7 @@ _CHAT_SUGGESTIONS = (
 )
 
 
-def render_overview_page(flash=None, flash_ok=True, session_id=None):
+def _overview_body(flash=None, flash_ok=True, session_id=None):
     """The dashboard's home page: a chat-only view of the two-way message
     thread with the GitLab loop, styled after chatbot landing pages. With
     no messages yet it's a centered hero (status announcement, headline,
@@ -8632,7 +8632,18 @@ def render_overview_page(flash=None, flash_ok=True, session_id=None):
 </div>
 </div>
 """
-    return _render_shell("Dashboard · Loop X Engineering", "overview", _status_badge_markup(status), body)
+    return body
+
+
+def render_overview_page(flash=None, flash_ok=True, session_id=None):
+    """Full page: overview body inside the shell (body: _overview_body)."""
+    status = read_status(STATUS_PATH)
+    return _render_shell(
+        "Dashboard · Loop X Engineering",
+        "overview",
+        _status_badge_markup(status),
+        _overview_body(flash=flash, flash_ok=flash_ok, session_id=session_id),
+    )
 
 
 def _history_entry_html(name, detail_href, delete_href, overview, tags, csrf_input):
@@ -8660,7 +8671,7 @@ def _history_entry_html(name, detail_href, delete_href, overview, tags, csrf_inp
 """
 
 
-def render_history_page():
+def _history_body():
     """Run History page: every archived run report from BOTH loops, most
     recent first within each - the GitLab issue loop's own reviews
     (/history/<name>) and every configured topic's saved briefings
@@ -8713,7 +8724,18 @@ def render_history_page():
 </section>
 </div>
 """
-    return _render_shell("Run History · Loop X Engineering", "history", _status_badge_markup(status), body)
+    return body
+
+
+def render_history_page():
+    """Full page: history body inside the shell (body: _history_body)."""
+    status = read_status(STATUS_PATH)
+    return _render_shell(
+        "Run History · Loop X Engineering",
+        "history",
+        _status_badge_markup(status),
+        _history_body(),
+    )
 
 
 def _loop_run_state_pill_class(final_state):
@@ -8745,7 +8767,7 @@ def _three_state_pill_class(status_value):
     return "pill-grey"
 
 
-def render_loop_runs_page():
+def _loop_runs_body():
     """Loop Runs page: every persisted LoopRuntime run
     (outputs/loop-runs/<run_id>/result.json, written by `loop_cli.py
     run`), most recent first - see
@@ -8765,7 +8787,7 @@ def render_loop_runs_page():
 <p>{_t('No runs yet - run {command} to produce one.', command='<code>bin/loop_cli.py run &lt;loop.yaml&gt;</code>')}</p>
 </section></div>
 """
-        return _render_shell("Loop Runs · Loop X Engineering", "loop_runs", _status_badge_markup(status), body)
+        return body
 
     rows = []
     for path in paths:
@@ -8798,7 +8820,18 @@ def render_loop_runs_page():
 </section>
 </div>
 """
-    return _render_shell("Loop Runs · Loop X Engineering", "loop_runs", _status_badge_markup(status), body)
+    return body
+
+
+def render_loop_runs_page():
+    """Full page: loop_runs body inside the shell (body: _loop_runs_body)."""
+    status = read_status(STATUS_PATH)
+    return _render_shell(
+        "Loop Runs · Loop X Engineering",
+        "loop_runs",
+        _status_badge_markup(status),
+        _loop_runs_body(),
+    )
 
 
 def _loop_runs_overview_html(summary):
@@ -9125,7 +9158,7 @@ def render_budget_page():
     return _render_shell("Budget · Loop X Engineering", "budget", _status_badge_markup(status), body)
 
 
-def render_logs_page():
+def _logs_body():
     """Logs page: the tail of logs/loop-engineering.log - the one place
     every AI CLI invocation across this project (the GitLab loop,
     the topic monitor loop, and this dashboard's own live chat assistant)
@@ -9162,8 +9195,19 @@ def render_logs_page():
 </section>
 </div>
 """
+    return body
+
+
+def render_logs_page():
+    """Full page: logs body inside the shell (body: _logs_body)."""
+    status = read_status(STATUS_PATH)
     return _render_shell(
-        "Logs · Loop X Engineering", "logs", _status_badge_markup(status), body, refresh=True, refresh_note=True
+        "Logs · Loop X Engineering",
+        "logs",
+        _status_badge_markup(status),
+        _logs_body(),
+        refresh=True,
+        refresh_note=True,
     )
 
 
@@ -11748,7 +11792,7 @@ def render_cost_page(days=7):
     return _render_shell("Cost · Loop X Engineering", "cost", _status_badge_markup(status), body)
 
 
-def render_activity_page(flash=None, flash_ok=True):
+def _activity_body(flash=None, flash_ok=True):
     """The loop status page: this loop actually runs two independent
     daemons - the GitLab issue review loop and the topic monitor - so this
     page gives each its own compact status section (state, key fields, a
@@ -11914,8 +11958,19 @@ def render_activity_page(flash=None, flash_ok=True):
 </div>
 </div>
 """
+    return body
+
+
+def render_activity_page(flash=None, flash_ok=True):
+    """Full page: activity body inside the shell (body: _activity_body)."""
+    status = read_status(STATUS_PATH)
     return _render_shell(
-        "Activity · Loop X Engineering", "activity", _status_badge_markup(status), body, refresh=True, refresh_note=True
+        "Activity · Loop X Engineering",
+        "activity",
+        _status_badge_markup(status),
+        _activity_body(flash=flash, flash_ok=flash_ok),
+        refresh=True,
+        refresh_note=True,
     )
 
 
