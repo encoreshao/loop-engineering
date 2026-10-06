@@ -638,5 +638,13 @@
   "Open": "Ouvrir",
   "never": "jamais",
   "No loops here.": "Aucune boucle ici.",
-  "Help": "Aide"
+  "Help": "Aide",
+  "{field} is required": "{field} est obligatoire",
+  "{field} must start with http:// or https://": "{field} doit commencer par http:// ou https://",
+  "{field} must be one of: {options}": "{field} doit être l'une des valeurs suivantes : {options}",
+  "Testing is not supported for {name}": "Le test n'est pas pris en charge pour {name}",
+  "Token rejected (401) - check it hasn't expired": "Jeton rejeté (401) - vérifiez qu'il n'a pas expiré",
+  "HTTP {status}: {body}": "HTTP {status} : {body}",
+  "Network error: {detail}": "Erreur réseau : {detail}",
+  "{kind}: {detail}": "{kind} : {detail}"
 }

@@ -638,5 +638,13 @@
   "Open": "開く",
   "never": "なし",
   "No loops here.": "ループはありません。",
-  "Help": "ヘルプ"
+  "Help": "ヘルプ",
+  "{field} is required": "{field}は必須です",
+  "{field} must start with http:// or https://": "{field}は http:// または https:// で始まる必要があります",
+  "{field} must be one of: {options}": "{field}は次のいずれかである必要があります: {options}",
+  "Testing is not supported for {name}": "{name}のテストはサポートされていません",
+  "Token rejected (401) - check it hasn't expired": "トークンが拒否されました (401) - 期限切れでないか確認してください",
+  "HTTP {status}: {body}": "HTTP {status}: {body}",
+  "Network error: {detail}": "ネットワークエラー: {detail}",
+  "{kind}: {detail}": "{kind}: {detail}"
 }

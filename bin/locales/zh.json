@@ -638,5 +638,13 @@
   "Open": "打开",
   "never": "从未",
   "No loops here.": "这里没有循环。",
-  "Help": "帮助"
+  "Help": "帮助",
+  "{field} is required": "{field}为必填项",
+  "{field} must start with http:// or https://": "{field}必须以 http:// 或 https:// 开头",
+  "{field} must be one of: {options}": "{field}必须是以下之一：{options}",
+  "Testing is not supported for {name}": "{name}不支持测试",
+  "Token rejected (401) - check it hasn't expired": "令牌被拒绝 (401) - 请检查是否已过期",
+  "HTTP {status}: {body}": "HTTP {status}: {body}",
+  "Network error: {detail}": "网络错误：{detail}",
+  "{kind}: {detail}": "{kind}：{detail}"
 }
