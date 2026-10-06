@@ -266,13 +266,20 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 | Linear | `issues` | — | API 密钥 |
 | Mailbox | `mail` | 外部账号——在 Inbox Triage 设置中管理 | — |
 
-**图库与表单。** **Add** 会打开连接器类型图库，按 Code hosting、Chat & notifications、Work tracking、Knowledge、Feeds、Mail 分组，并带搜索框用于筛选。每个卡片和每个账号行都带有对应服务的品牌标志。标志是内联的 Simple Icons 图标；没有图标的服务（Feishu、DingTalk、通用 Webhook）使用字母标记。聊天 Webhook 卡片会展开为上述预设，每个预设带一行提示（例如 Teams 的 Workflows Webhook 可能需要 Adaptive Cards）以及指向该服务官方文档的 **Where do I get this?** 链接。添加/编辑表单包含 **Account** 部分（名称和 id；id 会根据名称自动建议，直到你手动修改）和 **Connection** 部分（该类型的设置，随后是密钥）。必填项标有 `*`，其余标注「(optional)」，并带有示例占位文字。密钥框带有 **Show**/**Hide** 切换。按钮有 **Save**、**Save and test**（先保存再探测）和 **Cancel**。保存失败时，表单会重新显示，并保留已填写的非机密值。
+**图库与表单。**
+
+- **Add** 会打开连接器类型图库，按 Code hosting、Chat & notifications、Work tracking、Knowledge、Feeds、Mail 分组，并带搜索框用于筛选。
+- 每个卡片和每个账号行都带有对应服务的品牌标志（内联的 Simple Icons 图标；没有图标的服务——Feishu、DingTalk、通用 Webhook——使用字母标记）。
+- 聊天 Webhook 卡片会展开为上述预设，每个预设带一行提示（例如 Teams 的 Workflows Webhook 可能需要 Adaptive Cards）以及指向该服务官方文档的 **Where do I get this?** 链接。
+- 添加/编辑表单包含 **Account** 部分（**Label** 和 **Connector id**；id 会根据 label 自动建议，直到你手动修改）和 **Connection** 部分（该类型的设置，随后是密钥）。
+- 必填项标有 `*`，其余标注「(optional)」，并带有示例占位文字。密钥框带有 **Show**/**Hide** 切换。
+- 按钮有 **Save**、**Save and test**（先保存再探测）和 **Cancel**。保存失败时，表单会重新显示，并保留已填写的非机密值。
 
 **数据存放位置。** 在页面上添加的账号是*原生*账号：非机密设置保存在 `~/.loop-engineering/connectors.json`，密钥保存在 macOS 钥匙串中，服务名为 `loop-engineering.connectors`（设置了 `LOOP_ENGINEERING_HOME` 时会加上 `.sandbox-<hash>` 后缀，因此沙盒运行永远不会碰到真实密钥）。密钥不会写入 `connectors.json`，保存后也不会再次显示。
 
 **外部账号**直接从原本管理它们的文件中读取，不做任何迁移：GitLab 实例来自 `~/.gitlab/config.json`（id 为实例别名），Slack Webhook 来自 `~/.slack/config.json`（`slack-default`，以及每个 bundle Webhook 对应的 `slack-<bundle>`），邮箱来自 `inboxes.json`（id 为收件箱名称）。它们会显示带链接的「Managed on …」徽标，指向可编辑它们的页面；你仍可在这里对其执行 Test。
 
-**Test 按钮。** 每个账号都有 **Test** 按钮（Slack 和聊天 Webhook 为 **Send test message**）；上次结果保存在 `outputs/connectors/test-results.json`。
+**Test 按钮。** 每个账号都有 **Test** 按钮（Slack、Telegram 和聊天 Webhook 为 **Send test message**）；上次结果保存在 `outputs/connectors/test-results.json`。
 
 **循环与通知。** 在 **Loops** 页面，需要某种能力的循环会显示「Needs: …」标签，在存在具备该能力的连接器之前无法启用（UI 和服务端都会拦截）。在 `loops.json` 条目中声明了 `"routes_notifications": true` 的循环（其运行器通过 `bin/notify.py` 发送）还会有 **Notify via** 选项，以 `notify: [连接器 id]` 的形式保存。`bin/notify.py` 会把这类循环的通知路由到这些连接器；未设置 `notify` 时，仍和以前一样发送到默认的 Slack Webhook。内置的 GitLab、Topic 和 Inbox 循环尚未声明该字段，仍直接发送到 Slack Webhook；如果它们已有 `notify` 列表，Loops 页面会以只读方式显示，并提供 **Clear** 按钮清除。可以通过命令行试用：`python3 bin/notify.py <loop> "<text>"`。仪表盘的 AI 面板也能列出连接器（聊天工具 `connector-list`）。
 

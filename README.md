@@ -269,13 +269,20 @@ A connector is an account the loops can talk to: a GitLab or GitHub instance, a 
 | Linear | `issues` | — | API key |
 | Mailbox | `mail` | external — managed on Inbox Triage setup | — |
 
-**Gallery and form.** **Add** opens a gallery of connector types, grouped into Code hosting, Chat & notifications, Work tracking, Knowledge, Feeds and Mail, with a search box to filter them. Each tile and each account row carries the service's brand logo. The logos are inline Simple Icons marks; services without one (Feishu, DingTalk, the generic webhook) get a lettermark. The chat webhook tile expands into the presets above, each with a one-line hint (for example, Teams Workflows webhooks may require Adaptive Cards) and a **Where do I get this?** link to that service's own docs. The add/edit form has an **Account** section (name and id; the id is suggested from the name until you edit it) and a **Connection** section (the type's settings, then the secret). Required fields are marked `*`, the others say "(optional)", and fields have example placeholders. The secret field has a **Show**/**Hide** toggle. Buttons: **Save**, **Save and test** (saves, then runs the probe) and **Cancel**. If a save fails, the form is shown again with your non-secret values kept.
+**Gallery and form.**
+
+- **Add** opens a gallery of connector types, grouped into Code hosting, Chat & notifications, Work tracking, Knowledge, Feeds and Mail, with a search box to filter them.
+- Each tile and each account row carries the service's brand logo (inline Simple Icons marks; services without one — Feishu, DingTalk, the generic webhook — get a lettermark).
+- The chat webhook tile expands into the presets above, each with a one-line hint (for example, Teams Workflows webhooks may require Adaptive Cards) and a **Where do I get this?** link to that service's own docs.
+- The add/edit form has an **Account** section (**Label** and **Connector id**; the id is suggested from the label until you edit it) and a **Connection** section (the type's settings, then the secret).
+- Required fields are marked `*`, the others say "(optional)", and fields have example placeholders. The secret field has a **Show**/**Hide** toggle.
+- Buttons: **Save**, **Save and test** (saves, then runs the probe) and **Cancel**. If a save fails, the form is shown again with your non-secret values kept.
 
 **Where things live.** Accounts you add on the page are *native*: their non-secret settings go in `~/.loop-engineering/connectors.json`, and their secrets go in the macOS Keychain under the service `loop-engineering.connectors` (suffixed `.sandbox-<hash>` whenever `LOOP_ENGINEERING_HOME` is set, so a sandboxed run never touches the real ones). Secrets are never written to `connectors.json` and never shown again after saving.
 
 **External accounts** are read through from the files that already own them, with nothing migrated: GitLab instances from `~/.gitlab/config.json` (id = the instance alias), Slack webhooks from `~/.slack/config.json` (`slack-default`, plus `slack-<bundle>` per bundle webhook), and mailboxes from `inboxes.json` (id = the inbox name). They show a "Managed on …" badge linking to the page where you edit them; you can still Test them here.
 
-**Test buttons.** Every account has a **Test** button (**Send test message** for Slack and chat webhooks); the last result is kept in `outputs/connectors/test-results.json`.
+**Test buttons.** Every account has a **Test** button (**Send test message** for Slack, Telegram and chat webhooks); the last result is kept in `outputs/connectors/test-results.json`.
 
 **Loops and notifications.** On **Loops**, a loop that needs a capability shows "Needs: …" chips, and it cannot be enabled (in the UI or by the server) until a connector with that capability exists. A loop whose `loops.json` entry declares `"routes_notifications": true` (its runner sends through `bin/notify.py`) also gets a **Notify via** selection, stored as `notify: [connector ids]`. `bin/notify.py` routes such a loop's notification to those connectors; with no `notify` set it posts to the default Slack webhook exactly as before. The built-in GitLab, Topic and Inbox loops don't declare it yet and still post to the Slack webhook directly; if one of them already has a `notify` list, Loops shows it read-only with a **Clear** button. You can try it from the CLI with `python3 bin/notify.py <loop> "<text>"`. The dashboard's AI panel can also list your connectors (chat tool `connector-list`).
 

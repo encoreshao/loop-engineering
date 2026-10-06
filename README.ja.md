@@ -269,13 +269,20 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 | Linear | `issues` | — | API キー |
 | Mailbox | `mail` | 外部管理 — Inbox Triage のセットアップで管理 | — |
 
-**ギャラリーとフォーム。** **Add** を開くとコネクタの種類のギャラリーが表示され、Code hosting、Chat & notifications、Work tracking、Knowledge、Feeds、Mail に分類されています。検索ボックスで絞り込めます。各タイルとアカウント行にはサービスのブランドロゴが付きます。ロゴはインラインの Simple Icons マークで、マークのないサービス（Feishu、DingTalk、汎用 Webhook）はレターマークになります。チャット Webhook のタイルは上記のプリセットに展開され、それぞれに一行の説明（例：Teams の Workflows Webhook は Adaptive Cards が必要な場合があります）と、そのサービス自身のドキュメントへの **Where do I get this?** リンクが付きます。追加・編集フォームは **Account** セクション（名前と id。id は編集するまで名前から自動提案されます）と **Connection** セクション（種類ごとの設定、続いてシークレット）で構成されます。必須項目には `*` が付き、それ以外は「(optional)」と表示され、入力例のプレースホルダーもあります。シークレット欄には **Show**／**Hide** の切り替えがあります。ボタンは **Save**、**Save and test**（保存してからプローブを実行）、**Cancel** です。保存に失敗した場合は、シークレット以外の入力値を保持したままフォームが再表示されます。
+**ギャラリーとフォーム。**
+
+- **Add** を開くとコネクタの種類のギャラリーが表示されます。Code hosting、Chat & notifications、Work tracking、Knowledge、Feeds、Mail に分類され、検索ボックスで絞り込めます。
+- 各タイルとアカウント行にはサービスのブランドロゴが付きます（インラインの Simple Icons マーク。マークのないサービス（Feishu、DingTalk、汎用 Webhook）はレターマーク）。
+- チャット Webhook のタイルは上記のプリセットに展開され、それぞれに一行の説明（例：Teams の Workflows Webhook は Adaptive Cards が必要な場合があります）と、そのサービス自身のドキュメントへの **Where do I get this?** リンクが付きます。
+- 追加・編集フォームは **Account** セクション（**Label** と **Connector id**。id は編集するまでラベルから自動提案されます）と **Connection** セクション（種類ごとの設定、続いてシークレット）で構成されます。
+- 必須項目には `*` が付き、それ以外は「(optional)」と表示され、入力例のプレースホルダーもあります。シークレット欄には **Show**／**Hide** の切り替えがあります。
+- ボタンは **Save**、**Save and test**（保存してからプローブを実行）、**Cancel** です。保存に失敗した場合は、シークレット以外の入力値を保持したままフォームが再表示されます。
 
 **データの保存先。** ページ上で追加したアカウントは*ネイティブ*で、シークレット以外の設定は `~/.loop-engineering/connectors.json` に、シークレットは macOS キーチェーンのサービス `loop-engineering.connectors` に保存されます（`LOOP_ENGINEERING_HOME` が設定されている場合は `.sandbox-<hash>` が付くため、サンドボックス実行が本物のシークレットに触れることはありません）。シークレットが `connectors.json` に書き込まれることはなく、保存後に再表示されることもありません。
 
 **外部アカウント**は、すでにそれを管理しているファイルから読み取り専用で取り込まれ、移行は行われません。GitLab インスタンスは `~/.gitlab/config.json`（id はインスタンスのエイリアス）、Slack の Webhook は `~/.slack/config.json`（`slack-default` と、バンドルごとの Webhook に対する `slack-<bundle>`）、メールボックスは `inboxes.json`（id は受信箱の名前）から取得します。編集ページへのリンク付き「Managed on …」バッジが表示され、ここから Test を実行することもできます。
 
-**Test ボタン。** すべてのアカウントに **Test** ボタンがあります（Slack とチャット Webhook は **Send test message**）。最後の結果は `outputs/connectors/test-results.json` に保存されます。
+**Test ボタン。** すべてのアカウントに **Test** ボタンがあります（Slack・Telegram・チャット Webhook は **Send test message**）。最後の結果は `outputs/connectors/test-results.json` に保存されます。
 
 **ループと通知。** **Loops** では、機能を必要とするループに「Needs: …」チップが表示され、その機能を持つコネクタが存在するまで（UI でもサーバー側でも）有効化できません。`loops.json` のエントリで `"routes_notifications": true` を宣言しているループ（ランナーが `bin/notify.py` 経由で送信するもの）には **Notify via** の選択もあり、`notify: [コネクタ id]` として保存されます。`bin/notify.py` はそうしたループの通知をそれらのコネクタへ振り分け、`notify` が未設定の場合は従来どおりデフォルトの Slack Webhook に投稿します。組み込みの GitLab・Topic・Inbox ループはまだこれを宣言しておらず、引き続き Slack Webhook に直接投稿します。それらに既に `notify` リストがある場合、Loops では読み取り専用で表示され、**Clear** ボタンで解除できます。CLI からは `python3 bin/notify.py <loop> "<text>"` で試せます。ダッシュボードの AI パネルからもコネクタを一覧できます（チャットツール `connector-list`）。
 
