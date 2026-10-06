@@ -827,5 +827,15 @@
   "Daily Digest": "デイリーダイジェスト",
   "MR Review": "MRレビュー",
   "Pipeline Doctor": "パイプラインドクター",
-  "RSS Watch": "RSSウォッチ"
+  "RSS Watch": "RSSウォッチ",
+  "Agreement rate": "一致率",
+  "Blocked by gate": "ゲートでブロック",
+  "Retried → passed": "再試行後に合格",
+  "Gates": "ゲート",
+  "Does the external verifier agree with the agent, and what the gate did.": "外部検証がエージェントの判断と一致しているか、そしてゲートが何をしたか。",
+  "By project": "プロジェクト別",
+  "Verification mode": "検証モード",
+  "observe": "観察",
+  "gate": "ゲート",
+  "Flip a loop to gate once this holds at {threshold}% or more over a week.": "これが1週間 {threshold}% 以上で続いたら、ループをゲートモードに切り替えてください。"
 }

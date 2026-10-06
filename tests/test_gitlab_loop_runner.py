@@ -1524,3 +1524,19 @@ def test_project_config_error_escalates_instead_of_stranding_the_fix(tmp_path, m
     out = glr.finalize_gated_issue(completed_result(), "web", 7, "run", tmp_path, handoff=hp,
                                    project={"local_path": "/x"}, notifier=lambda *a: None, events_dir=tmp_path / "ev")
     assert out == "escalated:project_config_error"
+
+
+def test_external_completed_event_flags_verifier_error():
+    import events as events_module
+    from types import SimpleNamespace
+
+    recorded = []
+    original = glr._emit_best_effort
+    glr._emit_best_effort = lambda event_type, **kw: recorded.append((event_type, kw))
+    try:
+        result = SimpleNamespace(name="project_commands", passed=False, evidence={"error": True, "observed_passed": False})
+        iteration = SimpleNamespace(verification_results=[result], iteration=1)
+        glr._emit_verification_events("r", "i", "p", 1, "gate", iteration)
+    finally:
+        glr._emit_best_effort = original
+    assert recorded[0][1]["data"]["error"] is True

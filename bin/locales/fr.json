@@ -827,5 +827,15 @@
   "Daily Digest": "Résumé quotidien",
   "MR Review": "Revue de MR",
   "Pipeline Doctor": "Docteur des pipelines",
-  "RSS Watch": "Veille RSS"
+  "RSS Watch": "Veille RSS",
+  "Agreement rate": "Taux de concordance",
+  "Blocked by gate": "Bloqué par la porte",
+  "Retried → passed": "Réessayé → réussi",
+  "Gates": "Portes",
+  "Does the external verifier agree with the agent, and what the gate did.": "La vérification externe est-elle d'accord avec l'agent, et qu'a fait la porte.",
+  "By project": "Par projet",
+  "Verification mode": "Mode de vérification",
+  "observe": "observation",
+  "gate": "porte",
+  "Flip a loop to gate once this holds at {threshold}% or more over a week.": "Passez une boucle en mode porte une fois ce taux maintenu à {threshold} % ou plus pendant une semaine."
 }

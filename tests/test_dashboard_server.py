@@ -13767,3 +13767,74 @@ def test_loop_run_detail_marks_observed_failure_as_failed(tmp_path, monkeypatch)
     output = ds.render_loop_run_detail_page("run_observed")
 
     assert "✗ project_commands" in output and "✓ project_commands" not in output
+
+
+def _gate_ev(event_type, iid, data=None, project="web", run_id="r"):
+    return {"event_type": event_type, "project": project, "issue_iid": iid, "data": data or {}, "run_id": run_id}
+
+
+def test_gate_stats_agreement_rate():
+    events = [
+        {"event_type": "issue.completed", "project": "web", "issue_iid": 1, "data": {}, "run_id": "r"},
+        {"event_type": "verification.external_completed", "project": "web", "issue_iid": 1, "data": {"observed_passed": True}, "run_id": "r"},
+        {"event_type": "issue.completed", "project": "web", "issue_iid": 2, "data": {}, "run_id": "r"},
+        {"event_type": "verification.external_completed", "project": "web", "issue_iid": 2, "data": {"observed_passed": False}, "run_id": "r"},
+    ]
+    s = ds.gate_stats(events_iter=lambda days: events)
+    assert s["issues"] == 2 and s["agreement_rate"] == 0.5
+
+
+def test_gate_stats_empty_is_none():
+    assert ds.gate_stats(events_iter=lambda days: [])["agreement_rate"] is None
+
+
+def test_gate_stats_uses_last_iteration_and_excludes_verifier_errors():
+    events = [
+        _gate_ev("verification.external_completed", 1, {"observed_passed": False, "iteration": 1}),
+        _gate_ev("verification.external_completed", 1, {"observed_passed": True, "iteration": 2}),
+        _gate_ev("issue.completed", 1),
+        _gate_ev("verification.external_completed", 2, {"observed_passed": False, "error": True}),
+        _gate_ev("issue.completed", 2),
+    ]
+    s = ds.gate_stats(events_iter=lambda days: events)
+    assert s["issues"] == 1 and s["agreement_rate"] == 1.0
+    assert s["retried_then_passed"] == 1
+
+
+def test_gate_stats_counts_blocks_escalations_and_policy_denials():
+    events = [
+        _gate_ev("issue.escalated", 1, {"reason": "verification_failed"}),
+        _gate_ev("issue.escalated", 2, {"reason": "handoff_invalid"}, project="api"),
+        _gate_ev("issue.escalated", 3, {"reason": "something_else"}),
+        _gate_ev("policy.denied", None),
+    ]
+    s = ds.gate_stats(events_iter=lambda days: events)
+    assert s["gated_blocks"] == 1
+    assert s["escalated_verification"] == 2
+    assert s["policy_denied"] == 1
+    assert s["by_project"]["api"]["escalated_verification"] == 1
+
+
+def test_gates_body_renders_tiles_table_and_loop_modes(tmp_path):
+    loop = tmp_path / "gitlab-issue"
+    loop.mkdir()
+    (loop / "loop.yaml").write_text(
+        "name: gitlab-issue\nversion: 1\ntrigger: {type: schedule}\ngoal: {type: issue}\n"
+        "verification: {mode: gate}\n"
+    )
+    events = [
+        _gate_ev("verification.external_completed", 1, {"observed_passed": True}),
+        _gate_ev("issue.completed", 1),
+    ]
+    html_out = ds._gates_body(loops_dir=tmp_path, events_iter=lambda days: events)
+    assert "100%" in html_out and "90%" in html_out
+    assert "gitlab-issue" in html_out and "gate" in html_out and "web" in html_out
+
+
+def test_gates_body_empty_shows_na(tmp_path):
+    html_out = ds._gates_body(loops_dir=tmp_path, events_iter=lambda days: [])
+    assert "N/A" in html_out
+
+
+def test_harness_hub_first_view_is_gates():
+    assert [v.key for v in ds._hubs()["harness"].views] == ["gates", "audit"]

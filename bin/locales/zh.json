@@ -827,5 +827,15 @@
   "Daily Digest": "每日摘要",
   "MR Review": "MR 评审",
   "Pipeline Doctor": "流水线医生",
-  "RSS Watch": "RSS 监控"
+  "RSS Watch": "RSS 监控",
+  "Agreement rate": "一致率",
+  "Blocked by gate": "被门禁拦截",
+  "Retried → passed": "重试后通过",
+  "Gates": "门禁",
+  "Does the external verifier agree with the agent, and what the gate did.": "外部验证是否与智能体的判断一致，以及门禁做了什么。",
+  "By project": "按项目",
+  "Verification mode": "验证模式",
+  "observe": "观察",
+  "gate": "门禁",
+  "Flip a loop to gate once this holds at {threshold}% or more over a week.": "当该比例在一周内保持在 {threshold}% 以上时，再将循环切换为门禁模式。"
 }

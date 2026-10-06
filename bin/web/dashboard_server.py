@@ -47,6 +47,7 @@ import ai_cli_config
 import connectors
 import connectors_config
 import cost
+import events as events_store
 import health
 import i18n
 import inbox_config
@@ -9259,6 +9260,159 @@ def render_loop_run_detail_page(run_id):
     )
 
 
+_GATE_ESCALATION_REASONS = ("verification_failed", "handoff_invalid", "mr_open_failed", "project_config_error")
+_GATE_AGREEMENT_THRESHOLD = 0.9
+
+
+def gate_stats(days=7, events_iter=None):
+    """Observe-mode agreement and gate outcomes from the event log: per
+    issue (run_id + project + issue_iid), the LAST non-error
+    verification.external_completed's observed_passed vs whether the issue
+    emitted issue.completed. Verifier config errors (data.error) are
+    excluded from agreement."""
+    if events_iter is None:
+        def events_iter(days):
+            since = (datetime.now(timezone.utc).date() - timedelta(days=days - 1)).isoformat()
+            return events_store.iter_events(since_date=since)
+
+    def blank():
+        return {"issues": 0, "agreement_rate": None, "gated_blocks": 0, "retried_then_passed": 0,
+                "escalated_verification": 0, "policy_denied": 0}
+
+    total, by_project = blank(), {}
+    last_verdict, completed, retried = {}, set(), set()
+    agree = {}
+
+    def bucket(project):
+        return by_project.setdefault(project, blank())
+
+    for ev in events_iter(days):
+        kind, data = ev.get("event_type"), ev.get("data") or {}
+        project = ev.get("project")
+        key = (ev.get("run_id"), project, ev.get("issue_iid"))
+        if kind == "verification.external_completed":
+            if data.get("error"):
+                continue
+            last_verdict[key] = bool(data.get("observed_passed"))
+            if data.get("observed_passed") and (data.get("iteration") or 1) >= 2:
+                retried.add(key)
+        elif kind == "issue.completed":
+            completed.add(key)
+        elif kind == "issue.escalated":
+            reason = data.get("reason")
+            if reason in _GATE_ESCALATION_REASONS:
+                targets = [total] + ([bucket(project)] if project else [])
+                for t in targets:
+                    t["escalated_verification"] += 1
+                    if reason == "verification_failed":
+                        t["gated_blocks"] += 1
+        elif kind == "policy.denied":
+            total["policy_denied"] += 1
+            if project:
+                bucket(project)["policy_denied"] += 1
+
+    for key, verdict in last_verdict.items():
+        for t in [total] + ([bucket(key[1])] if key[1] else []):
+            t["issues"] += 1
+            agree.setdefault(id(t), 0)
+            agree[id(t)] += int(verdict == (key in completed))
+    for key in retried:
+        for t in [total] + ([bucket(key[1])] if key[1] else []):
+            t["retried_then_passed"] += 1
+    for t in [total] + list(by_project.values()):
+        if t["issues"]:
+            t["agreement_rate"] = agree.get(id(t), 0) / t["issues"]
+    total["by_project"] = by_project
+    return total
+
+
+def _gate_mode_chips_html(loops_dir):
+    loops_dir = Path(loops_dir)
+    chips = []
+    for path in sorted(loops_dir.glob("*/loop.yaml")) if loops_dir.exists() else []:
+        try:
+            definition = loop_definition.LoopDefinition.from_yaml(path)
+        except Exception:  # noqa: BLE001 - one broken definition must not blank the page
+            continue
+        mode = definition.verification.mode
+        cls = "pill-green" if mode == "gate" else "pill-grey"
+        chips.append(
+            f"<li><strong>{html.escape(definition.name)}</strong> "
+            f"<span class='pill {cls}'>{html.escape(_t('gate') if mode == 'gate' else _t('observe'))}</span></li>"
+        )
+    return "".join(chips)
+
+
+def _gate_rate_text(rate):
+    return f"{rate * 100:.0f}%" if rate is not None else _t("N/A")
+
+
+def _gate_tile_html(icon, value, label, note=""):
+    note_html = f"<span class='subtitle'>{html.escape(note)}</span>" if note else ""
+    return (
+        "<div class='dash-stat-tile'>"
+        f"<span class='material-symbols-outlined dash-stat-icon' aria-hidden='true'>{icon}</span>"
+        f"<span class='dash-stat-value'>{html.escape(str(value))}</span>"
+        f"<span class='dash-stat-label'>{html.escape(label)}</span>{note_html}"
+        "</div>"
+    )
+
+
+def _gates_body(days=7, loops_dir=None, events_iter=None):
+    """Harness > Gates: observe-mode agreement (the evidence for flipping a
+    loop to gate mode) and what the gate did once on."""
+    if loops_dir is None:
+        loops_dir = LOOPS_DIR
+    stats = gate_stats(days=days, events_iter=events_iter)
+    rate = stats["agreement_rate"]
+    rate_text = _gate_rate_text(rate)
+    rate_note = _t("Flip a loop to gate once this holds at {threshold}% or more over a week.",
+                   threshold=int(_GATE_AGREEMENT_THRESHOLD * 100))
+    retried_label = _t("Retried \u2192 passed")
+    tiles = "".join((
+        _gate_tile_html("fact_check", rate_text, _t("Agreement rate"), rate_note),
+        _gate_tile_html("error", stats["gated_blocks"], _t("Blocked by gate")),
+        _gate_tile_html("autorenew", stats["retried_then_passed"], retried_label),
+        _gate_tile_html("warning", stats["escalated_verification"], _t("Escalated")),
+    ))
+    rows = "".join(
+        "<tr>"
+        f"<td>{html.escape(str(project))}</td><td>{row['issues']}</td>"
+        f"<td>{html.escape(_gate_rate_text(row['agreement_rate']))}</td>"
+        f"<td>{row['gated_blocks']}</td><td>{row['retried_then_passed']}</td>"
+        f"<td>{row['escalated_verification']}</td>"
+        "</tr>"
+        for project, row in sorted(stats["by_project"].items())
+    )
+    table = (
+        "<div class='table-wrap'><table class='daemons'><thead><tr>"
+        f"<th>{html.escape(_t('Project'))}</th><th>{html.escape(_t('Issues'))}</th>"
+        f"<th>{html.escape(_t('Agreement rate'))}</th><th>{html.escape(_t('Blocked by gate'))}</th>"
+        f"<th>{html.escape(retried_label)}</th><th>{html.escape(_t('Escalated'))}</th>"
+        f"</tr></thead><tbody>{rows}</tbody></table></div>"
+        if rows else f"<p>{html.escape(_t('No data yet for this breakdown.'))}</p>"
+    )
+    modes = _gate_mode_chips_html(loops_dir)
+    return f"""
+<div class="page-title">
+<h1>{html.escape(_t('Gates'))}</h1>
+<p class="subtitle">{html.escape(_t('Does the external verifier agree with the agent, and what the gate did.'))}</p>
+</div>
+<section class="card">
+<div class="section-header"><h2>{html.escape(_t('Last 7 days'))}</h2></div>
+<div class="dash-stats-grid">{tiles}</div>
+</section>
+<section class="card">
+<div class="section-header"><h2>{html.escape(_t('By project'))}</h2></div>
+{table}
+</section>
+<section class="card">
+<div class="section-header"><h2>{html.escape(_t('Verification mode'))}</h2></div>
+<ul class='plain'>{modes}</ul>
+</section>
+"""
+
+
 def _audit_body(loops_dir=None):
     """Audit page - runs loop_audit.audit_definition over every
     loops/*/loop.yaml (the live loop definitions this repo actually
@@ -13175,6 +13329,7 @@ def _hubs():
             V("memory", "Memory", lambda **kw: _memory_body()),
         )),
         "harness": hub_mod.Hub("harness", "/harness", "Harness", _SECTION_ICON_AUDIT, (
+            V("gates", "Gates", lambda **kw: _gates_body()),
             V("audit", "Audit", lambda **kw: _audit_body()),
         )),
         "connectors": hub_mod.Hub("connectors", "/connectors", "Connectors", _SECTION_ICON_CONNECTORS, (

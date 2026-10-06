@@ -490,15 +490,16 @@ def _emit_verification_events(run_id, issue_run_id, alias, issue_iid, mode, iter
                 project=alias, issue_iid=issue_iid, events_dir=events_dir,
             )
             continue
+        data = {
+            "verifier": result.name, "passed": result.passed,
+            "observed_passed": evidence.get("observed_passed", result.passed),
+            "mode": mode, "iteration": iteration.iteration,
+        }
+        if evidence.get("error"):
+            data["error"] = True  # a verifier config error says nothing about the agent's fix
         _emit_best_effort(
             "verification.external_completed", run_id=run_id, issue_run_id=issue_run_id,
-            project=alias, issue_iid=issue_iid,
-            data={
-                "verifier": result.name, "passed": result.passed,
-                "observed_passed": evidence.get("observed_passed", result.passed),
-                "mode": mode, "iteration": iteration.iteration,
-            },
-            events_dir=events_dir,
+            project=alias, issue_iid=issue_iid, data=data, events_dir=events_dir,
         )
 
 
