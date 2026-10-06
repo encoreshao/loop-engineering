@@ -20,7 +20,6 @@ import re
 import signal
 import subprocess
 import sys
-import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,6 +33,7 @@ import mail_auth
 import mail_http
 import mail_providers
 import slack_notify
+from agents import sealed
 from loop_definition import LoopDefinition
 from loop_runtime import LoopRuntime
 from loop_serialize import write_result
@@ -55,28 +55,8 @@ class TriageFailed(Exception):
 
 
 def _cli_command():
-    """No tools and no MCP servers: without --strict-mcp-config the user's
-    own claude.ai connectors (which can include a Gmail connector able to
-    deliver mail) would load into this session. The prompt goes on stdin so
-    message content never appears in argv / `ps`.
-
-    --no-session-persistence and --settings '{"disableAllHooks": true}'
-    close two more content-persistence leaks, both verified read-only
-    against the installed `claude --help` (2.1.283) rather than assumed:
-    without --no-session-persistence, `claude -p` still saves the full
-    stdin prompt (i.e. the email bodies) as a resumable session transcript
-    under ~/.claude/projects/...; --help documents it works with --print,
-    which this command already uses. Without disableAllHooks, the user's
-    own Stop/SessionEnd hooks still run and can read that transcript.
-    `disableAllHooks` isn't just documented - it's confirmed as a real,
-    live settings key by the installed binary's own string table, which
-    contains the literal message "hooks are turned off in your settings
-    (disableAllHooks)".
-
-    There is deliberately no codex command: see the module docstring."""
-    return ["claude", "-p", "--output-format", "json", "--tools", "",
-            "--strict-mcp-config", "--mcp-config", json.dumps({"mcpServers": {}}),
-            "--no-session-persistence", "--settings", json.dumps({"disableAllHooks": True})]
+    """Kept so existing callers/tests keep working: see agents.sealed.sealed_command."""
+    return sealed.sealed_command()
 
 
 def _append_unified_log(text, repo_root, unified_log_path):
@@ -110,31 +90,21 @@ def invoke_triage_agent(prompt, repo_root=None, timeout_seconds=None, unified_lo
         repo_root = REPO_ROOT
     if timeout_seconds is None:
         timeout_seconds = _default_timeout_seconds()
-    # Defense in depth - triage_inbox already refuses before fetching mail.
-    if ai_cli_config.get_selected_cli() != "claude":
-        raise TriageFailed(CODEX_REFUSAL)
-    started = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix="inbox-triage-") as scratch_dir:
-        try:
-            proc = subprocess.run(_cli_command(), input=prompt, capture_output=True, text=True,
-                                  timeout=timeout_seconds, check=True, cwd=scratch_dir)
-        except subprocess.TimeoutExpired:
-            _append_unified_log(f"claude triage call FAILED (timed out after {timeout_seconds}s)", repo_root, unified_log_path)
-            raise
-        except subprocess.CalledProcessError as exc:
-            _append_unified_log(f"claude triage call FAILED (exited {exc.returncode})", repo_root, unified_log_path)
-            raise
-    elapsed = time.monotonic() - started
+    def log(msg):
+        _append_unified_log(f"claude triage call {msg}", repo_root, unified_log_path)
+
     try:
-        envelope = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        _append_unified_log("claude triage call FAILED (unparseable CLI envelope)", repo_root, unified_log_path)
-        raise TriageFailed("claude returned an unparseable envelope") from None
-    if envelope.get("is_error"):
-        _append_unified_log("claude triage call FAILED (is_error)", repo_root, unified_log_path)
-        raise TriageFailed("claude reported an error")
-    _append_unified_log(f"claude triage call ok ({elapsed:.1f}s)", repo_root, unified_log_path)
-    return {"text": envelope.get("result", ""), "cost_usd": envelope.get("total_cost_usd")}
+        out = sealed.sealed_call(prompt, timeout_seconds, log=log,
+                                 runner=lambda *a, **kw: subprocess.run(*a, **kw),
+                                 cli_fn=lambda: ai_cli_config.get_selected_cli(),
+                                 command_fn=lambda: _cli_command())
+    except sealed.SealedCallFailed as exc:
+        if isinstance(exc.__cause__, (subprocess.TimeoutExpired, subprocess.CalledProcessError)):
+            raise exc.__cause__ from None
+        if ai_cli_config.get_selected_cli() != "claude":
+            raise TriageFailed(CODEX_REFUSAL) from None
+        raise TriageFailed(str(exc)) from None
+    return {"text": out["text"], "cost_usd": out["cost_usd"]}
 
 
 def classify(prompt, messages, categories, invoke=None, timeout_seconds=None):
