@@ -5849,6 +5849,7 @@ svg.brand-logo[fill="currentColor"] {{ color: #181717; }}
 .connector-search::placeholder {{ color: var(--md-on-surface-variant); }}
 .connector-search:focus, .connector-search:focus-visible {{ outline: 2px solid transparent; border-color: var(--cg-accent); box-shadow: 0 0 0 3px var(--md-outline-variant); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cg-accent) 25%, transparent); }}
 .connector-category {{ margin: 0 0 1.75rem; }}
+.connector-category[hidden], .connector-tile[hidden] {{ display: none; }}
 .connector-category h2 {{ display: flex; align-items: center; gap: 0.55rem; margin: 0 0 0.85rem; padding-bottom: 0.45rem; background: linear-gradient(var(--cg-rule), var(--cg-rule)) left bottom / 2rem 2px no-repeat; font-size: 1rem; font-weight: 500; color: var(--md-on-surface); }}
 .connector-category h2 .brand-logo {{ padding: 0; background: none; }}
 .connector-count {{ display: inline-flex; align-items: center; justify-content: center; min-width: 1.4rem; height: 1.4rem; padding: 0 0.4rem; box-sizing: border-box; border-radius: 999px; background: var(--cg-badge-bg); color: var(--cg-badge-fg); font-size: 0.72rem; font-weight: 500; }}
@@ -12814,10 +12815,10 @@ def _connector_type_picker_html():
         "<script>(function(){var q=document.getElementById('connector-search');if(!q)return;"
         "q.addEventListener('input',function(){var v=q.value.trim().toLowerCase();"
         "document.querySelectorAll('.connector-tile').forEach(function(t){"
-        "t.style.display=(!v||(t.getAttribute('data-name')||'').indexOf(v)!==-1)?'':'none';});"
+        "t.hidden=!(!v||(t.getAttribute('data-name')||'').indexOf(v)!==-1);});"
         "document.querySelectorAll('.connector-category').forEach(function(s){"
-        "var any=s.querySelector('.connector-tile:not([style*=\"none\"])');"
-        "s.style.display=any?'':'none';});});})();</script>")
+        "var any=s.querySelector('.connector-tile:not([hidden])');"
+        "s.hidden=!any;});});})();</script>")
     return (f"<div class='connector-gallery'>"
             f"<p class='section-subtitle connector-gallery-intro'>{html.escape(_t('Choose a connector type.'))}</p>"
             f"{search}{''.join(sections)}</div>{script}")
@@ -12952,6 +12953,7 @@ def _connector_form_body(type_name, account=None, preset_key=None, submitted=Non
                        f"</div></fieldset>")
     oauth = _is_google_oauth_type(cls)
     if oauth:
+        google_client_missing = google_client_missing or not _google_oauth_client()
         connected = bool((account or {}).get("oauth_connected"))
         status = _t("Connected") if connected else _t("Not connected")
         missing_html = ""
@@ -13067,7 +13069,8 @@ def _connector_google_start(form, redirect_uri):
     secret, a pasted one is ignored; with just an `id` (the accounts row's
     button) it reuses the existing native account. Returns {"redirect": url}
     (always under mail_auth.GOOGLE_AUTH_URL), {"html": page} to re-render
-    the form, or {"ok", "message"} for a flash back to /connectors."""
+    the form, or {"ok", "message"[, "location"]} for a flash redirect
+    (default /connectors)."""
     if "type" in form:
         type_name = form.get("type", "")
         cls = _connector_type_or_none(type_name)
@@ -13099,9 +13102,9 @@ def _connector_google_start(form, redirect_uri):
                      "original_id": account_id, "preset": ""}
     client = _google_oauth_client()
     if not client:
-        return {"html": render_hub_page(
-            "connectors", view="add", flash=_t("Add a Google OAuth client on the Inbox Triage setup page first"),
-            flash_ok=False, type=type_name, submitted=submitted, google_client_missing=True)}
+        return {"ok": False, "message": _t("Add a Google OAuth client on the Inbox Triage setup page first"),
+                "location": f"/connectors?view=add&type={urllib.parse.quote(type_name, safe='')}"
+                            f"&id={urllib.parse.quote(account_id, safe='')}"}
     verifier, challenge = mail_auth.make_pkce()
     state = mail_auth.create_pending_state(account_id, verifier, redirect_uri, kind="connector")
     url = mail_auth.google_auth_url(client["client_id"], redirect_uri, state, challenge,
@@ -13139,6 +13142,9 @@ def _connector_google_callback(query):
         return False, str(exc)
     except Exception as exc:  # noqa: BLE001 - class name only, str() could quote request data
         return False, _t("Google sign-in failed ({kind})", kind=type(exc).__name__)
+    granted = tokens.get("scope")
+    if granted and mail_auth.CALENDAR_SCOPE not in str(granted).split():
+        return False, _t("Google didn't grant calendar access - reconnect and keep the Calendar box ticked")
     return connectors_config.set_oauth_secret(account_id, tokens.get("refresh_token"))
 
 
@@ -13621,7 +13627,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             # its `kind` picks the handler. The flash never carries the
             # code or any token.
             query = urllib.parse.parse_qs(split.query)
-            kind = mail_auth.peek_pending_kind((query.get("state") or [""])[0])
+            kind = mail_auth.peek_pending_kind((query.get("state") or [""])[0], include_expired=True)
             if kind == "connector":
                 ok, message = _connector_google_callback(query)
                 self._redirect_with_flash(ok, message, location="/connectors")
@@ -13835,7 +13841,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             elif "html" in result:
                 self._send_html(result["html"])
             else:
-                self._redirect_with_flash(result["ok"], result["message"], location="/connectors")
+                self._redirect_with_flash(result["ok"], result["message"],
+                                          location=result.get("location", "/connectors"))
             return
 
         if self.path == "/connectors/delete":

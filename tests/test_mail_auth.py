@@ -331,3 +331,10 @@ def test_peek_pending_kind_does_not_consume():
     assert mail_auth.peek_pending_kind("unknown", now=1001) is None
     assert mail_auth.peek_pending_kind(st, now=1000 + 601) is None
     assert mail_auth.consume_pending_state(st, now=1001)["target"] == "gcal-work"
+
+
+def test_peek_pending_kind_include_expired_sees_kind_without_consuming():
+    st = mail_auth.create_pending_state("gcal-work", "v", "http://x/cb", kind="connector", now=1000)
+    assert mail_auth.peek_pending_kind(st, now=1000 + 601, include_expired=True) == "connector"
+    assert mail_auth.peek_pending_kind("unknown", now=1001, include_expired=True) is None
+    assert mail_auth.consume_pending_state(st, now=1001)["target"] == "gcal-work"

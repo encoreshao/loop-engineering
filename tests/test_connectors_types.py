@@ -426,6 +426,20 @@ def test_calendar_test_errors_never_contain_access_token():
     assert not ok and "AT-SECRET" not in msg and "403" in msg
 
 
+def test_calendar_error_scrubs_token_straddling_the_200_char_cut():
+    import mail_http
+    rt = "1//0gABCDEFGHIJKLMNOPQRSTUVWXYZ-refresh-token-value"
+    body = "x" * 190 + rt
+    def bad_refresh(r, c): raise mail_http.MailHTTPError(400, body, "https://oauth2.googleapis.com/token")
+    ok, msg = _gcal(secret=rt, refresh_fn=bad_refresh).test()
+    assert not ok
+    for i in range(len(rt) - 7):
+        assert rt[i:i + 8] not in msg
+    http = FakeHTTP(exc=mail_http.MailHTTPError(403, "y" * 195 + "AT-LONG-ACCESS-TOKEN-123", "https://x"))
+    ok, msg = _gcal(http=http, refresh_fn=lambda r, c: {"access_token": "AT-LONG-ACCESS-TOKEN-123"}).test()
+    assert not ok and "AT-LONG-" not in msg and "TOKEN-123" not in msg
+
+
 def test_calendar_reauth_required_message_is_token_free():
     import mail_auth
     def reauth(rt, cl): raise mail_auth.ReauthRequired("Google refresh failed (invalid_grant) RT-SECRET")

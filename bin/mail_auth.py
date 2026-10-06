@@ -138,13 +138,15 @@ def create_pending_state(target, verifier, redirect_uri, now=None, kind="inbox")
     return state
 
 
-def peek_pending_kind(state, now=None):
+def peek_pending_kind(state, now=None, include_expired=False):
     """The `kind` of a live pending state without consuming it (None when
-    unknown or expired), so the callback can pick a handler first."""
+    unknown or expired), so the callback can pick a handler first. With
+    include_expired the kind of a known-but-expired state is returned too,
+    so its own handler can report the expiry; it is still never consumed."""
     now = time.time() if now is None else now
     with _PENDING_LOCK:
         entry = _PENDING.get(state or "")
-    if entry is None or now - entry["created"] > STATE_TTL_SECONDS:
+    if entry is None or (not include_expired and now - entry["created"] > STATE_TTL_SECONDS):
         return None
     return entry.get("kind", "inbox")
 

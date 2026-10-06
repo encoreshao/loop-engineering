@@ -49,11 +49,23 @@ class GoogleCalendarConnector(Connector):
         return f"/calendars/{urllib.parse.quote(calendar_id, safe='')}"
 
     def _scrub(self, text, access_token=None):
+        """Replace each token, then any >=8-char prefix or suffix fragment of
+        one (what is left when a cut lands inside a token)."""
         text = str(text)
-        for token in (self.secret, access_token):
-            if token:
-                text = text.replace(str(token), _REDACTED)
+        for token in sorted((str(t) for t in (self.secret, access_token) if t), key=len, reverse=True):
+            text = text.replace(token, _REDACTED)
+            for n in range(len(token) - 1, 7, -1):
+                for frag in (token[:n], token[-n:]):
+                    text = text.replace(frag, _REDACTED)
         return text
+
+    def _describe(self, exc, access_token=None):
+        """describe_http_error with the tokens scrubbed from the body BEFORE
+        its 200-char truncation, so a token straddling the cut can't survive."""
+        import mail_http
+        if isinstance(exc, mail_http.MailHTTPError) and not isinstance(exc, mail_http.AuthExpired):
+            exc = mail_http.MailHTTPError(exc.status, self._scrub(exc.body, access_token), exc.url)
+        return self._scrub(describe_http_error(exc), access_token)
 
     def _access_token(self):
         """(token, None) or (None, failure message)."""
@@ -68,7 +80,7 @@ class GoogleCalendarConnector(Connector):
         except mail_auth.ReauthRequired:
             return None, i18n.t("Google sign-in expired or was revoked - click Reconnect")
         except Exception as exc:  # noqa: BLE001 - never raise out of a probe
-            return None, self._scrub(describe_http_error(exc))
+            return None, self._describe(exc)
         token = tokens.get("access_token") if isinstance(tokens, dict) else tokens
         if not token:
             return None, i18n.t("Google returned no access token - click Reconnect")
@@ -84,7 +96,7 @@ class GoogleCalendarConnector(Connector):
         try:
             cal = self._get(self._calendar_path(), token, timeout=TEST_TIMEOUT_SECONDS, max_attempts=1)
         except Exception as exc:  # noqa: BLE001 - test() must never raise
-            return False, self._scrub(describe_http_error(exc), token)
+            return False, self._describe(exc, token)
         summary = cal.get("summary") if isinstance(cal, dict) else None
         return True, i18n.t("Connected: {summary}", summary=self._scrub(summary or "?", token))
 
@@ -102,7 +114,7 @@ class GoogleCalendarConnector(Connector):
         try:
             data = self._get(f"{self._calendar_path()}/events?{query}", token)
         except Exception as exc:  # noqa: BLE001 - re-raised without token-bearing detail
-            raise ConnectorError(self._scrub(describe_http_error(exc), token)) from None
+            raise ConnectorError(self._describe(exc, token)) from None
         events = []
         for item in (data.get("items") if isinstance(data, dict) else None) or []:
             if not isinstance(item, dict):

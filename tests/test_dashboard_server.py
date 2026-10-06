@@ -12911,6 +12911,14 @@ def test_picker_mail_tile_links_to_inbox_setup():
     assert "/loops/inbox-triage-loop?view=setup" in ds._connector_type_picker_html()
 
 
+def test_picker_search_hides_tiles_with_hidden_attribute():
+    out = ds._connector_type_picker_html()
+    script = out[out.index("<script>"):]
+    assert ".hidden" in script and "style.display" not in script and "[style" not in script
+    assert ":not([hidden])" in script
+    assert "hidden" not in re.sub(r"<script>.*</script>", "", out, flags=re.S).replace("aria-hidden", "")
+
+
 def test_picker_has_search_box_and_tile_names():
     out = ds._connector_type_picker_html()
     assert "<input type='search'" in out and "data-name=" in out
@@ -13268,14 +13276,77 @@ def test_connect_start_failed_save_rerenders_form(oauth_stubs, monkeypatch):
     assert mail_auth._PENDING == {}
 
 
-def test_connect_without_google_client_shows_setup_link(oauth_stubs, monkeypatch):
+def test_connect_without_google_client_redirects_to_add_view_with_setup_link(oauth_stubs, monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [_gcal_account()])
     monkeypatch.setattr(ds.inbox_config, "load_oauth", lambda *a, **k: {})
     with _running_server() as port:
-        status, headers, body = _post(port, "/connectors/oauth/google/start", _start_fields())
-    assert status == 200 and "Location" not in headers
-    assert "/loops/inbox-triage-loop?view=setup&amp;tab=gmail" in body
-    assert "connector-form" in body and "name='original_id' value='gcal'" in body
+        status, headers, _ = _post(port, "/connectors/oauth/google/start", _start_fields())
+        assert status == 303
+        location = headers["Location"]
+        assert location.startswith("/connectors?view=add&type=google_calendar&id=gcal&")
+        assert "ok=0" in location and "Google OAuth client" in _flash(location)
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        conn.request("GET", location)
+        body = conn.getresponse().read().decode()
+        conn.close()
+    assert "/loops/inbox-triage-loop?view=setup&amp;tab=gmail" in body and "connector-oauth-missing" in body
     assert mail_auth._PENDING == {}
+
+
+def test_connect_without_client_redirect_quotes_the_id(oauth_stubs, monkeypatch):
+    monkeypatch.setattr(ds.inbox_config, "load_oauth", lambda *a, **k: {})
+    with _running_server() as port:
+        status, headers, _ = _post(port, "/connectors/oauth/google/start", _start_fields(id="a&b c"))
+    assert status == 303 and "id=a%26b%20c&" in headers["Location"]
+
+
+def _expired_connector_state(target="gcal", kind="connector"):
+    return mail_auth.create_pending_state(target, "V", "http://cb", kind=kind,
+                                          now=time.time() - mail_auth.STATE_TTL_SECONDS - 60)
+
+
+def test_callback_expired_connector_state_goes_to_connectors_not_inbox(oauth_stubs, monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [_gcal_account()])
+    inbox_calls = []
+    monkeypatch.setattr(ds.inbox_pages, "handle_google_callback",
+                        lambda query: inbox_calls.append(query) or (True, "x"))
+    with _running_server() as port:
+        for extra in ({"code": "c"}, {"error": "access_denied"}):
+            state = _expired_connector_state()
+            status, location = _callback(port, {"state": state, **extra})
+            assert status == 303 and location.startswith("/connectors?") and "ok=0" in location
+            assert "expired or was already used" in _flash(location)
+    assert inbox_calls == [] and oauth_stubs["set_secret"] == [] and oauth_stubs["exchange"] == []
+
+
+def test_callback_expired_inbox_state_still_goes_to_inbox_page(oauth_stubs, monkeypatch):
+    monkeypatch.setattr(ds.inbox_pages, "handle_google_callback", lambda query: (False, "expired"))
+    with _running_server() as port:
+        state = _expired_connector_state(target="work", kind="inbox")
+        status, location = _callback(port, {"state": state, "code": "c"})
+    assert location.startswith("/loops/inbox-triage-loop?view=setup&tab=inboxes&")
+
+
+def test_callback_connector_refuses_token_without_calendar_scope(oauth_stubs, monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [_gcal_account()])
+    monkeypatch.setattr(mail_auth, "google_exchange_code",
+                        lambda *a, **k: {"refresh_token": "RT-SECRET", "scope": "openid email"})
+    state = mail_auth.create_pending_state("gcal", "V", "http://cb", kind="connector")
+    with _running_server() as port:
+        status, location = _callback(port, {"state": state, "code": "c"})
+    assert status == 303 and location.startswith("/connectors?") and "ok=0" in location
+    assert "Calendar box ticked" in _flash(location) and "RT-SECRET" not in location
+    assert oauth_stubs["set_secret"] == []
+
+
+def test_callback_connector_accepts_token_with_calendar_scope(oauth_stubs, monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [_gcal_account()])
+    monkeypatch.setattr(mail_auth, "google_exchange_code",
+                        lambda *a, **k: {"refresh_token": "RT-OK", "scope": "openid " + mail_auth.CALENDAR_SCOPE})
+    state = mail_auth.create_pending_state("gcal", "V", "http://cb", kind="connector")
+    with _running_server() as port:
+        _callback(port, {"state": state, "code": "c"})
+    assert oauth_stubs["set_secret"] == [("gcal", "RT-OK")]
 
 
 def test_callback_connector_stores_refresh_token(oauth_stubs, monkeypatch):

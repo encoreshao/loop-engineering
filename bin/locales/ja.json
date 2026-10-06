@@ -802,5 +802,6 @@
   "Post notifications to a Discord channel through an incoming webhook.": "受信 Webhook 経由で Discord チャンネルに通知を送信します。",
   "Post notifications to a Google Chat space through an incoming webhook.": "受信 Webhook 経由で Google Chat スペースに通知を送信します。",
   "Post JSON notifications to any webhook URL.": "任意の Webhook URL に JSON 通知を送信します。",
-  "e.g. Work {name}": "例: 仕事用 {name}"
+  "e.g. Work {name}": "例: 仕事用 {name}",
+  "Google didn't grant calendar access - reconnect and keep the Calendar box ticked": "Google がカレンダーへのアクセスを許可しませんでした。もう一度接続し、カレンダーのチェックボックスをオンにしたままにしてください"
 }
