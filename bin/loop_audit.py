@@ -88,7 +88,19 @@ def audit_definition(definition, policy_engine=None):
         )
     )
 
-    if definition.verification.required:
+    project_commands = any(
+        isinstance(v, dict) and v.get("type") == "project_commands" for v in definition.verifiers
+    )
+    if project_commands:
+        mode = definition.verification.mode
+        detail = f"project_commands verifier (per-project test_cmd/lint_cmd, mode={mode})"
+        if mode == "observe":
+            checks.append(
+                AuditCheck("verification", CheckStatus.WARN, f"{detail} - verification recorded but not enforced")
+            )
+        else:
+            checks.append(AuditCheck("verification", CheckStatus.PASS, detail))
+    elif definition.verification.required:
         checks.append(
             AuditCheck(
                 "verification",

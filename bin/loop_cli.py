@@ -109,22 +109,41 @@ def _cmd_validate(argv):
 
 
 def _cmd_audit(argv):
-    if not argv:
-        print("Usage: loop_cli.py audit <path/to/loop.yaml>", file=sys.stderr)
+    min_score = float(_parse_flag(argv, "--min-score", "0"))
+    paths = []
+    skip = False
+    for arg in argv:
+        if skip:
+            skip = False
+        elif arg == "--min-score":
+            skip = True
+        else:
+            paths.append(arg)
+    if not paths:
+        print("Usage: loop_cli.py audit <path/to/loop.yaml>... [--min-score N]", file=sys.stderr)
         return 2
 
-    definition = LoopDefinition.from_yaml(argv[0])
-    report = audit_definition(definition)
+    failed = False
+    for path in paths:
+        definition = LoopDefinition.from_yaml(path)
+        report = audit_definition(definition)
 
-    for check in report.checks:
-        print(f"{check.status.value:<4}  {check.name:<22} {check.detail}")
-    print()
-    if report.is_partial:
-        print(f"Loop Ready Score: {report.score} / 100 (partial - missing: {', '.join(report.missing_components)})")
-    else:
-        print(f"Loop Ready Score: {report.score} / 100")
+        if len(paths) > 1:
+            print(f"== {path}")
+        for check in report.checks:
+            print(f"{check.status.value:<4}  {check.name:<22} {check.detail}")
+        print()
+        if report.is_partial:
+            print(f"Loop Ready Score: {report.score} / 100 (partial - missing: {', '.join(report.missing_components)})")
+        else:
+            print(f"Loop Ready Score: {report.score} / 100")
+        if len(paths) > 1:
+            print()
 
-    return 1 if any(c.status == CheckStatus.FAIL for c in report.checks) else 0
+        if any(c.status == CheckStatus.FAIL for c in report.checks) or (report.score or 0) < min_score:
+            failed = True
+
+    return 1 if failed else 0
 
 
 def _cmd_run(argv):

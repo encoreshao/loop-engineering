@@ -197,7 +197,7 @@ failure never crashes the runtime — same `|| true` philosophy as
   and Learning Effectiveness need data that doesn't exist yet; "Cost
   Efficiency" has no defined formula in the plan) — reported as partial
   rather than guessed.
-- **Audit** (`loop_audit.py`) — `loop audit <loop.yaml>` scores a
+- **Audit** (`loop_audit.py`) — `loop audit <loop.yaml>... [--min-score N]` scores a
   `LoopDefinition`'s readiness: goal/trigger/verification/stop_conditions/
   retry/budget/no_progress_detection/human_gates/context_strategy/
   memory_strategy/credential_boundary/observability, each PASS/WARN/FAIL,
@@ -292,11 +292,12 @@ Documented gaps, not oversights:
   Schedule is `launchd`, manual is the dashboard's "Run now" button or a
   pasted GitLab issue link, and neither goes through a shared `Trigger.fire()`
   abstraction.
-- **No CI-enforced audit score** — `loop audit` runs in CI
-  (`.github/workflows/ci.yml`) as an informational step only; a loop
-  definition failing a check does not fail the build (the shipped
-  `gitlab-issue` loop's own `verification` check is a known, accepted
-  FAIL — see the audit design docs).
+- **Audit threshold is a floor, not a target** — CI blocks
+  (`.github/workflows/ci.yml`) when any shipped `loops/*/loop.yaml` audits
+  below `--min-score 70`. The threshold stays at 70 while `gitlab-issue`
+  runs `verification.mode: observe` (its `project_commands` verification
+  check WARNs, "recorded but not enforced"); raise it to 80 in the commit
+  that flips that loop to `gate`.
 - **The Loop Efficiency Score is unvalidated** — no production data has
   been run through it yet to know if the formula in §7 is actually a
   useful signal over time.

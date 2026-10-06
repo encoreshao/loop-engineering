@@ -688,3 +688,20 @@ def test_eval_reports_an_error_for_an_empty_cases_dir(tmp_path):
 
     assert result.returncode == 2
     assert "no case files found" in result.stderr
+
+
+def test_audit_min_score_exit_code(tmp_path):
+    path = _write_definition(tmp_path / "loop.yaml")
+
+    assert _run("audit", str(path), "--min-score", "101").returncode == 1
+    assert _run("audit", str(path), "--min-score", "0").returncode == 0
+
+
+def test_audit_accepts_multiple_paths(tmp_path):
+    good = _write_definition(tmp_path / "a.yaml")
+    other = _write_definition(tmp_path / "b.yaml")
+
+    result = _run("audit", str(good), str(other), "--min-score", "0")
+
+    assert result.returncode == 0
+    assert result.stdout.count("Loop Ready Score") == 2

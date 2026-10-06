@@ -24,12 +24,5 @@ jobs:
       - name: Run test suite
         run: python3 -m pytest tests/ -q
 
-      - name: Audit shipped loop definitions (informational)
-        if: always()
-        run: |
-          echo "::group::gitlab-issue"
-          python3 bin/loop_cli.py audit loops/gitlab-issue/loop.yaml || true
-          echo "::endgroup::"
-          echo "::group::topic-monitor"
-          python3 bin/loop_cli.py audit loops/topic-monitor/loop.yaml || true
-          echo "::endgroup::"
+      - name: Loop audit (blocking)
+        run: python3 bin/loop_cli.py audit loops/*/loop.yaml --min-score 70

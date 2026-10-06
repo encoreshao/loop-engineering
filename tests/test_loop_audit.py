@@ -268,3 +268,27 @@ def test_cli_fails_on_yaml_declaring_credentials_read(tmp_path):
 
     assert result.returncode == 1
     assert "credential_boundary" in result.stdout
+
+
+def _pc_definition(mode):
+    return LoopDefinition.from_dict(
+        {
+            **_COMPLIANT,
+            "verifiers": [{"name": "pc", "type": "project_commands"}],
+            "verification": {"required": ["pc"], "mode": mode},
+        }
+    )
+
+
+def test_audit_project_commands_gate_passes():
+    check = _check(audit_definition(_pc_definition("gate")), "verification")
+
+    assert check.status is CheckStatus.PASS
+    assert "project_commands verifier (per-project test_cmd/lint_cmd, mode=gate)" in check.detail
+
+
+def test_audit_project_commands_observe_warns():
+    check = _check(audit_definition(_pc_definition("observe")), "verification")
+
+    assert check.status is CheckStatus.WARN
+    assert "not enforced" in check.detail

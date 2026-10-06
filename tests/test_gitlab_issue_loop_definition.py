@@ -36,10 +36,11 @@ def test_real_definition_passes_loop_cli_validate():
     assert "Loop configuration valid." in result.stdout
 
 
-def test_real_definition_audit_passes_the_verification_check():
+def test_real_definition_audit_warns_on_observe_mode_verification():
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "bin" / "loop_cli.py"), "audit", str(DEFINITION_PATH)],
         capture_output=True, text=True,
     )
     assert result.returncode == 0
-    assert "PASS  verification" in result.stdout
+    assert "WARN  verification" in result.stdout
+    assert "project_commands verifier" in result.stdout
