@@ -52,6 +52,7 @@ To run a sandboxed dev instance of the dashboard from the current directory:
 
 ```bash
 export LOOP_ENGINEERING_HOME=$(mktemp -d)
+export HOME=$(mktemp -d)   # for connector work - see below
 python3 bin/web/dashboard_server.py 18420 &   # any free port, never the live one
 sleep 1
 curl -s -o /dev/null -w "HTTP %{http_code}\n" http://127.0.0.1:18420/<page>
@@ -71,6 +72,10 @@ why it must always be set before running anything in dev/verification.
 because events are per-checkout run history (same category as
 `outputs/daily-review.md`/`outputs/history/`), not per-machine config
 like `projects.json`.
+`outputs/connectors/test-results.json` (the Connectors page's last Test
+result per account) is the same kind of per-checkout exception: it always
+lives under `<repo_root>/outputs/connectors/`, regardless of
+`LOOP_ENGINEERING_HOME`.
 `bin/mail_auth.py`'s Keychain service (`loop-engineering.mail`) is
 suffixed `.sandbox-<hash>` whenever `LOOP_ENGINEERING_HOME` is set, so a
 sandboxed run (including `bin/inbox_triage_runner.py`) can never read or
@@ -84,6 +89,12 @@ a mailbox token) gets the same `.sandbox-<hash>` suffix under
 `HOME` (unless a test passes its own): the suite used to scaffold the real
 `~/.loop-engineering/connectors.json` as a side effect of running, the same
 class of leak as the `uninstall.sh` one below.
+For connector work, also `export HOME=$(mktemp -d)` before starting the
+sandboxed dashboard: `connectors_config` reads the GitLab instances and
+Slack webhooks straight from `~/.gitlab/config.json` and
+`~/.slack/config.json`, which `LOOP_ENGINEERING_HOME` doesn't cover — so
+without a scratch `HOME` the sandbox lists your real accounts, and "Send
+test message" on `slack-default` posts to your real Slack.
 Run this way, `dashboard_server.py` is a plain foreground process — no
 `launchd`, no `KeepAlive` — kill it whenever you're done. Same idea for the
 loop scripts themselves (`run-loop-now.sh`, `bin/*.py`): run them with

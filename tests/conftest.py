@@ -1,13 +1,20 @@
 """Shared, opt-in fixtures for this suite.
 
-Nothing here is autouse on purpose. A project-wide autouse fixture would
+Nothing here is autouse on purpose, with one exception
+(`_no_real_keychain`, below). A project-wide autouse fixture would
 silently change the environment of every test module in `tests/`,
 including ones whose behavior under it has never been verified - so a
 module that wants one of these applies it itself with a one-line
 module-local autouse fixture (see `_no_real_ai_cli` in
 tests/test_gitlab_loop_runner.py).
 """
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin"))
 
 # bash/env/python3 live here; the real `claude` (~/.local/bin) and `codex`
 # (/opt/homebrew/bin) deliberately do not.
@@ -39,3 +46,22 @@ def sanitized_path(monkeypatch):
     """
     monkeypatch.setenv("PATH", SANITIZED_PATH)
     return SANITIZED_PATH
+
+
+@pytest.fixture(autouse=True)
+def _no_real_keychain(monkeypatch):
+    """The one suite-wide guard: mail_auth's `security` wrapper fails the
+    test instead of reaching the real macOS Keychain. A suite run once
+    recorded a real mailbox's "Authorized" probe result. A test that fakes
+    the Keychain still works - either by monkeypatching `_security` itself
+    (it replaces this guard) or `subprocess.run` (the guard then delegates
+    to the real wrapper, which calls the fake)."""
+    import mail_auth
+    real_security = mail_auth._security
+    real_run = subprocess.run
+
+    def guarded(args, stdin=None):
+        if mail_auth.subprocess.run is real_run:
+            raise AssertionError("test reached the real Keychain")
+        return real_security(args, stdin=stdin)
+    monkeypatch.setattr(mail_auth, "_security", guarded)

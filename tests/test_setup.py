@@ -1,5 +1,7 @@
+import glob
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 from datetime import date
@@ -12,14 +14,20 @@ def run_setup(*args, check=True, env=None):
     env_arg = env
     # Never run against the real $HOME: setup.sh scaffolds files under it.
     env = {**os.environ, **(env or {})}
+    temp_home = None
     if "HOME" not in (env_arg or {}):
-        env["HOME"] = tempfile.mkdtemp(prefix="setup-home-")
+        temp_home = tempfile.mkdtemp(prefix="setup-home-")
+        env["HOME"] = temp_home
     # Keep pyenv shims (resolved via $HOME/.pyenv) working under a fake HOME.
     env.setdefault("PYENV_ROOT", str(Path(os.path.expanduser("~")) / ".pyenv"))
-    return subprocess.run(
-        ["bash", str(SCRIPT), "--skip-skills-install", *args],
-        check=check, capture_output=True, text=True, env=env,
-    )
+    try:
+        return subprocess.run(
+            ["bash", str(SCRIPT), "--skip-skills-install", *args],
+            check=check, capture_output=True, text=True, env=env,
+        )
+    finally:
+        if temp_home is not None:
+            shutil.rmtree(temp_home, ignore_errors=True)
 
 
 def test_setup_creates_projects_config_from_template_when_missing(tmp_path):
@@ -225,9 +233,19 @@ def test_run_setup_defaults_to_temp_home(tmp_path, monkeypatch):
 
     def spy(cmd, **kw):
         seen["home"] = kw["env"]["HOME"]
-        return real_run(cmd, **kw)
+        result = real_run(cmd, **kw)
+        # Checked here: run_setup removes its temp HOME once setup.sh exits.
+        seen["scaffolded"] = (Path(seen["home"]) / ".loop-engineering" / "connectors.json").exists()
+        return result
 
     monkeypatch.setattr(subprocess, "run", spy)
     run_setup("--config-path", str(tmp_path / "projects.json"))
     assert seen["home"] != str(Path.home())
-    assert (Path(seen["home"]) / ".loop-engineering" / "connectors.json").exists()
+    assert seen["scaffolded"]
+
+
+def test_run_setup_cleans_up_its_temporary_home(tmp_path):
+    pattern = str(Path(tempfile.gettempdir()) / "setup-home-*")
+    before = set(glob.glob(pattern))
+    run_setup("--config-path", str(tmp_path / "projects.json"))
+    assert set(glob.glob(pattern)) == before

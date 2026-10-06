@@ -16,6 +16,7 @@ outputs/status/
 outputs/topic-monitor/
 outputs/events/
 outputs/loop-runs/
+outputs/connectors/
 
 # The unified log every `claude` CLI invocation across this project writes
 # to (see bin/web/dashboard_server.py's append_unified_log/render_logs_page,

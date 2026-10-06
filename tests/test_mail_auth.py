@@ -286,3 +286,10 @@ def test_get_access_token_missing_client_config_requires_reauth(monkeypatch):
     monkeypatch.setattr(mail_auth, "keychain_get", lambda account: "rt")
     with pytest.raises(mail_auth.ReauthRequired, match="OAuth client"):
         mail_auth.get_access_token({"name": "w", "provider": "gmail"}, oauth={})
+
+
+def test_suite_guard_blocks_the_real_keychain():
+    """tests/conftest.py's autouse guard: an unpatched Keychain call fails
+    loudly instead of reaching /usr/bin/security."""
+    with pytest.raises(AssertionError, match="real Keychain"):
+        mail_auth.keychain_get("work")
