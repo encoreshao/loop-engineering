@@ -4,7 +4,7 @@ capabilities and a cheap `test()` probe; instances wrap one account (dict from
 connectors_config) plus its secret. User-facing messages are built with
 i18n.t from literal templates so they are translated per request."""
 import i18n
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 ISSUES = "issues"
 MERGE_REQUESTS = "merge_requests"
@@ -12,6 +12,7 @@ PIPELINES = "pipelines"
 NOTIFY = "notify"
 FEED = "feed"
 MAIL = "mail"
+DOCS = "docs"
 
 TEST_TIMEOUT_SECONDS = 10
 
@@ -29,6 +30,18 @@ class Field:
     default: str = ""
     help: str = ""
     options: tuple = ()
+    placeholder: str = ""
+
+
+@dataclass(frozen=True)
+class Preset:
+    """A one-click starting point for a type (e.g. a webhook brand). Frozen,
+    so `settings` is a tuple of (key, value) pairs - use dict(p.settings)."""
+    key: str
+    label: str
+    brand: str
+    description: str = ""
+    settings: tuple = field(default_factory=tuple)
 
 
 class Connector:
@@ -39,6 +52,11 @@ class Connector:
     fields = ()
     secret_label = None
     external = False
+    brand = ""          # key into web/brand_logos.LOGOS
+    description = ""    # one plain sentence, translated at render time
+    docs_url = ""
+    category = "other"  # code | chat | tracking | knowledge | feeds | mail | other
+    presets = ()
 
     def __init__(self, account, secret=None, http=None):
         self.account = account
@@ -60,6 +78,11 @@ class Connector:
                 continue
             if value and field.kind == "url" and not value.startswith(("http://", "https://")):
                 errors.append(i18n.t("{field} must start with http:// or https://", field=name))
+            if value and field.kind == "email":
+                local, at, domain = value.partition("@")
+                if not (local and at and "@" not in domain and "." in domain.strip(".")
+                        and not domain.startswith(".") and not domain.endswith(".")):
+                    errors.append(i18n.t("{field} must be an email address", field=name))
             if value and field.kind == "select" and value not in field.options:
                 errors.append(i18n.t("{field} must be one of: {options}",
                                      field=name, options=", ".join(field.options)))

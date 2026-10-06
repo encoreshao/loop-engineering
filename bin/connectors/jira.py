@@ -16,10 +16,15 @@ class JiraConnector(Connector):
     icon = "task_alt"
     capabilities = frozenset({ISSUES})
     fields = (
-        Field("site_url", "Site URL", kind="url"),
-        Field("email", "Account email"),
+        Field("site_url", "Site URL", kind="url", placeholder="https://your-team.atlassian.net"),
+        Field("email", "Account email", kind="email", placeholder="you@company.com"),
     )
     secret_label = "API token"
+    brand = "jira"
+    category = "tracking"
+    description = "Read issues from Jira Cloud with your account email and an API token."
+    docs_url = ("https://support.atlassian.com/atlassian-account/docs/"
+                "manage-api-tokens-for-your-atlassian-account/")
 
     def api(self, method, path, timeout=30, **kw):
         creds = f"{self.settings.get('email', '')}:{self.secret or ''}".encode("utf-8")

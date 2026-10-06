@@ -45,7 +45,7 @@ def test_registry_lists_all_shipped_types():
     import connectors
     connectors.get_type  # noqa: B018
     connectors._load_all()
-    assert set(connectors.CONNECTOR_TYPES) == {"gitlab", "github", "slack", "webhook", "rss", "jira", "linear", "mailbox"}
+    assert set(connectors.CONNECTOR_TYPES) == {"gitlab", "github", "slack", "webhook", "rss", "jira", "linear", "mailbox", "notion", "telegram"}
 
 
 def test_describe_http_error_branches():
@@ -54,3 +54,22 @@ def test_describe_http_error_branches():
     assert base.describe_http_error(mail_http.MailHTTPError(500, "x" * 500, "u")) == "HTTP 500: " + "x" * 200
     assert base.describe_http_error(mail_http.MailHTTPError(None, "timed out", "u")) == "Network error: timed out"
     assert base.describe_http_error(ValueError("x")) == "Request failed (ValueError)"
+
+
+def test_email_field_validation():
+    from connectors import base
+    class E(base.Connector):
+        type = "e"; label = "E"; fields = (base.Field("email", "Email", kind="email"),)
+    assert E.validate({"email": "nope"}, None, is_new=True) == ["Email must be an email address"]
+    assert E.validate({"email": "a@b"}, None, is_new=True) == ["Email must be an email address"]
+    assert E.validate({"email": "a@b.co"}, None, is_new=True) == []
+
+
+def test_preset_is_frozen_and_hashable_and_defaults_exist():
+    from connectors import base
+    p = base.Preset("k", "L", "brand", settings=(("format", "x"),))
+    assert hash(p) and dict(p.settings) == {"format": "x"}
+    assert base.DOCS == "docs"
+    assert base.Field("a", "A").placeholder == ""
+    c = base.Connector
+    assert (c.brand, c.description, c.docs_url, c.category, c.presets) == ("", "", "", "other", ())

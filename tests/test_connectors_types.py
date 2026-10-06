@@ -244,3 +244,86 @@ def test_probe_error_with_secret_in_exception_text_does_not_leak_it(type_, setti
     assert ok is False
     assert "ghp_TOP" not in msg and "SECRET" not in msg and "Bearer" not in msg
     assert "ValueError" in msg
+
+
+def test_registry_includes_notion_and_telegram():
+    connectors._load_all()
+    assert {"notion", "telegram"} <= set(connectors.CONNECTOR_TYPES)
+
+
+def test_every_type_has_presentation_metadata():
+    connectors._load_all()
+    for name, cls in connectors.CONNECTOR_TYPES.items():
+        assert cls.category in {"code", "chat", "tracking", "knowledge", "feeds", "mail", "other"}, name
+        assert cls.description, name
+        if not cls.external:
+            assert cls.brand, name
+            assert cls.docs_url.startswith("https://") or cls.type in ("rss",), name
+
+
+def test_webhook_presets_cover_brands():
+    cls = connectors.get_type("webhook")
+    keys = {p.key for p in cls.presets}
+    assert {"feishu", "dingtalk", "wecom", "microsoftteams", "discord", "googlechat", "generic"} <= keys
+    assert all(dict(p.settings)["format"] in cls.fields[0].options for p in cls.presets)
+    assert len(set(cls.presets)) == len(cls.presets)  # frozen + hashable
+
+
+def test_webhook_wecom_and_googlechat_payloads():
+    for fmt, expected in [("wecom", {"msgtype": "text", "text": {"content": "hi"}}), ("googlechat", {"text": "hi"})]:
+        c, http = make("webhook", {"format": fmt}, secret="https://example.com/h")
+        c.send("hi")
+        assert http.calls[0]["json"] == expected
+
+
+def test_notion_test_uses_version_header():
+    c, http = make("notion", {}, response={"name": "Loop bot"})
+    assert c.test() == (True, "Connected as Loop bot")
+    assert http.calls[0]["url"] == "https://api.notion.com/v1/users/me"
+    assert http.calls[0]["headers"]["Notion-Version"] == "2022-06-28"
+    assert http.calls[0]["token"] == "s"
+
+
+def test_telegram_send_posts_chat_id():
+    c, http = make("telegram", {"chat_id": "-100"}, secret="123:ABC")
+    c.send("hi")
+    assert http.calls[0]["url"] == "https://api.telegram.org/bot123:ABC/sendMessage"
+    assert http.calls[0]["json"] == {"chat_id": "-100", "text": "hi"}
+
+
+def _token_excs():
+    import mail_http
+    import urllib.error
+    url = "https://api.telegram.org/bot123:ABC/sendMessage"
+    return (mail_http.MailHTTPError(401, "bad", url),
+            mail_http.MailHTTPError(None, "boom 123:ABC", url),
+            urllib.error.URLError(url + " unreachable"),
+            ValueError("URL can't contain control characters. '/bot123:ABC /sendMessage'"))
+
+
+def test_telegram_errors_never_contain_token():
+    for exc in _token_excs():
+        c, _ = make("telegram", {"chat_id": "-100"}, secret="123:ABC", exc=exc)
+        ok, msg = c.test()
+        assert not ok and "123:ABC" not in msg and "ABC" not in msg
+
+
+def test_telegram_send_raises_token_free_exception():
+    for exc in _token_excs():
+        c, _ = make("telegram", {"chat_id": "-100"}, secret="123:ABC", exc=exc)
+        with pytest.raises(Exception) as info:
+            c.send("hi")
+        e = info.value
+        blob = " ".join(str(x) for x in (e, getattr(e, "reason", ""), getattr(e, "url", ""),
+                                         getattr(e, "body", ""), e.args))
+        assert "ABC" not in blob
+        assert e.__cause__ is None and e.__suppress_context__
+
+
+def test_telegram_scrubs_token_from_api_description():
+    c, _ = make("telegram", {"chat_id": "-100"}, secret="123:ABC",
+                response={"ok": False, "description": "Unauthorized bot123:ABC"})
+    ok, msg = c.test()
+    assert not ok and "ABC" not in msg
+    c, _ = make("telegram", {"chat_id": "-100"}, secret="123:ABC", response={"ok": True})
+    assert c.test()[0]

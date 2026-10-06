@@ -58,6 +58,10 @@ class SlackConnector(Connector):
     capabilities = frozenset({NOTIFY})
     fields = ()
     secret_label = "Webhook URL"
+    brand = "slack"
+    category = "chat"
+    description = "Post notifications to a Slack channel through an incoming webhook."
+    docs_url = "https://api.slack.com/messaging/webhooks"
 
     def __init__(self, account, secret=None, http=None):
         super().__init__(account, secret=secret, http=http or _post_json)

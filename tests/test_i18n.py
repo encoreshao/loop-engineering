@@ -162,6 +162,12 @@ def _connector_label_keys():
     for cls in connectors.CONNECTOR_TYPES.values():
         assert cls.label, cls
         keys.add(cls.label)
+        if cls.description:
+            keys.add(cls.description)
+        for preset in cls.presets:
+            keys.add(preset.label)
+            if preset.description:
+                keys.add(preset.description)
         if cls.secret_label:
             keys.add(cls.secret_label)
         for field in cls.fields:
@@ -169,6 +175,11 @@ def _connector_label_keys():
             keys.add(field.label)
             if field.help:
                 keys.add(field.help)
+            # Placeholder rule: URLs, ids and example addresses are literal
+            # and untranslated; a placeholder is prose (translated) only if
+            # it contains a space.
+            if " " in field.placeholder:
+                keys.add(field.placeholder)
     return keys
 
 

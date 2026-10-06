@@ -12573,6 +12573,7 @@ _CAPABILITY_LABELS = {
     "notify": "Notifications",
     "feed": "Feeds",
     "mail": "Mail",
+    "docs": "Documents",
 }
 
 

@@ -16,9 +16,14 @@ class GitHubConnector(Connector):
     capabilities = frozenset({ISSUES, MERGE_REQUESTS, PIPELINES})
     fields = (
         Field("api_url", "API URL", kind="url", default="https://api.github.com"),
-        Field("username", "Username", required=False),
+        Field("username", "Username", required=False, placeholder="octocat"),
     )
     secret_label = "Personal access token"
+    brand = "github"
+    category = "code"
+    description = "Read issues, pull requests and workflow runs from GitHub or GitHub Enterprise."
+    docs_url = ("https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/"
+                "managing-your-personal-access-tokens")
 
     def api(self, method, path, timeout=30, **kw):
         base = self.settings["api_url"].rstrip("/")

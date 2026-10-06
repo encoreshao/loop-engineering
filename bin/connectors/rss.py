@@ -69,8 +69,13 @@ class RSSConnector(Connector):
     label = "RSS / Atom feeds"
     icon = "rss_feed"
     capabilities = frozenset({FEED})
-    fields = (Field("feeds", "Feed URLs", kind="textarea", help="One feed URL per line"),)
+    fields = (Field("feeds", "Feed URLs", kind="textarea", help="One feed URL per line",
+                placeholder="https://example.com/feed.xml"),)
     secret_label = None
+    brand = "rss"
+    category = "feeds"
+    description = "Follow RSS and Atom feeds for the topic monitor."
+    docs_url = ""
 
     def feed_urls(self):
         return [u.strip() for u in (self.settings.get("feeds") or "").splitlines() if u.strip()]

@@ -17,6 +17,10 @@ class LinearConnector(Connector):
     capabilities = frozenset({ISSUES})
     fields = ()
     secret_label = "API key"
+    brand = "linear"
+    category = "tracking"
+    description = "Read issues from Linear with a personal API key."
+    docs_url = "https://linear.app/docs/api-and-webhooks"
 
     def api(self, query, variables=None, timeout=30, **kw):
         body = {"query": query}

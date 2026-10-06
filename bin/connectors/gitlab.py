@@ -16,8 +16,13 @@ class GitLabConnector(Connector):
     label = "GitLab"
     icon = "code"
     capabilities = frozenset({ISSUES, MERGE_REQUESTS, PIPELINES})
-    fields = (Field("url", "Instance URL", kind="url", default="https://gitlab.com"),)
+    fields = (Field("url", "Instance URL", kind="url", default="https://gitlab.com",
+                placeholder="https://gitlab.com"),)
     secret_label = "Personal access token"
+    brand = "gitlab"
+    category = "code"
+    description = "Read issues, merge requests and pipelines from a GitLab instance."
+    docs_url = "https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html"
 
     def base_url(self):
         return self.settings["url"].rstrip("/")

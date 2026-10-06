@@ -15,6 +15,8 @@ class MailboxConnector(Connector):
     fields = ()
     secret_label = None
     external = True
+    category = "mail"
+    description = "Gmail or Outlook inbox managed on the Inbox Triage page."
 
     def test(self):
         try:

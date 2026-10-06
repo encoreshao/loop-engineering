@@ -3,7 +3,7 @@
 The webhook URL is the secret, so no error path may include it."""
 import i18n
 from connectors import register
-from connectors.base import Connector, Field, NOTIFY, TEST_TIMEOUT_SECONDS
+from connectors.base import Connector, Field, NOTIFY, Preset, TEST_TIMEOUT_SECONDS
 from connectors.slack import _post_json, describe_post_error
 
 _PAYLOADS = {
@@ -11,6 +11,8 @@ _PAYLOADS = {
     "dingtalk": lambda t: {"msgtype": "text", "text": {"content": t}},
     "teams": lambda t: {"text": t},
     "discord": lambda t: {"content": t},
+    "wecom": lambda t: {"msgtype": "text", "text": {"content": t}},
+    "googlechat": lambda t: {"text": t},
     "generic": lambda t: {"text": t},
 }
 
@@ -26,6 +28,21 @@ class WebhookConnector(Connector):
               options=tuple(_PAYLOADS), help="Message shape the receiving service expects"),
     )
     secret_label = "Webhook URL"
+    brand = "webhook"
+    category = "chat"
+    description = "Post notifications to Feishu, DingTalk, WeCom, Teams, Discord, Google Chat or any webhook."
+    docs_url = "https://en.wikipedia.org/wiki/Webhook"
+    presets = (
+        Preset("feishu", "Feishu", "feishu", settings=(("format", "feishu"),)),
+        Preset("dingtalk", "DingTalk", "dingtalk", settings=(("format", "dingtalk"),)),
+        Preset("wecom", "WeCom 企业微信", "wecom",
+               description="Group bot webhook. Personal WeChat has no bot API.",
+               settings=(("format", "wecom"),)),
+        Preset("microsoftteams", "Microsoft Teams", "microsoftteams", settings=(("format", "teams"),)),
+        Preset("discord", "Discord", "discord", settings=(("format", "discord"),)),
+        Preset("googlechat", "Google Chat", "googlechat", settings=(("format", "googlechat"),)),
+        Preset("generic", "Generic webhook", "webhook", settings=(("format", "generic"),)),
+    )
 
     def __init__(self, account, secret=None, http=None):
         super().__init__(account, secret=secret, http=http or _post_json)
