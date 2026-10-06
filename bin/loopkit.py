@@ -89,6 +89,33 @@ class LoopPlugin:
         return None
 
 
+def chat_text(value, max_len=300):
+    """Make untrusted text safe to embed in any chat message: no control
+    characters, collapsed whitespace, and `<`/`>` swapped for look-alikes so
+    no Slack control sequence (<!channel>, <@U123>, <url|label>) can form."""
+    text = re.sub(r"[\x00-\x1f\x7f]", " ", str(value))
+    text = re.sub(r"\s+", " ", text).strip().replace("<", "\u2039").replace(">", "\u203a")
+    if len(text) > max_len:
+        text = text[:max(0, max_len - 1)].rstrip() + "\u2026"
+    return text
+
+
+def chat_url(url):
+    """The URL if it is a plain http(s) URL with nothing that could break out
+    of a chat link, else ''."""
+    if (isinstance(url, str) and re.match(r"^https?://", url)
+            and not re.search(r"[\s<>|\"]", url)):
+        return url
+    return ""
+
+
+def chat_link(text, url):
+    """Plain-text 'label (url)': renders acceptably in every chat service,
+    unlike Slack-only <url|label> syntax."""
+    safe_url = chat_url(url)
+    return f"{chat_text(text)} ({safe_url})" if safe_url else chat_text(text)
+
+
 def parse_answer(text, required_keys):
     """Parse the model's answer. With required_keys: a JSON object (optionally
     wrapped in a ```json fence) containing every key, else ValueError.

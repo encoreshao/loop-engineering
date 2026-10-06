@@ -1,8 +1,18 @@
-import json, sys
+import json, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin"))
 from loop_plugins import daily_digest as dd
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _utc(monkeypatch):
+    monkeypatch.setenv("TZ", "UTC"); time.tzset()
+    yield
+    monkeypatch.undo(); time.tzset()
+
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -99,7 +109,7 @@ def test_after_item_drops_unknown_urls():
 def test_format_digest_sections_and_empty_message():
     text = dd.format_digest({"needs_you": [{"text": "Review !7", "url": "https://gl/m/7"}], "waiting_on_others": [], "loop_x_did": [],
                              "fyi": [], "meetings": [{"text": "Standup 10:00", "url": ""}]}, "2026-10-06")
-    assert "Needs you" in text and "<https://gl/m/7|Review !7>" in text
+    assert "Needs you" in text and "Review !7 (https://gl/m/7)" in text
     assert "Today's meetings" in text and "Standup 10:00" in text
     assert "Nothing" in dd.format_digest({"needs_you": [], "waiting_on_others": [], "loop_x_did": [], "fyi": [], "meetings": []}, "2026-10-06")
 
@@ -145,3 +155,33 @@ def test_template_entry_registered():
     entry = next(e for e in entries if e["name"] == "daily-digest-loop")
     assert entry["enabled"] is False and entry["requires"] == ["issues"] and entry["routes_notifications"] is True
     assert entry["entry_point"] == "bin.loop_plugins.daily_digest" and entry["description"]
+
+
+def test_format_digest_neutralises_injected_text():
+    evil = {"text": "x|y> <!channel> <https://evil|click>", "url": "https://gl/a|b>"}
+    text = dd.format_digest({"needs_you": [evil], "waiting_on_others": [], "loop_x_did": [], "fyi": [], "meetings": []}, "2026-10-06")
+    assert "<" not in text and ">" not in text and "https://gl/a" not in text
+
+
+def test_after_item_ignores_non_string_url():
+    item = dd.loopkit.WorkItem("k", "d", payload={})
+    out = dd.DailyDigest().after_item(item, {"needs_you": [{"text": "a", "url": ["x"]}, {"text": "b", "url": {"a": 1}}],
+                                             "waiting_on_others": [], "loop_x_did": [], "fyi": [], "meetings": []}, ctx())
+    assert [b["url"] for b in out.data["needs_you"]] == ["", ""]
+
+
+def test_local_dates_near_midnight(monkeypatch, tmp_path):
+    from datetime import timedelta
+    monkeypatch.setenv("TZ", "Australia/Brisbane"); time.tzset()  # UTC+10
+    class C: now = datetime(2026, 10, 5, 20, 0, tzinfo=timezone.utc); settings = {}; log = staticmethod(lambda m: None)
+    # local time is 2026-10-06 06:00; local yesterday = 10-05 00:00..24:00 local = 10-04 14:00Z..10-05 14:00Z
+    (tmp_path / "2026-10-04.jsonl").write_text(
+        json.dumps({"event_type": "issue.completed", "project": "in", "issue_iid": 1, "timestamp": "2026-10-04T15:00:00.000Z"}) + "\n"
+        + json.dumps({"event_type": "issue.completed", "project": "before", "issue_iid": 2, "timestamp": "2026-10-04T13:00:00.000Z"}) + "\n")
+    (tmp_path / "2026-10-05.jsonl").write_text(
+        json.dumps({"event_type": "issue.escalated", "project": "in2", "issue_iid": 3, "timestamp": "2026-10-05T13:00:00.000Z"}) + "\n"
+        + json.dumps({"event_type": "issue.completed", "project": "after", "issue_iid": 4, "timestamp": "2026-10-05T15:00:00.000Z"}) + "\n")
+    out = dd._default_loop_x(C(), events_dir=tmp_path)
+    assert [e["project"] for e in out["completed"]] == ["in"] and [e["project"] for e in out["escalated"]] == ["in2"]
+    monkeypatch.setattr(dd, "collect", lambda c, **kw: {})
+    assert [i.key for i in dd.DailyDigest().discover(C())] == ["digest:2026-10-06"]

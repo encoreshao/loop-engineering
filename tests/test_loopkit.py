@@ -179,3 +179,23 @@ def test_definition_verifier_failure_gets_generic_feedback(env, tmp_path):
     p = Demo([WorkItem("a", "A")], ['{"verdict": "ok"}'] * 2)
     loopkit.run_plugin(p, "run_1", **kw)
     assert "failed verification" in p.prompts[1] and "output contract" not in p.prompts[1]
+
+
+def test_chat_text_neutralises_slack_control_sequences():
+    for evil in ("x|y> <!channel>", "<https://evil|click>", "<@U123> hi"):
+        out = loopkit.chat_text(evil)
+        assert "<" not in out and ">" not in out
+    assert loopkit.chat_text("a\x00b\n\n  c\t") == "a b c"
+    assert loopkit.chat_text("x" * 400, 10) == "x" * 9 + "\u2026"
+    assert loopkit.chat_text(None) == "None"
+
+
+def test_chat_url_rejects_unsafe():
+    assert loopkit.chat_url("https://gl/x?a=1") == "https://gl/x?a=1"
+    for bad in ("javascript:alert(1)", "https://a b", "https://a|b", "https://a>b", "https://a<b", 'https://a"b', None, 5, ["https://a"], ""):
+        assert loopkit.chat_url(bad) == ""
+
+
+def test_chat_link_plain_text():
+    assert loopkit.chat_link("Review", "https://gl/1") == "Review (https://gl/1)"
+    assert loopkit.chat_link("<!channel>", "https://evil|x") == "\u2039!channel\u203a"

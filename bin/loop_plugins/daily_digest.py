@@ -7,7 +7,7 @@ skips the once-a-day seen check)."""
 import json
 import re
 import sys
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -19,6 +19,10 @@ _SECTIONS = (("needs_you", "Needs you"), ("waiting_on_others", "Waiting on other
              ("meetings", "Today's meetings"), ("loop_x_did", "What Loop X did"), ("fyi", "FYI"))
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _PER_PAGE = "per_page=50"
+
+
+def _local_now(ctx):
+    return ctx.now.astimezone()
 
 
 def _err(exc):
@@ -77,9 +81,20 @@ def _collect_github(conn, yesterday):
 
 def _default_loop_x(ctx, events_dir=None):
     import events
-    day = str(ctx.now.date() - timedelta(days=1))
+    # Yesterday in LOCAL time; event files and timestamps are UTC.
+    end = _local_now(ctx).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = end - timedelta(days=1)
+    utc = timezone.utc
+    since = str(start.astimezone(utc).date())
+    until = str((end - timedelta(seconds=1)).astimezone(utc).date())
     out = {"completed": [], "escalated": []}
-    for ev in events.iter_events(events_dir=events_dir, since_date=day, until_date=day):
+    for ev in events.iter_events(events_dir=events_dir, since_date=since, until_date=until):
+        try:
+            when = datetime.fromisoformat(str(ev.get("timestamp")).replace("Z", "+00:00"))
+            if not start <= when < end:
+                continue
+        except ValueError:
+            pass  # no usable timestamp: the file's UTC date already matched
         key = {"issue.completed": "completed", "issue.escalated": "escalated"}.get(ev.get("event_type"))
         if key:
             out[key].append({"project": ev.get("project"), "issue_iid": ev.get("issue_iid")})
@@ -121,7 +136,7 @@ def _safe(fn, *args):
 
 
 def _meetings(ctx, accounts, loader):
-    start = ctx.now.astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    start = _local_now(ctx).replace(hour=0, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=1)
     out = []
     for account in accounts:
@@ -175,7 +190,7 @@ def collect(ctx, accounts_fn=None, loader=None, loop_x_fn=None, inbox_fn=None, t
     topics_fn = topics_fn or _default_topics
     if calendar_accounts_fn is None:
         calendar_accounts_fn = lambda: accounts_fn("calendar")  # noqa: E731
-    yesterday = str(ctx.now.date() - timedelta(days=1))
+    yesterday = str(_local_now(ctx).date() - timedelta(days=1))
 
     accounts = []
     for account in accounts_fn("issues"):
@@ -194,7 +209,7 @@ def collect(ctx, accounts_fn=None, loader=None, loop_x_fn=None, inbox_fn=None, t
     except Exception:  # noqa: BLE001
         cal_accounts = []
     payload = {
-        "date": str(ctx.now.date()),
+        "date": str(_local_now(ctx).date()),
         "accounts": accounts,
         "meetings": _meetings(ctx, cal_accounts, loader),
         "loop_x": _safe(loop_x_fn, ctx),
@@ -222,17 +237,17 @@ def _known_urls(payload):
 
 
 def format_digest(answer, date):
-    lines = [f"*Daily digest - {date}*"]
+    lines = [f"Daily digest - {loopkit.chat_text(date, 20)}"]
     any_bullets = False
     for key, title in _SECTIONS:
         bullets = answer.get(key) or []
         if not bullets:
             continue
         any_bullets = True
-        lines += ["", f"*{title}*"]
+        lines += ["", loopkit.chat_text(title)]
         for b in bullets:
-            text = str(b.get("text", "")).replace("\n", " ")
-            lines.append(f"- <{b['url']}|{text}>" if b.get("url") else f"- {text}")
+            if isinstance(b, dict):
+                lines.append("- " + loopkit.chat_link(b.get("text", ""), b.get("url")))
     if not any_bullets:
         lines += ["", "Nothing needs your attention today."]
     return "\n".join(lines)
@@ -244,7 +259,7 @@ class DailyDigest(loopkit.LoopPlugin):
     output_keys = ("needs_you", "waiting_on_others", "loop_x_did", "fyi", "meetings")
 
     def discover(self, ctx):
-        return [loopkit.WorkItem(key=f"digest:{ctx.now.date()}", title="Daily digest", payload=collect(ctx))]
+        return [loopkit.WorkItem(key=f"digest:{_local_now(ctx).date()}", title="Daily digest", payload=collect(ctx))]
 
     def after_item(self, item, answer, ctx):
         known = _known_urls(item.payload)
@@ -255,8 +270,9 @@ class DailyDigest(loopkit.LoopPlugin):
             for b in answer.get(key) or []:
                 if not isinstance(b, dict):
                     continue
-                url = b.get("url") or ""
-                bullets.append({"text": str(b.get("text", "")), "url": url if url in known else ""})
+                url = b.get("url")
+                ok = isinstance(url, str) and url in known
+                bullets.append({"text": str(b.get("text", "")), "url": url if ok else ""})
             cleaned[key] = bullets
             count += len(bullets)
         return loopkit.Outcome(item.key, "done", f"{count} items", data=cleaned)
@@ -264,7 +280,7 @@ class DailyDigest(loopkit.LoopPlugin):
     def digest(self, outcomes, ctx):
         for o in outcomes:
             if o.status == "done":
-                return format_digest(o.data, str(ctx.now.date()))
+                return format_digest(o.data, str(_local_now(ctx).date()))
         return None
 
 
