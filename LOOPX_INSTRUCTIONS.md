@@ -27,7 +27,7 @@ A *scheduled* run no longer happens in a single agent session. `bin/gitlab_loop_
 - `issue.completed` with `data.action == "wait_for_review"` — waiting on someone else's review; `data.reminder_sent == true` means this run sent the one weekly Slack reminder, otherwise nothing happened at all this run.
 - `issue.escalated` with `data.reason == "needs_clarification"` — escalated for clarification.
 - `issue.escalated` with `data.reason == "verification_failed"` or `"worktree_creation_failed"` — escalated because verification could not pass.
-- `issue.escalated` with `data.reason` in `"handoff_invalid"`, `"mr_open_failed"` or `"project_config_error"` (harness gate runs only) — escalated by the loop itself: the agent left no valid handoff, the merge request could not be opened, or the project config could not be read. In a gated run the loop, not the agent, writes the `issue.completed` `action == "fix"` event after opening the MR (its `data.mr_url` may be null), so a gated issue's agent may have emitted no completed event of its own; that is not a crash.
+- `issue.escalated` with `data.reason` in `"handoff_invalid"`, `"mr_open_failed"`, `"project_config_error"` or `"run_incomplete"` (harness gate runs only) — escalated by the loop itself: the agent left no valid handoff, the merge request could not be opened, the project config could not be read, or the agent session crashed/timed out or hit its budget before handing off (`data.stop_reason` says which). In a gated run the loop, not the agent, writes the `issue.completed` `action == "fix"` event after opening the MR (its `data.mr_url` may be null), so a gated issue's agent may have emitted no completed event of its own; that is not a crash.
 
 Build daily-review.md's seven sections from those events using the same judgment you'd apply live. An issue with an `issue.started` for this `run_id` but no `issue.completed`/`issue.escalated` crashed part-way through: it still counts as checked, and belongs under Escalations as needing human follow-up — say so plainly in the Summary rather than silently dropping it. Then do exactly steps 1–4 of "End of run" from that reconstruction. This session runs **unconditionally**, including on a morning with zero assigned issues (no matching events at all) — that is what keeps "a quiet morning is still reported" true.
 
@@ -242,7 +242,7 @@ python3 <loop_dir>/bin/web/dashboard_server.py write-status running --current-is
 
    This **opens** the MR only. Never merge it, never run `git merge` into `<target_branch>` in the primary checkout, never push to `<target_branch>` directly.
 
-10. **Annotate and notify.**
+10. **Annotate and notify.** If the prompt contains a "Harness gate is ON" section, it says which parts of this step still apply (mark-seen, the learning and the annotation do; the "Finished" Slack message and the `issue.completed` event are the loop's).
    ```
    python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_cache.py annotate-issue <instance> <project_id> <issue_iid> loop_last_action "mr_opened: <mr_web_url>"
    python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Finished* <<issue_url>|#<issue_iid> (<alias>)>: MR opened → <<mr_web_url>|view MR>"

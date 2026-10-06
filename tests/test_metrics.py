@@ -710,3 +710,8 @@ def test_compute_first_pass_verification_metrics_missing_timestamp_ignored():
     result = metrics.compute_first_pass_verification_metrics(events)
 
     assert result["first_pass_verification_total"] == 0
+
+
+def test_retry_rate_reason_no_longer_claims_retries_do_not_exist():
+    assert "no retry behavior exists yet" not in metrics.RETRY_RATE_UNAVAILABLE_REASON
+    assert "Gates" in metrics.RETRY_RATE_UNAVAILABLE_REASON

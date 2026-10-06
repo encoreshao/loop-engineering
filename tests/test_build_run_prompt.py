@@ -144,3 +144,9 @@ def test_instructions_defer_the_mr_step_to_the_gate_override():
     text = (REPO_ROOT / "LOOPX_INSTRUCTIONS.md").read_text()
     assert "Harness gate is ON" in text
     assert "Harness gate is ON" in glr.GATE_OVERRIDE
+
+
+def test_batch_end_of_run_mode_knows_every_gate_escalation_reason():
+    prompt = run_script("--batch-end-of-run").stdout
+    for reason in ("handoff_invalid", "mr_open_failed", "project_config_error", "run_incomplete"):
+        assert reason in prompt, reason

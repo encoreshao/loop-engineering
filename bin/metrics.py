@@ -14,7 +14,7 @@ from pathlib import Path
 import events
 
 RETRY_RATE_UNAVAILABLE_REASON = (
-    "the loop escalates on first verification failure; no retry behavior exists yet"
+    "not computed here; gate-mode retries are counted on Harness > Gates (Retried \u2192 passed)"
 )
 FAILURE_RATE_UNAVAILABLE_REASON = (
     'no issue-level "failed" outcome exists yet, only fix/answer/escalate'
@@ -248,8 +248,8 @@ def compute_first_pass_verification_metrics(events, project=None):
     whether it passed. Events without a timestamp are ignored, same as
     every other compute_* function here. Numerically identical to
     compute_verification_metrics's verification_pass_rate today - the
-    loop only ever produces one verification outcome per issue (see
-    RETRY_RATE_UNAVAILABLE_REASON) - but defined by timestamp order
+    agent emits only one verification outcome per issue (gate-mode
+    retries are counted separately, on Harness > Gates) - but defined by timestamp order
     rather than "ever passed"/"ever failed" set membership, so it stays
     correct once Phase 6 (retries) produces more than one outcome per
     issue_run_id. Same project filtering as compute_issue_metrics."""

@@ -619,6 +619,7 @@ def test_no_worktree_is_vacuous_and_emits_external_skipped(tmp_path, monkeypatch
     # _no_real_project_config's default worktree root never has a matching
     # directory, so this is the "no worktree" path.
     monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: {"local_path": "/x/harbor", "test_cmd": "true"})
+    monkeypatch.setattr(glr, "finalize_gated_issue", lambda *a, **k: "answered")
     events_dir = tmp_path / "events"
     result = glr._run_one_issue(
         "run_x", "harbor", 1, definition(tmp_path, mode="gate"), tmp_path / "loop-runs", REPO_ROOT,
@@ -686,6 +687,7 @@ def test_stored_verifier_output_is_bounded(tmp_path, monkeypatch):
 
 
 def test_gate_failure_retries_with_feedback(monkeypatch, tmp_path):
+    monkeypatch.setattr(glr, "finalize_gated_issue", lambda *a, **k: "mr_opened")
     calls = []
     monkeypatch.setattr(glr, "invoke_batch_issue_agent", lambda *a, **k: calls.append(k) or {"cost_usd": 0.1})
     seq = iter([False, True])
@@ -1540,3 +1542,162 @@ def test_external_completed_event_flags_verifier_error():
     finally:
         glr._emit_best_effort = original
     assert recorded[0][1]["data"]["error"] is True
+
+
+# --- Final-review fixes: gate mode verifies only this attempt's fix handoff ---
+
+
+def _gate_env(tmp_path, monkeypatch, test_cmd="false"):
+    """A real worktree whose external check fails, a full project, and a
+    fake GitLab connector - so only the handoff decides what happens."""
+    worktree_root = tmp_path / "wt"
+    (worktree_root / "web-issue-7").mkdir(parents=True)
+    project = {**_PROJECT, "local_path": str(tmp_path / "web"), "test_cmd": test_cmd, "lint_cmd": ""}
+    monkeypatch.setattr(glr.loop_config, "get_project", lambda alias: project)
+    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(worktree_root))
+    gl = FakeGitLabAPI()
+    monkeypatch.setattr(glr.connectors_config, "load_connector", lambda account: gl)
+    return gl
+
+
+def _handoff_writer(tmp_path, texts, calls):
+    def invoker(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
+                feedback=None, gate=False, run_id=None):
+        calls.append(feedback)
+        text = texts[min(len(calls), len(texts)) - 1]
+        if isinstance(text, Exception):
+            raise text
+        if text is not None:
+            path = glr.handoff_path(run_id, alias, issue_iid, repo_root=tmp_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        return {"cost_usd": 0}
+    return invoker
+
+
+@pytest.mark.parametrize("handoff, outcome", [
+    ('{"action": "escalate"}', "escalated:agent"),
+    ('{"action": "answer"}', "answered"),
+    ('{"action": "wait_for_review"}', "waiting_for_review"),
+])
+def test_gate_non_fix_handoff_is_not_verified_or_retried(tmp_path, monkeypatch, handoff, outcome):
+    gl = _gate_env(tmp_path, monkeypatch)
+    calls = []
+    result = glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="gate"), tmp_path / "r", tmp_path,
+                                agent_invoker=_handoff_writer(tmp_path, [handoff], calls), events_dir=tmp_path / "ev")
+    assert len(calls) == 1 and gl.calls == []
+    assert result.gate_outcome == outcome and result.final_state.value == "completed"
+    assert result.iterations[-1].verification_results[0].evidence.get("vacuous") is True
+
+
+def test_gate_fix_handoff_is_verified_and_retried(tmp_path, monkeypatch):
+    gl = _gate_env(tmp_path, monkeypatch)
+    calls = []
+    result = glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="gate"), tmp_path / "r", tmp_path,
+                                agent_invoker=_handoff_writer(tmp_path, [_FIX], calls), events_dir=tmp_path / "ev")
+    assert len(calls) == 2 and calls[1] is not None
+    assert result.gate_outcome == "escalated:verification_failed"
+    assert gl.calls[0][2]["body"].count("$ false") == 1
+
+
+def test_gate_clears_the_handoff_before_each_attempt(tmp_path, monkeypatch):
+    gl = _gate_env(tmp_path, monkeypatch)
+    calls, seen = [], []
+    inner = _handoff_writer(tmp_path, [_FIX, RuntimeError("agent crashed")], calls)
+
+    def invoker(alias, issue_iid, run_id=None, **kw):
+        seen.append(glr.handoff_path(run_id, alias, issue_iid, repo_root=tmp_path).exists())
+        return inner(alias, issue_iid, run_id=run_id, **kw)
+
+    result = glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="gate"), tmp_path / "r", tmp_path,
+                                agent_invoker=invoker, events_dir=tmp_path / "ev")
+    assert seen == [False, False]
+    assert result.gate_outcome == "escalated:run_incomplete"
+    body = gl.calls[0][2]["body"]
+    assert "agent session failed or timed out" in body and "```" not in body
+
+
+def test_run_incomplete_and_verification_wording_follow_the_stop_reason(tmp_path):
+    from loop_state import LoopState
+    gl = FakeGitLabAPI()
+    result = _loop_result(LoopState.STOPPED)
+    result.stop_reason = "budget_exceeded"
+    assert _finalize(tmp_path, result, gitlab=gl) == "escalated:run_incomplete"
+    assert "budget" in gl.calls[0][2]["body"]
+
+    gl = FakeGitLabAPI()
+    result = failed_result("")
+    result.stop_reason = "no_progress"
+    assert _finalize(tmp_path, result, gitlab=gl) == "escalated:verification_failed"
+    body = gl.calls[0][2]["body"]
+    assert "the same way" in body
+    failed_block = body.split("**What failed**\n", 1)[1].split("\n\n**Where", 1)[0]
+    assert failed_block.strip().endswith("(The checks produced no output.)")
+
+
+def test_run_incomplete_event_carries_the_stop_reason(tmp_path):
+    import events as events_module
+    from loop_state import LoopState
+    result = _loop_result(LoopState.FAILED)
+    result.stop_reason = "agent_failed"
+    _finalize(tmp_path, result, handoff_text=None)
+    esc = [e for e in events_module.iter_events(events_dir=tmp_path / "ev") if e["event_type"] == "issue.escalated"]
+    assert esc[0]["data"] == {"reason": "run_incomplete", "gated": True, "stop_reason": "agent_failed"}
+
+
+def test_wait_for_review_handoff_is_a_noop(tmp_path):
+    gl, notes = FakeGitLabAPI(), []
+    hp = tmp_path / "h.json"
+    hp.write_text('{"action": "wait_for_review"}')
+    assert glr.read_handoff(hp, issue_iid=7) == {"action": "wait_for_review"}
+    out = _finalize(tmp_path, completed_result(), '{"action":"wait_for_review"}', gitlab=gl,
+                    notifier=lambda *a: notes.append(a))
+    assert out == "waiting_for_review" and gl.calls == [] and notes == []
+
+
+def test_mr_opened_sends_the_finished_slack_message(tmp_path):
+    notes = []
+    url = "https://gl.example.com/grp/web/-/merge_requests/12"
+    _finalize(tmp_path, completed_result(), opener=lambda *a: (True, url), notifier=lambda m: notes.append(m))
+    assert len(notes) == 1 and "Finished" in notes[0] and url in notes[0]
+
+
+def test_gate_override_keeps_step_10_bookkeeping_and_names_every_action():
+    text = glr.GATE_OVERRIDE
+    assert "for the MR description" not in text
+    for expected in ("mark-seen", "memory_store.py add", "loop_last_action", "wait_for_review",
+                     '"answer"', '"escalate"', "Finished", "issue.completed"):
+        assert expected in text, expected
+
+
+@pytest.mark.parametrize("outcome", [
+    "escalated:handoff_invalid", "escalated:mr_open_failed", "escalated:project_config_error",
+])
+def test_gated_loop_escalation_is_persisted_and_alerted_once(tmp_path, monkeypatch, slack_calls, outcome):
+    monkeypatch.setattr(glr, "finalize_gated_issue", lambda *a, **k: outcome)
+    monkeypatch.setattr(glr, "build_verifiers", lambda *a, **k: [])
+    result = glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="gate"), tmp_path / "r", tmp_path,
+                                agent_invoker=_fake_invoke, events_dir=tmp_path / "ev")
+    reason = outcome.split(":", 1)[1]
+    assert result.final_state.value == "escalated" and result.stop_reason == f"gate:{reason}"
+    stored = json.loads((tmp_path / "r" / "run_web_7" / "result.json").read_text())
+    assert stored["final_state"] == "escalated" and stored["stop_reason"] == f"gate:{reason}"
+    assert glr._alert_on_incomplete_results([result]) == [] and slack_calls == []
+
+
+@pytest.mark.parametrize("outcome", ["mr_opened", "answered", "waiting_for_review", "escalated:agent"])
+def test_gated_non_loop_escalation_outcomes_keep_the_runtime_state(tmp_path, monkeypatch, outcome):
+    monkeypatch.setattr(glr, "finalize_gated_issue", lambda *a, **k: outcome)
+    monkeypatch.setattr(glr, "build_verifiers", lambda *a, **k: [])
+    result = glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="gate"), tmp_path / "r", tmp_path,
+                                agent_invoker=_fake_invoke, events_dir=tmp_path / "ev")
+    assert result.final_state.value == "completed" and result.stop_reason == "completed"
+
+
+def test_gated_verification_failure_keeps_the_runtime_stop_reason(tmp_path, monkeypatch, slack_calls):
+    monkeypatch.setattr(glr, "finalize_gated_issue", lambda *a, **k: "escalated:verification_failed")
+    monkeypatch.setattr(glr, "build_verifiers", lambda *a, **k: [SequenceVerifier(iter([False, False]), output="same")])
+    result = glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="gate"), tmp_path / "r", tmp_path,
+                                agent_invoker=_fake_invoke, events_dir=tmp_path / "ev")
+    assert result.final_state.value == "escalated" and result.stop_reason == "no_progress"
+    assert glr._alert_on_incomplete_results([result]) == [] and slack_calls == []

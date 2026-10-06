@@ -58,7 +58,9 @@ _AGENT_COST_ATTR = "agent_cost_usd"
 _UNSET = object()
 
 # Where `_run_one_issue` stashes the gate-mode finalize outcome (same plain-
-# attribute trick as _AGENT_COST_ATTR, so result.json keeps its shape).
+# attribute trick as _AGENT_COST_ATTR, so result.json keeps its shape). A
+# loop escalation is also written into final_state/stop_reason, and
+# `_alert_on_incomplete_results` reads this to skip already-notified issues.
 _GATE_OUTCOME_ATTR = "gate_outcome"
 
 # Where `_run_one_issue` stashes an issue's summed token/cache usage (a
@@ -152,13 +154,19 @@ _DISALLOWED_TOOLS = (
 
 _GATE_DISALLOWED_TOOLS = "Bash(bash *open_merge_request.sh*) Bash(git push origin loop/issue-*)"
 
-GATE_OVERRIDE = """## Harness gate is ON for this run \u2014 this overrides the merge-request step
+GATE_OVERRIDE = """## Harness gate is ON for this run \u2014 this overrides steps 9 and 10
 
-Do NOT run open_merge_request.sh and do NOT push. When your fix is committed on loop/issue-<iid> and your own checks pass, write this JSON to <handoff_path> (also in $LOOP_HANDOFF_PATH) and stop:
+Do NOT run open_merge_request.sh and do NOT push: skip step 9. The loop re-runs the project's checks itself and opens the merge request only if they pass.
 
-{"action": "fix", "branch": "loop/issue-<iid>", "target_branch": "<target>", "title": "Fix #<iid>: <short title>", "summary": "<2-4 sentences for the MR description>"}
+For a fix, once it is committed on loop/issue-<iid> and your own checks pass, do step 10 with these changes: annotate loop_last_action as "fix_handed_off" (not "mr_opened: ..."), still run track_new_comments.py mark-seen, still record a learning if there is one (memory_store.py add and its memory.created emit), and still cd back to the loop directory. Do NOT send the "Finished" Slack message and do NOT emit issue.completed \u2014 the loop does both after it opens the merge request. Then write this JSON to <handoff_path> (also in $LOOP_HANDOFF_PATH) and stop:
 
-If you answered or escalated instead of fixing, write {"action": "answer"} or {"action": "escalate"} after posting your comment as usual. The loop will run the project's checks itself and open the merge request only if they pass."""
+{"action": "fix", "branch": "loop/issue-<iid>", "target_branch": "<target>", "title": "Fix #<iid>: <short title>", "summary": "<2-4 sentences on what you changed and why; the loop posts it on the issue next to the merge request link>"}
+
+Every issue in a gated run must end with a handoff file at that path, written after finishing the matching path as usual:
+- answered directly: {"action": "answer"}
+- escalated (needs clarification, or your own verification failed): {"action": "escalate"}
+- Wait for reviewer, or nothing to act on this run: {"action": "wait_for_review"}
+A missing or malformed handoff is escalated to a human."""
 
 
 def handoff_path(run_id, alias, issue_iid, repo_root=None):
@@ -504,7 +512,9 @@ def _emit_verification_events(run_id, issue_run_id, alias, issue_iid, mode, iter
         )
 
 
-_HANDOFF_ACTIONS = ("fix", "answer", "escalate")
+_HANDOFF_ACTIONS = ("fix", "answer", "escalate", "wait_for_review")
+# Handoff actions the agent finished itself; the loop has nothing to add.
+_AGENT_OUTCOMES = {"answer": "answered", "wait_for_review": "waiting_for_review", "escalate": "escalated:agent"}
 _NEEDS_HUMAN_LABEL = "loop:needs-human"
 _FAILURE_TAIL_CHARS = 1500
 _OPENER_TIMEOUT_SECONDS = 300
@@ -563,20 +573,31 @@ def _failure_text(result):
     return "\n\n".join(parts)[-_FAILURE_TAIL_CHARS:]
 
 
-def _escalation_comment(issue_iid, reason, failure_text):
+_STOP_REASON_TEXT = {
+    "agent_failed": "The agent session failed or timed out (details in the loop's log).",
+    "budget_exceeded": "The run hit its iteration, time or cost budget.",
+}
+
+
+def _escalation_comment(issue_iid, reason, failure_text, stop_reason=None):
+    fenced = f"\n\n```\n{failure_text}\n```" if failure_text else ""
     if reason == "handoff_invalid":
         tried = "I worked on this issue but did not leave a valid handoff, so the loop could not tell what to do next."
         failed = "The handoff file was missing or malformed; no merge request was opened."
+    elif reason == "run_incomplete":
+        tried = "I started on this issue, but the run stopped before I finished, so no merge request was opened."
+        failed = _STOP_REASON_TEXT.get(stop_reason, f"The run stopped early ({stop_reason}).")
     elif reason == "mr_open_failed":
         tried = "I fixed this and the loop's own checks passed, but the merge request could not be opened."
-        failed = "Opening the merge request failed:"
+        failed = "Opening the merge request failed:" + (fenced or "\n(No output.)")
     else:
         tried = "I implemented a fix, but the loop's own verification of it failed, so no merge request was opened."
-        failed = "The project's checks, re-run by the loop in my worktree, failed:"
-    fenced = f"\n\n```\n{failure_text}\n```" if failure_text else ""
+        how = "failed the same way on consecutive attempts" if stop_reason == "no_progress" else "failed"
+        failed = f"The project's checks, re-run by the loop in my worktree, {how}:" + (
+            fenced or "\n(The checks produced no output.)")
     return (
         f"**What I tried**\n{tried}\n\n"
-        f"**What failed**\n{failed}{fenced}\n\n"
+        f"**What failed**\n{failed}\n\n"
         f"**Where the work is**\n- Branch `loop/issue-{issue_iid}` in this issue's local worktree (not pushed).\n\n"
         f"**What I need from you**\n- Look at the failure above and the unpushed branch, then fix it or tell me how to proceed."
     )
@@ -585,8 +606,9 @@ def _escalation_comment(issue_iid, reason, failure_text):
 def finalize_gated_issue(result, alias, issue_iid, run_id, repo_root, handoff=None, project=None,
                          opener=None, gitlab=None, notifier=None, events_dir=None):
     """Gate mode's last step: open the MR (only after verification passed)
-    or escalate. Returns "mr_opened" | "answered" | "escalated:<reason>".
-    GitLab/Slack calls are best-effort and never raise out of here."""
+    or escalate. Returns "mr_opened" | "answered" | "waiting_for_review" |
+    "escalated:<reason>". GitLab/Slack calls are best-effort and never
+    raise out of here."""
     if handoff is None:
         handoff = handoff_path(run_id, alias, issue_iid, repo_root=repo_root)
     issue_run_id = f"{run_id}_{alias}_{issue_iid}"
@@ -597,8 +619,8 @@ def finalize_gated_issue(result, alias, issue_iid, run_id, repo_root, handoff=No
         except OSError:
             pass
 
-    def notify(reason):
-        message = f"Loop escalated {alias} #{issue_iid} ({reason}); see the issue for details."
+    def notify(reason=None, message=None):
+        message = message or f"Loop escalated {alias} #{issue_iid} ({reason}); see the issue for details."
         try:
             (notifier or _notify_slack_best_effort)(message)
         except Exception as exc:  # noqa: BLE001
@@ -630,22 +652,26 @@ def finalize_gated_issue(result, alias, issue_iid, run_id, repo_root, handoff=No
         _emit_best_effort(event_type, run_id=run_id, issue_run_id=issue_run_id, project=alias,
                           issue_iid=issue_iid, data=data, events_dir=events_dir)
 
-    def escalate(reason, failure_text=""):
-        api("POST", f"{notes_path}/notes", {"body": _escalation_comment(issue_iid, reason, failure_text)})
+    def escalate(reason, failure_text="", stop_reason=None):
+        comment = _escalation_comment(issue_iid, reason, failure_text, stop_reason=stop_reason)
+        api("POST", f"{notes_path}/notes", {"body": comment})
         api("PUT", notes_path, {"add_labels": _NEEDS_HUMAN_LABEL})
-        emit("issue.escalated", {"reason": reason, "gated": True})
+        emit("issue.escalated", {"reason": reason, "gated": True,
+                                 **({"stop_reason": stop_reason} if stop_reason else {})})
         notify(reason)
         return f"escalated:{reason}"
 
     data = read_handoff(handoff, issue_iid)
+    if data is not None and data["action"] in _AGENT_OUTCOMES:
+        return _AGENT_OUTCOMES[data["action"]]
+    # The handoff is cleared before every attempt, so after a crash or a
+    # budget stop a missing handoff means "never got that far", not a bad one.
+    if result.final_state in (LoopState.FAILED, LoopState.STOPPED):
+        return escalate("run_incomplete", stop_reason=result.stop_reason)
     if data is None:
         return escalate("handoff_invalid")
-    if data["action"] == "answer":
-        return "answered"
-    if data["action"] == "escalate":
-        return "escalated:agent"
     if result.final_state != LoopState.COMPLETED:
-        return escalate("verification_failed", _failure_text(result))
+        return escalate("verification_failed", _failure_text(result), stop_reason=result.stop_reason)
 
     if opener is None:
         def opener(local_path, branch, target, title):
@@ -665,10 +691,17 @@ def finalize_gated_issue(result, alias, issue_iid, run_id, repo_root, handoff=No
     api("POST", f"{notes_path}/notes", {"body": body})
     # Same shape the batch wrap-up reads from an agent-emitted fix event.
     found = re.search(r"https?://\S+/merge_requests/\d+", str(detail))
-    emit("issue.completed", {
-        "outcome": "mr_opened", "gated": True, "action": "fix", "mr_url": found.group(0) if found else None,
-    })
+    mr_url = found.group(0) if found else None
+    emit("issue.completed", {"outcome": "mr_opened", "gated": True, "action": "fix", "mr_url": mr_url})
+    # Step 10's "Finished" message, which the gate override tells the agent not to send.
+    notify(message=f"*Finished* {alias} #{issue_iid}: MR opened \u2192 {mr_url or data['branch']}")
     return "mr_opened"
+
+
+def _is_loop_escalation(outcome):
+    """A gate outcome the loop itself escalated (finalize already commented,
+    labelled and notified) - as opposed to the agent's own escalation."""
+    return bool(outcome) and outcome.startswith("escalated:") and outcome != "escalated:agent"
 
 
 def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
@@ -689,8 +722,16 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
     gate = mode == "gate"
     raw_costs = []
     raw_usages = []
+    issue = {"alias": alias, "issue_iid": issue_iid, "timeout_seconds": timeout_seconds}
+    if gate:
+        # The verifier checks only an attempt that handed off a fix.
+        issue["handoff_path"] = handoff_path(run_id, alias, issue_iid, repo_root=repo_root)
 
     def agent_fn(context):
+        if gate:
+            # Each attempt starts with no handoff, so finalize can never read
+            # an earlier attempt's.
+            issue["handoff_path"].unlink(missing_ok=True)
         previous = context.get("previous")
         feedback = format_feedback(previous) if previous and _iteration_failed_verification(previous) else None
         agent_result = agent_invoker(
@@ -702,10 +743,7 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
             raw_usages.append(agent_result.get("usage"))
         return agent_result
 
-    verifiers = build_verifiers(
-        definition.verifiers, cwd=None,
-        issue={"alias": alias, "issue_iid": issue_iid, "timeout_seconds": timeout_seconds}, mode=mode,
-    )
+    verifiers = build_verifiers(definition.verifiers, cwd=None, issue=issue, mode=mode)
     emitted_iterations = []
 
     def on_iteration(_run_id, _loop_id, _definition_name, iterations):
@@ -740,6 +778,11 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
             _append_unified_log(
                 f"gate finalize for {alias} #{issue_iid} failed: {type(exc).__name__}: {exc}", repo_root=repo_root)
         setattr(result, _GATE_OUTCOME_ATTR, outcome)
+        if _is_loop_escalation(outcome) and result.final_state == LoopState.COMPLETED:
+            # Visible on Loop Runs (result.json) as an escalation, not
+            # "completed". A non-completed result already says why it stopped.
+            result.final_state = LoopState.ESCALATED
+            result.stop_reason = f"gate:{outcome.split(':', 1)[1]}"
 
     write_result(result, results_dir=results_dir)
     return result
@@ -914,8 +957,12 @@ def _alert_on_incomplete_results(results):
     run-loop.sh's exit code, so its ERR trap can no longer see it. Ping
     Slack from here instead. Each LoopResult's run_id is
     `<run_id>_<alias>_<issue_iid>`, so naming it names the project and the
-    issue."""
-    incomplete = [r for r in results if r.final_state != LoopState.COMPLETED]
+    issue. A gated issue the loop escalated already notified from
+    `finalize_gated_issue`, so it is left out here to alert exactly once."""
+    incomplete = [
+        r for r in results
+        if r.final_state != LoopState.COMPLETED and not _is_loop_escalation(getattr(r, _GATE_OUTCOME_ATTR, None))
+    ]
     if not incomplete:
         return []
     detail = "; ".join(

@@ -6,6 +6,7 @@ docs/superpowers/specs/2026-09-06-loop-runtime-foundation-design.md.
 it, e.g. a diff-scope verifier reading the current worktree path out of
 context)."""
 import dataclasses
+import json
 import shlex
 import subprocess
 import time
@@ -145,10 +146,15 @@ class ProjectCommandsVerifier(Verifier):
     """Re-runs the project's own test_cmd/lint_cmd (from projects.json)
     inside the worktree the agent used for this issue. No worktree means
     the agent made no code change, so there is nothing to verify (a
-    vacuous pass). Empty/missing commands are skipped."""
+    vacuous pass). Empty/missing commands are skipped.
+
+    `handoff_path` (gate mode only) narrows this further: unless that file
+    says {"action": "fix"}, this attempt claimed no fix, so it is vacuous
+    too - a worktree left over from an earlier run, or one the agent gave
+    up on and escalated, must not trigger a retry of the whole issue."""
 
     def __init__(self, name, alias, issue_iid, timeout_seconds,
-                 project_fn=None, worktree_root_fn=None, runner=None):
+                 project_fn=None, worktree_root_fn=None, runner=None, handoff_path=None):
         self.name = name
         self.alias = alias
         self.issue_iid = issue_iid
@@ -156,6 +162,7 @@ class ProjectCommandsVerifier(Verifier):
         self.project_fn = project_fn
         self.worktree_root_fn = worktree_root_fn
         self.runner = runner
+        self.handoff_path = handoff_path
 
     def verify(self, context) -> VerificationResult:
         # Never raises: LoopRuntime calls verifiers unguarded, and a
@@ -165,8 +172,17 @@ class ProjectCommandsVerifier(Verifier):
         except Exception as exc:  # noqa: BLE001
             return VerificationResult(self.name, False, None, 0, f"{type(exc).__name__}: {exc}", {"error": True})
 
+    def _claims_fix(self):
+        try:
+            data = json.loads(Path(self.handoff_path).read_text())
+        except (OSError, ValueError):
+            return False
+        return isinstance(data, dict) and data.get("action") == "fix"
+
     def _verify(self, context) -> VerificationResult:
         start = time.monotonic()
+        if self.handoff_path is not None and not self._claims_fix():
+            return VerificationResult(self.name, True, None, 0, "no fix handoff - nothing to verify", {"vacuous": True})
         project_fn = self.project_fn or loop_config.get_project
         worktree_root_fn = self.worktree_root_fn or loop_config.get_worktree_root
         project = project_fn(self.alias)
@@ -174,7 +190,7 @@ class ProjectCommandsVerifier(Verifier):
         if not worktree.is_dir():
             return VerificationResult(self.name, True, None, 0, "no worktree - nothing to verify", {"vacuous": True})
 
-        commands, chunks, passed = [], [], True
+        commands, lines, passed = [], [], True
         for kind in ("test", "lint"):
             command = project.get(f"{kind}_cmd")
             if not command:
@@ -184,17 +200,20 @@ class ProjectCommandsVerifier(Verifier):
                 name=f"{self.name}_{kind}", command=command, cwd=worktree, timeout_seconds=self.timeout_seconds,
             ).verify(context)
             passed = passed and result.passed
-            tail = result.output[-_OUTPUT_TAIL_CHARS:]
             commands.append({"kind": kind, "command": command, "passed": result.passed,
-                             "exit_code": result.exit_code, "output": tail})
-            chunks.append(f"$ {command}\n{tail}")
+                             "exit_code": result.exit_code, "output": result.output[-_OUTPUT_TAIL_CHARS:]})
+            # The tail lives only in evidence (feedback and escalation read
+            # it from there); output is a one-line-per-command summary.
+            status = "passed" if result.passed else (
+                f"failed (exit {result.exit_code})" if result.exit_code is not None else "failed (timed out)")
+            lines.append(f"$ {command}: {status}")
 
         return VerificationResult(
             name=self.name,
             passed=passed,
             exit_code=0 if passed else 1,
             duration_ms=int((time.monotonic() - start) * 1000),
-            output="\n".join(chunks),
+            output="\n".join(lines),
             evidence={"commands": commands},
         )
 
@@ -237,7 +256,7 @@ def build_verifiers(specs, cwd=None, issue=None, mode="observe"):
                 raise ValueError(f"verifier {name!r}: type 'project_commands' requires issue context")
             verifier = ProjectCommandsVerifier(
                 name=name, alias=issue["alias"], issue_iid=issue["issue_iid"],
-                timeout_seconds=issue["timeout_seconds"],
+                timeout_seconds=issue["timeout_seconds"], handoff_path=issue.get("handoff_path"),
             )
             verifiers.append(ObserveOnly(verifier) if mode == "observe" else verifier)
         else:

@@ -230,7 +230,8 @@ def test_runs_test_and_lint_in_worktree(tmp_path):
     r = v.verify({})
     assert r.passed is False
     assert [c["kind"] for c in r.evidence["commands"]] == ["test", "lint"]
-    assert "repo-issue-7" in r.output
+    assert "repo-issue-7" in r.evidence["commands"][0]["output"]
+    assert r.output == "$ pwd: passed\n$ false: failed (exit 1)"
 
 
 def test_empty_commands_are_skipped(tmp_path):
@@ -285,3 +286,42 @@ def test_project_commands_verify_never_raises_on_missing_binary(tmp_path):
                                    worktree_root_fn=lambda: tmp_path / "wt")
     r = v.verify({})
     assert r.passed is False and r.output.startswith("FileNotFoundError:") and r.evidence == {"error": True}
+
+
+@pytest.mark.parametrize("handoff", [None, '{"action": "answer"}', '{"action": "escalate"}', "not json"])
+def test_handoff_without_fix_is_vacuous_even_with_a_worktree(tmp_path, handoff):
+    (tmp_path / "wt" / "repo-issue-7").mkdir(parents=True)
+    hp = tmp_path / "h.json"
+    if handoff is not None:
+        hp.write_text(handoff)
+    v = lv.ProjectCommandsVerifier("pc", "web", 7, 30, project_fn=lambda a: _project(tmp_path, "false", ""),
+                                   worktree_root_fn=lambda: tmp_path / "wt", handoff_path=hp)
+    r = v.verify({})
+    assert r.passed and r.evidence["vacuous"] is True
+
+
+def test_fix_handoff_runs_the_checks(tmp_path):
+    (tmp_path / "wt" / "repo-issue-7").mkdir(parents=True)
+    hp = tmp_path / "h.json"
+    hp.write_text('{"action": "fix"}')
+    v = lv.ProjectCommandsVerifier("pc", "web", 7, 30, project_fn=lambda a: _project(tmp_path, "false", ""),
+                                   worktree_root_fn=lambda: tmp_path / "wt", handoff_path=hp)
+    assert v.verify({}).passed is False
+
+
+def test_build_verifiers_passes_the_handoff_path_only_when_given(tmp_path):
+    issue = {"alias": "web", "issue_iid": 7, "timeout_seconds": 30}
+    spec = [{"name": "pc", "type": "project_commands"}]
+    assert lv.build_verifiers(spec, issue=issue, mode="observe")[0].inner.handoff_path is None
+    gated = lv.build_verifiers(spec, issue={**issue, "handoff_path": tmp_path / "h.json"}, mode="gate")
+    assert gated[0].handoff_path == tmp_path / "h.json"
+
+
+def test_command_tails_are_stored_once(tmp_path):
+    (tmp_path / "wt" / "repo-issue-7").mkdir(parents=True)
+    v = lv.ProjectCommandsVerifier("pc", "web", 7, 30,
+                                   project_fn=lambda a: _project(tmp_path, "python3 -c \"print('TAIL' * 500)\"", ""),
+                                   worktree_root_fn=lambda: tmp_path / "wt")
+    r = v.verify({})
+    assert "TAIL" in r.evidence["commands"][0]["output"]
+    assert "TAILTAIL" not in r.output and len(r.output) < 300
