@@ -51,14 +51,18 @@ class AuthFlowError(Exception):
     pass
 
 
-def keychain_service():
+def sandboxed_service(base):
     """Suffixed whenever LOOP_ENGINEERING_HOME is set, so a dev sandbox or
-    the test suite can never read or overwrite the real tokens."""
+    the test suite can never read or overwrite real secrets."""
     home = os.environ.get("LOOP_ENGINEERING_HOME")
     if not home:
-        return KEYCHAIN_SERVICE
+        return base
     digest = hashlib.sha256(os.path.realpath(home).encode()).hexdigest()[:10]
-    return f"{KEYCHAIN_SERVICE}.sandbox-{digest}"
+    return f"{base}.sandbox-{digest}"
+
+
+def keychain_service():
+    return sandboxed_service(KEYCHAIN_SERVICE)
 
 
 def _security(args, stdin=None):
@@ -71,8 +75,9 @@ def _security(args, stdin=None):
         raise KeychainError("macOS `security` CLI not found") from None
 
 
-def keychain_get(account):
-    result = _security(["find-generic-password", "-s", keychain_service(), "-a", account, "-w"])
+def keychain_get(account, service=None):
+    service = service or keychain_service()
+    result = _security(["find-generic-password", "-s", service, "-a", account, "-w"])
     if result.returncode == 0:
         return result.stdout.strip() or None
     if result.returncode == _KEYCHAIN_NOT_FOUND:
@@ -90,12 +95,13 @@ def _security_quote(value):
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def keychain_set(account, secret):
+def keychain_set(account, secret, service=None):
     """The token goes to `security -i` on stdin, never in argv: argv is
     visible to every local user via `ps`, and Outlook rotates its refresh
     token on every refresh, so it would be exposed over and over.
     `security -i` exits non-zero when the command it read fails."""
-    command = " ".join(["add-generic-password", "-U", "-s", _security_quote(keychain_service()),
+    service = service or keychain_service()
+    command = " ".join(["add-generic-password", "-U", "-s", _security_quote(service),
                         "-a", _security_quote(account), "-w", _security_quote(secret),
                         "-T", "/usr/bin/security"])
     result = _security(["-i"], stdin=command + "\n")
@@ -103,8 +109,9 @@ def keychain_set(account, secret):
         raise KeychainError(f"Keychain write failed (exit {result.returncode}): {result.stderr.strip()}")
 
 
-def keychain_delete(account):
-    result = _security(["delete-generic-password", "-s", keychain_service(), "-a", account])
+def keychain_delete(account, service=None):
+    service = service or keychain_service()
+    result = _security(["delete-generic-password", "-s", service, "-a", account])
     if result.returncode not in (0, _KEYCHAIN_NOT_FOUND):
         raise KeychainError(f"Keychain delete failed (exit {result.returncode}): {result.stderr.strip()}")
 
