@@ -345,7 +345,7 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 - 只有当项目自身配置的 `test_cmd`/`lint_cmd` 通过，且 diff 只涉及与该 issue 相关的文件时，才会创建 MR。
 - 不允许任意 shell 命令、不升级依赖、不读取 `.env`/凭据/SSH 密钥——只允许 `LOOPX_INSTRUCTIONS.md` 中的命令白名单。
 - issue 逐个按顺序处理，绝不并行。
-- 同一 issue 的验证失败在一次运行内绝不重试——而是通过 GitLab 评论升级处理。
+- 同一 issue 的验证失败在一次运行内绝不重试——而是通过 GitLab 评论升级处理。（启用 `verification.mode: gate` 后，循环会自行重新运行项目的检查，并允许带着失败输出作为反馈进行一次有限重试；测试/lint 失败的 MR 绝不会被创建，而是以 `loop:needs-human` 标签升级处理。）
 
 Inbox Triage 循环有其自己的固定安全边界（参见 [`docs/tasks/inbox-triage-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/inbox-triage-loop.md)）：
 

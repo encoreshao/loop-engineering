@@ -348,7 +348,7 @@ Fixed, and does not loosen with time or repeated success (see [`docs/tasks/gitla
 - An MR only opens if the project's own configured `test_cmd`/`lint_cmd` pass, and the diff only touches files relevant to the issue.
 - No arbitrary shell, no dependency upgrades, no reading `.env`/credentials/SSH keys — only the command allow-list in `LOOPX_INSTRUCTIONS.md`.
 - Issues are processed one at a time, sequentially, never in parallel.
-- A verification failure on the same issue is never retried within a run — it escalates via a GitLab comment instead.
+- A verification failure on the same issue is never retried within a run — it escalates via a GitLab comment instead. (With `verification.mode: gate` the loop itself re-runs the project's checks and allows one bounded retry with the failing output as feedback; it never opens an MR whose tests/lint fail, and escalates with the `loop:needs-human` label instead.)
 
 The Inbox Triage loop has its own fixed safety boundary (see [`docs/tasks/inbox-triage-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/inbox-triage-loop.md)):
 

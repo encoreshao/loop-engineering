@@ -348,7 +348,7 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 - MR が作成されるのは、プロジェクト自身に設定された `test_cmd`/`lint_cmd` が通り、かつ diff が Issue に関連するファイルだけに触れている場合に限られます。
 - 任意のシェル実行、依存関係のアップグレード、`.env`/認証情報/SSH キーの読み取りは行いません — 使えるのは `LOOPX_INSTRUCTIONS.md` の許可コマンドリストだけです。
 - Issue は一度に 1 件ずつ順番に処理され、決して並列には処理されません。
-- 同じ Issue で検証が失敗した場合、その実行内で再試行されることはなく、代わりに GitLab コメントでエスカレーションされます。
+- 同じ Issue で検証が失敗した場合、その実行内で再試行されることはなく、代わりに GitLab コメントでエスカレーションされます。（`verification.mode: gate` では、ループ自身がプロジェクトのチェックを再実行し、失敗出力をフィードバックとして上限付きで再試行します。テストや lint が失敗する MR は決して作成されず、`loop:needs-human` ラベルでエスカレーションされます。）
 
 Inbox Triage ループには独自の固定された安全境界があります（[`docs/tasks/inbox-triage-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/inbox-triage-loop.md) を参照）。
 

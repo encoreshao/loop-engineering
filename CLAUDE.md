@@ -39,8 +39,10 @@ script itself (it's relative-path-depth-sensitive — see
 insert for `loop_config`/`project_memory`, and `bin/scripts/setup.sh`'s
 `LOOP_DIR`), every hardcoded path to it in `LOOPX_INSTRUCTIONS.md`,
 `run-loop-now.sh`, `bin/gitlab_loop_runner.py` (including its `_allowed_tools()`
-glob — a glob's `*` doesn't cross a `/`, so each directory needs its own
-pattern; this list lived in `run-loop.sh` as `ALLOWED_TOOLS` until the
+patterns — the `bin/*.py`/`bin/web/*.py`/`bin/loop_plugins/*.py` globs need one
+pattern per directory since `*` doesn't cross a `/`, but agent-invoked shell
+scripts (`new_worktree.sh`, `open_merge_request.sh`) are enumerated in its
+`_AGENT_SCRIPTS` tuple, so moving or adding one means editing that tuple; this list lived in `run-loop.sh` as `ALLOWED_TOOLS` until the
 per-issue runner moved it into Python), `README.md`, and any
 installed `launchd/*.plist`'s absolute `Program`/`ProgramArguments` path
 (both the source file here and the live copy in

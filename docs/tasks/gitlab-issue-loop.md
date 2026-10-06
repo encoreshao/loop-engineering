@@ -29,5 +29,28 @@ Each run produces or updates:
 - An MR is only opened if the project's own configured `test_cmd`/`lint_cmd` pass, and the diff only touches files relevant to the issue.
 - Only the command allow-list in `LOOPX_INSTRUCTIONS.md` may run — no arbitrary shell, no dependency upgrades, no reading `.env`/credentials/SSH keys.
 - Issues are processed one at a time, sequentially — never multiple worktrees/fixes in parallel in the same run.
-- The same verification failure on the same issue is not retried within a run — it escalates via a GitLab comment instead.
+- In `observe` mode (the default) the same verification failure on the same issue is not retried within a run — it escalates via a GitLab comment instead. In `gate` mode the loop retries at most `stop_conditions.max_iterations` times (see below); it never opens an MR whose tests/lint fail.
 - The loop only touches: issues/comments/MRs on the projects listed in `~/.loop-engineering/projects.json`, its own git worktrees (under the configured `worktree_root`), and its own state files (`PROGRESS.md`, `outputs/`).
+
+## Verification gate (observe vs gate)
+
+After the agent's work on an issue, the runner independently re-runs the project's own `test_cmd`/`lint_cmd` (from `projects.json`) inside the worktree the agent used, via `ProjectCommandsVerifier` in `bin/loop_verifiers.py`, inside `LoopRuntime`. No worktree or no configured commands (the agent made no code change) is a vacuous pass, not a failure. `verification.mode` in `loops/gitlab-issue/loop.yaml` selects what the result does:
+
+- **`observe` (default).** The real result is recorded (`observed_passed` in the iteration's evidence and the `verification.external_completed` event) but the iteration always passes, so outcomes are unchanged. The agent still pushes and opens the MR itself.
+- **`gate`.** A failing check fails the iteration. `LoopRuntime` retries up to `stop_conditions.max_iterations` (2) with the failing command's output tail as feedback (`format_feedback`, bounded). The agent's allowlist drops `open_merge_request.sh` and `git push` (`_allowed_tools(gate=True)`), a `GATE_OVERRIDE` prompt section tells it to write a handoff JSON to `outputs/handoffs/<run_id>/<alias>-<iid>.json` (also in `$LOOP_HANDOFF_PATH`) instead, and the runner (`finalize_gated_issue`) reads it (`read_handoff`) and runs `open_merge_request.sh` itself only after verification passed.
+
+Gate-mode outcomes: `mr_opened` (an `issue.completed` event with `gated: true`), `answered` / `escalated:agent` (the agent's own handoff action), or `escalated:<reason>` with reason `verification_failed`, `handoff_invalid` (handoff missing or malformed - never an MR), `mr_open_failed`, or `project_config_error`. Every escalation except `project_config_error` posts a GitLab comment and adds the `loop:needs-human` label; the unpushed `loop/issue-<iid>` branch stays in its worktree for a human to inspect, and a Slack notification is sent. `project_config_error` has no project to address, so it only logs, emits the `issue.escalated` event and notifies.
+
+The Harness -> Gates view (`/harness?view=gates`) shows the observe-mode agreement rate (the agent's "fixed" claim vs the external check, per issue, verifier config errors excluded) and what the gate did (blocked, retried then passed, escalated), per project, plus each loop's current mode. CI audits every `loops/*/loop.yaml` with `loop_cli.py audit --min-score` (see `.github/workflows/ci.yml`).
+
+### Rollout checklist
+
+1. Ship with `mode: observe`.
+2. After at least 5 weekday runs, open Harness -> Gates. If agreement is 90% or higher and no project shows a systematic false failure (flaky suite, lint baseline - see CLAUDE.md's rubocop notes), set `mode: gate` and raise CI `--min-score` to 80 in the same commit.
+3. If a project is systematically red for reasons unrelated to the fix, fix its `test_cmd`/`lint_cmd` in `projects.json` rather than weakening the gate.
+4. Gate mode multiplies the per-issue worst case to `max_iterations x (agent + test + lint)`, up to 6x `max_runtime_minutes`. `config/loops.json.template` now sets `gitlab-loop`'s `timeout_seconds` to 43200, but that only applies to new installs/backfill: an existing `~/.loop-engineering/loops.json` keeps its old 21600. The dashboard does not expose this field, so raise it by hand in that file before flipping to gate.
+
+### Limitations
+
+- Gate enforcement on Codex is prompt-only: `codex exec` has no per-command allowlist, so "do not push / do not open the MR" is an instruction, not a harness-enforced denial as it is on Claude.
+- A `project_config_error` escalation cannot comment or label (see above).

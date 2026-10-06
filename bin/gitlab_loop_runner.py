@@ -105,11 +105,12 @@ _USAGE_TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_read_tokens", "ca
 #
 # The bin/ scripts are listed in both relative and absolute form: the
 # agent starts in the loop directory but spends most of the run cd'd into
-# a worktree. Three separate patterns per form because bin/'s contents are
-# split by kind (see CLAUDE.md): the loop's own Python helpers directly in
-# bin/, the dashboard web server in bin/web/, and one-shot shell scripts
-# in bin/scripts/ - a glob's `*` doesn't cross a `/`, so each directory
-# needs its own pattern.
+# a worktree. bin/'s contents are split by kind (see CLAUDE.md): the loop's
+# own Python helpers directly in bin/, the dashboard web server in bin/web/,
+# and LoopKit plugins in bin/loop_plugins/ each get a glob pattern (a glob's
+# `*` doesn't cross a `/`, so each directory needs its own). The shell
+# scripts in bin/scripts/ the agent may run are enumerated in _AGENT_SCRIPTS
+# below instead, so one (open_merge_request.sh) can be withheld in gate mode.
 
 
 _AGENT_SCRIPTS = ("new_worktree.sh", "open_merge_request.sh")

@@ -349,7 +349,7 @@ Fixes, et ne se relâchent pas avec le temps ni avec les succès répétés (voi
 - Une MR n'est ouverte que si les `test_cmd`/`lint_cmd` configurés du projet passent, et le diff ne touche que des fichiers pertinents pour le ticket.
 - Pas de shell arbitraire, pas de mise à jour de dépendances, pas de lecture de `.env`/identifiants/clés SSH — uniquement la liste de commandes autorisées de `LOOPX_INSTRUCTIONS.md`.
 - Les tickets sont traités un par un, séquentiellement, jamais en parallèle.
-- Un échec de vérification sur un même ticket n'est jamais retenté au cours d'une exécution — il est escaladé via un commentaire GitLab.
+- Un échec de vérification sur un même ticket n'est jamais retenté au cours d'une exécution — il est escaladé via un commentaire GitLab. (Avec `verification.mode: gate`, la boucle relance elle-même les vérifications du projet et autorise une nouvelle tentative bornée avec la sortie en échec comme retour ; elle n'ouvre jamais une MR dont les tests/lint échouent et escalade avec le label `loop:needs-human`.)
 
 La boucle Inbox Triage a ses propres garde-fous fixes (voir [`docs/tasks/inbox-triage-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/inbox-triage-loop.md)) :
 

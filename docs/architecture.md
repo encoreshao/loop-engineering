@@ -214,7 +214,11 @@ failure never crashes the runtime — same `|| true` philosophy as
   the worktree an issue's agent call actually used. In `verification.mode:
   observe` (the default) the result is only recorded (`observed_passed`);
   in `gate` mode a failure fails the iteration and the runner retries with
-  the failing output as feedback (`format_feedback`). See
+  the failing output as feedback (`format_feedback`); the runner then opens the
+  MR itself from the agent's handoff file only if the checks passed (see
+  [`docs/tasks/gitlab-issue-loop.md`](tasks/gitlab-issue-loop.md) for the gate
+  outcomes and rollout). The Harness -> Gates view reports the observe-mode
+  agreement rate. See
   [`2026-09-13-gitlab-issue-external-verification-design.md`](superpowers/specs/2026-09-13-gitlab-issue-external-verification-design.md).
 
 ## 8. CLI (`bin/loop_cli.py`)
