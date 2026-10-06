@@ -255,18 +255,22 @@ L'écriture de `/etc/hosts` et le démarrage du service nginx nécessitent tous 
 
 ## Connecteurs
 
-Un connecteur est un compte auquel les boucles peuvent se connecter : une instance GitLab ou GitHub, un webhook Slack ou de messagerie, une liste de flux RSS, un espace Jira ou Linear, une boîte mail. On les gère depuis la page **System → Connectors** du tableau de bord (`/connectors`). Chaque type déclare des *capacités* (`issues`, `merge_requests`, `pipelines`, `notify`, `feed`, `mail`), et une boucle peut exiger une capacité plutôt qu'un produit précis.
+Un connecteur est un compte auquel les boucles peuvent se connecter : une instance GitLab ou GitHub, un webhook Slack, Telegram ou de messagerie, un espace Notion, une liste de flux RSS, un espace Jira ou Linear, une boîte mail. On les gère depuis la page **System → Connectors** du tableau de bord (`/connectors`). Chaque type déclare des *capacités* (`issues`, `merge_requests`, `pipelines`, `notify`, `feed`, `mail`, `docs`), et une boucle peut exiger une capacité plutôt qu'un produit précis.
 
 | Type | Capacités | Ce que vous saisissez | Secret |
 | --- | --- | --- | --- |
 | GitLab | `issues`, `merge_requests`, `pipelines` | URL | jeton d'accès personnel |
 | GitHub | `issues`, `merge_requests`, `pipelines` | URL de l'API (par défaut `https://api.github.com`), nom d'utilisateur | jeton |
 | Slack webhook | `notify` | — | URL du webhook |
-| Chat webhook | `notify` | format : Feishu, DingTalk, Teams, Discord ou generic | URL du webhook |
+| Chat webhook | `notify` | choisir un préréglage : Feishu, DingTalk, WeCom 企业微信 (bot de groupe ; WeChat personnel n'a pas d'API de bot), Microsoft Teams, Discord, Google Chat ou Generic webhook | URL du webhook |
+| Bot Telegram | `notify` | ID du chat | jeton du bot |
 | RSS / Atom feeds | `feed` | URL des flux, une par ligne | — |
+| Notion | `docs` (affichée comme Documents) | — | jeton d'intégration |
 | Jira Cloud | `issues` | URL du site, e-mail | jeton d'API |
 | Linear | `issues` | — | clé d'API |
 | Mailbox | `mail` | externe — gérée dans la configuration d'Inbox Triage | — |
+
+**Galerie et formulaire.** **Add** ouvre une galerie des types de connecteurs, regroupés en Code hosting, Chat & notifications, Work tracking, Knowledge, Feeds et Mail, avec un champ de recherche pour filtrer. Chaque tuile et chaque ligne de compte affiche le logo du service. Ce sont des logos Simple Icons intégrés ; les services sans logo (Feishu, DingTalk, le webhook générique) reçoivent une lettre-monogramme. La tuile du webhook de messagerie se déploie en préréglages (voir ci-dessus), chacun avec une courte indication (par exemple, les webhooks Workflows de Teams peuvent exiger des Adaptive Cards) et un lien **Where do I get this?** vers la documentation du service. Le formulaire d'ajout/modification comporte une section **Account** (nom et id ; l'id est suggéré à partir du nom tant que vous ne le modifiez pas) et une section **Connection** (les réglages du type, puis le secret). Les champs obligatoires sont marqués `*`, les autres indiquent « (optional) », et les champs ont des exemples en filigrane. Le champ secret a une bascule **Show**/**Hide**. Boutons : **Save**, **Save and test** (enregistre puis lance la sonde) et **Cancel**. Si l'enregistrement échoue, le formulaire est réaffiché avec vos valeurs non secrètes conservées.
 
 **Où sont stockées les données.** Les comptes ajoutés depuis la page sont *natifs* : leurs réglages non secrets vont dans `~/.loop-engineering/connectors.json`, et leurs secrets dans le Trousseau macOS, sous le service `loop-engineering.connectors` (suffixé `.sandbox-<hash>` dès que `LOOP_ENGINEERING_HOME` est défini, de sorte qu'une exécution en bac à sable ne touche jamais les vrais secrets). Les secrets ne sont jamais écrits dans `connectors.json` ni réaffichés après l'enregistrement.
 

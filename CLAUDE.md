@@ -19,8 +19,11 @@ dashboard and tooling around it; follow them without being asked.
 `mail_auth.py`, `mail_http.py`, `connectors_config.py`, `secret_store.py`,
 `notify.py`, `i18n.py` with its `locales/` catalogs, the `connectors/` package
 (one module per connector type), and the `mail_providers/` package). `bin/web/`
-— the dashboard web server (`dashboard_server.py`, `inbox_pages.py`) and
-`hub.py` (pure hub/tab navigation helpers) alone.
+— the dashboard web server (`dashboard_server.py`, `inbox_pages.py`),
+`hub.py` (pure hub/tab navigation helpers) and `brand_logos.py` (connector
+brand marks) alone. Logos are inline Simple Icons SVG (CC0) only — never load
+logos from external hosts; to add a missing brand, paste its validated path
+into `brand_logos.py`, otherwise it falls back to a lettermark.
 `bin/scripts/` — one-shot shell scripts
 (`setup.sh`, `setup-nginx.sh`, `uninstall.sh`, `new_worktree.sh`,
 `open_merge_request.sh`). Moving a script between these means updating, in

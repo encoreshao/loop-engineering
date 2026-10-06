@@ -251,18 +251,22 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 
 ## 连接器
 
-连接器是循环可以接入的账号：GitLab 或 GitHub 实例、Slack 或聊天 Webhook、RSS 订阅源列表、Jira 或 Linear 工作区、邮箱。在仪表盘的 **System → Connectors** 页面（`/connectors`）中管理。每种类型都声明了*能力*（`issues`、`merge_requests`、`pipelines`、`notify`、`feed`、`mail`），循环可以要求某种能力，而不是某个具体产品。
+连接器是循环可以接入的账号：GitLab 或 GitHub 实例、Slack、Telegram 或聊天 Webhook、Notion 工作区、RSS 订阅源列表、Jira 或 Linear 工作区、邮箱。在仪表盘的 **System → Connectors** 页面（`/connectors`）中管理。每种类型都声明了*能力*（`issues`、`merge_requests`、`pipelines`、`notify`、`feed`、`mail`、`docs`），循环可以要求某种能力，而不是某个具体产品。
 
 | 类型 | 能力 | 需要填写 | 密钥 |
 | --- | --- | --- | --- |
 | GitLab | `issues`, `merge_requests`, `pipelines` | URL | 个人访问令牌 |
 | GitHub | `issues`, `merge_requests`, `pipelines` | API URL（默认 `https://api.github.com`）、用户名 | 令牌 |
 | Slack webhook | `notify` | — | Webhook URL |
-| Chat webhook | `notify` | 格式：Feishu、DingTalk、Teams、Discord 或 generic | Webhook URL |
+| Chat webhook | `notify` | 选择预设：Feishu、DingTalk、WeCom 企业微信（群机器人；个人微信没有机器人 API）、Microsoft Teams、Discord、Google Chat 或 Generic webhook | Webhook URL |
+| Telegram 机器人 | `notify` | 聊天 ID | 机器人令牌 |
 | RSS / Atom feeds | `feed` | 订阅源 URL，每行一个 | — |
+| Notion | `docs`（显示为 Documents） | — | 集成令牌 |
 | Jira Cloud | `issues` | 站点 URL、邮箱 | API 令牌 |
 | Linear | `issues` | — | API 密钥 |
 | Mailbox | `mail` | 外部账号——在 Inbox Triage 设置中管理 | — |
+
+**图库与表单。** **Add** 会打开连接器类型图库，按 Code hosting、Chat & notifications、Work tracking、Knowledge、Feeds、Mail 分组，并带搜索框用于筛选。每个卡片和每个账号行都带有对应服务的品牌标志。标志是内联的 Simple Icons 图标；没有图标的服务（Feishu、DingTalk、通用 Webhook）使用字母标记。聊天 Webhook 卡片会展开为上述预设，每个预设带一行提示（例如 Teams 的 Workflows Webhook 可能需要 Adaptive Cards）以及指向该服务官方文档的 **Where do I get this?** 链接。添加/编辑表单包含 **Account** 部分（名称和 id；id 会根据名称自动建议，直到你手动修改）和 **Connection** 部分（该类型的设置，随后是密钥）。必填项标有 `*`，其余标注「(optional)」，并带有示例占位文字。密钥框带有 **Show**/**Hide** 切换。按钮有 **Save**、**Save and test**（先保存再探测）和 **Cancel**。保存失败时，表单会重新显示，并保留已填写的非机密值。
 
 **数据存放位置。** 在页面上添加的账号是*原生*账号：非机密设置保存在 `~/.loop-engineering/connectors.json`，密钥保存在 macOS 钥匙串中，服务名为 `loop-engineering.connectors`（设置了 `LOOP_ENGINEERING_HOME` 时会加上 `.sandbox-<hash>` 后缀，因此沙盒运行永远不会碰到真实密钥）。密钥不会写入 `connectors.json`，保存后也不会再次显示。
 

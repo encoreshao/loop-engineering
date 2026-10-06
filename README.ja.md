@@ -254,18 +254,22 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 
 ## コネクタ
 
-コネクタは、ループが接続できるアカウントです。GitLab や GitHub のインスタンス、Slack やチャットの Webhook、RSS フィード一覧、Jira や Linear のワークスペース、メールボックスなどが該当します。ダッシュボードの **System → Connectors** ページ（`/connectors`）で管理します。各タイプは*機能*（`issues`、`merge_requests`、`pipelines`、`notify`、`feed`、`mail`）を宣言しており、ループは特定の製品ではなく機能を要求できます。
+コネクタは、ループが接続できるアカウントです。GitLab や GitHub のインスタンス、Slack・Telegram・チャットの Webhook、Notion ワークスペース、RSS フィード一覧、Jira や Linear のワークスペース、メールボックスなどが該当します。ダッシュボードの **System → Connectors** ページ（`/connectors`）で管理します。各タイプは*機能*（`issues`、`merge_requests`、`pipelines`、`notify`、`feed`、`mail`、`docs`）を宣言しており、ループは特定の製品ではなく機能を要求できます。
 
 | タイプ | 機能 | 入力項目 | シークレット |
 | --- | --- | --- | --- |
 | GitLab | `issues`, `merge_requests`, `pipelines` | URL | パーソナルアクセストークン |
 | GitHub | `issues`, `merge_requests`, `pipelines` | API URL（デフォルト `https://api.github.com`）、ユーザー名 | トークン |
 | Slack webhook | `notify` | — | Webhook URL |
-| Chat webhook | `notify` | 形式：Feishu、DingTalk、Teams、Discord、または generic | Webhook URL |
+| Chat webhook | `notify` | プリセットを選択：Feishu、DingTalk、WeCom 企業微信（グループボット。個人の WeChat にはボット API がありません）、Microsoft Teams、Discord、Google Chat、Generic webhook | Webhook URL |
+| Telegram ボット | `notify` | チャット ID | ボットトークン |
 | RSS / Atom feeds | `feed` | フィード URL（1 行に 1 件） | — |
+| Notion | `docs`（Documents と表示） | — | インテグレーショントークン |
 | Jira Cloud | `issues` | サイト URL、メールアドレス | API トークン |
 | Linear | `issues` | — | API キー |
 | Mailbox | `mail` | 外部管理 — Inbox Triage のセットアップで管理 | — |
+
+**ギャラリーとフォーム。** **Add** を開くとコネクタの種類のギャラリーが表示され、Code hosting、Chat & notifications、Work tracking、Knowledge、Feeds、Mail に分類されています。検索ボックスで絞り込めます。各タイルとアカウント行にはサービスのブランドロゴが付きます。ロゴはインラインの Simple Icons マークで、マークのないサービス（Feishu、DingTalk、汎用 Webhook）はレターマークになります。チャット Webhook のタイルは上記のプリセットに展開され、それぞれに一行の説明（例：Teams の Workflows Webhook は Adaptive Cards が必要な場合があります）と、そのサービス自身のドキュメントへの **Where do I get this?** リンクが付きます。追加・編集フォームは **Account** セクション（名前と id。id は編集するまで名前から自動提案されます）と **Connection** セクション（種類ごとの設定、続いてシークレット）で構成されます。必須項目には `*` が付き、それ以外は「(optional)」と表示され、入力例のプレースホルダーもあります。シークレット欄には **Show**／**Hide** の切り替えがあります。ボタンは **Save**、**Save and test**（保存してからプローブを実行）、**Cancel** です。保存に失敗した場合は、シークレット以外の入力値を保持したままフォームが再表示されます。
 
 **データの保存先。** ページ上で追加したアカウントは*ネイティブ*で、シークレット以外の設定は `~/.loop-engineering/connectors.json` に、シークレットは macOS キーチェーンのサービス `loop-engineering.connectors` に保存されます（`LOOP_ENGINEERING_HOME` が設定されている場合は `.sandbox-<hash>` が付くため、サンドボックス実行が本物のシークレットに触れることはありません）。シークレットが `connectors.json` に書き込まれることはなく、保存後に再表示されることもありません。
 
