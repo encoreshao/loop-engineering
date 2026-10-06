@@ -237,6 +237,8 @@ python3 <loop_dir>/bin/web/dashboard_server.py write-status running --current-is
      bash <loop_dir>/bin/scripts/open_merge_request.sh <local_path> loop/issue-<issue_iid> <target_branch> "Fix #<issue_iid>: <short title>"
      ```
      `<local_path>` is passed as the script's first *argument*, not as a directory you have to be in — `open_merge_request.sh` uses `git -C` internally against it. That `git -C` lives inside an already-approved script, so it is unaffected by the direct-command allowlist. Do not `cd` anywhere for this command: the script is named by absolute path and takes its repo as an argument, so it runs correctly from wherever the step-5 `cd` left you (the worktree). Always push the `loop/issue-<issue_iid>` branch by name.
+   If the prompt contains a "Harness gate is ON" section, follow that section instead of this step.
+
    This **opens** the MR only. Never merge it, never run `git merge` into `<target_branch>` in the primary checkout, never push to `<target_branch>` directly.
 
 10. **Annotate and notify.**
@@ -388,7 +390,9 @@ Claude's per-git-subcommand/per-glob allow list - the rules below become policy
 this document asks the agent to follow, not a technically enforced
 boundary. Switch to Codex only with that trade-off in mind.
 
-Allowed: `git status`, `git diff`, `git add`, and `git commit` scoped to the checkouts and worktrees listed in `~/.loop-engineering/projects.json`, plus `git push origin loop/issue-*` (issue branches only); the exact `install_cmd`/`lint_cmd`/`test_cmd` per project from that config; `cd`; this repo's own scripts — `bin/*.py`, `bin/web/*.py`, and `bin/scripts/*.sh` — by relative or absolute path (the allowlist permits both, but this file always instructs the absolute `<loop_dir>/bin/...` form); `python3` invocations of `~/.encore-skills/skills/gitlab-config/scripts/gitlab_api.py` and `gitlab_cache.py`; reading and editing files inside an issue's own worktree; reading/writing `PROGRESS.md` and `outputs/`.
+Allowed: `git status`, `git diff`, `git add`, and `git commit` scoped to the checkouts and worktrees listed in `~/.loop-engineering/projects.json`, plus `git push origin loop/issue-*` (issue branches only); the exact `install_cmd`/`lint_cmd`/`test_cmd` per project from that config; `cd`; this repo's own scripts — `bin/*.py`, `bin/web/*.py`, `bin/loop_plugins/*.py`, and exactly two shell scripts, `bin/scripts/new_worktree.sh` and `bin/scripts/open_merge_request.sh` (no `bin/scripts/*.sh` glob) — by relative or absolute path (the allowlist permits both, but this file always instructs the absolute `<loop_dir>/bin/...` form); `python3` invocations of `~/.encore-skills/skills/gitlab-config/scripts/gitlab_api.py` and `gitlab_cache.py`; reading and editing files inside an issue's own worktree; reading/writing `PROGRESS.md` and `outputs/`.
+
+When the harness gate is ON (`verification.mode: gate`), `open_merge_request.sh` and `git push origin loop/issue-*` are removed from the allowlist and explicitly denied (the runner pushes and opens the MR itself after verification passes), and the agent may write its handoff JSON under `outputs/handoffs/`. On Codex this gate enforcement is prompt-only: Codex still receives the gate override and `LOOP_HANDOFF_PATH`, but has no per-command allowlist to technically block the script or the push.
 
 Not allowed: any other shell command, installing new dependencies beyond the lockfile-respecting install commands above, reading `.env`/credentials/SSH private keys, editing files outside an issue's own worktree, pushing to any project's target branch directly (only `loop/issue-*` branches may be pushed), force-pushing, `git merge`/`git checkout`/`git reset`/`git clean` as direct commands, merging any merge request, running more than one issue's worktree/fix at a time.
 

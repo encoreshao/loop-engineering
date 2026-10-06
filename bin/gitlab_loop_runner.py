@@ -105,20 +105,32 @@ _USAGE_TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_read_tokens", "ca
 # needs its own pattern.
 
 
-def _allowed_tools(repo_root):
+_AGENT_SCRIPTS = ("new_worktree.sh", "open_merge_request.sh")
+
+
+def _allowed_tools(repo_root, gate=False):
+    """`gate=True` is the harness-gate variant: the agent may neither push
+    nor open the MR itself (the runner does both after external
+    verification passes) but may write its handoff file. Scripts are listed
+    explicitly rather than by glob so open_merge_request.sh can be left out."""
+    scripts = [s for s in _AGENT_SCRIPTS if not (gate and s == "open_merge_request.sh")]
+    script_patterns = " ".join(
+        f"Bash(bash {prefix}bin/scripts/{s}*)" for prefix in ("", f"{repo_root}/") for s in scripts
+    )
+    push = "" if gate else "Bash(git push origin loop/issue-*) "
+    handoff = f" Write({repo_root}/outputs/handoffs/**)" if gate else ""
     return (
         "Read Edit Write "
-        "Bash(git status*) Bash(git diff*) Bash(git add*) Bash(git commit*) Bash(git push origin loop/issue-*) "
+        f"Bash(git status*) Bash(git diff*) Bash(git add*) Bash(git commit*) {push}"
         "Bash(cd *) "
         "Bash(RAILS_ENV=test bundle exec rspec*) Bash(bundle exec rspec*) Bash(bundle exec rubocop*) "
         "Bash(bundle check*) Bash(bundle install*) Bash(RAILS_ENV=test bundle exec rake db:test:prepare*) "
         "Bash(npm run test*) Bash(npm run lint*) Bash(npm ci*) Bash(yarn install*) "
         "Bash(python3 *gitlab_api.py*) Bash(python3 *gitlab_cache.py*) "
         "Bash(python3 bin/*.py*) Bash(python3 bin/web/*.py*) Bash(python3 bin/loop_plugins/*.py*) "
-        "Bash(bash bin/scripts/*.sh*) "
         f"Bash(python3 {repo_root}/bin/*.py*) Bash(python3 {repo_root}/bin/web/*.py*) "
         f"Bash(python3 {repo_root}/bin/loop_plugins/*.py*) "
-        f"Bash(bash {repo_root}/bin/scripts/*.sh*)"
+        f"{script_patterns}{handoff}"
     )
 
 
@@ -128,6 +140,34 @@ _DISALLOWED_TOOLS = (
     "Bash(git merge*) Bash(git push --force*) Bash(git push -f*) Bash(git checkout*) "
     "Bash(git reset*) Bash(git clean*) Read(**/.env*) Read(**/*.key) Read(**/id_rsa*)"
 )
+
+
+_GATE_DISALLOWED_TOOLS = "Bash(bash *open_merge_request.sh*) Bash(git push origin loop/issue-*)"
+
+GATE_OVERRIDE = """## Harness gate is ON for this run \u2014 this overrides the merge-request step
+
+Do NOT run open_merge_request.sh and do NOT push. When your fix is committed on loop/issue-<iid> and your own checks pass, write this JSON to the path in $LOOP_HANDOFF_PATH and stop:
+
+{"action": "fix", "branch": "loop/issue-<iid>", "target_branch": "<target>", "title": "Fix #<iid>: <short title>", "summary": "<2-4 sentences for the MR description>"}
+
+If you answered or escalated instead of fixing, write {"action": "answer"} or {"action": "escalate"} after posting your comment as usual. The loop will run the project's checks itself and open the merge request only if they pass."""
+
+
+def handoff_path(run_id, alias, issue_iid, repo_root=None):
+    if repo_root is None:
+        repo_root = REPO_ROOT
+    return Path(repo_root) / "outputs" / "handoffs" / run_id / f"{alias}-{issue_iid}.json"
+
+
+def _gate_prompt_and_env(prompt, alias, issue_iid, repo_root, run_id):
+    """Gate-mode additions: the override section appended last and the
+    LOOP_HANDOFF_PATH env var. `run_id` falls back to $LOOP_RUN_ID; with
+    neither there is nowhere to put the handoff, so fail loudly."""
+    run_id = run_id or os.environ.get("LOOP_RUN_ID")
+    if not run_id:
+        raise ValueError("gate mode needs a run_id (argument or LOOP_RUN_ID) to locate the handoff file")
+    path = handoff_path(run_id, alias, issue_iid, repo_root=repo_root)
+    return f"{prompt}\n\n{GATE_OVERRIDE}", {"LOOP_HANDOFF_PATH": str(path)}
 
 
 def _run_build_run_prompt(script_args, repo_root):
@@ -160,7 +200,7 @@ def build_batch_end_of_run_prompt(repo_root=None):
     return _run_build_run_prompt(["--batch-end-of-run"], repo_root)
 
 
-def _cli_command(ai_cli, prompt, repo_root, worktree_root):
+def _cli_command(ai_cli, prompt, repo_root, worktree_root, gate=False):
     if ai_cli == "codex":
         # `codex exec` (unlike top-level `codex`) has no --ask-for-approval
         # and no --add-dir at all - both are rejected outright with
@@ -188,8 +228,8 @@ def _cli_command(ai_cli, prompt, repo_root, worktree_root):
         "claude", "-p",
         "--add-dir", str(repo_root), "--add-dir", str(worktree_root),
         "--permission-mode", "acceptEdits",
-        "--allowedTools", _allowed_tools(repo_root),
-        "--disallowedTools", _DISALLOWED_TOOLS,
+        "--allowedTools", _allowed_tools(repo_root, gate=gate),
+        "--disallowedTools", f"{_DISALLOWED_TOOLS} {_GATE_DISALLOWED_TOOLS}" if gate else _DISALLOWED_TOOLS,
         "--output-format", "json",
         prompt,
     ]
@@ -267,10 +307,12 @@ def _exception_output(exc):
 
 
 def _invoke_cli_with_prompt(prompt, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                            alias=None, issue_iid=None, events_dir=None):
+                            alias=None, issue_iid=None, events_dir=None, env=None, gate=False):
     """The one subprocess boundary: everything `invoke_issue_agent` used to
     do after building its prompt. `alias`/`issue_iid`/`events_dir` are used
-    only to label the `issue.agent_failed` event on the failure path.
+    only to label the `issue.agent_failed` event on the failure path. `env`
+    entries are added to the subprocess environment (gate mode's
+    LOOP_HANDOFF_PATH); `gate` selects the gate-mode tool lists.
 
     Raises subprocess.CalledProcessError/TimeoutExpired on failure -
     LoopRuntime.start() catches agent_fn exceptions and turns them into a
@@ -282,10 +324,11 @@ def _invoke_cli_with_prompt(prompt, repo_root=None, timeout_seconds=900, unified
     repo_root = Path(repo_root)
     worktree_root = loop_config.get_worktree_root()
     ai_cli = ai_cli_config.get_selected_cli()
-    cmd = _cli_command(ai_cli, prompt, repo_root, worktree_root)
+    cmd = _cli_command(ai_cli, prompt, repo_root, worktree_root, gate=gate)
+    run_kwargs = {"env": {**os.environ, **env}} if env else {}
 
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_seconds, check=True)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_seconds, check=True, **run_kwargs)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         detail = _exception_output(exc)
         if isinstance(exc, subprocess.TimeoutExpired):
@@ -340,30 +383,36 @@ def _with_feedback(prompt, feedback):
 
 
 def invoke_issue_agent(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                       feedback=None, gate=False):
+                       feedback=None, gate=False, run_id=None):
     """The dashboard's on-demand single-issue invocation, unchanged: the
     2-arg prompt, which does its own full "End of run"."""
     if repo_root is None:
         repo_root = REPO_ROOT
     repo_root = Path(repo_root)
     prompt = _with_feedback(build_prompt(alias, issue_iid, repo_root=repo_root), feedback)
+    env = None
+    if gate:
+        prompt, env = _gate_prompt_and_env(prompt, alias, issue_iid, repo_root, run_id)
     return _invoke_cli_with_prompt(
         prompt, repo_root=repo_root, timeout_seconds=timeout_seconds,
-        unified_log_path=unified_log_path, alias=alias, issue_iid=issue_iid,
+        unified_log_path=unified_log_path, alias=alias, issue_iid=issue_iid, env=env, gate=gate,
     )
 
 
 def invoke_batch_issue_agent(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                             feedback=None, gate=False):
+                             feedback=None, gate=False, run_id=None):
     """One issue inside the scheduled batch: no "End of run" here - the
     batch's single wrap-up call below does that once for the whole run."""
     if repo_root is None:
         repo_root = REPO_ROOT
     repo_root = Path(repo_root)
     prompt = _with_feedback(build_batch_issue_prompt(alias, issue_iid, repo_root=repo_root), feedback)
+    env = None
+    if gate:
+        prompt, env = _gate_prompt_and_env(prompt, alias, issue_iid, repo_root, run_id)
     return _invoke_cli_with_prompt(
         prompt, repo_root=repo_root, timeout_seconds=timeout_seconds,
-        unified_log_path=unified_log_path, alias=alias, issue_iid=issue_iid,
+        unified_log_path=unified_log_path, alias=alias, issue_iid=issue_iid, env=env, gate=gate,
     )
 
 
@@ -467,7 +516,7 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
         feedback = format_feedback(previous) if previous and _iteration_failed_verification(previous) else None
         agent_result = agent_invoker(
             alias, issue_iid, repo_root=repo_root, timeout_seconds=timeout_seconds,
-            feedback=feedback, gate=gate,
+            feedback=feedback, gate=gate, run_id=run_id,
         )
         if isinstance(agent_result, dict):
             raw_costs.append(agent_result.get("cost_usd"))

@@ -289,7 +289,7 @@ def test_run_all_issues_writes_one_result_per_issue(tmp_path, monkeypatch):
     calls = []
 
     def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                    feedback=None, gate=False):
+                    feedback=None, gate=False, run_id=None):
         calls.append((alias, issue_iid))
         return {"changed": True, "cost_usd": 0.1}
 
@@ -326,7 +326,7 @@ def test_run_all_issues_writes_one_result_per_issue(tmp_path, monkeypatch):
 
 def test_run_all_issues_continues_after_one_issue_fails(tmp_path, monkeypatch):
     def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                    feedback=None, gate=False):
+                    feedback=None, gate=False, run_id=None):
         if issue_iid == 1:
             raise RuntimeError("agent crashed")
         return {"changed": True, "cost_usd": 0.1}
@@ -356,7 +356,7 @@ def test_run_all_issues_skips_issues_disabled_in_issue_tracking_config(tmp_path,
     calls = []
 
     def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                    feedback=None, gate=False):
+                    feedback=None, gate=False, run_id=None):
         calls.append((alias, issue_iid))
         return {"changed": True, "cost_usd": 0.1}
 
@@ -389,7 +389,7 @@ def test_run_all_issues_skips_issues_disabled_in_issue_tracking_config(tmp_path,
 def test_run_single_issue_writes_its_own_result(tmp_path, monkeypatch):
     monkeypatch.setattr(
         glr, "invoke_issue_agent",
-        lambda alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None, feedback=None, gate=False: {
+        lambda alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None, feedback=None, gate=False, run_id=None: {
             "changed": True, "cost_usd": 0.2,
         },
     )
@@ -432,7 +432,7 @@ def _read_events(events_dir):
 
 def _fake_per_issue_invoker(calls, failing_iids=()):
     def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                    feedback=None, gate=False):
+                    feedback=None, gate=False, run_id=None):
         calls.append(("issue", alias, issue_iid, timeout_seconds))
         if issue_iid in failing_iids:
             raise RuntimeError(f"agent crashed on {issue_iid}")
@@ -443,7 +443,7 @@ def _fake_per_issue_invoker(calls, failing_iids=()):
 
 def _fake_wrapup_invoker(calls, exc=None):
     def fake_wrapup(repo_root=None, timeout_seconds=900, unified_log_path=None,
-                    feedback=None, gate=False):
+                    feedback=None, gate=False, run_id=None):
         calls.append(("wrapup",))
         if exc is not None:
             raise exc
@@ -564,7 +564,7 @@ def test_run_one_issue_derives_its_timeout_from_max_runtime_minutes(tmp_path):
     captured = []
 
     def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                    feedback=None, gate=False):
+                    feedback=None, gate=False, run_id=None):
         captured.append(timeout_seconds)
         return {"changed": True, "cost_usd": 0.0}
 
@@ -577,7 +577,7 @@ def test_run_one_issue_derives_its_timeout_from_max_runtime_minutes(tmp_path):
 
 
 def _fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                 feedback=None, gate=False):
+                 feedback=None, gate=False, run_id=None):
     return {"changed": True, "cost_usd": 0.0}
 
 
@@ -726,7 +726,7 @@ def test_invokers_append_feedback_to_the_prompt(tmp_path, monkeypatch):
     monkeypatch.setattr(glr, "build_batch_issue_prompt", lambda alias, iid, repo_root=None: "BASE")
     monkeypatch.setattr(glr, "build_prompt", lambda alias=None, issue_iid=None, repo_root=None: "SINGLE")
     monkeypatch.setattr(glr, "_invoke_cli_with_prompt", lambda prompt, **k: seen.append(prompt) or {})
-    glr.invoke_batch_issue_agent("web", 7, repo_root=tmp_path, feedback="FIX IT", gate=True)
+    glr.invoke_batch_issue_agent("web", 7, repo_root=tmp_path, feedback="FIX IT")
     glr.invoke_issue_agent("web", 7, repo_root=tmp_path, feedback="FIX IT")
     glr.invoke_batch_issue_agent("web", 7, repo_root=tmp_path)
     assert seen[0].startswith("BASE") and seen[0].endswith("FIX IT")
@@ -788,7 +788,7 @@ def _fake_per_issue_invoker_with_usage(calls, usages):
     _invoke_cli_with_prompt's return value through to run.completed's
     emitted data can be exercised end-to-end."""
     def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                    feedback=None, gate=False):
+                    feedback=None, gate=False, run_id=None):
         calls.append(("issue", alias, issue_iid, timeout_seconds))
         usage = usages[issue_iid]
         return {"changed": True, "cost_usd": usage["cost_usd"], "usage": usage}
@@ -858,7 +858,7 @@ def _fake_unpriced_invoker(calls):
     """Every issue comes back with `cost_usd: None` - the Codex path (which
     reports no cost at all), or a Claude run whose cost extraction failed."""
     def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                    feedback=None, gate=False):
+                    feedback=None, gate=False, run_id=None):
         calls.append(("issue", alias, issue_iid, timeout_seconds))
         return {"changed": True, "cost_usd": None}
 
@@ -1126,13 +1126,17 @@ def test_allowed_tools_scopes_git_push_to_issue_branches_only():
     # bin/ scripts in both relative and absolute form, one pattern per
     # subdirectory (a glob's `*` doesn't cross a `/`).
     for expected in (
-        "Bash(python3 bin/*.py*)", "Bash(python3 bin/web/*.py*)", "Bash(bash bin/scripts/*.sh*)",
+        "Bash(python3 bin/*.py*)", "Bash(python3 bin/web/*.py*)",
+        "Bash(bash bin/scripts/new_worktree.sh*)", "Bash(bash bin/scripts/open_merge_request.sh*)",
         f"Bash(python3 {REPO_ROOT}/bin/*.py*)",
         f"Bash(python3 {REPO_ROOT}/bin/web/*.py*)",
-        f"Bash(bash {REPO_ROOT}/bin/scripts/*.sh*)",
+        f"Bash(bash {REPO_ROOT}/bin/scripts/new_worktree.sh*)",
+        f"Bash(bash {REPO_ROOT}/bin/scripts/open_merge_request.sh*)",
     ):
         assert expected in allowed, f"expected {expected!r} in allowedTools"
     assert "Read Edit Write" in allowed
+    # No blanket script glob: it could not exclude open_merge_request.sh in gate mode.
+    assert "bin/scripts/*.sh*" not in allowed
 
 
 def test_disallowed_tools_blocks_merging_force_pushing_and_secrets():
@@ -1215,3 +1219,97 @@ def test_feedback_omits_passing_commands(tmp_path):
                                    worktree_root_fn=lambda: tmp_path / "wt")
     text = glr.format_feedback(FakeIteration([v.verify({})]))
     assert "BADLINT" in text and "GOODOUTPUT" not in text
+
+
+def test_gate_mode_allowed_tools_exclude_open_mr_script_and_push(tmp_path):
+    ungated = glr._allowed_tools(tmp_path, gate=False).split()
+    assert any("open_merge_request.sh" in t for t in ungated)
+    assert "Bash(git push origin loop/issue-*)" in " ".join(ungated)
+    gated = glr._allowed_tools(tmp_path, gate=True).split()
+    assert not any("open_merge_request.sh" in t for t in gated)
+    assert not any(t.startswith("push") or "git push" in t for t in gated)
+    assert "Bash(git push origin loop/issue-*)" not in glr._allowed_tools(tmp_path, gate=True)
+    assert any("new_worktree.sh" in t for t in gated)
+    assert f"Write({tmp_path}/outputs/handoffs/**)" in glr._allowed_tools(tmp_path, gate=True)
+
+
+def test_gate_mode_disallows_open_mr_script_and_push(tmp_path):
+    cmd = glr._cli_command("claude", "p", tmp_path, "/wt", gate=True)
+    disallowed = cmd[cmd.index("--disallowedTools") + 1]
+    assert "open_merge_request.sh" in disallowed and "Bash(git push origin loop/issue-*)" in disallowed
+    assert "Bash(git merge*)" in disallowed
+    cmd = glr._cli_command("claude", "p", tmp_path, "/wt")
+    assert "open_merge_request.sh" not in cmd[cmd.index("--disallowedTools") + 1]
+
+
+def test_gate_prompt_appends_override(monkeypatch, tmp_path):
+    monkeypatch.setattr(glr, "_run_build_run_prompt", lambda args, repo_root: "BASE PROMPT")
+    captured = {}
+    monkeypatch.setattr(glr, "_invoke_cli_with_prompt", lambda prompt, **kw: captured.update(prompt=prompt, **kw) or {"cost_usd": 0})
+    glr.invoke_batch_issue_agent("web", 7, repo_root=tmp_path, timeout_seconds=5, gate=True, run_id="run_x",
+                                 feedback="FEEDBACK")
+    assert captured["prompt"].startswith("BASE PROMPT") and captured["prompt"].endswith(glr.GATE_OVERRIDE)
+    assert captured["prompt"].index("FEEDBACK") < captured["prompt"].index("Harness gate is ON")
+    assert captured["env"]["LOOP_HANDOFF_PATH"].endswith("outputs/handoffs/run_x/web-7.json")
+    assert captured["gate"] is True
+
+
+def test_gate_mode_single_issue_invoker_also_overrides(monkeypatch, tmp_path):
+    monkeypatch.setattr(glr, "_run_build_run_prompt", lambda args, repo_root: "BASE PROMPT")
+    captured = {}
+    monkeypatch.setattr(glr, "_invoke_cli_with_prompt", lambda prompt, **kw: captured.update(prompt=prompt, **kw) or {})
+    glr.invoke_issue_agent("web", 7, repo_root=tmp_path, gate=True, run_id="run_y")
+    assert "Harness gate is ON" in captured["prompt"]
+    assert captured["env"]["LOOP_HANDOFF_PATH"].endswith("outputs/handoffs/run_y/web-7.json")
+
+
+def test_gate_mode_without_run_id_uses_env_then_raises(monkeypatch, tmp_path):
+    monkeypatch.setattr(glr, "_run_build_run_prompt", lambda args, repo_root: "BASE")
+    captured = {}
+    monkeypatch.setattr(glr, "_invoke_cli_with_prompt", lambda prompt, **kw: captured.update(**kw) or {})
+    monkeypatch.setenv("LOOP_RUN_ID", "run_env")
+    glr.invoke_batch_issue_agent("web", 7, repo_root=tmp_path, gate=True)
+    assert captured["env"]["LOOP_HANDOFF_PATH"].endswith("outputs/handoffs/run_env/web-7.json")
+    monkeypatch.delenv("LOOP_RUN_ID")
+    with pytest.raises(ValueError, match="run_id"):
+        glr.invoke_batch_issue_agent("web", 7, repo_root=tmp_path, gate=True)
+
+
+def test_observe_prompt_unchanged(monkeypatch, tmp_path):
+    monkeypatch.setattr(glr, "_run_build_run_prompt", lambda args, repo_root: "BASE PROMPT")
+    captured = {}
+    monkeypatch.setattr(glr, "_invoke_cli_with_prompt", lambda prompt, **kw: captured.update(prompt=prompt, **kw) or {"cost_usd": 0})
+    glr.invoke_batch_issue_agent("web", 7, repo_root=tmp_path, timeout_seconds=5, gate=False)
+    assert captured["prompt"] == "BASE PROMPT" and captured.get("env") is None
+
+
+def test_handoff_path_layout(tmp_path):
+    assert glr.handoff_path("run_x", "web", 7, repo_root=tmp_path) == tmp_path / "outputs" / "handoffs" / "run_x" / "web-7.json"
+
+
+def test_run_one_issue_passes_run_id_to_the_invoker(tmp_path):
+    seen = []
+
+    def invoker(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
+                feedback=None, gate=False, run_id=None):
+        seen.append(run_id)
+        return {"cost_usd": 0}
+
+    glr._run_one_issue("run_z", "harbor", 1, definition(tmp_path), tmp_path / "r", REPO_ROOT,
+                       agent_invoker=invoker, events_dir=tmp_path / "e")
+    assert seen == ["run_z"]
+
+
+def test_invoke_cli_passes_env_only_when_given(tmp_path, monkeypatch):
+    calls = []
+
+    class Proc:
+        stdout, stderr = "", ""
+
+    monkeypatch.setattr(glr.subprocess, "run", lambda cmd, **kw: calls.append(kw) or Proc())
+    monkeypatch.setattr(glr.ai_cli_config, "get_selected_cli", lambda: "codex")
+    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(tmp_path))
+    glr._invoke_cli_with_prompt("p", repo_root=tmp_path, unified_log_path=tmp_path / "u.log")
+    glr._invoke_cli_with_prompt("p", repo_root=tmp_path, unified_log_path=tmp_path / "u.log", env={"LOOP_HANDOFF_PATH": "/x"})
+    assert "env" not in calls[0]
+    assert calls[1]["env"]["LOOP_HANDOFF_PATH"] == "/x" and "PATH" in calls[1]["env"]

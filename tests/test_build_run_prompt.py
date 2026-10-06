@@ -138,3 +138,9 @@ def test_gitlab_loop_runner_build_prompt_forwards_args_to_build_run_prompt():
     assert "project alias 'harbor'" in prompt
     assert "issue IID 482" in prompt
     assert "on-demand single-issue run" in prompt
+
+
+def test_instructions_defer_the_mr_step_to_the_gate_override():
+    text = (REPO_ROOT / "LOOPX_INSTRUCTIONS.md").read_text()
+    assert "Harness gate is ON" in text
+    assert "Harness gate is ON" in glr.GATE_OVERRIDE
