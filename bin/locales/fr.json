@@ -717,5 +717,11 @@
   "Notify via": "Notifier via",
   "Cannot enable {name}: missing connector for {capabilities}": "Impossible d'activer {name} : connecteur manquant pour {capabilities}",
   "Unknown loop {name}": "Boucle inconnue {name}",
-  "Choose only enabled notification connectors": "Choisissez uniquement des connecteurs de notification activés"
+  "Choose only enabled notification connectors": "Choisissez uniquement des connecteurs de notification activés",
+  "Could not read connectors: {detail}": "Impossible de lire les connecteurs : {detail}",
+  "Could not save connectors: {detail}": "Impossible d'enregistrer les connecteurs : {detail}",
+  "{name} does not route notifications through connectors": "{name} n'envoie pas ses notifications via les connecteurs",
+  "Connector {id} is a {type} account; its type cannot be changed": "Le connecteur {id} est un compte {type} ; son type ne peut pas être modifié",
+  "The secret must not contain control characters or line breaks": "Le secret ne doit pas contenir de caractères de contrôle ni de sauts de ligne",
+  "Request failed ({kind})": "Échec de la requête ({kind})"
 }

@@ -717,5 +717,11 @@
   "Notify via": "通知方式",
   "Cannot enable {name}: missing connector for {capabilities}": "无法启用 {name}：缺少 {capabilities} 的连接器",
   "Unknown loop {name}": "未知循环 {name}",
-  "Choose only enabled notification connectors": "只能选择已启用的通知连接器"
+  "Choose only enabled notification connectors": "只能选择已启用的通知连接器",
+  "Could not read connectors: {detail}": "无法读取连接器：{detail}",
+  "Could not save connectors: {detail}": "无法保存连接器：{detail}",
+  "{name} does not route notifications through connectors": "{name} 不通过连接器发送通知",
+  "Connector {id} is a {type} account; its type cannot be changed": "连接器 {id} 是 {type} 账户，无法更改其类型",
+  "The secret must not contain control characters or line breaks": "密钥不能包含控制字符或换行符",
+  "Request failed ({kind})": "请求失败（{kind}）"
 }

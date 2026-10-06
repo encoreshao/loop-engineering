@@ -3256,14 +3256,14 @@ def _chat_tool_daemon_list(launchd_dir=None):
     return get_daemons_status(launchd_dir)
 
 
-def _chat_tool_daemon_enable(filename, launchd_dir=None):
+def _chat_tool_daemon_enable(filename, launchd_dir=None, launch_agents_dir=None):
     if launchd_dir is None:
         launchd_dir = LAUNCHD_DIR
-    ok, message = enable_daemon(filename, launchd_dir)
+    ok, message = enable_daemon(filename, launchd_dir, launch_agents_dir=launch_agents_dir)
     return {"ok": ok, "message": message}
 
 
-def _chat_tool_daemon_disable(filename, launchd_dir=None):
+def _chat_tool_daemon_disable(filename, launchd_dir=None, launch_agents_dir=None):
     """Wraps disable_daemon, but refuses the dashboard's own plist by name
     first - disable_daemon uses `launchctl unload -w`, which persists the
     disabled state (won't reload at next login), so a chat message that
@@ -3291,7 +3291,7 @@ def _chat_tool_daemon_disable(filename, launchd_dir=None):
                 "unload -w) if you really want to."
             ),
         }
-    ok, message = disable_daemon(filename, launchd_dir)
+    ok, message = disable_daemon(filename, launchd_dir, launch_agents_dir=launch_agents_dir)
     return {"ok": ok, "message": message}
 
 
@@ -3495,8 +3495,12 @@ def _chat_tool_connector_list(list_fn=None):
     credential-adjacent value can ever reach the model."""
     if list_fn is None:
         list_fn = connectors_config.list_accounts
+    try:
+        accounts = list_fn()
+    except (connectors_config.ConnectorConfigError, OSError) as exc:
+        return {"error": f"Could not read connectors: {exc}"}
     out = []
-    for account in list_fn():
+    for account in accounts:
         try:
             caps = sorted(connectors.get_type(account["type"]).capabilities)
         except KeyError:
@@ -3532,7 +3536,10 @@ def _chat_tool_project_save(fields, config_path=None):
 
 
 def _chat_tool_loop_set_enabled(name, enabled):
-    ok, message = loops_config.set_enabled(name, enabled)
+    if enabled:
+        ok, message = enable_loop_if_requirements_met(name)
+    else:
+        ok, message = loops_config.set_enabled(name, False)
     return {"ok": ok, "message": message}
 
 
@@ -12261,6 +12268,31 @@ def _record_connector_test_result(account_id, ok, message, results_path=None):
     os.replace(tmp, results_path)
 
 
+def _connector_renamed_or_deleted(old_id, new_id=None, results_path=None):
+    """Keep per-id state in step with a successful delete (new_id None) or
+    rename: the last test result moves or goes, and every loop's `notify`
+    list drops or renames the id. Best effort - the account change already
+    happened, so a failure here never turns it into an error."""
+    if results_path is None:
+        results_path = CONNECTOR_TEST_RESULTS_PATH
+    results_path = Path(results_path)
+    results = _read_connector_test_results(results_path)
+    if old_id in results:
+        entry = results.pop(old_id)
+        if new_id:
+            results[new_id] = entry
+        try:
+            tmp = results_path.with_name(results_path.name + f".{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(results, indent=2))
+            os.replace(tmp, results_path)
+        except OSError:
+            pass
+    try:
+        loops_config.replace_notify_id(old_id, new_id)
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+
+
 def _connector_type_or_none(name):
     try:
         return connectors.get_type(name)
@@ -12274,7 +12306,8 @@ def _connector_account_row_html(account, csrf_input, result):
     quoted_id = urllib.parse.quote(account_id, safe="")
     cls = _connector_type_or_none(account["type"])
     caps = sorted(cls.capabilities) if cls else []
-    chips = "".join(f"<span class='pill pill-grey'>{html.escape(c)}</span>" for c in caps)
+    chips = "".join(f"<span class='pill pill-grey'>{html.escape(i18n.t(_CAPABILITY_LABELS.get(c, c)))}</span>"
+                    for c in caps)
     managed_by = account.get("managed_by", "native")
     owner_href = _CONNECTOR_OWNER_PAGES.get(managed_by)
     if owner_href:
@@ -12381,7 +12414,7 @@ def _connector_form_body(type_name, account=None):
     rows = [
         row(i18n.t("Label"), f"<input type='text' name='label' value='{html.escape((account or {}).get('label', ''), quote=True)}' required>"),
         row(i18n.t("Connector id"), f"<input type='text' name='id' value='{html.escape((account or {}).get('id', ''), quote=True)}' "
-                                    f"pattern='[a-z0-9][a-z0-9-]*' required>",
+                                    f"pattern='[a-z0-9][a-z0-9-]{{0,47}}' required>",
             "Lowercase letters, digits and dashes"),
     ]
     for field in cls.fields:
@@ -12564,6 +12597,30 @@ def loop_requirements_met(loop, accounts_fn=None):
     return (not missing), missing
 
 
+def enable_loop_if_requirements_met(name):
+    """Enable a registered loop unless its `requires` capabilities lack a
+    connector account - the one gate shared by POST /daemons/loops/<name>/enable
+    and the chat assistant's loop-enable. Returns (ok, message)."""
+    try:
+        loop = loops_config.get_loop(name)
+    except (KeyError, ValueError, FileNotFoundError, json.JSONDecodeError, TypeError):
+        loop = None
+    met, missing = loop_requirements_met(loop) if loop else (True, [])
+    if not met:
+        return False, _t("Cannot enable {name}: missing connector for {capabilities}",
+                         name=name, capabilities=", ".join(missing))
+    return loops_config.set_enabled(name, True)
+
+
+def _notify_choice_accounts():
+    """Enabled notify-capable accounts a loop's `notify` list may name: ids
+    loops_config.set_notify would reject (e.g. a Slack bundle with a space in
+    its name) are left out. Raises ConnectorConfigError like
+    accounts_with_capability."""
+    return [a for a in connectors_config.accounts_with_capability("notify")
+            if connectors_config.is_valid_id(a.get("id"))]
+
+
 def _connector_type_for_capability(capability):
     for type_name in sorted(connectors.CONNECTOR_TYPES):
         cls = connectors.CONNECTOR_TYPES[type_name]
@@ -12587,17 +12644,29 @@ def _loop_requirement_chips_html(missing):
 
 
 def _loop_notify_form_html(loop, csrf_input, notify_accounts):
-    if not notify_accounts:
-        return ""
-    selected = loop.get("notify")
-    selected = {str(i) for i in selected} if isinstance(selected, list) else set()
+    """The "Notify via" multi-select, only for loops whose registry entry sets
+    "routes_notifications": true (their runner goes through bin/notify.py).
+    Any other loop that already has a `notify` list gets it shown read-only
+    with a Clear button, since nothing would honour it."""
+    selected_list = loop.get("notify")
+    selected_list = [str(i) for i in selected_list] if isinstance(selected_list, list) else []
+    safe_name = html.escape(urllib.parse.quote(str(loop.get("name", "?")), safe=""))
+    if loop.get("routes_notifications") is not True or not notify_accounts:
+        if not selected_list:
+            return ""
+        ids = ", ".join(html.escape(i) for i in selected_list)
+        return (
+            f"<form method='post' action='/loops/{safe_name}/notify' class='daemon-action-form'>"
+            f"{csrf_input}<span>{html.escape(_t('Notify via'))}: <code>{ids}</code></span> "
+            f"<button type='submit' class='btn btn-neutral'>{html.escape(_t('Clear'))}</button></form>"
+        )
+    selected = set(selected_list)
     options = "".join(
         f"<option value='{html.escape(str(a['id']), quote=True)}'"
         f"{' selected' if str(a['id']) in selected else ''}>"
         f"{html.escape(str(a.get('label', '')))} ({html.escape(str(a['id']))})</option>"
         for a in notify_accounts
     )
-    safe_name = html.escape(urllib.parse.quote(str(loop.get("name", "?")), safe=""))
     return (
         f"<form method='post' action='/loops/{safe_name}/notify' class='daemon-action-form'>"
         f"{csrf_input}<label>{html.escape(_t('Notify via'))} "
@@ -12646,7 +12715,7 @@ def _loops_catalog_body(flash=None, flash_ok=True):
     active = [l for l in loops if loop_is_visible(l)]
     available = [l for l in loops if not loop_is_visible(l)]
     try:
-        notify_accounts = connectors_config.accounts_with_capability("notify")
+        notify_accounts = _notify_choice_accounts()
     except connectors_config.ConnectorConfigError:
         notify_accounts = []
 
@@ -13049,6 +13118,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             fields = {k: v for k, v in form.items() if k not in ("csrf_token", "secret", "original_id")}
             ok, message = connectors_config.upsert_account(
                 fields, form.get("secret", ""), original_id=form.get("original_id", ""))
+            old_id, new_id = form.get("original_id", "").strip(), form.get("id", "").strip()
+            if ok and old_id and new_id and old_id != new_id:
+                _connector_renamed_or_deleted(old_id, new_id)
             self._redirect_with_flash(ok, message, location="/connectors")
             return
 
@@ -13057,7 +13129,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._forbidden()
                 return
             form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
-            ok, message = connectors_config.delete_account(form.get("id", [""])[0])
+            account_id = form.get("id", [""])[0]
+            ok, message = connectors_config.delete_account(account_id)
+            if ok:
+                _connector_renamed_or_deleted(account_id)
             self._redirect_with_flash(ok, message, location="/connectors")
             return
 
@@ -13067,15 +13142,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
             account_id = form.get("id", [""])[0]
+            record = True
             try:
                 ok, message = connectors_config.load_connector(account_id).test()
+            except KeyError as exc:
+                if exc.args[:1] == (account_id,):
+                    # Unknown id: nothing to attach a result to.
+                    ok, message, record = False, _t("No connector with id {id}", id=account_id), False
+                else:  # e.g. a hand-edited entry naming an unknown type
+                    from connectors.base import describe_http_error
+                    ok, message = False, describe_http_error(exc)
+            except connectors_config.ConnectorConfigError as exc:
+                ok, message = False, _t("Could not read connectors: {detail}", detail=exc)
             except Exception as exc:  # noqa: BLE001 - a probe must never 500 the page
                 from connectors.base import describe_http_error
                 ok, message = False, describe_http_error(exc)
-            try:
-                _record_connector_test_result(account_id, ok, message)
-            except OSError:
-                pass
+            if record:
+                try:
+                    _record_connector_test_result(account_id, ok, message)
+                except OSError:
+                    pass
             self._redirect_with_flash(ok, message, location="/connectors")
             return
 
@@ -13225,16 +13311,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._forbidden()
                 return
             name = urllib.parse.unquote(self.path[len("/daemons/loops/"):-len("/enable")])
-            try:
-                loop = loops_config.get_loop(name)
-            except (KeyError, ValueError, FileNotFoundError, json.JSONDecodeError, TypeError):
-                loop = None
-            met, missing = loop_requirements_met(loop) if loop else (True, [])
-            if not met:
-                ok, message = False, _t("Cannot enable {name}: missing connector for {capabilities}",
-                                        name=name, capabilities=", ".join(missing))
-            else:
-                ok, message = loops_config.set_enabled(name, True)
+            ok, message = enable_loop_if_requirements_met(name)
             self._redirect_with_flash(ok, message, location=self._loop_return_to(body))
             return
 
@@ -13246,12 +13323,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
             form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
             ids = [i for i in form.get("notify", []) if i]
             try:
-                known = {l.get("name") for l in loops_config.list_loops() if isinstance(l, dict)}
-                allowed = {a["id"] for a in connectors_config.accounts_with_capability("notify")}
-            except (OSError, ValueError, KeyError, TypeError, connectors_config.ConnectorConfigError):
-                known, allowed = set(), set()
-            if name not in known:
+                loop = next((l for l in loops_config.list_loops()
+                             if isinstance(l, dict) and l.get("name") == name), None)
+            except (OSError, ValueError, KeyError, TypeError):
+                loop = None
+            allowed, config_error = set(), None
+            if loop is not None and ids:
+                try:
+                    allowed = {a["id"] for a in _notify_choice_accounts()}
+                except (connectors_config.ConnectorConfigError, OSError) as exc:
+                    config_error = exc
+            if loop is None:
                 ok, message = False, _t("Unknown loop {name}", name=name)
+            elif ids and loop.get("routes_notifications") is not True:
+                ok, message = False, _t("{name} does not route notifications through connectors", name=name)
+            elif config_error is not None:
+                ok, message = False, _t("Could not read connectors: {detail}", detail=config_error)
             elif any(i not in allowed for i in ids):
                 ok, message = False, _t("Choose only enabled notification connectors")
             else:

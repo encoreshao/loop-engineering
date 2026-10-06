@@ -53,4 +53,4 @@ def test_describe_http_error_branches():
     assert base.describe_http_error(mail_http.MailHTTPError(500, "boom", "u")) == "HTTP 500: boom"
     assert base.describe_http_error(mail_http.MailHTTPError(500, "x" * 500, "u")) == "HTTP 500: " + "x" * 200
     assert base.describe_http_error(mail_http.MailHTTPError(None, "timed out", "u")) == "Network error: timed out"
-    assert base.describe_http_error(ValueError("x")) == "ValueError: x"
+    assert base.describe_http_error(ValueError("x")) == "Request failed (ValueError)"

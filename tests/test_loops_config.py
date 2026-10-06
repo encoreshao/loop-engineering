@@ -363,3 +363,29 @@ def test_set_notify_empty_list_removes_key(tmp_path):
     ok, _ = lc.set_notify("gitlab-loop", [], config_path=p, template_path=tmp_path / "none")
     assert ok is True
     assert "notify" not in json.loads(p.read_text())[0]
+
+
+def test_replace_notify_id_removes_a_deleted_connector_everywhere(tmp_path):
+    p = tmp_path / "loops.json"
+    _write_registry(p, [{"name": "a", "notify": ["x", "y"]}, {"name": "b", "notify": ["x"]},
+                        {"name": "c", "enabled": True}])
+    assert lc.replace_notify_id("x", config_path=p) == 2
+    assert json.loads(p.read_text()) == [{"name": "a", "notify": ["y"]}, {"name": "b"},
+                                         {"name": "c", "enabled": True}]
+
+
+def test_replace_notify_id_renames_without_duplicates(tmp_path):
+    p = tmp_path / "loops.json"
+    _write_registry(p, [{"name": "a", "notify": ["x", "y"]}, {"name": "b", "notify": ["x", "z"]}])
+    assert lc.replace_notify_id("x", "z", config_path=p) == 2
+    assert json.loads(p.read_text()) == [{"name": "a", "notify": ["z", "y"]}, {"name": "b", "notify": ["z"]}]
+
+
+def test_replace_notify_id_no_match_or_missing_file_writes_nothing(tmp_path):
+    p = tmp_path / "loops.json"
+    assert lc.replace_notify_id("x", config_path=p) == 0
+    assert not p.exists()
+    _write_registry(p, [{"name": "a", "notify": ["y"]}])
+    before = p.stat().st_mtime_ns
+    assert lc.replace_notify_id("x", config_path=p) == 0
+    assert p.stat().st_mtime_ns == before

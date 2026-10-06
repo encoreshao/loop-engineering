@@ -327,11 +327,17 @@ show a "Managed on …" link instead of edit/delete controls. Last Test results
 are recorded in `outputs/connectors/test-results.json`.
 
 **Notify routing.** `loops_config` accepts an optional `notify: [connector ids]`
-per loop (written only by `set_notify`). `notify.notify(loop_name, text)`
+per loop (written by `set_notify`, and kept in step by `replace_notify_id` when a
+connector is deleted or renamed). `notify.notify(loop_name, text)`
 sends to each listed connector that has the `notify` capability and returns one
 `(connector_id, ok, message)` per target without raising; a loop with no
 `notify` goes to the default Slack webhook via `slack_notify`, as before.
-`python3 bin/notify.py <loop> <text>` is the CLI form. In the dashboard, the
+`python3 bin/notify.py <loop> <text>` is the CLI form. Routing applies only to
+loops whose registry entry declares `"routes_notifications": true` (their runner
+calls `notify`); only those get the dashboard's "Notify via" control. The
+built-in GitLab, Topic and Inbox loops don't declare it and still post to the
+Slack webhook directly; an existing `notify` list on such a loop is shown
+read-only with a Clear button. In the dashboard, the
 Loops catalog blocks enabling a loop (UI and server) until a connector with each
 capability in its `requires` exists, and the AI panel exposes a read-only
 `connector-list` chat tool.

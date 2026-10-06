@@ -270,7 +270,7 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 
 **Test 按钮。** 每个账号都有 **Test** 按钮（Slack 和聊天 Webhook 为 **Send test message**）；上次结果保存在 `outputs/connectors/test-results.json`。
 
-**循环与通知。** 在 **Loops** 页面，需要某种能力的循环会显示「Needs: …」标签，在存在具备该能力的连接器之前无法启用（UI 和服务端都会拦截）。每个循环还有 **Notify via** 选项，以 `notify: [连接器 id]` 的形式保存在 `loops.json` 中。`bin/notify.py` 会把循环的通知路由到这些连接器；未设置 `notify` 时，仍和以前一样发送到默认的 Slack Webhook。可以通过命令行试用：`python3 bin/notify.py <loop> "<text>"`。仪表盘的 AI 面板也能列出连接器（聊天工具 `connector-list`）。
+**循环与通知。** 在 **Loops** 页面，需要某种能力的循环会显示「Needs: …」标签，在存在具备该能力的连接器之前无法启用（UI 和服务端都会拦截）。在 `loops.json` 条目中声明了 `"routes_notifications": true` 的循环（其运行器通过 `bin/notify.py` 发送）还会有 **Notify via** 选项，以 `notify: [连接器 id]` 的形式保存。`bin/notify.py` 会把这类循环的通知路由到这些连接器；未设置 `notify` 时，仍和以前一样发送到默认的 Slack Webhook。内置的 GitLab、Topic 和 Inbox 循环尚未声明该字段，仍直接发送到 Slack Webhook；如果它们已有 `notify` 列表，Loops 页面会以只读方式显示，并提供 **Clear** 按钮清除。可以通过命令行试用：`python3 bin/notify.py <loop> "<text>"`。仪表盘的 AI 面板也能列出连接器（聊天工具 `connector-list`）。
 
 ## 脚本参考
 

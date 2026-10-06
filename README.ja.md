@@ -273,7 +273,7 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 
 **Test ボタン。** すべてのアカウントに **Test** ボタンがあります（Slack とチャット Webhook は **Send test message**）。最後の結果は `outputs/connectors/test-results.json` に保存されます。
 
-**ループと通知。** **Loops** では、機能を必要とするループに「Needs: …」チップが表示され、その機能を持つコネクタが存在するまで（UI でもサーバー側でも）有効化できません。各ループには **Notify via** の選択もあり、`loops.json` に `notify: [コネクタ id]` として保存されます。`bin/notify.py` はループの通知をそれらのコネクタへ振り分け、`notify` が未設定の場合は従来どおりデフォルトの Slack Webhook に投稿します。CLI からは `python3 bin/notify.py <loop> "<text>"` で試せます。ダッシュボードの AI パネルからもコネクタを一覧できます（チャットツール `connector-list`）。
+**ループと通知。** **Loops** では、機能を必要とするループに「Needs: …」チップが表示され、その機能を持つコネクタが存在するまで（UI でもサーバー側でも）有効化できません。`loops.json` のエントリで `"routes_notifications": true` を宣言しているループ（ランナーが `bin/notify.py` 経由で送信するもの）には **Notify via** の選択もあり、`notify: [コネクタ id]` として保存されます。`bin/notify.py` はそうしたループの通知をそれらのコネクタへ振り分け、`notify` が未設定の場合は従来どおりデフォルトの Slack Webhook に投稿します。組み込みの GitLab・Topic・Inbox ループはまだこれを宣言しておらず、引き続き Slack Webhook に直接投稿します。それらに既に `notify` リストがある場合、Loops では読み取り専用で表示され、**Clear** ボタンで解除できます。CLI からは `python3 bin/notify.py <loop> "<text>"` で試せます。ダッシュボードの AI パネルからもコネクタを一覧できます（チャットツール `connector-list`）。
 
 ## スクリプトリファレンス
 

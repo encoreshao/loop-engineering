@@ -8,9 +8,15 @@ new loop means adding one entry here, not a new plist/shell script. See
 docs/superpowers/specs/2026-09-14-unified-loop-scheduler-design.md.
 
 Optional per-loop fields:
+  routes_notifications
+            true when the loop's runner sends its notifications through
+            bin/notify.py (LoopKit loops). Only such loops get the
+            dashboard's "Notify via" control; the built-in GitLab, Topic and
+            Inbox loops still post to the Slack webhook directly.
   notify    list of connector ids (see connectors_config) that receive this
             loop's notifications via bin/notify.py; absent or empty means
-            default routing (the slack_notify webhook).
+            default routing (the slack_notify webhook). Only honoured by
+            loops that declare routes_notifications.
   requires  list of connector capabilities (e.g. "issues", "notify") the
             loop needs; informational for the dashboard/LoopKit."""
 import json
@@ -140,6 +146,42 @@ def set_notify(name, ids, config_path=None, template_path=None):
             _write_loops(loops, config_path)
             return True, f"Updated notify for {name}"
     return False, f"No loop named {name!r} in the loops registry"
+
+
+def replace_notify_id(old_id, new_id=None, config_path=None):
+    """Drop connector `old_id` from every loop's "notify" list (a deleted
+    connector), or rename it to `new_id` (a renamed one), without creating
+    duplicates; a list left empty is removed (default routing). Reads and
+    writes only the user's own file - never backfills template loops - and
+    writes nothing when no loop references `old_id`. Returns the number of
+    loops changed; a missing registry changes nothing."""
+    if config_path is None:
+        config_path = DEFAULT_CONFIG_PATH
+    path = Path(config_path)
+    try:
+        with open(path) as f:
+            loops = json.load(f)
+    except FileNotFoundError:
+        return 0
+    changed = 0
+    for loop in loops if isinstance(loops, list) else []:
+        ids = loop.get("notify") if isinstance(loop, dict) else None
+        if not isinstance(ids, list) or old_id not in ids:
+            continue
+        updated = []
+        for account_id in ids:
+            if account_id == old_id:
+                account_id = new_id
+            if account_id is not None and account_id not in updated:
+                updated.append(account_id)
+        if updated:
+            loop["notify"] = updated
+        else:
+            loop.pop("notify", None)
+        changed += 1
+    if changed:
+        _write_loops(loops, path)
+    return changed
 
 
 # Each frequency's own required fields and per-field bounds - shared by

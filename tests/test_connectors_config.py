@@ -224,3 +224,52 @@ def test_upsert_bool_values_rejected_except_enabled(paths):
     assert not cc.upsert_account({**gh("a"), "api_url": True}, "t", store=MemStore(), **paths)[0]
     assert cc.upsert_account({**gh("a"), "enabled": False}, "t", store=MemStore(), **paths)[0]
     assert cc.get_account("a", **paths)["enabled"] is False
+
+
+def test_upsert_with_malformed_connectors_json_returns_error(paths):
+    paths["config_path"].write_text("{not json")
+    ok, msg = cc.upsert_account(gh("gh"), "t", store=MemStore(), **paths)
+    assert ok is False and "connectors" in msg.lower()
+
+
+def test_delete_with_malformed_connectors_json_returns_error(paths):
+    paths["config_path"].write_text("{not json")
+    ok, msg = cc.delete_account("gh", config_path=paths["config_path"], store=MemStore())
+    assert ok is False and "connectors" in msg.lower()
+
+
+def test_upsert_and_delete_write_failure_returns_error(paths, monkeypatch):
+    store = MemStore()
+    cc.upsert_account(gh("gh"), "t", store=store, **paths)
+
+    def boom(entries, config_path):
+        raise OSError("disk full")
+    monkeypatch.setattr(cc, "_write", boom)
+    ok, msg = cc.upsert_account(gh("gh2"), "t", store=store, **paths)
+    assert ok is False and "disk full" in msg
+    ok, msg = cc.delete_account("gh", config_path=paths["config_path"], store=store)
+    assert ok is False and "disk full" in msg
+
+
+@pytest.mark.parametrize("secret", ["ghp_TOP\nSECRET", "a\rb", "a\x00b", "a\tb", "a\x7fb"])
+def test_upsert_rejects_secrets_with_control_characters(paths, secret):
+    store = MemStore()
+    ok, msg = cc.upsert_account(gh("gh"), secret, store=store, **paths)
+    assert ok is False and "control" in msg.lower()
+    assert store.data == {} and not paths["config_path"].exists()
+    assert secret not in msg
+
+
+def test_upsert_refuses_changing_an_existing_accounts_type(paths, monkeypatch):
+    class FakeJira(Connector):
+        type = "jira"
+        label = "Jira"
+        capabilities = frozenset({"issues"})
+        fields = (Field("api_url", "API URL", kind="url"), Field("username", "Username"))
+        secret_label = "Token"
+    monkeypatch.setitem(connectors.CONNECTOR_TYPES, "jira", FakeJira)
+    store = MemStore()
+    cc.upsert_account(gh("gh"), "github-token", store=store, **paths)
+    ok, msg = cc.upsert_account({**gh("gh"), "type": "jira"}, "", original_id="gh", store=store, **paths)
+    assert ok is False and "type" in msg.lower()
+    assert cc.get_account("gh", **paths)["type"] == "github"

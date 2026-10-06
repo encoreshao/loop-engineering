@@ -80,4 +80,6 @@ def describe_http_error(exc):
         if exc.status is None:
             return i18n.t("Network error: {detail}", detail=exc.body)
         return i18n.t("HTTP {status}: {body}", status=exc.status, body=str(exc.body)[:200])
-    return i18n.t("{kind}: {detail}", kind=type(exc).__name__, detail=exc)
+    # Only the class name: str(exc) can quote request data, e.g. http.client's
+    # ValueError("Invalid header value b'Bearer <token>'").
+    return i18n.t("Request failed ({kind})", kind=type(exc).__name__)

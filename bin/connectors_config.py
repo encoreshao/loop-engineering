@@ -25,6 +25,11 @@ class ConnectorConfigError(Exception):
     pass
 
 
+def is_valid_id(account_id):
+    """True for an id a native account may have (and loops' `notify` may list)."""
+    return isinstance(account_id, str) and bool(_ID_RE.match(account_id))
+
+
 def _str(value):
     if value is None:
         return ""
@@ -168,16 +173,28 @@ def upsert_account(fields, secret, original_id="", config_path=None, store=None,
         return False, i18n.t("{type} accounts are managed on their own page", type=type_name)
     if not label:
         return False, i18n.t("{field} is required", field=i18n.t("Label"))
-    entries = _read_native_raw(config_path)
+    try:
+        entries = _read_native_raw(config_path)
+    except ConnectorConfigError as exc:
+        return False, i18n.t("Could not read connectors: {detail}", detail=exc)
     existing = next((e for e in entries if e["id"] == original_id), None) if original_id else None
     if original_id and existing is None:
         return False, i18n.t("No connector with id {id}", id=original_id)
+    if existing is not None and _str(existing.get("type")) != type_name:
+        # The stored secret belongs to the old type's service; reusing it for
+        # another type would send e.g. a GitHub token to a Jira site.
+        return False, i18n.t("Connector {id} is a {type} account; its type cannot be changed",
+                             id=original_id, type=_str(existing.get("type")))
     external_ids = {a["id"] for a in _external(gl, sl, ib)}
     taken = {e["id"] for e in entries if e is not existing} | external_ids
     if new_id in taken:
         return False, i18n.t("Connector id {id} is already used by another account", id=new_id)
     settings = {f.key: (fields.get(f.key) or "").strip() for f in cls.fields}
     secret = (secret or "").strip()
+    # A control character would end up inside an HTTP header value, where
+    # http.client raises ValueError quoting the whole header - secret and all.
+    if any(ord(c) < 32 or ord(c) == 127 for c in secret):
+        return False, i18n.t("The secret must not contain control characters or line breaks")
     errors = cls.validate(settings, secret, existing is None)
     if errors:
         return False, "; ".join(errors)
@@ -203,20 +220,29 @@ def upsert_account(fields, secret, original_id="", config_path=None, store=None,
         entries = [entry if e is existing else e for e in entries]
     else:
         entries.append(entry)
-    _write(entries, config_path)
+    try:
+        _write(entries, config_path)
+    except OSError as exc:
+        return False, i18n.t("Could not save connectors: {detail}", detail=exc)
     return True, i18n.t("Saved connector {id}", id=new_id)
 
 
 def delete_account(account_id, config_path=None, store=None):
     config_path = Path(config_path) if config_path is not None else DEFAULT_CONFIG_PATH
-    entries = _read_native_raw(config_path)
+    try:
+        entries = _read_native_raw(config_path)
+    except ConnectorConfigError as exc:
+        return False, i18n.t("Could not read connectors: {detail}", detail=exc)
     if not any(e["id"] == account_id for e in entries):
         return False, i18n.t("Only connectors created here can be deleted; manage {id} on its own page", id=account_id)
     try:
         _store(store).delete(account_id)
     except Exception as exc:
         return False, i18n.t("Could not remove the stored secret: {detail}", detail=exc)
-    _write([e for e in entries if e["id"] != account_id], config_path)
+    try:
+        _write([e for e in entries if e["id"] != account_id], config_path)
+    except OSError as exc:
+        return False, i18n.t("Could not save connectors: {detail}", detail=exc)
     return True, i18n.t("Deleted connector {id}", id=account_id)
 
 

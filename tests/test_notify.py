@@ -92,3 +92,23 @@ def test_main_exit_codes_and_output(capsys):
 
 def test_main_usage_error(capsys):
     assert notify.main(["only-one"], notify_fn=lambda n, t: []) == 1
+
+
+def test_routes_blocks_to_a_real_webhook_connector():
+    """notify passes blocks= to every connector's send(); the real
+    WebhookConnector must accept (and ignore) it rather than TypeError."""
+    import connectors
+    connectors._load_all()
+    posted = []
+
+    def fake_http(method, url, json_body=None, timeout=10, **kw):
+        posted.append((method, url, json_body))
+
+    conn = connectors.get_type("webhook")(
+        {"id": "feishu-team", "type": "webhook", "settings": {"format": "feishu"}},
+        secret="https://hook.example/x", http=fake_http)
+    out = notify.notify("x", "hi", blocks=[{"type": "section"}],
+                        loop_lookup=lambda n: {"notify": ["feishu-team"]},
+                        loader=lambda i: conn, default_sender=lambda t, b: None)
+    assert out == [("feishu-team", True, "sent")]
+    assert posted == [("POST", "https://hook.example/x", {"msg_type": "text", "content": {"text": "hi"}})]

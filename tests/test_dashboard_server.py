@@ -7747,17 +7747,20 @@ def test_chat_tool_daemon_enable_and_disable(tmp_path, monkeypatch):
         return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
     monkeypatch.setattr(ds, "_resolve_runner", lambda runner: fake_runner)
+    # launch_agents_dir must be passed: without it enable_daemon copies the
+    # plist into the REAL ~/Library/LaunchAgents.
     enable_result = ds._chat_tool_daemon_enable(
-        "com.hermes.test.plist", launchd_dir=launchd_dir,
+        "com.hermes.test.plist", launchd_dir=launchd_dir, launch_agents_dir=launch_agents_dir,
     )
-    assert "ok" in enable_result and "message" in enable_result
+    assert enable_result["ok"] is True, enable_result
+    assert (launch_agents_dir / "com.hermes.test.plist").read_text() == "<plist></plist>"
 
     # Was previously untested by this test despite its name promising
     # both enable and disable - mirrors the enable assertion above.
     disable_result = ds._chat_tool_daemon_disable(
-        "com.hermes.test.plist", launchd_dir=launchd_dir,
+        "com.hermes.test.plist", launchd_dir=launchd_dir, launch_agents_dir=launch_agents_dir,
     )
-    assert "ok" in disable_result and "message" in disable_result
+    assert disable_result["ok"] is True, disable_result
 
 
 def test_chat_tool_daemon_disable_refuses_the_dashboards_own_plist(tmp_path):
@@ -12625,7 +12628,7 @@ def test_enable_switch_not_disabled_when_requirements_met(monkeypatch, tmp_path)
 def test_notify_select_lists_notify_accounts_preselected(monkeypatch, tmp_path):
     accts = [{"id": "feishu-team", "label": "Team <b>"}, {"id": "slack-x", "label": "Slack"}]
     _stub_catalog(monkeypatch, tmp_path,
-                  [{"name": "gitlab-loop", "enabled": True, "notify": ["slack-x"]}],
+                  [{"name": "gitlab-loop", "enabled": True, "notify": ["slack-x"], "routes_notifications": True}],
                   lambda cap, **kw: accts if cap == "notify" else [])
     out = ds._loops_catalog_body()
     assert "<select multiple name='notify'" in out
@@ -12635,10 +12638,10 @@ def test_notify_select_lists_notify_accounts_preselected(monkeypatch, tmp_path):
     assert "value='feishu-team' selected" not in out
 
 
-def _notify_server(monkeypatch, tmp_path, notify_accounts=("feishu-team",)):
+def _notify_server(monkeypatch, tmp_path, notify_accounts=("feishu-team",), routes=True):
     calls = []
     monkeypatch.setattr(ds.loops_config, "list_loops",
-                        lambda *a, **k: [{"name": "gitlab-loop", "enabled": True}])
+                        lambda *a, **k: [{"name": "gitlab-loop", "enabled": True, "routes_notifications": routes}])
     monkeypatch.setattr(ds.loops_config, "set_notify",
                         lambda name, ids, **k: calls.append((name, ids)) or (True, "ok"))
     monkeypatch.setattr(ds.connectors_config, "accounts_with_capability",
@@ -12717,3 +12720,175 @@ def test_post_enable_invalid_loop_name_flashes_error_not_500(monkeypatch, tmp_pa
         assert status == 303 and headers["Location"].startswith("/loops?") and "ok=0" in headers["Location"]
         status, headers, _ = _post(port, "/loops/a%20b/notify", {"csrf_token": token, "notify": "x"})
         assert status == 303 and "ok=0" in headers["Location"]
+
+
+# --- P2 final-review fixes --------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _connector_test_results_in_tmp(tmp_path, monkeypatch):
+    """Every dashboard test records connector test results under tmp_path by
+    default - never into this checkout's real outputs/connectors/."""
+    monkeypatch.setattr(ds, "CONNECTOR_TEST_RESULTS_PATH", tmp_path / "connector-test-results.json")
+    # A successful connector delete/rename also edits loops.json's notify
+    # lists - never the real ~/.loop-engineering/loops.json from a test.
+    monkeypatch.setattr(ds.loops_config, "replace_notify_id", lambda old, new=None, **k: 0)
+
+
+def test_connector_test_results_default_to_tmp():
+    assert ds.CONNECTOR_TEST_RESULTS_PATH != ds.LOOP_DIR / "outputs" / "connectors" / "test-results.json"
+
+
+def _flash(location):
+    return urllib.parse.parse_qs(urllib.parse.urlsplit(location).query)["flash"][0]
+
+
+def test_notify_control_hidden_for_loops_that_do_not_route_notifications(monkeypatch, tmp_path):
+    _stub_catalog(monkeypatch, tmp_path, [{"name": "gitlab-loop", "enabled": True}],
+                  lambda cap, **kw: [{"id": "feishu-team", "label": "Team"}] if cap == "notify" else [])
+    row = ds._loops_catalog_body().split("data-loop='gitlab-loop'")[1]
+    assert "Notify via" not in row and "/notify'" not in row
+
+
+def test_notify_existing_list_on_non_routing_loop_is_read_only_with_clear(monkeypatch, tmp_path):
+    _stub_catalog(monkeypatch, tmp_path, [{"name": "gitlab-loop", "enabled": True, "notify": ["slack-x"]}],
+                  lambda cap, **kw: [{"id": "slack-x", "label": "Slack"}] if cap == "notify" else [])
+    row = ds._loops_catalog_body().split("data-loop='gitlab-loop'")[1]
+    assert "<select" not in row.split("<td>")[1]
+    assert "Notify via" in row and "slack-x" in row
+    assert "action='/loops/gitlab-loop/notify'" in row and "Clear" in row
+
+
+def test_notify_options_skip_accounts_with_invalid_ids(monkeypatch, tmp_path):
+    accts = [{"id": "slack-Bad Bundle", "label": "Bad"}, {"id": "slack-ops", "label": "Ops"}]
+    _stub_catalog(monkeypatch, tmp_path, [{"name": "x-loop", "enabled": True, "routes_notifications": True}],
+                  lambda cap, **kw: accts if cap == "notify" else [])
+    row = ds._loops_catalog_body().split("data-loop='x-loop'")[1]
+    assert "value='slack-ops'" in row and "slack-Bad Bundle" not in row
+
+
+def test_post_loop_notify_refused_for_non_routing_loop_but_clear_allowed(monkeypatch, tmp_path):
+    calls = _notify_server(monkeypatch, tmp_path, routes=False)
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/loops")
+        s1, h1, _ = _post(port, "/loops/gitlab-loop/notify", {"csrf_token": token, "notify": "feishu-team"})
+        s2, h2, _ = _post(port, "/loops/gitlab-loop/notify", {"csrf_token": token})
+    assert s1 == 303 and "ok=0" in h1["Location"]
+    assert s2 == 303 and "ok=1" in h2["Location"]
+    assert calls == [("gitlab-loop", [])]
+
+
+def test_post_loop_notify_rejects_invalid_bundle_id(monkeypatch, tmp_path):
+    calls = _notify_server(monkeypatch, tmp_path, notify_accounts=("slack-Bad Bundle",))
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/loops")
+        status, headers, _ = _post(port, "/loops/gitlab-loop/notify",
+                                   {"csrf_token": token, "notify": "slack-Bad Bundle"})
+    assert status == 303 and "ok=0" in headers["Location"] and calls == []
+
+
+def test_post_loop_notify_broken_connectors_file_reports_config_error(monkeypatch, tmp_path):
+    calls = _notify_server(monkeypatch, tmp_path)
+
+    def boom(cap, **kw):
+        raise ds.connectors_config.ConnectorConfigError("connectors.json is not valid JSON")
+    monkeypatch.setattr(ds.connectors_config, "accounts_with_capability", boom)
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/loops")
+        status, headers, _ = _post(port, "/loops/gitlab-loop/notify",
+                                   {"csrf_token": token, "notify": "feishu-team"})
+    flash = _flash(headers["Location"])
+    assert status == 303 and "ok=0" in headers["Location"] and calls == []
+    assert "Unknown loop" not in flash and "not valid JSON" in flash
+
+
+def test_post_connectors_test_unknown_id_flashes_and_records_nothing(monkeypatch, tmp_path):
+    results = tmp_path / "results.json"
+    monkeypatch.setattr(ds, "CONNECTOR_TEST_RESULTS_PATH", results)
+
+    def missing(i, **kw):
+        raise KeyError(i)
+    monkeypatch.setattr(ds.connectors_config, "load_connector", missing)
+    with _running_server() as port:
+        status, headers, _ = _post(port, "/connectors/test", {"csrf_token": ds._CSRF_TOKEN, "id": "x"})
+    assert status == 303 and _flash(headers["Location"]) == "No connector with id x"
+    assert not results.exists()
+
+
+def test_post_connectors_delete_drops_test_result_and_notify_refs(monkeypatch, tmp_path):
+    results = tmp_path / "results.json"
+    results.write_text(json.dumps({"gh": {"ok": True, "message": "m", "at": "t"},
+                                   "other": {"ok": True, "message": "m", "at": "t"}}))
+    monkeypatch.setattr(ds, "CONNECTOR_TEST_RESULTS_PATH", results)
+    replaced = []
+    monkeypatch.setattr(ds.loops_config, "replace_notify_id",
+                        lambda old, new=None, **k: replaced.append((old, new)) or 0)
+    monkeypatch.setattr(ds.connectors_config, "delete_account", lambda i, **k: (True, f"Deleted {i}"))
+    with _running_server() as port:
+        _post(port, "/connectors/delete", {"csrf_token": ds._CSRF_TOKEN, "id": "gh"})
+    assert set(json.loads(results.read_text())) == {"other"}
+    assert replaced == [("gh", None)]
+
+
+def test_post_connectors_failed_delete_keeps_test_result(monkeypatch, tmp_path):
+    results = tmp_path / "results.json"
+    results.write_text(json.dumps({"gh": {"ok": True, "message": "m", "at": "t"}}))
+    monkeypatch.setattr(ds, "CONNECTOR_TEST_RESULTS_PATH", results)
+    replaced = []
+    monkeypatch.setattr(ds.loops_config, "replace_notify_id",
+                        lambda old, new=None, **k: replaced.append((old, new)) or 0)
+    monkeypatch.setattr(ds.connectors_config, "delete_account", lambda i, **k: (False, "nope"))
+    with _running_server() as port:
+        _post(port, "/connectors/delete", {"csrf_token": ds._CSRF_TOKEN, "id": "gh"})
+    assert set(json.loads(results.read_text())) == {"gh"} and replaced == []
+
+
+def test_post_connectors_rename_moves_test_result_and_notify_refs(monkeypatch, tmp_path):
+    results = tmp_path / "results.json"
+    results.write_text(json.dumps({"old": {"ok": True, "message": "m", "at": "t"}}))
+    monkeypatch.setattr(ds, "CONNECTOR_TEST_RESULTS_PATH", results)
+    replaced = []
+    monkeypatch.setattr(ds.loops_config, "replace_notify_id",
+                        lambda old, new=None, **k: replaced.append((old, new)) or 0)
+    monkeypatch.setattr(ds.connectors_config, "upsert_account", lambda *a, **k: (True, "Saved"))
+    with _running_server() as port:
+        _post(port, "/connectors/save", {"csrf_token": ds._CSRF_TOKEN, "id": "gh", "type": "github",
+                                         "label": "GH", "original_id": "old"})
+    assert json.loads(results.read_text()) == {"gh": {"ok": True, "message": "m", "at": "t"}}
+    assert replaced == [("old", "gh")]
+
+
+def test_chat_tool_connector_list_config_error_returns_error_object():
+    def boom(**kw):
+        raise ds.connectors_config.ConnectorConfigError("connectors.json is not valid JSON")
+    out = ds._chat_tool_connector_list(list_fn=boom)
+    assert isinstance(out, dict) and "not valid JSON" in out["error"]
+
+
+def test_chat_tool_loop_enable_applies_connector_requirements(monkeypatch):
+    enabled = []
+    monkeypatch.setattr(ds.loops_config, "list_loops",
+                        lambda *a, **k: [{"name": "rss-watch-loop", "enabled": False, "requires": ["feed"]}])
+    monkeypatch.setattr(ds.loops_config, "set_enabled", lambda n, e, **k: enabled.append((n, e)) or (True, "x"))
+    out = ds._chat_tool_loop_set_enabled("rss-watch-loop", True)
+    assert out["ok"] is False and "feed" in out["message"] and enabled == []
+    monkeypatch.setattr(ds.connectors_config, "accounts_with_capability", lambda cap, **kw: [{"id": "r"}])
+    assert ds._chat_tool_loop_set_enabled("rss-watch-loop", True)["ok"] is True
+    assert ds._chat_tool_loop_set_enabled("rss-watch-loop", False)["ok"] is True
+    assert enabled == [("rss-watch-loop", True), ("rss-watch-loop", False)]
+
+
+def test_connector_rows_show_translated_capability_labels(monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [_gh_account()])
+    out = ds._connectors_accounts_body(None, True)
+    assert ">Merge requests<" in out and ">merge_requests<" not in out
+    ds.i18n.set_language("fr")
+    try:
+        out = ds._connectors_accounts_body(None, True)
+        expected = ds.i18n.t("Merge requests")
+    finally:
+        ds.i18n.set_language("en")
+    assert expected != "Merge requests" and ">" + html.escape(expected) + "<" in out
+
+
+def test_connector_id_input_pattern_caps_length():
+    assert "pattern='[a-z0-9][a-z0-9-]{0,47}'" in ds._connector_form_body("webhook")

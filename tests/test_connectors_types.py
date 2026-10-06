@@ -230,3 +230,17 @@ def test_linear_errors_list_is_failure():
     c, _ = make("linear", {}, response={"errors": [{"message": "bad key"}], "data": None})
     ok, msg = c.test()
     assert ok is False and "bad key" in msg
+
+
+@pytest.mark.parametrize("type_, settings", [
+    ("github", {"api_url": "https://api.github.com", "username": "u"}),
+    ("gitlab", {"url": "https://gl.example"}),
+])
+def test_probe_error_with_secret_in_exception_text_does_not_leak_it(type_, settings):
+    secret = "ghp_TOP\nSECRET"
+    c, _ = make(type_, settings, secret=secret,
+                exc=ValueError(f"Invalid header value b'Bearer {secret}'"))
+    ok, msg = c.test()
+    assert ok is False
+    assert "ghp_TOP" not in msg and "SECRET" not in msg and "Bearer" not in msg
+    assert "ValueError" in msg

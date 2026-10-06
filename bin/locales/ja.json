@@ -717,5 +717,11 @@
   "Notify via": "通知先",
   "Cannot enable {name}: missing connector for {capabilities}": "{name} を有効にできません: {capabilities} のコネクタがありません",
   "Unknown loop {name}": "不明なループ {name}",
-  "Choose only enabled notification connectors": "有効な通知コネクタのみ選択してください"
+  "Choose only enabled notification connectors": "有効な通知コネクタのみ選択してください",
+  "Could not read connectors: {detail}": "コネクタを読み込めませんでした: {detail}",
+  "Could not save connectors: {detail}": "コネクタを保存できませんでした: {detail}",
+  "{name} does not route notifications through connectors": "{name} はコネクタ経由で通知を送信しません",
+  "Connector {id} is a {type} account; its type cannot be changed": "コネクタ {id} は {type} アカウントです。種類は変更できません",
+  "The secret must not contain control characters or line breaks": "シークレットに制御文字や改行を含めることはできません",
+  "Request failed ({kind})": "リクエストに失敗しました ({kind})"
 }

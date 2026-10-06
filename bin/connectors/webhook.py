@@ -30,7 +30,9 @@ class WebhookConnector(Connector):
     def __init__(self, account, secret=None, http=None):
         super().__init__(account, secret=secret, http=http or _post_json)
 
-    def send(self, text):
+    def send(self, text, blocks=None):
+        """`blocks` (Slack Block Kit) is accepted for notify.py's uniform
+        send(text, blocks=...) call and ignored - these services take text."""
         fmt = self.settings.get("format") or "generic"
         payload = _PAYLOADS.get(fmt, _PAYLOADS["generic"])(text)
         return self.http("POST", self.secret, json_body=payload, timeout=TEST_TIMEOUT_SECONDS)
