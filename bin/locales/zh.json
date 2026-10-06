@@ -688,5 +688,6 @@
   "Username": "用户名",
   "Webhook URL": "Webhook URL",
   "{feeds} feeds, {entries} entries": "{feeds} 个订阅源,{entries} 条内容",
-  "{feed}: {detail}": "{feed}:{detail}"
+  "{feed}: {detail}": "{feed}:{detail}",
+  "Linear returned an error: {detail}": "Linear 返回错误:{detail}"
 }

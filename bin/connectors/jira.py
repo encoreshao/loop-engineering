@@ -30,7 +30,7 @@ class JiraConnector(Connector):
 
     def test(self):
         try:
-            me = self.api("GET", "/rest/api/3/myself", timeout=TEST_TIMEOUT_SECONDS)
+            me = self.api("GET", "/rest/api/3/myself", timeout=TEST_TIMEOUT_SECONDS, max_attempts=1)
             return True, i18n.t("Connected as {name}", name=me.get("displayName", "?"))
         except Exception as exc:  # noqa: BLE001 - test() must never raise
             return False, describe_http_error(exc)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Slack incoming-webhook connector. The webhook URL is the secret, so no
 error path here may ever include it."""
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -37,6 +38,8 @@ def _post_json(method, url, json_body=None, timeout=10, **kw):
         raise mail_http.MailHTTPError(exc.code, excerpt, _REDACTED) from None
     except (urllib.error.URLError, OSError):
         raise mail_http.MailHTTPError(None, "network error", _REDACTED) from None
+    except (ValueError, http.client.HTTPException):
+        raise mail_http.MailHTTPError(None, "invalid URL", _REDACTED) from None
 
 
 def describe_post_error(exc):

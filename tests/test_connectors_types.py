@@ -9,8 +9,9 @@ import connectors
 
 class FakeHTTP:
     def __init__(self, response=None, exc=None):
-        self.calls = []; self.response = response if response is not None else {}; self.exc = exc
+        self.calls = []; self.kw_seen = {}; self.response = response if response is not None else {}; self.exc = exc
     def __call__(self, method, url, token=None, json_body=None, headers=None, timeout=30, **kw):
+        self.kw_seen = kw
         self.calls.append({"method": method, "url": url, "token": token, "json": json_body, "headers": headers or {}, "timeout": timeout})
         if self.exc: raise self.exc
         return self.response
@@ -192,3 +193,40 @@ def test_jira_and_gitlab_api_helpers_prefix_urls():
     c.api("GET", "/user")
     assert http.calls[0]["url"] == "https://api.github.com/user"
     assert http.calls[0]["headers"]["Accept"] == "application/vnd.github+json"
+
+
+def test_rss_rejects_utf16_doctype_entities(monkeypatch):
+    import connectors.rss as rss
+    body = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE x [<!ENTITY a "pwned">]><rss><channel><item><title>&a;</title></item></channel></rss>'.encode("utf-16")
+    monkeypatch.setattr(rss, "_fetch", lambda url, timeout: body)
+    c = connectors.get_type("rss")({"id": "r", "settings": {"feeds": "https://a"}})
+    ok, msg = c.test()
+    assert not ok and "DOCTYPE" in msg
+    with pytest.raises(connectors.base.ConnectorError):
+        c.entries("https://a")
+
+
+def test_send_with_malformed_url_is_redacted():
+    import mail_http
+    import connectors.slack as slack
+    url = "https://hooks.example/SECRET PATH"
+    c = connectors.get_type("slack")({"id": "s", "settings": {}}, secret=url)
+    with pytest.raises(mail_http.MailHTTPError) as ei:
+        c.send("hi")
+    e = ei.value
+    assert "SECRET" not in str(e) and "SECRET" not in str(e.body) and "SECRET" not in e.url
+
+
+def test_probes_do_not_retry():
+    for type_, settings, resp in (("gitlab", {"url": "https://g"}, {}), ("github", {"api_url": "https://g"}, {}),
+                                  ("jira", {"site_url": "https://g", "email": "a@b.c"}, {}), ("linear", {}, {})):
+        c, http = make(type_, settings, response=resp)
+        c.test()
+        assert http.calls[0]["timeout"] == 10
+        assert http.kw_seen.get("max_attempts") == 1, type_
+
+
+def test_linear_errors_list_is_failure():
+    c, _ = make("linear", {}, response={"errors": [{"message": "bad key"}], "data": None})
+    ok, msg = c.test()
+    assert ok is False and "bad key" in msg

@@ -2,6 +2,7 @@
 """RSS / Atom feed connector (read-only, no secret)."""
 import urllib.request
 import xml.etree.ElementTree as ET
+from xml.parsers import expat
 
 import i18n
 from connectors import register
@@ -19,6 +20,10 @@ def _fetch(url, timeout):
         return resp.read(MAX_BYTES)
 
 
+def _DOCTYPE_MSG():
+    return i18n.t("Feed contains a DOCTYPE or ENTITY declaration, which is not allowed")
+
+
 def _text(node, tag):
     child = node.find(tag)
     return (child.text or "").strip() if child is not None and child.text else ""
@@ -27,10 +32,20 @@ def _text(node, tag):
 def _parse(body):
     head = body.lower()
     if b"<!doctype" in head or b"<!entity" in head:
-        raise ConnectorError(i18n.t("Feed contains a DOCTYPE or ENTITY declaration, which is not allowed"))
+        raise ConnectorError(_DOCTYPE_MSG())
+    def _refuse(*_args):
+        raise ConnectorError(_DOCTYPE_MSG())
+
+    # Expat sees the real (decoded) document, so this also catches UTF-16 and
+    # other encodings the byte check above cannot. Done before ElementTree
+    # builds anything, so no entity is ever expanded.
+    guard = expat.ParserCreate()
+    guard.StartDoctypeDeclHandler = _refuse
+    guard.EntityDeclHandler = _refuse
     try:
+        guard.Parse(body, True)
         root = ET.fromstring(body)
-    except ET.ParseError as exc:
+    except (ET.ParseError, expat.ExpatError) as exc:
         raise ConnectorError(i18n.t("Feed is not valid XML: {detail}", detail=exc)) from None
     out = []
     for item in root.iter("item"):

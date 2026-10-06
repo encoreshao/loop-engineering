@@ -18,16 +18,20 @@ class LinearConnector(Connector):
     fields = ()
     secret_label = "API key"
 
-    def api(self, query, variables=None, timeout=30):
+    def api(self, query, variables=None, timeout=30, **kw):
         body = {"query": query}
         if variables:
             body["variables"] = variables
         return self.http("POST", API_URL, json_body=body,
-                         headers={"Authorization": self.secret or ""}, timeout=timeout)
+                         headers={"Authorization": self.secret or ""}, timeout=timeout, **kw)
 
     def test(self):
         try:
-            data = self.api("{ viewer { id name } }", timeout=TEST_TIMEOUT_SECONDS)
+            data = self.api("{ viewer { id name } }", timeout=TEST_TIMEOUT_SECONDS, max_attempts=1)
+            if data.get("errors"):
+                first = data["errors"][0]
+                detail = first.get("message", "?") if isinstance(first, dict) else first
+                return False, i18n.t("Linear returned an error: {detail}", detail=detail)
             viewer = (data.get("data") or {}).get("viewer") or {}
             return True, i18n.t("Connected as {name}", name=viewer.get("name", "?"))
         except Exception as exc:  # noqa: BLE001 - test() must never raise

@@ -688,5 +688,6 @@
   "Username": "Nom d'utilisateur",
   "Webhook URL": "URL du webhook",
   "{feeds} feeds, {entries} entries": "{feeds} flux, {entries} entrées",
-  "{feed}: {detail}": "{feed} : {detail}"
+  "{feed}: {detail}": "{feed} : {detail}",
+  "Linear returned an error: {detail}": "Linear a renvoyé une erreur : {detail}"
 }

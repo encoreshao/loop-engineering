@@ -688,5 +688,6 @@
   "Username": "ユーザー名",
   "Webhook URL": "Webhook URL",
   "{feeds} feeds, {entries} entries": "{feeds} 件のフィード、{entries} 件のエントリ",
-  "{feed}: {detail}": "{feed}: {detail}"
+  "{feed}: {detail}": "{feed}: {detail}",
+  "Linear returned an error: {detail}": "Linear がエラーを返しました: {detail}"
 }

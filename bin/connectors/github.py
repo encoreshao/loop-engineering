@@ -28,7 +28,7 @@ class GitHubConnector(Connector):
 
     def test(self):
         try:
-            me = self.api("GET", "/user", timeout=TEST_TIMEOUT_SECONDS)
+            me = self.api("GET", "/user", timeout=TEST_TIMEOUT_SECONDS, max_attempts=1)
             return True, i18n.t("Connected as {name}", name=me.get("login", "?"))
         except Exception as exc:  # noqa: BLE001 - test() must never raise
             return False, describe_http_error(exc)
