@@ -102,7 +102,7 @@ def _budget_row(run):
     ledger RunRecord, or None if it has no budget/timestamp to aggregate
     (incomplete runs, legacy terminal-event runs with no iterations, and
     run_ids without an embedded timestamp) - "skip, don't crash"."""
-    if not run.complete or not run.iterations or run.budget_overall is None:
+    if not run.has_result or not run.iterations or run.budget_overall is None:
         return None
     timestamp = run_timestamp(run.run_id)
     if timestamp is None:

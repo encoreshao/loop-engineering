@@ -711,3 +711,21 @@ def test_audit_accepts_multiple_paths(tmp_path):
 
     assert result.returncode == 0
     assert result.stdout.count("Loop Ready Score") == 2
+
+
+def test_cost_rejects_results_dir(tmp_path):
+    result = _run("cost", "--results-dir", str(tmp_path))
+    assert result.returncode == 2
+    assert "ledger backfill" in result.stderr and "--events-dir" in result.stderr
+
+
+def test_run_subprocess_writes_events_to_override_dir_not_repo(tmp_path, monkeypatch):
+    repo_events = REPO_ROOT / "outputs" / "events"
+    before = {p: p.stat().st_size for p in repo_events.glob("*.jsonl")} if repo_events.exists() else {}
+    override = tmp_path / "ev"
+    monkeypatch.setenv("LOOP_EVENTS_DIR", str(override))
+    path = _write_definition(tmp_path / "loop.yaml")
+    _run("run", str(path), "--results-dir", str(tmp_path / "results"))
+    assert any(override.glob("*.jsonl"))
+    after = {p: p.stat().st_size for p in repo_events.glob("*.jsonl")} if repo_events.exists() else {}
+    assert after == before

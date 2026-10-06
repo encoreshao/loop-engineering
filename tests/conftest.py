@@ -85,4 +85,7 @@ def _no_real_events_dir(monkeypatch, tmp_path_factory):
     test can append to the live ledger. Tests that pass events_dir
     explicitly are unaffected."""
     import events
-    monkeypatch.setattr(events, "DEFAULT_EVENTS_DIR", tmp_path_factory.mktemp("events"))
+    scratch = tmp_path_factory.mktemp("events")
+    monkeypatch.setattr(events, "DEFAULT_EVENTS_DIR", scratch)
+    monkeypatch.setenv("LOOP_EVENTS_DIR", str(scratch))  # inherited by subprocesses
+    return scratch

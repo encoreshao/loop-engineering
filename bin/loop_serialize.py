@@ -147,12 +147,12 @@ def _is_verified_successful(data):
 
 
 def _complete_runs(runs):
-    """Default to the ledger; incomplete runs (started, no terminal event)
-    are not counted by any summary."""
+    """Default to the ledger; only runs backed by a `loop.result` event are
+    counted - incomplete runs and terminal-event-only legacy records are not."""
     if runs is None:
         import ledger
         runs = ledger.iter_runs()
-    return [r for r in runs if r.complete]
+    return [r for r in runs if r.complete and r.has_result]
 
 
 def summarize_results(runs=None):

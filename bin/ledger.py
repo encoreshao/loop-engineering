@@ -26,6 +26,7 @@ class RunRecord:
     total_cost_usd: float | None = None
     iterations: list = field(default_factory=list)
     verified_success: bool = False
+    has_result: bool = False
     budget_overall: str | None = None
     complete: bool = True
 
@@ -79,7 +80,7 @@ def iter_runs(days=None, loop=None, events_dir=None, events_iter=None):
             duration_ms=d.get("duration_ms"), total_cost_usd=d.get("total_cost_usd"),
             iterations=d.get("iterations") or [],
             verified_success=bool(d.get("verified_success")),
-            budget_overall=d.get("budget_overall"), complete=True)))
+            budget_overall=d.get("budget_overall"), has_result=True, complete=True)))
     for run_id, (ts, etype, d) in terminal.items():
         if run_id in results:
             continue
@@ -131,7 +132,7 @@ def backfill_from_results(results_dir=None, events_dir=None):
     import loop_budget
     import loop_serialize
     if events_dir is None:
-        events_dir = events.DEFAULT_EVENTS_DIR
+        events_dir = events.default_events_dir()
     events_dir = Path(events_dir)
     seen = _loop_result_run_ids(events_dir)
     lines = []

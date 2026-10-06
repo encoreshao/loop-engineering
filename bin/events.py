@@ -15,6 +15,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 DEFAULT_EVENTS_DIR = Path(__file__).resolve().parent.parent / "outputs" / "events"
+_REPO_EVENTS_DIR = DEFAULT_EVENTS_DIR
+EVENTS_DIR_ENV = "LOOP_EVENTS_DIR"
+
+
+def default_events_dir():
+    """Resolved at call time: a monkeypatched DEFAULT_EVENTS_DIR wins, then
+    the LOOP_EVENTS_DIR env var (so test/dev subprocesses can be pointed at a
+    scratch dir), then the repo's outputs/events."""
+    if DEFAULT_EVENTS_DIR != _REPO_EVENTS_DIR:
+        return Path(DEFAULT_EVENTS_DIR)
+    env = os.environ.get(EVENTS_DIR_ENV)
+    return Path(env) if env else Path(DEFAULT_EVENTS_DIR)
 
 SCHEMA_VERSION = 1
 
@@ -30,7 +42,7 @@ def emit(event_type, run_id, issue_run_id=None, project=None, issue_iid=None,
     if not run_id:
         raise ValueError("run_id is required")
     if events_dir is None:
-        events_dir = DEFAULT_EVENTS_DIR
+        events_dir = default_events_dir()
 
     now = datetime.now(timezone.utc)
     event = {
@@ -135,7 +147,7 @@ def iter_events(events_dir=None, since_date=None, until_date=None):
     [since_date, until_date] (both 'YYYY-MM-DD' strings, inclusive;
     either or both may be None for unbounded), in filename order."""
     if events_dir is None:
-        events_dir = DEFAULT_EVENTS_DIR
+        events_dir = default_events_dir()
     events_dir = Path(events_dir)
     if not events_dir.exists():
         return
@@ -155,7 +167,7 @@ def _cmd_list(argv):
         print("list: either --date or --run-id is required", file=sys.stderr)
         return 1
     events_dir_raw = _parse_flag(argv, "--events-dir")
-    events_dir = Path(events_dir_raw) if events_dir_raw else DEFAULT_EVENTS_DIR
+    events_dir = Path(events_dir_raw) if events_dir_raw else default_events_dir()
 
     if date_stamp:
         path = Path(events_dir) / f"{date_stamp}.jsonl"

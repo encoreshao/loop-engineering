@@ -12388,8 +12388,8 @@ def _cost_body(days=7):
     every other section). Two cards: the GitLab issue loop's own cost
     (bin/cost.py, windowed by `days` like Analytics still is), and the
     generic LoopRuntime's persisted-run cost (loop_serialize, no time
-    window - it reads whatever is under LOOP_RUNS_DIR, same as the Loop
-    Runs page)."""
+    window - it reads every `loop.result` run in the event ledger, via
+    ledger.iter_runs())."""
     if days not in (7, 30, 90):
         days = 7
 

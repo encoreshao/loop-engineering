@@ -215,8 +215,35 @@ def test_readers_default_to_ledger(tmp_path, monkeypatch):
 def test_incomplete_runs_are_excluded_from_summaries():
     runs = [ledger.RunRecord(run_id="inc", final_state="incomplete", complete=False),
             ledger.RunRecord(run_id="ok", final_state="completed", total_cost_usd=2.0,
-                             iterations=[{"n": 1}], duration_ms=3600000, verified_success=True, budget_overall="ok",
+                             iterations=[{"n": 1}], duration_ms=3600000, verified_success=True, budget_overall="ok", has_result=True,
                              definition="x", loop_name="x")]
     assert loop_serialize.summarize_results(runs)["total_runs"] == 1
     assert loop_serialize.summarize_run_costs(runs)["total_runs"] == 1
     assert loop_budget.summarize_by_loop(runs) == []  # no timestamp-bearing run_id
+
+
+def test_terminal_only_runs_do_not_change_totals():
+    base = ledger.RunRecord(run_id="run_20260901_100000_a", final_state="completed", total_cost_usd=2.0,
+                            iterations=[{"n": 1}], duration_ms=3600000, verified_success=True,
+                            budget_overall="ok", has_result=True, definition="x", loop_name="x")
+    legacy = ledger.RunRecord(run_id="run_20260902_100000_b", final_state="failed", total_cost_usd=5.0,
+                              iterations=[{"n": 1}], budget_overall="ok", definition="x", loop_name="x", complete=True)
+    assert legacy.has_result is False
+    assert loop_serialize.summarize_results([base, legacy]) == loop_serialize.summarize_results([base])
+    assert loop_serialize.summarize_run_costs([base, legacy]) == loop_serialize.summarize_run_costs([base])
+    assert loop_budget.summarize_by_loop([base, legacy]) == loop_budget.summarize_by_loop([base])
+    assert loop_budget.summarize_by_time([base, legacy]) == loop_budget.summarize_by_time([base])
+
+
+def test_iter_runs_marks_has_result():
+    events = [ev("loop.completed", "t", "2026-10-06T09:01:00Z", final_state="completed"),
+              ev("loop.result", "r", "2026-10-06T09:00:00Z", run_id="r", definition="x", final_state="completed", iterations=[])]
+    runs = {r.run_id: r for r in ledger.iter_runs(events_iter=lambda **kw: events)}
+    assert runs["r"].has_result is True and runs["t"].has_result is False
+
+
+def test_events_dir_env_override_resolved_at_call_time(tmp_path, monkeypatch):
+    import events
+    monkeypatch.undo()  # drop conftest's monkeypatch of the constant
+    monkeypatch.setenv("LOOP_EVENTS_DIR", str(tmp_path / "e"))
+    assert events.default_events_dir() == tmp_path / "e"

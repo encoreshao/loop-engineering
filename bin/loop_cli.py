@@ -354,6 +354,10 @@ def _print_run_detail(data):
 
 def _cmd_cost(argv):
     import ledger
+    if "--results-dir" in argv:
+        print("cost: --results-dir is no longer supported; costs are read from the event ledger. "
+              "Run `loop ledger backfill [--results-dir DIR]` then `loop cost [--events-dir DIR]`.", file=sys.stderr)
+        return 2
     events_dir = _parse_flag(argv, "--events-dir")
     summary = summarize_run_costs(ledger.iter_runs(events_dir=events_dir))
 

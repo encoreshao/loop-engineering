@@ -82,7 +82,10 @@ why it must always be set before running anything in dev/verification.
 `<repo_root>/outputs/events/` regardless of `LOOP_ENGINEERING_HOME`,
 because events are per-checkout run history (same category as
 `outputs/daily-review.md`/`outputs/history/`), not per-machine config
-like `projects.json`.
+like `projects.json`. The one override is the `LOOP_EVENTS_DIR` env var
+(resolved at call time by `events.default_events_dir()`): set it to a scratch
+dir for any subprocess that emits events - `tests/conftest.py` does this for
+every test, so spawned `loop_cli.py run` processes never touch the real ledger.
 `outputs/connectors/test-results.json` (the Connectors page's last Test
 result per account) is the same kind of per-checkout exception: it always
 lives under `<repo_root>/outputs/connectors/`, regardless of
