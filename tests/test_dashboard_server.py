@@ -1275,7 +1275,7 @@ def test_dashboard_server_integration_history_route(tmp_path, monkeypatch):
             body = response.read().decode("utf-8")
             assert "some content" in body
             assert "class='sidebar-nav'" in body
-            assert "<a href='/gitlab'" in body
+            assert "<a href='/loops'" in body
             assert "auto-refreshes every 30s" not in body
 
         try:
@@ -3124,71 +3124,92 @@ def test_nav_link_not_active_for_non_matching_key():
 
 
 def test_nav_items_each_carry_a_material_symbols_icon():
-    # "notifications" and "gitlab" are excluded: they render real brand
-    # marks (inline SVGs), not Material Symbols glyphs - see
-    # test_slack_nav_item_present_with_icon and
-    # test_gitlab_nav_item_present_with_icon.
     expected_names = {
         "overview": "space_dashboard",
-        "analytics": "monitoring",
-        "history": "history",
-        "loop_runs": "loop",
-        "cost": "payments",
-        "audit": "fact_check",
-        "budget": "account_balance_wallet",
-        "memory": "lightbulb",
-        "daemons": "dns",
-        "skills": "extension",
-        "settings": "settings",
-        "general_settings": "tune",
-        "activity": "bolt",
-        "readme": "description",
-        "topic_monitor": "newspaper",
-        "topic_settings": "settings",
-        "logs": "terminal",
-        "inbox": "email",
-        "inbox_setup": "settings",
+        "loops": "autorenew",
+        "runs": "loop",
+        "insights": "monitoring",
+        "harness": "fact_check",
+        "settings": "tune",
     }
+    assert [k for k, *_ in ds._NAV_ITEMS] == list(expected_names)
     for key, href, label, icon in ds._NAV_ITEMS:
-        if key in ("notifications", "gitlab"):
-            continue
         assert icon == f"<span class='material-symbols-outlined' aria-hidden='true'>{expected_names[key]}</span>"
 
 
-def test_gitlab_nav_item_present_with_icon():
-    matching = [item for item in ds._NAV_ITEMS if item[0] == "gitlab"]
-    assert len(matching) == 1
-    key, href, label, icon = matching[0]
-    assert href == "/gitlab"
-    assert label == "Live GitLab"
-    # The real GitLab "tanuki" brand mark - an inline SVG, not a Material
-    # Symbols glyph (there's no generic "GitLab" glyph in that icon set) -
-    # drawn in currentColor, same reasoning as the Slack mark, so it
-    # matches every other nav icon's color across accent/theme changes.
-    assert icon == ds._SECTION_ICON_GITLAB
-    assert icon.startswith("<svg")
-    assert "fill='currentColor'" in icon
+def test_nav_has_seven_or_fewer_top_level_items():
+    assert [k for k, *_ in ds._NAV_ITEMS] == ["overview", "loops", "runs", "insights", "harness", "settings"]
+    assert len(ds._NAV_ITEMS) <= 7
 
 
-def test_settings_nav_item_present_with_icon():
-    matching = [item for item in ds._NAV_ITEMS if item[0] == "settings"]
-    assert len(matching) == 1
-    key, href, label, icon = matching[0]
-    assert href == "/settings"
-    assert label == "GitLab Settings"
-    assert icon == "<span class='material-symbols-outlined' aria-hidden='true'>settings</span>"
+def test_nav_items_point_at_hub_paths():
+    assert {k: href for k, href, *_ in ds._NAV_ITEMS} == {
+        "overview": "/", "loops": "/loops", "runs": "/runs",
+        "insights": "/insights", "harness": "/harness", "settings": "/settings",
+    }
 
 
-def test_general_settings_nav_item_present_with_icon():
-    matching = [item for item in ds._NAV_ITEMS if item[0] == "general_settings"]
-    assert len(matching) == 1
-    key, href, label, icon = matching[0]
-    assert href == "/settings/general"
-    assert label == "Settings"
-    # Deliberately not the GitLab settings page's gear glyph - see
-    # _SECTION_ICON_GENERAL_SETTINGS's own comment.
-    assert icon == ds._SECTION_ICON_GENERAL_SETTINGS
-    assert icon != ds._SECTION_ICON_SETTINGS
+def test_nav_groups_structure():
+    assert ds._NAV_GROUPS == (
+        (None, ("overview",)), ("Loops", ("loops",)),
+        ("Observe", ("runs", "insights", "harness")), ("System", ("settings",)),
+    )
+
+
+def test_nav_link_extra_class_renders_alongside_active():
+    link = ds._nav_link("x", "/x", "X", "<i/>", active_page="x", extra_class="nav-child")
+    assert link.startswith("<a href='/x' title='X' class='nav-child active'>")
+    link = ds._nav_link("x", "/x", "X", "<i/>", active_page="y", extra_class="nav-child")
+    assert link.startswith("<a href='/x' title='X' class='nav-child'>")
+
+
+def test_new_nav_glyphs_registered_and_sorted():
+    names = ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
+    assert "autorenew" in names and "help" in names
+    assert names == sorted(names)
+
+
+def test_sidebar_lists_only_visible_loops_as_children():
+    loops = [{"name": "gitlab-loop", "enabled": True}, {"name": "inbox-triage-loop", "enabled": False}]
+    out = ds._sidebar_html("overview", loops=loops, status_path_fn=lambda n: Path("/nonexistent"))
+    assert "href='/loops/gitlab-loop'" in out
+    assert "href='/loops/inbox-triage-loop'" not in out
+
+
+def test_sidebar_child_active_for_loop_page():
+    out = ds._sidebar_html("loop:gitlab-loop", loops=[{"name": "gitlab-loop", "enabled": True}],
+                           status_path_fn=lambda n: Path("/nonexistent"))
+    child_tag = out.split("href='/loops/gitlab-loop'")[1].split(">", 1)[0]
+    assert "active" in child_tag
+    # the parent Loops item is active too
+    assert "<a href='/loops' title='Loops' class='active'>" in out
+
+
+def test_sidebar_loops_item_not_active_on_other_pages():
+    out = ds._sidebar_html("runs", loops=[], status_path_fn=lambda n: Path("/nonexistent"))
+    assert "<a href='/loops' title='Loops'>" in out
+    assert "<a href='/runs' title='Runs' class='active'>" in out
+
+
+def test_sidebar_without_loops_arg_tolerates_missing_registry(monkeypatch):
+    def boom():
+        raise FileNotFoundError("nope")
+    monkeypatch.setattr(ds.loops_config, "list_loops", boom)
+    out = ds._sidebar_html("overview")
+    assert "href='/loops'" in out
+
+
+def test_topbar_has_readme_help_link(monkeypatch):
+    monkeypatch.setattr(ds, "_analytics_body", lambda **kw: "")
+    out = ds.render_hub_page("insights")
+    assert "href='/readme'" in _topbar_of(out)
+    assert "<span class='material-symbols-outlined' aria-hidden='true'>help</span>" in _topbar_of(out)
+
+
+def test_insights_hub_sidebar_marks_insights_active(monkeypatch):
+    monkeypatch.setattr(ds, "_analytics_body", lambda **kw: "")
+    out = ds.render_hub_page("insights")
+    assert "<a href='/insights' title='Insights' class='active'>" in out
 
 
 def test_general_settings_material_symbol_name_is_registered():
@@ -3221,33 +3242,6 @@ def test_render_general_settings_page_notifications_tab_uses_slack_mark(monkeypa
     assert icon.startswith("<svg")
     assert "fill='currentColor'" in icon
     assert "#e01e5a" not in icon and "#36c5f0" not in icon and "#2eb67d" not in icon and "#ecb22e" not in icon
-
-
-def test_activity_nav_item_present_with_icon():
-    matching = [item for item in ds._NAV_ITEMS if item[0] == "activity"]
-    assert len(matching) == 1
-    key, href, label, icon = matching[0]
-    assert href == "/activity"
-    assert label == "Activity"
-    assert icon == "<span class='material-symbols-outlined' aria-hidden='true'>bolt</span>"
-
-
-def test_topic_monitor_nav_item_present_with_icon():
-    matching = [item for item in ds._NAV_ITEMS if item[0] == "topic_monitor"]
-    assert len(matching) == 1
-    key, href, label, icon = matching[0]
-    assert href == "/topic-monitor"
-    assert label == "Topic Monitor"
-    assert icon == "<span class='material-symbols-outlined' aria-hidden='true'>newspaper</span>"
-
-
-def test_topic_settings_nav_item_present_with_icon():
-    matching = [item for item in ds._NAV_ITEMS if item[0] == "topic_settings"]
-    assert len(matching) == 1
-    key, href, label, icon = matching[0]
-    assert href == "/topic-monitor/settings"
-    assert label == "Topic Settings"
-    assert icon == "<span class='material-symbols-outlined' aria-hidden='true'>settings</span>"
 
 
 def test_check_and_dot_icons_are_material_symbols():
@@ -3444,118 +3438,28 @@ def test_collapsed_sidebar_top_stacks_brand_and_toggle_instead_of_squeezing_them
     collapsed_rule = ds._STYLE.split("html.collapsed .sidebar-top {")[1].split("}")[0]
 
     assert "flex-direction: column;" in collapsed_rule
-    sidebar = ds._sidebar_html("overview")
-    for label in ("Dashboard", "Run History", "Live GitLab", "Memory", "Daemons", "GitLab Settings", "Activity"):
-        assert label in sidebar
-    # The GitLab settings page lives in the Configuration group, which
-    # comes after System in _NAV_GROUPS, regardless of _NAV_ITEMS's own
-    # ordering. Order here follows _NAV_GROUPS (Live: activity/gitlab/
-    # topic_monitor/logs, then History: loop_runs/history, then Insights:
-    # analytics/memory/cost/audit/budget, then System: daemons/skills),
-    # not _NAV_ITEMS's own tuple order.
+    sidebar = ds._sidebar_html("overview", loops=[])
+    for label in ("Dashboard", "Loops", "Runs", "Insights", "Harness", "Settings"):
+        assert f"title='{label}'" in sidebar
+    positions = [sidebar.index(f"title='{l}'") for l in ("Dashboard", "Loops", "Runs", "Insights", "Harness", "Settings")]
+    assert positions == sorted(positions)
+
+
+def test_sidebar_html_group_labels_in_order():
+    sidebar = ds._sidebar_html("overview", loops=[])
+    assert sidebar.index("title='Dashboard'") < sidebar.index("sidebar-group-label'>Loops<")
     assert (
-        sidebar.index("Dashboard") < sidebar.index("Activity")
-        < sidebar.index("Live GitLab") < sidebar.index("Run History")
-        < sidebar.index("Memory") < sidebar.index("Daemons") < sidebar.index("title='GitLab Settings'")
+        sidebar.index("sidebar-group-label'>Loops<") < sidebar.index("sidebar-group-label'>Observe<")
+        < sidebar.index("sidebar-group-label'>System<")
     )
-
-
-def test_sidebar_html_groups_settings_and_general_settings_under_configuration():
-    sidebar = ds._sidebar_html("overview")
-    assert "sidebar-group-label'>Configuration<" in sidebar
-    config_index = sidebar.index("sidebar-group-label'>Configuration<")
-    config_block = sidebar[config_index:]
-    assert "title='GitLab Settings'" in config_block
-    assert "title='Settings'" in config_block
-    assert "Topic Settings" in config_block
-    # Activity is a Live-group page, not Configuration - it must appear
-    # before the Configuration label, not inside its block.
-    assert sidebar.index("title='Activity'") < config_index
+    assert sidebar.index("sidebar-group-label'>Observe<") < sidebar.index("title='Runs'")
+    assert sidebar.index("sidebar-group-label'>System<") < sidebar.index("title='Settings'")
 
 
 def test_sidebar_html_marks_active_page():
-    sidebar = ds._sidebar_html("daemons")
-    assert "<a href='/daemons' title='Daemons' class='active'>" in sidebar
+    sidebar = ds._sidebar_html("runs", loops=[])
+    assert "<a href='/runs' title='Runs' class='active'>" in sidebar
     assert "<a href='/' title='Dashboard' class='active'>" not in sidebar
-
-
-def test_sidebar_html_groups_main_nav_items_with_labels():
-    """Dashboard stands alone (no label - it's the landing page, not part
-    of a group); the rest cluster under Live/History/Insights/System/
-    Configuration/Docs labels, with Docs deliberately last (least-visited
-    group). Live/History/Insights replaced the old single "Monitor" group
-    (it held 11 items, too many to scan): Live is the 4 pages that
-    actually auto-refresh (activity/gitlab/topic_monitor/logs - see
-    test_render_history_page_does_not_auto_refresh's own docstring),
-    History is archived run records (loop_runs/history), Insights is
-    computed reports/scores/knowledge (analytics/memory/cost/audit/
-    budget)."""
-    sidebar = ds._sidebar_html("overview")
-
-    overview_index = sidebar.index("title='Dashboard'")
-    live_index = sidebar.index("sidebar-group-label'>Live<")
-    history_label_index = sidebar.index("sidebar-group-label'>History<")
-    insights_index = sidebar.index("sidebar-group-label'>Insights<")
-    system_index = sidebar.index("sidebar-group-label'>System<")
-    daemons_index = sidebar.index("title='Daemons'")
-    docs_index = sidebar.index("sidebar-group-label'>Docs<")
-    readme_index = sidebar.index("title='README'")
-    config_index = sidebar.index("sidebar-group-label'>Configuration<")
-    settings_index = sidebar.index("title='GitLab Settings'")
-
-    # Dashboard comes before any group label - it isn't inside one
-    assert overview_index < live_index
-    for label in ("Live", "History", "Insights", "System", "Docs", "Configuration"):
-        assert f"sidebar-group-label'>{label}<" in sidebar
-
-    assert live_index < history_label_index < insights_index < system_index
-    assert system_index < daemons_index < config_index
-    assert config_index < settings_index < docs_index < readme_index
-
-    activity_index = sidebar.index("title='Activity'")
-    gitlab_index = sidebar.index("title='Live GitLab'")
-    topic_monitor_index = sidebar.index("title='Topic Monitor'")
-    logs_index = sidebar.index("title='Logs'")
-    loop_runs_index = sidebar.index("title='Loop Runs'")
-    run_history_index = sidebar.index("title='Run History'")
-    analytics_index = sidebar.index("title='Analytics'")
-    memory_index = sidebar.index("title='Memory'")
-    cost_index = sidebar.index("title='Cost'")
-    audit_index = sidebar.index("title='Audit'")
-    budget_index = sidebar.index("title='Budget'")
-
-    # Within Live: activity, live gitlab, topic monitor, logs
-    assert live_index < activity_index < gitlab_index < topic_monitor_index < logs_index < history_label_index
-    # Within History: loop runs (newer/structured), then run history (legacy)
-    assert history_label_index < loop_runs_index < run_history_index < insights_index
-    # Within Insights: analytics, memory, then the cost/audit/budget trio
-    assert insights_index < analytics_index < memory_index < cost_index < audit_index < budget_index < system_index
-
-    for key in (
-        "history", "gitlab", "memory", "activity", "loop_runs", "logs", "topic_monitor",
-        "analytics", "cost", "audit", "budget",
-        "daemons", "skills", "readme", "settings", "general_settings", "topic_settings",
-    ):
-        assert ds._NAV_GROUP_OF[key]
-
-    assert ds._NAV_GROUP_OF["activity"] == "Live"
-    assert ds._NAV_GROUP_OF["gitlab"] == "Live"
-    assert ds._NAV_GROUP_OF["topic_monitor"] == "Live"
-    assert ds._NAV_GROUP_OF["logs"] == "Live"
-    assert ds._NAV_GROUP_OF["loop_runs"] == "History"
-    assert ds._NAV_GROUP_OF["history"] == "History"
-    assert ds._NAV_GROUP_OF["analytics"] == "Insights"
-    assert ds._NAV_GROUP_OF["memory"] == "Insights"
-    assert ds._NAV_GROUP_OF["cost"] == "Insights"
-    assert ds._NAV_GROUP_OF["audit"] == "Insights"
-    assert ds._NAV_GROUP_OF["budget"] == "Insights"
-    assert ds._NAV_GROUP_OF["daemons"] == "System"
-    assert ds._NAV_GROUP_OF["skills"] == "System"
-    assert ds._NAV_GROUP_OF["readme"] == "Docs"
-    assert ds._NAV_GROUP_OF["settings"] == "Configuration"
-    assert ds._NAV_GROUP_OF["general_settings"] == "Configuration"
-    assert ds._NAV_GROUP_OF["topic_settings"] == "Configuration"
-    assert "overview" not in ds._NAV_GROUP_OF
 
 
 def test_sidebar_group_labels_hide_when_collapsed():
@@ -3608,9 +3512,9 @@ def test_render_shell_escapes_title():
 
 def test_render_shell_marks_current_page_active_and_includes_badge():
     page = ds._render_shell(
-        "Test", "gitlab", "<span class='pill pill-green'>Idle</span>", "<p>b</p>", refresh_note=True
+        "Test", "runs", "<span class='pill pill-green'>Idle</span>", "<p>b</p>", refresh_note=True
     )
-    assert "<a href='/gitlab' title='Live GitLab' class='active'>" in page
+    assert "<a href='/runs' title='Runs' class='active'>" in page
     assert "<a href='/' title='Dashboard' class='active'>" not in page
     assert "<span class='pill pill-green'>Idle</span>" in page
     assert "auto-refreshes every 30s" in page
@@ -3619,7 +3523,8 @@ def test_render_shell_marks_current_page_active_and_includes_badge():
 def test_render_shell_omits_refresh_note_when_disabled_but_keeps_sidebar_and_badge():
     page = ds._render_shell("Test", "history", "<span class='pill pill-green'>Idle</span>", "<p>b</p>", refresh_note=False)
     assert "auto-refreshes every 30s" not in page
-    assert "<a href='/history' title='Run History' class='active'>" in page
+    # legacy page keys light up the hub they now live under
+    assert "<a href='/runs' title='Runs' class='active'>" in page
     assert "<span class='pill pill-green'>Idle</span>" in page
 
 
@@ -4510,7 +4415,7 @@ def test_pref_swatch_preview_is_larger_than_a_plain_color_dot():
 def test_render_general_settings_page_nav_marks_active():
     output = ds.render_general_settings_page(active_tab="appearance")
 
-    assert "<a href='/settings/general' title='Settings' class='active'>" in output
+    assert "<a href='/settings' title='Settings' class='active'>" in output
     assert "data-tab-target='appearance' role='tab' aria-selected='true'" in output
 
 
@@ -4965,13 +4870,6 @@ def test_render_logs_page_renders_each_entry_as_its_own_block(tmp_path, monkeypa
 
     assert output.count("class='log-entry'") == 2
     assert "gitlab-loop" in output and "chat-assistant" in output
-
-
-def test_logs_nav_item_present_in_live_group_after_activity(tmp_path):
-    sidebar = ds._sidebar_html("overview")
-
-    assert ds._NAV_GROUP_OF["logs"] == "Live"
-    assert sidebar.index("title='Activity'") < sidebar.index("title='Logs'") < sidebar.index("title='Run History'")
 
 
 def test_dashboard_server_integration_logs_route():
@@ -6349,12 +6247,12 @@ def test_nav_active_class_matches_current_page(monkeypatch, tmp_path):
     monkeypatch.setattr(loop_config, "DEFAULT_CONFIG_PATH", tmp_path / "does-not-exist-projects.json")
 
     assert "<a href='/' title='Dashboard' class='active'>" in ds.render_overview_page()
-    assert "<a href='/history' title='Run History' class='active'>" in ds.render_history_page()
-    assert "<a href='/gitlab' title='Live GitLab' class='active'>" in ds.render_gitlab_page()
-    assert "<a href='/memory' title='Memory' class='active'>" in ds.render_memory_page()
-    assert "<a href='/daemons' title='Daemons' class='active'>" in ds.render_daemons_page()
-    assert "<a href='/settings' title='GitLab Settings' class='active'>" in ds.render_settings_page()
-    assert "<a href='/settings/general' title='Settings' class='active'>" in ds.render_general_settings_page()
+    assert "<a href='/runs' title='Runs' class='active'>" in ds.render_history_page()
+    assert "<a href='/loops' title='Loops' class='active'>" in ds.render_gitlab_page()
+    assert "<a href='/insights' title='Insights' class='active'>" in ds.render_memory_page()
+    assert "<a href='/settings' title='Settings' class='active'>" in ds.render_daemons_page()
+    assert "<a href='/settings' title='Settings' class='active'>" in ds.render_settings_page()
+    assert "<a href='/settings' title='Settings' class='active'>" in ds.render_general_settings_page()
 
 
 def test_read_gitlab_config_missing_file_returns_empty_dict(tmp_path):
@@ -10128,11 +10026,6 @@ def test_material_symbols_icon_names_includes_monitoring():
     assert "monitoring" in ds._MATERIAL_SYMBOLS_ICON_NAMES
 
 
-def test_sidebar_html_marks_analytics_active():
-    sidebar = ds._sidebar_html("analytics")
-    assert "<a href='/analytics' title='Analytics' class='active'>" in sidebar
-
-
 def test_render_analytics_page_empty_event_log_renders_without_crash(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
     monkeypatch.setattr(ds.metrics.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
@@ -10457,7 +10350,7 @@ def test_render_analytics_page_no_longer_links_cost_but_dashboard_nav_does(monke
     output = ds.render_analytics_page(days=7)
 
     assert "<h2>Cost</h2>" not in output
-    assert "href='/cost'" in output  # nav sidebar still links to the new page
+    assert "href='/insights'" in output  # nav sidebar links to the Insights hub
 
 
 def _write_loop_definition_yaml(path, **overrides):
@@ -11242,13 +11135,6 @@ def test_google_callback_route_redirects_to_inboxes_tab():
     assert location.startswith("/loops/inbox-triage-loop?view=setup&tab=inboxes&")
 
 
-def test_nav_has_inbox_pages_in_groups():
-    keys = {item[0]: item for item in ds._NAV_ITEMS}
-    assert keys["inbox"][1] == "/inbox" and keys["inbox_setup"][1] == "/inbox/setup"
-    assert ds._NAV_GROUP_OF["inbox"] == "Live"
-    assert ds._NAV_GROUP_OF["inbox_setup"] == "Configuration"
-
-
 def test_inbox_pages_render_over_http(tmp_path, monkeypatch):
     monkeypatch.setattr(ds.inbox_config, "DEFAULT_CONFIG_PATH", tmp_path / "inboxes.json")
     monkeypatch.setattr(ds.inbox_config, "DEFAULT_OAUTH_PATH", tmp_path / "mail_oauth.json")
@@ -11680,15 +11566,49 @@ def test_render_shell_includes_resizable_ai_panel_with_composer():
 
 
 def test_ai_panel_offers_prompts_for_the_current_page():
-    memory_body = ds._render_shell("Memory", "memory", "<span>b</span>", "<p>x</p>")
+    memory_body = ds._render_shell("Insights", "insights", "<span>b</span>", "<p>x</p>")
     panel = memory_body.split("<aside class='ai-panel'", 1)[1].split("</aside>", 1)[0]
-    for _icon, label, prompt, _send in ds._AI_PANEL_PROMPTS["memory"]:
+    for _icon, label, prompt, _send in ds._AI_PANEL_PROMPTS["insights"]:
         assert html.escape(label) in panel
         assert html.escape(prompt, quote=True) in panel
     overview_body = ds._render_shell("Dashboard", "overview", "<span>b</span>", "<p>x</p>")
     overview_panel = overview_body.split("<aside class='ai-panel'", 1)[1].split("</aside>", 1)[0]
     assert "What is the loop doing right now?" in overview_panel
     assert "What has the loop learned so far?" not in overview_panel
+
+
+def test_ai_panel_prompt_table_uses_hub_keys_with_at_most_four_prompts():
+    assert set(ds._AI_PANEL_PROMPTS) == {"overview", "loops", "runs", "insights", "harness", "settings"}
+    for key, prompts in ds._AI_PANEL_PROMPTS.items():
+        assert 1 <= len(prompts) <= 4, key
+
+
+def test_ai_panel_loop_page_uses_loops_prompts_and_label():
+    body = ds._render_shell("GitLab", "loop:gitlab-loop", "<span>b</span>", "<p>x</p>")
+    panel = body.split("<aside class='ai-panel'", 1)[1].split("</aside>", 1)[0]
+    for _icon, label, _prompt, _send in ds._AI_PANEL_PROMPTS["loops"]:
+        assert html.escape(label) in panel
+    assert "Suggestions for Loops" in panel
+
+
+def test_legacy_page_keys_map_to_hubs():
+    assert ds._nav_key("history") == "runs"
+    assert ds._nav_key("topic_settings") == "loops"
+    assert ds._nav_key("loop:x") == "loops"
+    assert ds._nav_key("overview") == "overview"
+    assert ds._nav_key("readme") == "readme"
+
+
+def test_build_chat_prompt_maps_loop_page_to_loops_item():
+    assert "Loops page" in ds.build_chat_prompt("hi", [], page="loop:gitlab-loop")
+    assert "Insights page" in ds.build_chat_prompt("hi", [], page="insights")
+    assert ds.build_chat_prompt("hi", [], page="bogus") == "hi"
+
+
+@pytest.mark.parametrize("code", ["ja", "zh", "fr"])
+def test_help_label_has_a_translation(code):
+    catalog = json.loads((Path(ds.__file__).resolve().parent.parent / "locales" / f"{code}.json").read_text("utf-8"))
+    assert catalog.get("Help")
 
 
 def test_ai_panel_falls_back_to_default_prompts_for_unknown_page():
@@ -11733,17 +11653,17 @@ def test_every_ai_panel_prompt_has_a_translation(code):
 
 def test_ai_panel_prompts_render_translated(lang):
     lang("ja")
-    body = ds._render_shell("Memory", "memory", "<span>b</span>", "<p>x</p>")
+    body = ds._render_shell("Insights", "insights", "<span>b</span>", "<p>x</p>")
     panel = body.split("<aside class='ai-panel'", 1)[1].split("</aside>", 1)[0]
-    _icon, label, prompt, _send = ds._AI_PANEL_PROMPTS["memory"][0]
+    _icon, label, prompt, _send = ds._AI_PANEL_PROMPTS["insights"][0]
     assert html.escape(i18n.t(label)) in panel
     assert html.escape(i18n.t(prompt), quote=True) in panel
 
 
 def test_build_chat_prompt_adds_current_page_context():
-    prompt = ds.build_chat_prompt("what is this?", [], page="memory")
-    assert "Memory" in prompt
-    assert "/memory" in prompt
+    prompt = ds.build_chat_prompt("what is this?", [], page="insights")
+    assert "Insights" in prompt
+    assert "/insights" in prompt
     assert prompt.endswith("what is this?")
 
 
@@ -12128,7 +12048,7 @@ def test_ai_panel_script_refreshes_the_page_after_a_change():
 
 
 def test_ai_panel_offers_setup_prompts_on_settings_pages():
-    topic_prompts = [p[2] for p in ds._AI_PANEL_PROMPTS["topic_settings"]]
+    topic_prompts = [p[2] for p in ds._AI_PANEL_PROMPTS["loops"]]
     settings_prompts = [p[2] for p in ds._AI_PANEL_PROMPTS["settings"]]
     assert ds._AI_PROMPT_ADD_TOPIC[2] in topic_prompts
     assert ds._AI_PROMPT_ADD_PROJECT[2] in settings_prompts

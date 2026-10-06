@@ -838,7 +838,8 @@ def build_chat_prompt(user_text, recent_messages, page=None):
     was opened on (see _ai_panel_html), so "what am I looking at?" has an
     answer. Only a known key adds anything - the value comes from the
     browser, and free text from it must never reach the prompt."""
-    page_item = next((item for item in _NAV_ITEMS if page and item[0] == page), None)
+    nav_key = _nav_key(page)
+    page_item = next((item for item in _NAV_ITEMS if nav_key and item[0] == nav_key), None)
     context = (
         f"(The user is viewing the dashboard's {page_item[2]} page, {page_item[1]}.)\n\n"
         if page_item else ""
@@ -4040,7 +4041,7 @@ _FONT_FACE_VARS = "\n".join(
 # name that isn't listed here renders as tofu/missing glyph. Add a new name
 # to this list before shipping a new icon constant that uses it.
 _MATERIAL_SYMBOLS_ICON_NAMES = (
-    "account_balance_wallet,add,add_comment,arrow_forward,arrow_upward,auto_awesome,bolt,check,check_circle,chevron_left,circle,close,content_copy,delete,description,"
+    "account_balance_wallet,add,add_comment,arrow_forward,arrow_upward,auto_awesome,autorenew,bolt,check,check_circle,chevron_left,circle,close,content_copy,delete,description,"
     "dns,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,help,history,lightbulb,loop,merge,monitoring,newspaper,"
     "open_in_new,palette,payments,save,send,settings,smart_toy,space_dashboard,speed,terminal,topic,translate,tune,warning,widgets"
 )
@@ -4523,6 +4524,22 @@ button:focus-visible,
   flex-shrink: 0;
   transition: background-color 150ms ease;
 }}
+.topbar-icon {{
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: var(--md-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  text-decoration: none;
+  transition: background-color 150ms ease;
+}}
+.topbar-icon .material-symbols-outlined {{ font-size: 22px; }}
+.topbar-icon:hover {{ background: var(--md-nav-active-surface); text-decoration: none; }}
+.sidebar-nav a.nav-child {{ padding-left: 2.1rem; font-size: 0.8rem; }}
+html.collapsed .sidebar-nav a.nav-child {{ padding-left: 0.9rem; }}
 .ai-panel-trigger .material-symbols-outlined {{ font-size: 22px; }}
 .ai-panel-trigger:hover {{ background: var(--md-nav-active-surface); }}
 html.ai-panel-open .ai-panel-trigger {{
@@ -6466,7 +6483,7 @@ _SECTION_ICON_SLACK = (
     "</svg>"
 )
 _SECTION_ICON_SKILLS = "<span class='material-symbols-outlined' aria-hidden='true'>extension</span>"
-_SECTION_ICON_README = "<span class='material-symbols-outlined' aria-hidden='true'>description</span>"
+_SECTION_ICON_LOOPS = "<span class='material-symbols-outlined' aria-hidden='true'>autorenew</span>"
 _SECTION_ICON_PREFERENCES = "<span class='material-symbols-outlined' aria-hidden='true'>palette</span>"
 _SECTION_ICON_INSTRUCTIONS = "<span class='material-symbols-outlined' aria-hidden='true'>edit_note</span>"
 _SECTION_ICON_AI_CLI = "<span class='material-symbols-outlined' aria-hidden='true'>smart_toy</span>"
@@ -6578,62 +6595,57 @@ def _status_badge(state):
 
 _NAV_ITEMS = (
     ("overview", "/", "Dashboard", _SECTION_ICON_OVERVIEW),
-    ("activity", "/activity", "Activity", _SECTION_ICON_ACTIVITY),
-    ("gitlab", "/gitlab", "Live GitLab", _SECTION_ICON_GITLAB),
-    ("topic_monitor", "/topic-monitor", "Topic Monitor", _SECTION_ICON_TOPIC_MONITOR),
-    ("inbox", "/inbox", "Inbox Triage", _SECTION_ICON_INBOX),
-    ("logs", "/logs", "Logs", _SECTION_ICON_LOGS),
-    ("loop_runs", "/loop-runs", "Loop Runs", _SECTION_ICON_LOOP_RUNS),
-    ("history", "/history", "Run History", _SECTION_ICON_HISTORY),
-    ("analytics", "/analytics", "Analytics", _SECTION_ICON_ANALYTICS),
-    ("memory", "/memory", "Memory", _SECTION_ICON_MEMORY),
-    ("cost", "/cost", "Cost", _SECTION_ICON_COST),
-    ("audit", "/audit", "Audit", _SECTION_ICON_AUDIT),
-    ("budget", "/budget", "Budget", _SECTION_ICON_BUDGET),
-    ("daemons", "/daemons", "Daemons", _SECTION_ICON_DAEMONS),
-    ("skills", "/skills", "Skills", _SECTION_ICON_SKILLS),
-    ("settings", "/settings", "GitLab Settings", _SECTION_ICON_SETTINGS),
-    ("general_settings", "/settings/general", "Settings", _SECTION_ICON_GENERAL_SETTINGS),
-    ("topic_settings", "/topic-monitor/settings", "Topic Settings", _SECTION_ICON_SETTINGS),
-    ("inbox_setup", "/inbox/setup", "Inbox Setup", _SECTION_ICON_SETTINGS),
-    ("readme", "/readme", "README", _SECTION_ICON_README),
+    ("loops", "/loops", "Loops", _SECTION_ICON_LOOPS),
+    ("runs", "/runs", "Runs", _SECTION_ICON_LOOP_RUNS),
+    ("insights", "/insights", "Insights", _SECTION_ICON_ANALYTICS),
+    ("harness", "/harness", "Harness", _SECTION_ICON_AUDIT),
+    ("settings", "/settings", "Settings", _SECTION_ICON_GENERAL_SETTINGS),
 )
 
 
 _NAV_GROUPS = (
     # (label or None, keys...) - None means "ungrouped, no label" (just
     # Dashboard: the landing page, not really part of any category).
-    # Live/History/Insights replaced a single 11-item "Monitor" group that
-    # had grown too long to scan at a glance:
-    #   Live = the 5 pages that actually auto-refresh with live state
-    #     (activity/gitlab/topic_monitor/inbox/logs - see
-    #     test_render_history_page_does_not_auto_refresh's own docstring
-    #     for why Run History is deliberately NOT one of these)
-    #   History = archived records of past runs (loop_runs/history)
-    #   Insights = computed reports, scores, and accumulated knowledge
-    #     (analytics/memory/cost/audit/budget)
-    # System = the infrastructure underneath the loop (launchd daemons,
-    # external skill deps); Configuration = settings/meta pages; Docs =
-    # reference material, deliberately last since it's the least-visited
-    # group.
+    # Loops holds the loop catalog and, under it, one child link per
+    # visible loop (see _sidebar_html); Observe is the read-only hubs;
+    # System is settings. Help (the README) lives in the topbar instead.
     (None, ("overview",)),
-    ("Live", ("activity", "gitlab", "topic_monitor", "inbox", "logs")),
-    ("History", ("loop_runs", "history")),
-    ("Insights", ("analytics", "memory", "cost", "audit", "budget")),
-    ("System", ("daemons", "skills")),
-    ("Configuration", ("settings", "topic_settings", "inbox_setup", "general_settings")),
-    ("Docs", ("readme",)),
+    ("Loops", ("loops",)),
+    ("Observe", ("runs", "insights", "harness")),
+    ("System", ("settings",)),
 )
-_NAV_GROUP_OF = {key: label for label, keys in _NAV_GROUPS if label for key in keys}
 
 
-def _nav_link(key, href, label, icon, active_page):
+# Page keys that older single-purpose renderers (and the run/inbox detail
+# sub-pages) still pass to _render_shell, mapped to the _NAV_ITEMS hub they
+# now live under, so the sidebar highlight and AI panel follow them.
+_LEGACY_PAGE_NAV_KEY = {
+    "activity": "overview",
+    "gitlab": "loops", "topic_monitor": "loops", "topic_settings": "loops",
+    "inbox": "loops", "inbox_setup": "loops",
+    "loop_runs": "runs", "history": "runs", "logs": "runs",
+    "analytics": "insights", "memory": "insights", "cost": "insights", "budget": "insights",
+    "audit": "harness",
+    "daemons": "settings", "skills": "settings", "general_settings": "settings",
+}
+
+
+def _nav_key(page):
+    """The _NAV_ITEMS key a page key belongs to: per-loop pages
+    ("loop:<name>") live under "loops"; legacy page keys map to their hub."""
+    if isinstance(page, str) and page.startswith("loop:"):
+        return "loops"
+    return _LEGACY_PAGE_NAV_KEY.get(page, page)
+
+
+def _nav_link(key, href, label, icon, active_page, extra_class=""):
     """One <a> in the sidebar nav. `active_page` is the key of whichever
     page is currently rendering; a matching key gets the `active` class.
     `title` carries the label even when the sidebar is collapsed and
     `.nav-label` is hidden, so the link stays identifiable via a native
     tooltip."""
-    cls = " class='active'" if key == active_page else ""
+    classes = " ".join(c for c in (extra_class, "active" if key == active_page else "") if c)
+    cls = f" class='{classes}'" if classes else ""
     label = html.escape(i18n.t(label))
     return (
         f"<a href='{href}' title='{label}'{cls}>"
@@ -6735,20 +6747,48 @@ def _empty_state_html(message, action_href, action_label):
 """
 
 
-def _sidebar_html(active_page):
+def _sidebar_loop_children(active_page, loops=None, status_path_fn=None):
+    """Child links under the Loops item: one per visible loop that has a
+    page. `loops=None` reads the registry (a missing/malformed file means
+    no children, never an error)."""
+    if loops is None:
+        try:
+            loops = loops_config.list_loops()
+        except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError):
+            loops = []
+    pages = _loop_pages()
+    links = []
+    for loop in loops:
+        name = str(loop.get("name", ""))
+        page = pages.get(name)
+        if page is None or not loop_is_visible(loop, status_path_fn):
+            continue
+        links.append(_nav_link(
+            f"loop:{name}", f"/loops/{urllib.parse.quote(name)}", page.label, page.icon,
+            active_page, extra_class="nav-child"))
+    return "".join(links)
+
+
+def _sidebar_html(active_page, loops=None, status_path_fn=None):
     """The dashboard's persistent left nav: brand mark, a collapse toggle
-    (plain inline onclick — this is a fully server-rendered, no-JS-framework
+    (plain inline onclick - this is a fully server-rendered, no-JS-framework
     page, so there's no other client-side state to hook the toggle into),
-    and the page links built from _NAV_ITEMS, clustered into the labeled
+    and the hub links built from _NAV_ITEMS, clustered into the labeled
     groups _NAV_GROUPS defines (a small uppercase label per group, hidden
     when collapsed like every other nav label - see .sidebar-group-label).
-    `active_page` is forwarded straight to _nav_link for each item."""
+    The Loops item is followed by a child link per visible loop and is
+    itself active on any "loop:<name>" page."""
     items_by_key = {item[0]: item for item in _NAV_ITEMS}
+    nav_active = _nav_key(active_page)
     group_blocks = []
     for label, keys in _NAV_GROUPS:
         label_html = f"<p class='sidebar-group-label'>{html.escape(i18n.t(label))}</p>" if label else ""
-        links_html = "".join(_nav_link(*items_by_key[key], active_page) for key in keys)
-        group_blocks.append(f"{label_html}{links_html}")
+        links = []
+        for key in keys:
+            links.append(_nav_link(*items_by_key[key], nav_active))
+            if key == "loops":
+                links.append(_sidebar_loop_children(active_page, loops, status_path_fn))
+        group_blocks.append(f"{label_html}{''.join(links)}")
     nav_html = "".join(group_blocks)
     return (
         "<div class='sidebar-top'>"
@@ -6778,7 +6818,7 @@ def _favicon_version():
 
 
 # Suggested prompts the AI side panel offers on each page (see
-# _ai_panel_html), keyed by _NAV_ITEMS key: (icon, label, prompt, send).
+# _ai_panel_html), keyed by _NAV_ITEMS key (per-loop pages use "loops"): (icon, label, prompt, send).
 # `send` True sends the prompt straight away; False only pre-fills the
 # composer - every prompt that would start a run is False, for the same
 # reason the Dashboard's own chips never send: the user reviews and
@@ -6790,9 +6830,7 @@ _AI_PROMPT_LATEST = ("history", "Latest run", "Summarize the latest GitLab run r
 _AI_PROMPT_ERRORS = ("error", "Recent errors", "Did any recent runs fail? Summarize what went wrong.", True)
 _AI_PROMPT_RUN_ISSUE = ("bolt", "Run an issue", "Run this GitLab issue now: ", False)
 _AI_PROMPT_INBOX = ("email", "Inbox triage", "Summarize my latest inbox triage - anything urgent?", True)
-_AI_PROMPT_RUN_INBOX = ("bolt", "Run inbox triage", "Run inbox triage now.", False)
 _AI_PROMPT_TOPIC = ("newspaper", "Topic digest", "Summarize the latest topic monitor run.", True)
-_AI_PROMPT_RUN_TOPIC = ("bolt", "Run topic monitor", "Run the topic monitor now.", False)
 _AI_PROMPT_PROGRESS = ("speed", "Performance", "How has the loop been performing lately?", True)
 _AI_PROMPT_MEMORY = ("lightbulb", "Learnings", "What has the loop learned so far?", True)
 _AI_PROMPT_DAEMONS = ("dns", "Daemons", "Which daemons are enabled right now?", True)
@@ -7192,25 +7230,11 @@ _AI_PANEL_SCRIPT = """
 _AI_PANEL_DEFAULT_PROMPTS = (_AI_PROMPT_STATUS, _AI_PROMPT_HELP)
 _AI_PANEL_PROMPTS = {
     "overview": (_AI_PROMPT_STATUS, _AI_PROMPT_LATEST, _AI_PROMPT_RUN_ISSUE, _AI_PROMPT_INBOX),
-    "activity": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_STATUS, _AI_PROMPT_LATEST, _AI_PROMPT_ERRORS),
-    "gitlab": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_RUN_ISSUE, _AI_PROMPT_LATEST, _AI_PROMPT_ADD_PROJECT),
-    "topic_monitor": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_TOPIC, _AI_PROMPT_RUN_TOPIC, _AI_PROMPT_ADD_TOPIC),
-    "inbox": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_INBOX, _AI_PROMPT_RUN_INBOX),
-    "logs": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_ERRORS, _AI_PROMPT_STATUS),
-    "loop_runs": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_LATEST, _AI_PROMPT_ERRORS),
-    "history": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_LATEST, _AI_PROMPT_ERRORS),
-    "analytics": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_PROGRESS, _AI_PROMPT_LATEST),
-    "memory": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_MEMORY),
-    "cost": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_PROGRESS),
-    "audit": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_ERRORS),
-    "budget": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_PROGRESS),
-    "daemons": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_DAEMONS, _AI_PROMPT_STATUS),
-    "skills": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_HELP),
-    "settings": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_ADD_PROJECT, _AI_PROMPT_HELP),
-    "general_settings": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_HELP),
-    "topic_settings": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_ADD_TOPIC, _AI_PROMPT_TOPIC),
-    "inbox_setup": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_INBOX),
-    "readme": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_HELP),
+    "loops": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_RUN_ISSUE, _AI_PROMPT_TOPIC, _AI_PROMPT_ADD_TOPIC),
+    "runs": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_LATEST, _AI_PROMPT_ERRORS, _AI_PROMPT_STATUS),
+    "insights": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_PROGRESS, _AI_PROMPT_MEMORY, _AI_PROMPT_LATEST),
+    "harness": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_ERRORS),
+    "settings": (_AI_PROMPT_EXPLAIN, _AI_PROMPT_DAEMONS, _AI_PROMPT_ADD_PROJECT, _AI_PROMPT_HELP),
 }
 
 
@@ -7222,8 +7246,9 @@ def _ai_panel_html(active_page):
     composer. It talks to the same live chat backend as the Dashboard
     (POST /activity/chat + /activity/chat-stream), sending `page` along
     so the assistant knows what the user is looking at."""
-    prompts = _AI_PANEL_PROMPTS.get(active_page, _AI_PANEL_DEFAULT_PROMPTS)
-    page_label = next((item[2] for item in _NAV_ITEMS if item[0] == active_page), None)
+    prompts = _AI_PANEL_PROMPTS.get(_nav_key(active_page), _AI_PANEL_DEFAULT_PROMPTS)
+    nav_key = _nav_key(active_page)
+    page_label = next((item[2] for item in _NAV_ITEMS if item[0] == nav_key), None)
     context_html = (
         f"<p class='ai-panel-context'>{html.escape(_t('Suggestions for {page}', page=i18n.t(page_label)))}</p>"
         if page_label else ""
@@ -7347,6 +7372,11 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
         f"<button type='button' class='ai-panel-trigger' id='ai-panel-trigger' aria-controls='ai-panel' "
         f"aria-expanded='false' aria-label='{ai_label}' title='{ai_label}'>"
         "<span class='material-symbols-outlined' aria-hidden='true'>auto_awesome</span></button>"
+    )
+    help_label = html.escape(_t("Help"))
+    help_link_html = (
+        f"<a class='topbar-icon' href='/readme' title='{help_label}' aria-label='{help_label}'>"
+        "<span class='material-symbols-outlined' aria-hidden='true'>help</span></a>"
     )
     ai_panel_script = (
         _AI_PANEL_SCRIPT
@@ -8245,6 +8275,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
 {status_badge_html}
 {refresh_html}
 {lang_switch_html}
+{help_link_html}
 </div>
 </div>
 <div class="main-scroll" id="main-scroll">
