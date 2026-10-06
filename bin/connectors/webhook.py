@@ -31,16 +31,24 @@ class WebhookConnector(Connector):
     brand = "webhook"
     category = "chat"
     description = "Post notifications to Feishu, DingTalk, WeCom, Teams, Discord, Google Chat or any webhook."
-    docs_url = "https://en.wikipedia.org/wiki/Webhook"
+    docs_url = ""
     presets = (
-        Preset("feishu", "Feishu", "feishu", settings=(("format", "feishu"),)),
-        Preset("dingtalk", "DingTalk", "dingtalk", settings=(("format", "dingtalk"),)),
+        Preset("feishu", "Feishu", "feishu", settings=(("format", "feishu"),),
+               docs_url="https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot"),
+        Preset("dingtalk", "DingTalk", "dingtalk", settings=(("format", "dingtalk"),),
+               docs_url="https://open.dingtalk.com/document/robots/custom-robot-access"),
         Preset("wecom", "WeCom 企业微信", "wecom",
                description="Group bot webhook. Personal WeChat has no bot API.",
-               settings=(("format", "wecom"),)),
-        Preset("microsoftteams", "Microsoft Teams", "microsoftteams", settings=(("format", "teams"),)),
-        Preset("discord", "Discord", "discord", settings=(("format", "discord"),)),
-        Preset("googlechat", "Google Chat", "googlechat", settings=(("format", "googlechat"),)),
+               settings=(("format", "wecom"),),
+               docs_url="https://developer.work.weixin.qq.com/document/path/91770"),
+        Preset("microsoftteams", "Microsoft Teams", "microsoftteams",
+               description="Teams Workflows webhooks may require Adaptive Cards.",
+               settings=(("format", "teams"),),
+               docs_url="https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook"),
+        Preset("discord", "Discord", "discord", settings=(("format", "discord"),),
+               docs_url="https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks"),
+        Preset("googlechat", "Google Chat", "googlechat", settings=(("format", "googlechat"),),
+               docs_url="https://developers.google.com/workspace/chat/quickstart/webhooks"),
         Preset("generic", "Generic webhook", "webhook", settings=(("format", "generic"),)),
     )
 

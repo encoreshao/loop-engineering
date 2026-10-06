@@ -258,7 +258,7 @@ def test_every_type_has_presentation_metadata():
         assert cls.description, name
         if not cls.external:
             assert cls.brand, name
-            assert cls.docs_url.startswith("https://") or cls.type in ("rss",), name
+            assert cls.docs_url.startswith("https://") or cls.type in ("rss", "webhook"), name
 
 
 def test_webhook_presets_cover_brands():
@@ -327,3 +327,34 @@ def test_telegram_scrubs_token_from_api_description():
     assert not ok and "ABC" not in msg
     c, _ = make("telegram", {"chat_id": "-100"}, secret="123:ABC", response={"ok": True})
     assert c.test()[0]
+
+
+def test_telegram_surfaces_api_description_without_token():
+    import mail_http
+    url = "https://api.telegram.org/bot123:ABC/sendMessage"
+    for body, want in [('{"ok":false,"description":"Bad Request: chat not found"}', "chat not found"),
+                       ('{"ok":false,"description":"bad bot123:ABC token"}', "bad bot")]:
+        c, _ = make("telegram", {"chat_id": "-100"}, secret="123:ABC",
+                    exc=mail_http.MailHTTPError(400, body, url))
+        ok, msg = c.test()
+        assert not ok and want in msg and "ABC" not in msg
+    c, _ = make("telegram", {"chat_id": "-100"}, secret="123:ABC",
+                exc=mail_http.MailHTTPError(502, "<html>ABC</html>", url))
+    assert c.test() == (False, "HTTP 502")
+
+
+def test_telegram_send_uses_default_http_settings_and_truncates():
+    c, http = make("telegram", {"chat_id": "-100"}, secret="123:ABC")
+    c.send("x" * 5000)
+    assert len(http.calls[0]["json"]["text"]) == 4096 and http.kw_seen == {}
+    assert http.calls[0]["timeout"] == 30
+    c.test()
+    assert http.calls[1]["timeout"] == 10 and http.kw_seen == {"max_attempts": 1}
+
+
+def test_webhook_non_generic_presets_have_https_docs_url():
+    cls = connectors.get_type("webhook")
+    for p in cls.presets:
+        if p.key != "generic":
+            assert p.docs_url.startswith("https://"), p.key
+    assert "Adaptive Cards" in {p.key: p for p in cls.presets}["microsoftteams"].description

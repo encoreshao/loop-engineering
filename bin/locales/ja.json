@@ -527,6 +527,7 @@
   "Supported account types: {types}. Leave the redirect URI empty.": "サポートされるアカウントの種類: {types}。リダイレクト URI は空のままにします。",
   "System": "システム",
   "Task memory recorded per project by the automated review loop.": "自動レビューループがプロジェクトごとに記録したタスクメモリ。",
+  "Teams Workflows webhooks may require Adaptive Cards.": "Teams の Workflows Webhook では Adaptive Card が必要な場合があります。",
   "Telegram bot": "Telegram ボット",
   "Telegram returned an error: {detail}": "Telegram がエラーを返しました: {detail}",
   "Template": "テンプレート",

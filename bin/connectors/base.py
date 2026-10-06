@@ -42,6 +42,7 @@ class Preset:
     brand: str
     description: str = ""
     settings: tuple = field(default_factory=tuple)
+    docs_url: str = ""
 
 
 class Connector:
