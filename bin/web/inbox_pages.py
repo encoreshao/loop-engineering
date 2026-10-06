@@ -580,7 +580,7 @@ def _connect(inbox, redirect_uri):
         if not client.get("client_id") or not client.get("client_secret"):
             return _result(False, _t("Save the Google OAuth client ID and secret first"))
         verifier, challenge = mail_auth.make_pkce()
-        state = mail_auth.create_pending_state(inbox["name"], verifier, redirect_uri)
+        state = mail_auth.create_pending_state(inbox["name"], verifier, redirect_uri, kind="inbox")
         return {"redirect": mail_auth.google_auth_url(client["client_id"], redirect_uri, state, challenge, inbox["account"])}
     client_id = (oauth.get("microsoft") or {}).get("client_id")
     if not client_id:

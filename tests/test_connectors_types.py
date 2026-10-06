@@ -254,7 +254,7 @@ def test_registry_includes_notion_and_telegram():
 def test_every_type_has_presentation_metadata():
     connectors._load_all()
     for name, cls in connectors.CONNECTOR_TYPES.items():
-        assert cls.category in {"code", "chat", "tracking", "knowledge", "feeds", "mail", "other"}, name
+        assert cls.category in {"google", "code", "chat", "tracking", "knowledge", "feeds", "mail", "other"}, name
         assert cls.description, name
         if not cls.external:
             assert cls.brand, name
@@ -358,3 +358,105 @@ def test_webhook_non_generic_presets_have_https_docs_url():
         if p.key != "generic":
             assert p.docs_url.startswith("https://"), p.key
     assert "Adaptive Cards" in {p.key: p for p in cls.presets}["microsoftteams"].description
+
+
+# --- P2c: Google Calendar ---------------------------------------------------
+
+_GCLIENT = {"client_id": "c", "client_secret": "s"}
+
+
+def _gcal(settings=None, secret="RT", http=None, client=_GCLIENT, refresh_fn=None):
+    return connectors.get_type("google_calendar")(
+        {"id": "g", "settings": settings if settings is not None else {"calendar_id": "primary"}},
+        secret=secret, http=http, client_fn=lambda: client,
+        refresh_fn=refresh_fn or (lambda rt, cl: {"access_token": "AT"}))
+
+
+def test_calendar_type_metadata():
+    from connectors.base import CALENDAR
+    cls = connectors.get_type("google_calendar")
+    assert cls.label == "Google Calendar" and cls.brand == "googlecalendar" and cls.category == "google"
+    assert cls.capabilities == frozenset({CALENDAR}) and cls.auth == "oauth_google" and cls.secret_label is None
+    assert [f.key for f in cls.fields] == ["calendar_id"] and cls.fields[0].default == "primary"
+    assert cls.docs_url == "https://support.google.com/calendar/answer/37082"
+    assert connectors.get_type("github").auth == "secret"
+
+
+def test_calendar_test_success():
+    http = FakeHTTP(response={"summary": "Work"})
+    c = connectors.get_type("google_calendar")({"id": "g", "settings": {"calendar_id": "primary"}}, secret="RT",
+        http=http, client_fn=lambda: {"client_id": "c", "client_secret": "s"},
+        refresh_fn=lambda rt, client: {"access_token": "AT"})
+    assert c.test() == (True, "Connected: Work")
+    assert http.calls[0]["url"] == "https://www.googleapis.com/calendar/v3/calendars/primary"
+    assert http.calls[0]["token"] == "AT"
+    assert http.calls[0]["timeout"] == 10 and http.kw_seen.get("max_attempts") == 1
+
+
+def test_calendar_test_accepts_plain_access_token_from_google_refresh():
+    http = FakeHTTP(response={"summary": "Work"})
+    c = _gcal(http=http, refresh_fn=lambda rt, cl: "AT2")
+    assert c.test() == (True, "Connected: Work") and http.calls[0]["token"] == "AT2"
+
+
+def test_calendar_test_not_connected():
+    c = connectors.get_type("google_calendar")({"id": "g", "settings": {"calendar_id": "primary"}}, secret=None,
+        client_fn=lambda: {"client_id": "c", "client_secret": "s"})
+    assert c.test()[0] is False and "Connect with Google" in c.test()[1]
+
+
+def test_calendar_test_without_google_client():
+    ok, msg = _gcal(client={}).test()
+    assert not ok and "Google OAuth client" in msg
+
+
+def test_calendar_test_errors_never_contain_refresh_token():
+    import mail_http
+    def bad_refresh(rt, client): raise mail_http.MailHTTPError(400, '{"error":"invalid_grant","rt":"RT-SECRET"}', "https://oauth2.googleapis.com/token")
+    c = connectors.get_type("google_calendar")({"id": "g", "settings": {"calendar_id": "primary"}}, secret="RT-SECRET",
+        client_fn=lambda: {"client_id": "c", "client_secret": "s"}, refresh_fn=bad_refresh)
+    ok, msg = c.test()
+    assert not ok and "RT-SECRET" not in msg
+
+
+def test_calendar_test_errors_never_contain_access_token():
+    import mail_http
+    http = FakeHTTP(exc=mail_http.MailHTTPError(403, "denied for AT-SECRET", "https://www.googleapis.com/x"))
+    ok, msg = _gcal(http=http, refresh_fn=lambda rt, cl: {"access_token": "AT-SECRET"}).test()
+    assert not ok and "AT-SECRET" not in msg and "403" in msg
+
+
+def test_calendar_reauth_required_message_is_token_free():
+    import mail_auth
+    def reauth(rt, cl): raise mail_auth.ReauthRequired("Google refresh failed (invalid_grant) RT-SECRET")
+    ok, msg = _gcal(secret="RT-SECRET", refresh_fn=reauth).test()
+    assert not ok and "RT-SECRET" not in msg and "Reconnect" in msg
+
+
+def test_calendar_id_is_url_quoted():
+    http = FakeHTTP(response={"summary": "x"})
+    c = connectors.get_type("google_calendar")({"id": "g", "settings": {"calendar_id": "a@group.calendar.google.com/../x"}}, secret="RT",
+        http=http, client_fn=lambda: {"client_id": "c", "client_secret": "s"}, refresh_fn=lambda rt, cl: {"access_token": "AT"})
+    c.test()
+    assert http.calls[0]["url"].endswith("/calendars/a%40group.calendar.google.com%2F..%2Fx")
+
+
+def test_calendar_list_events_shapes_items():
+    http = FakeHTTP(response={"items": [
+        {"summary": "Standup", "start": {"dateTime": "2026-10-06T09:00:00Z"}, "end": {"dateTime": "2026-10-06T09:15:00Z"},
+         "htmlLink": "https://calendar.google.com/e1", "attendees": [{"email": "a"}, {"email": "b"}]},
+        {"start": {"date": "2026-10-07"}, "end": {"date": "2026-10-08"}},
+    ]})
+    events = _gcal(http=http).list_events("2026-10-06T00:00:00Z", "2026-10-08T00:00:00Z", max_results=5)
+    assert events == [
+        {"summary": "Standup", "start": "2026-10-06T09:00:00Z", "end": "2026-10-06T09:15:00Z",
+         "html_link": "https://calendar.google.com/e1", "attendees_count": 2},
+        {"summary": "", "start": "2026-10-07", "end": "2026-10-08", "html_link": "", "attendees_count": 0},
+    ]
+    url = http.calls[0]["url"]
+    assert url.startswith("https://www.googleapis.com/calendar/v3/calendars/primary/events?")
+    import urllib.parse
+    q = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+    assert q["timeMin"] == ["2026-10-06T00:00:00Z"] and q["timeMax"] == ["2026-10-08T00:00:00Z"]
+    assert q["maxResults"] == ["5"] and q["singleEvents"] == ["true"] and q["orderBy"] == ["startTime"]
+    assert http.calls[0]["token"] == "AT"

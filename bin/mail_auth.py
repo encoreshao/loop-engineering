@@ -24,6 +24,8 @@ _KEYCHAIN_NOT_FOUND = 44
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
+# The Google Calendar connector only ever asks for read access.
+CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
 
 MS_DEVICE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/devicecode"
 MS_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
@@ -122,14 +124,29 @@ def make_pkce():
     return verifier, challenge
 
 
-def create_pending_state(inbox_name, verifier, redirect_uri, now=None):
+def create_pending_state(target, verifier, redirect_uri, now=None, kind="inbox"):
+    """Mint a single-use sign-in `state` bound to `target` - an inbox name
+    (kind "inbox") or a connector id (kind "connector"). The entry keeps the
+    legacy `inbox` key so the inbox callback reads it unchanged."""
     now = time.time() if now is None else now
     state = secrets.token_urlsafe(32)
     with _PENDING_LOCK:
         for key in [k for k, v in _PENDING.items() if now - v["created"] > STATE_TTL_SECONDS]:
             del _PENDING[key]
-        _PENDING[state] = {"inbox": inbox_name, "verifier": verifier, "redirect_uri": redirect_uri, "created": now}
+        _PENDING[state] = {"inbox": target, "kind": kind, "target": target, "verifier": verifier,
+                           "redirect_uri": redirect_uri, "created": now}
     return state
+
+
+def peek_pending_kind(state, now=None):
+    """The `kind` of a live pending state without consuming it (None when
+    unknown or expired), so the callback can pick a handler first."""
+    now = time.time() if now is None else now
+    with _PENDING_LOCK:
+        entry = _PENDING.get(state or "")
+    if entry is None or now - entry["created"] > STATE_TTL_SECONDS:
+        return None
+    return entry.get("kind", "inbox")
 
 
 def consume_pending_state(state, now=None):
@@ -141,10 +158,12 @@ def consume_pending_state(state, now=None):
     return entry
 
 
-def google_auth_url(client_id, redirect_uri, state, challenge, login_hint=""):
+def google_auth_url(client_id, redirect_uri, state, challenge, login_hint="", scope=None):
+    if scope is None:
+        scope = GMAIL_SCOPE
     params = {
         "client_id": client_id, "redirect_uri": redirect_uri, "response_type": "code",
-        "scope": GMAIL_SCOPE, "access_type": "offline", "prompt": "consent",
+        "scope": scope, "access_type": "offline", "prompt": "consent",
         "state": state, "code_challenge": challenge, "code_challenge_method": "S256",
     }
     if login_hint:

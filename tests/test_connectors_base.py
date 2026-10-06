@@ -45,7 +45,7 @@ def test_registry_lists_all_shipped_types():
     import connectors
     connectors.get_type  # noqa: B018
     connectors._load_all()
-    assert set(connectors.CONNECTOR_TYPES) == {"gitlab", "github", "slack", "webhook", "rss", "jira", "linear", "mailbox", "notion", "telegram"}
+    assert set(connectors.CONNECTOR_TYPES) == {"gitlab", "github", "slack", "webhook", "rss", "jira", "linear", "mailbox", "notion", "telegram", "google_calendar"}
 
 
 def test_describe_http_error_branches():

@@ -58,6 +58,8 @@ import loop_definition
 import loop_budget
 import loop_serialize
 import loops_config
+import mail_auth
+import mail_http
 import memory_store
 import metrics
 import project_memory
@@ -4079,9 +4081,9 @@ _FONT_FACE_VARS = "\n".join(
 # name that isn't listed here renders as tofu/missing glyph. Add a new name
 # to this list before shipping a new icon constant that uses it.
 _MATERIAL_SYMBOLS_ICON_NAMES = (
-    "account_balance_wallet,add,add_comment,arrow_forward,arrow_upward,auto_awesome,autorenew,bolt,check,check_circle,chevron_left,circle,close,code,"
-    "content_copy,delete,description,dns,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,help,history,hub,lightbulb,"
-    "loop,mail,merge,monitoring,newspaper,open_in_new,palette,payments,rss_feed,save,send,settings,smart_toy,space_dashboard,speed,task_alt,terminal,topic,"
+    "account_balance_wallet,add,add_comment,arrow_forward,arrow_upward,auto_awesome,autorenew,bolt,calendar_month,check,check_circle,chevron_left,circle,"
+    "close,code,content_copy,delete,description,dns,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,help,history,hub,"
+    "lightbulb,login,loop,mail,merge,monitoring,newspaper,open_in_new,palette,payments,rss_feed,save,send,settings,smart_toy,space_dashboard,speed,task_alt,terminal,topic,"
     "translate,tune,warning,webhook,widgets"
 )
 
@@ -12409,6 +12411,25 @@ def _preset_for_account(cls, account):
     return next((p for p in cls.presets if dict(p.settings).get("format") == fmt), None)
 
 
+def _is_google_oauth_type(cls):
+    return cls is not None and getattr(cls, "auth", "secret") == connectors_config.OAUTH_GOOGLE
+
+
+_GOOGLE_CLIENT_SETUP_HREF = "/loops/inbox-triage-loop?view=setup&tab=gmail"
+
+
+def _google_oauth_client():
+    """The Google OAuth client saved on Inbox Triage setup, or {} when it is
+    missing/incomplete or mail_oauth.json can't be read."""
+    try:
+        client = (inbox_config.load_oauth() or {}).get("google") or {}
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(client, dict) or not client.get("client_id") or not client.get("client_secret"):
+        return {}
+    return client
+
+
 def _connector_account_row_html(account, csrf_input, result):
     account_id = account["id"]
     safe_id = html.escape(account_id)
@@ -12431,7 +12452,18 @@ def _connector_account_row_html(account, csrf_input, result):
                        f"{html.escape(str(result.get('message', '')))}</span>")
     notify = cls is not None and "notify" in cls.capabilities
     test_label = _t("Send test message") if notify else _t("Test")
-    buttons = (
+    oauth_html = connect_html = ""
+    if _is_google_oauth_type(cls) and managed_by == "native":
+        connected = bool(account.get("oauth_connected"))
+        oauth_html = (f"<span class='pill {'pill-green' if connected else 'pill-grey'}'>"
+                      f"{html.escape(_t('Connected') if connected else _t('Not connected'))}</span>")
+        connect_html = (
+            f"<form method='post' action='/connectors/oauth/google/start' class='daemon-action-form'>{csrf_input}"
+            f"<input type='hidden' name='id' value=\"{safe_id}\">"
+            f"<button type='submit' class='btn {'btn-neutral' if connected else 'btn-primary'}'>"
+            f"<span class='material-symbols-outlined' aria-hidden='true'>login</span> "
+            f"{html.escape(_t('Reconnect') if connected else _t('Connect with Google'))}</button></form>")
+    buttons = connect_html + (
         f"<form method='post' action='/connectors/test' class='daemon-action-form'>{csrf_input}"
         f"<input type='hidden' name='id' value=\"{safe_id}\">"
         f"<button type='submit' class='btn btn-neutral'><span class='material-symbols-outlined' aria-hidden='true'>"
@@ -12453,7 +12485,7 @@ def _connector_account_row_html(account, csrf_input, result):
         "<div class='project-block'>"
         f"<div class='connector-row-title'>{brand_logos.brand_logo_svg(_connector_brand_key(account), account['label'], 24)}"
         f"<strong>{html.escape(account['label'])}</strong> <code>{safe_id}</code>{disabled}</div>"
-        f"<div class='pill-row'>{chips}{badge}{result_html}</div>"
+        f"<div class='pill-row'>{chips}{badge}{oauth_html}{result_html}</div>"
         f"<div class='pill-row'>{buttons}</div>"
         "</div>"
     )
@@ -12550,6 +12582,11 @@ def _connector_type_picker_html():
             by_category.setdefault(cls.category, []).append(_connector_tile_html(
                 f"/connectors?view=add&amp;type={quoted}", cls.brand, cls.label, cls.description, cls.capabilities,
                 type_key=name))
+    known = {key for key, _ in _CONNECTOR_CATEGORIES}
+    for category in [c for c in by_category if c not in known]:
+        # A type whose category this gallery doesn't list yet still shows,
+        # under the trailing "Other" section, rather than vanishing.
+        by_category.setdefault("other", []).extend(by_category.pop(category))
     sections = []
     for key, heading in _CONNECTOR_CATEGORIES:
         tiles = by_category.get(key)
@@ -12595,7 +12632,7 @@ def _connector_form_script():
         "})();</script>")
 
 
-def _connector_form_body(type_name, account=None, preset_key=None, submitted=None):
+def _connector_form_body(type_name, account=None, preset_key=None, submitted=None, google_client_missing=False):
     """The add/edit form for one native connector type, generated from the
     type's declared fields. A secret value is never rendered: when editing,
     the secret input is empty with a "leave blank to keep" placeholder.
@@ -12698,6 +12735,22 @@ def _connector_form_body(type_name, account=None, preset_key=None, submitted=Non
                        f"<div class='connector-fields'>"
                        f"{row('cf-secret', i18n.t(cls.secret_label), secret_input, required=not editing, help_text=note, wide=True)}"
                        f"</div></fieldset>")
+    oauth = _is_google_oauth_type(cls)
+    if oauth:
+        connected = bool((account or {}).get("oauth_connected"))
+        status = _t("Connected") if connected else _t("Not connected")
+        missing_html = ""
+        if google_client_missing:
+            missing_html = (
+                f"<p class='connector-oauth-missing'>{html.escape(_t('Add a Google OAuth client on the Inbox Triage setup page first'))} "
+                f"<a href=\"{html.escape(_GOOGLE_CLIENT_SETUP_HREF, quote=True)}\">"
+                f"{html.escape(_t('Add a Google OAuth client'))}</a></p>")
+        secret_html = (
+            f"<fieldset class='connector-section'><legend>{html.escape(_t('Google account'))}</legend>"
+            f"<p class='section-subtitle'><span class='pill {'pill-green' if connected else 'pill-grey'}'>"
+            f"{html.escape(status)}</span> "
+            f"{html.escape(_t('Sign in with Google to grant read-only access. The refresh token is stored in your macOS Keychain, never shown again.'))}</p>"
+            f"{missing_html}</fieldset>")
     original = (f"<input type='hidden' name='original_id' value='{html.escape(original_id, quote=True)}'>"
                 if editing else "")
     preset_input = (f"<input type='hidden' name='preset' value='{html.escape(preset.key, quote=True)}'>"
@@ -12725,6 +12778,20 @@ def _connector_form_body(type_name, account=None, preset_key=None, submitted=Non
         connection_html = (f"<fieldset class='connector-section'><legend>{html.escape(_t('Connection'))}</legend>"
                            f"<div class='connector-fields'>{''.join(field_rows)}</div></fieldset>")
     suggest = "" if editing else " data-suggest-id='1'"
+    save_and_test = (f"<button type='submit' class='btn btn-neutral' name='then_test' value='1'>"
+                     f"<span class='material-symbols-outlined' aria-hidden='true'>check_circle</span> "
+                     f"{html.escape(_t('Save and test'))}</button>")
+    if oauth:
+        # Connect saves the form first (same fields), then goes to Google.
+        actions = (f"<button type='submit' class='btn btn-primary' formaction='/connectors/oauth/google/start'>"
+                   f"<span class='material-symbols-outlined' aria-hidden='true'>login</span> "
+                   f"{html.escape(_t('Connect with Google'))}</button>"
+                   f"<button type='submit' class='btn btn-neutral'><span class='material-symbols-outlined' "
+                   f"aria-hidden='true'>save</span> {html.escape(_t('Save'))}</button>"
+                   + (save_and_test if editing else ""))
+    else:
+        actions = (f"<button type='submit' class='btn btn-primary'><span class='material-symbols-outlined' "
+                   f"aria-hidden='true'>save</span> {html.escape(_t('Save'))}</button>{save_and_test}")
     return (
         f"<div class='card connector-form-card'>{header}"
         f"<form method='post' action='/connectors/save' class='project-form connector-form' id='connector-form' "
@@ -12734,17 +12801,13 @@ def _connector_form_body(type_name, account=None, preset_key=None, submitted=Non
         f"<fieldset class='connector-section'><legend>{html.escape(_t('Account'))}</legend>"
         f"<div class='connector-fields'>{''.join(account_rows)}</div></fieldset>"
         f"{connection_html}{secret_html}"
-        f"<div class='connector-actions'>"
-        f"<button type='submit' class='btn btn-primary'><span class='material-symbols-outlined' aria-hidden='true'>save</span> "
-        f"{html.escape(_t('Save'))}</button>"
-        f"<button type='submit' class='btn btn-neutral' name='then_test' value='1'>"
-        f"<span class='material-symbols-outlined' aria-hidden='true'>check_circle</span> {html.escape(_t('Save and test'))}</button>"
+        f"<div class='connector-actions'>{actions}"
         f"<a class='btn connector-cancel' href='/connectors'>{html.escape(_t('Cancel'))}</a></div>"
         f"</form>{_connector_form_script()}</div>")
 
 
 def _connectors_add_body(type_name=None, account_id=None, list_fn=None, preset=None,
-                         flash=None, flash_ok=True, submitted=None):
+                         flash=None, flash_ok=True, submitted=None, google_client_missing=False):
     """Add view: the type picker, or the form for ?type= (editing the native
     account ?id=). Unknown/external types fall back to the picker.
     `submitted` (with `flash`) re-renders a failed save's form."""
@@ -12755,7 +12818,8 @@ def _connectors_add_body(type_name=None, account_id=None, list_fn=None, preset=N
         cls = _connector_type_or_none(type_name)
         if cls is None or cls.external:
             return _flash_html(flash, flash_ok) + _connector_type_picker_html()
-        return _flash_html(flash, flash_ok) + _connector_form_body(type_name, submitted=submitted)
+        return _flash_html(flash, flash_ok) + _connector_form_body(
+            type_name, submitted=submitted, google_client_missing=google_client_missing)
     account = None
     if account_id:
         try:
@@ -12776,6 +12840,87 @@ def _connectors_add_body(type_name=None, account_id=None, list_fn=None, preset=N
     if cls is None or cls.external:
         return _flash_html(_t("Unknown connector type {type}", type=type_name), False) + _connector_type_picker_html()
     return _connector_form_body(type_name, account=account, preset_key=preset)
+
+
+def _connector_google_start(form, redirect_uri):
+    """Back end of POST /connectors/oauth/google/start. With the add/edit
+    form's fields (a `type` is present) it saves the account first - with no
+    secret, a pasted one is ignored; with just an `id` (the accounts row's
+    button) it reuses the existing native account. Returns {"redirect": url}
+    (always under mail_auth.GOOGLE_AUTH_URL), {"html": page} to re-render
+    the form, or {"ok", "message"} for a flash back to /connectors."""
+    if "type" in form:
+        type_name = form.get("type", "")
+        cls = _connector_type_or_none(type_name)
+        if not _is_google_oauth_type(cls):
+            return {"ok": False, "message": _t("{type} does not use Google sign-in", type=type_name)}
+        fields = {k: v for k, v in form.items()
+                  if k not in ("csrf_token", "secret", "original_id", "preset", "then_test")}
+        ok, message = connectors_config.upsert_account(fields, None, original_id=form.get("original_id", ""))
+        submitted = _connector_submitted_values(form)
+        if not ok:
+            return {"html": render_hub_page("connectors", view="add", flash=message, flash_ok=False,
+                                            type=type_name, submitted=submitted)}
+        old_id, account_id = form.get("original_id", "").strip(), form.get("id", "").strip()
+        if old_id and old_id != account_id:
+            _connector_renamed_or_deleted(old_id, account_id)
+        submitted.update(original_id=account_id, preset="")
+    else:
+        account_id = form.get("id", "").strip()
+        try:
+            account = connectors_config.get_account(account_id)
+        except KeyError:
+            return {"ok": False, "message": _t("No connector with id {id}", id=account_id)}
+        except connectors_config.ConnectorConfigError as exc:
+            return {"ok": False, "message": _t("Could not read connectors: {detail}", detail=exc)}
+        type_name = account.get("type", "")
+        if account.get("managed_by") != "native" or not _is_google_oauth_type(_connector_type_or_none(type_name)):
+            return {"ok": False, "message": _t("Connector {id} does not use Google sign-in", id=account_id)}
+        submitted = {"label": account.get("label", ""), "id": account_id, "settings": account.get("settings") or {},
+                     "original_id": account_id, "preset": ""}
+    client = _google_oauth_client()
+    if not client:
+        return {"html": render_hub_page(
+            "connectors", view="add", flash=_t("Add a Google OAuth client on the Inbox Triage setup page first"),
+            flash_ok=False, type=type_name, submitted=submitted, google_client_missing=True)}
+    verifier, challenge = mail_auth.make_pkce()
+    state = mail_auth.create_pending_state(account_id, verifier, redirect_uri, kind="connector")
+    url = mail_auth.google_auth_url(client["client_id"], redirect_uri, state, challenge,
+                                    scope=mail_auth.CALENDAR_SCOPE)
+    if not url.startswith(mail_auth.GOOGLE_AUTH_URL + "?"):  # never an off-Google redirect
+        mail_auth.consume_pending_state(state)
+        return {"ok": False, "message": _t("Could not start Google sign-in")}
+    return {"redirect": url}
+
+
+def _connector_google_callback(query):
+    """Google's redirect back for a connector sign-in (kind "connector").
+    Consumes the single-use state, exchanges the code and stores the refresh
+    token via connectors_config.set_oauth_secret. Returns (ok, message);
+    the message never carries the code or a token."""
+    pending = mail_auth.consume_pending_state((query.get("state") or [""])[0])
+    if pending is None or pending.get("kind") != "connector":
+        return False, _t("That sign-in link expired or was already used - click Connect again")
+    if query.get("error"):
+        return False, _t("Google sign-in was cancelled ({error})", error=query["error"][0])
+    account_id = pending.get("target", "")
+    try:
+        account = connectors_config.get_account(account_id)
+    except (KeyError, connectors_config.ConnectorConfigError):
+        return False, _t("Connector {id} no longer exists - nothing was saved", id=account_id)
+    if account.get("managed_by") != "native" or not _is_google_oauth_type(_connector_type_or_none(account.get("type"))):
+        return False, _t("Connector {id} does not use Google sign-in", id=account_id)
+    client = _google_oauth_client()
+    if not client:
+        return False, _t("Add a Google OAuth client on the Inbox Triage setup page first")
+    try:
+        tokens = mail_auth.google_exchange_code((query.get("code") or [""])[0], pending["verifier"],
+                                                pending["redirect_uri"], client)
+    except (mail_auth.AuthFlowError, mail_http.MailHTTPError) as exc:
+        return False, str(exc)
+    except Exception as exc:  # noqa: BLE001 - class name only, str() could quote request data
+        return False, _t("Google sign-in failed ({kind})", kind=type(exc).__name__)
+    return connectors_config.set_oauth_secret(account_id, tokens.get("refresh_token"))
 
 
 def _only(kwargs, *keys):
@@ -12810,7 +12955,8 @@ def _hubs():
             V("accounts", "Accounts", lambda **kw: _connectors_accounts_body(**_only(kw, "flash", "flash_ok"))),
             V("add", "Add", lambda **kw: _connectors_add_body(
                 kw.get("type"), kw.get("id"), preset=kw.get("preset"), flash=kw.get("flash"),
-                flash_ok=kw.get("flash_ok", True), submitted=kw.get("submitted"))),
+                flash_ok=kw.get("flash_ok", True), submitted=kw.get("submitted"),
+                google_client_missing=kw.get("google_client_missing", False))),
         )),
         "settings": hub_mod.Hub("settings", "/settings", "Settings", _SECTION_ICON_GENERAL_SETTINGS, (
             V("general", "General", lambda **kw: _general_settings_body(
@@ -12875,6 +13021,7 @@ _CAPABILITY_LABELS = {
     "feed": "Feeds",
     "mail": "Mail",
     "docs": "Documents",
+    "calendar": "Calendar",
 }
 
 
@@ -13250,9 +13397,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if split.path == "/oauth/google/callback":
             # A GET by necessity (Google redirects the browser here); its
             # CSRF protection is the single-use, 10-minute `state` that
-            # only a CSRF-checked POST /inbox/inboxes/<name>/connect mints.
-            # The flash never carries the code or any token.
-            ok, message = inbox_pages.handle_google_callback(urllib.parse.parse_qs(split.query))
+            # only a CSRF-checked POST /inbox/inboxes/<name>/connect (or,
+            # for a connector, POST /connectors/oauth/google/start) mints;
+            # its `kind` picks the handler. The flash never carries the
+            # code or any token.
+            query = urllib.parse.parse_qs(split.query)
+            kind = mail_auth.peek_pending_kind((query.get("state") or [""])[0])
+            if kind == "connector":
+                ok, message = _connector_google_callback(query)
+                self._redirect_with_flash(ok, message, location="/connectors")
+                return
+            if kind not in (None, "inbox"):
+                mail_auth.consume_pending_state((query.get("state") or [""])[0])
+                self._redirect_with_flash(
+                    False, _t("That sign-in link expired or was already used - click Connect again"),
+                    location="/connectors")
+                return
+            ok, message = inbox_pages.handle_google_callback(query)
             self._redirect_with_flash(ok, message, location="/loops/inbox-triage-loop?view=setup&tab=inboxes")
             return
 
@@ -13438,6 +13599,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 test_ok, test_message = _run_connector_test(new_id)
                 ok, message = test_ok, f"{message} — {test_message}"
             self._redirect_with_flash(ok, message, location="/connectors")
+            return
+
+        if self.path == "/connectors/oauth/google/start":
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            form = {k: v[0] for k, v in urllib.parse.parse_qs(
+                body.decode("utf-8", errors="replace"), keep_blank_values=True).items()}
+            result = _connector_google_start(form, inbox_redirect_uri(self.server.server_address[1]))
+            if "redirect" in result:
+                self.send_response(303)
+                self.send_header("Location", result["redirect"])
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            elif "html" in result:
+                self._send_html(result["html"])
+            else:
+                self._redirect_with_flash(result["ok"], result["message"], location="/connectors")
             return
 
         if self.path == "/connectors/delete":

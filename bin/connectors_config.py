@@ -18,6 +18,7 @@ LOOP_ENGINEERING_HOME = Path(os.environ.get("LOOP_ENGINEERING_HOME", str(Path.ho
 DEFAULT_CONFIG_PATH = LOOP_ENGINEERING_HOME / "connectors.json"
 
 NATIVE = "native"
+OAUTH_GOOGLE = "oauth_google"
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
 
 
@@ -77,7 +78,7 @@ def _read_native_raw(config_path):
 def _native_view(entry):
     settings = entry.get("settings")
     settings = settings if isinstance(settings, dict) else {}
-    return {
+    view = {
         "id": entry["id"],
         "type": _str(entry.get("type")),
         "label": _str(entry.get("label")) or entry["id"],
@@ -85,6 +86,11 @@ def _native_view(entry):
         "settings": {_str(k): _str(v) for k, v in settings.items()},
         "managed_by": NATIVE,
     }
+    if entry.get("oauth_connected_at"):
+        # A non-secret marker set_oauth_secret writes, so the list view can
+        # say "Connected" without ever reading the Keychain.
+        view["oauth_connected"] = True
+    return view
 
 
 def _external(gitlab_path, slack_path, inbox_path):
@@ -191,6 +197,11 @@ def upsert_account(fields, secret, original_id="", config_path=None, store=None,
         return False, i18n.t("Connector id {id} is already used by another account", id=new_id)
     settings = {f.key: (fields.get(f.key) or "").strip() for f in cls.fields}
     secret = (secret or "").strip()
+    if getattr(cls, "auth", "secret") == OAUTH_GOOGLE and secret:
+        # Its secret is a refresh token that only the Connect with Google
+        # flow (set_oauth_secret) may store - never one pasted into a form.
+        return False, i18n.t("{type} connects with Google sign-in; it does not take a pasted secret",
+                             type=i18n.t(cls.label or type_name))
     # A control character would end up inside an HTTP header value, where
     # http.client raises ValueError quoting the whole header - secret and all.
     if any(ord(c) < 32 or ord(c) == 127 for c in secret):
@@ -203,6 +214,8 @@ def upsert_account(fields, secret, original_id="", config_path=None, store=None,
     entry = {"id": new_id, "type": type_name, "label": label, "enabled": enabled, "settings": settings,
              "created_at": (existing or {}).get("created_at")
              or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    if existing and existing.get("oauth_connected_at"):
+        entry["oauth_connected_at"] = existing["oauth_connected_at"]
     secrets = _store(store)
     try:
         if secret:
@@ -226,6 +239,44 @@ def upsert_account(fields, secret, original_id="", config_path=None, store=None,
     except OSError as exc:
         return False, i18n.t("Could not save connectors: {detail}", detail=exc)
     return True, i18n.t("Saved connector {id}", id=new_id)
+
+
+def set_oauth_secret(account_id, refresh_token, store=None, **paths):
+    """Store the refresh token a Connect with Google sign-in returned for a
+    native account whose type has auth == "oauth_google". Returns (ok,
+    message); no message ever includes the token."""
+    config_path = paths.get("config_path")
+    config_path = Path(config_path) if config_path is not None else DEFAULT_CONFIG_PATH
+    try:
+        entry = next((e for e in _read_native_raw(config_path) if e["id"] == account_id), None)
+    except ConnectorConfigError:
+        return False, i18n.t("Could not read connectors")
+    if entry is None:
+        return False, i18n.t("No connector with id {id}", id=account_id)
+    try:
+        cls = connectors.get_type(_str(entry.get("type")))
+    except KeyError:
+        cls = None
+    if cls is None or getattr(cls, "auth", "secret") != OAUTH_GOOGLE:
+        return False, i18n.t("Connector {id} does not use Google sign-in", id=account_id)
+    token = refresh_token if isinstance(refresh_token, str) else ""
+    token = token.strip()
+    if not token or any(ord(c) < 32 or ord(c) == 127 for c in token):
+        return False, i18n.t("Google returned an unusable refresh token")
+    try:
+        _store(store).put(account_id, token)
+    except Exception:
+        # No exception detail: Keychain stderr can echo the secret.
+        return False, i18n.t("Could not store the secret in the Keychain")
+    try:
+        entries = _read_native_raw(config_path)
+        for e in entries:
+            if e["id"] == account_id:
+                e["oauth_connected_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        _write(entries, config_path)
+    except (ConnectorConfigError, OSError):
+        pass  # the token is stored; only the "Connected" marker is missing
+    return True, i18n.t("Connected {label}", label=_str(entry.get("label")) or account_id)
 
 
 def delete_account(account_id, config_path=None, store=None):

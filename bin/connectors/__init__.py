@@ -18,5 +18,5 @@ def get_type(name):
 def _load_all():
     # Imported lazily so `import connectors` stays cheap and cycle-free.
     from connectors import (  # noqa: F401
-        github, gitlab, jira, linear, mailbox, notion, rss, slack, telegram, webhook,
+        github, gitlab, google_calendar, jira, linear, mailbox, notion, rss, slack, telegram, webhook,
     )

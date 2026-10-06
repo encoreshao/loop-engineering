@@ -297,3 +297,37 @@ def test_suite_guard_blocks_the_real_keychain(_no_real_keychain):
         mail_auth.keychain_get("work")
     assert len(_no_real_keychain) == 1
     _no_real_keychain.clear()
+
+
+# --- P2c: Google Calendar connector sign-in --------------------------------
+
+def test_google_auth_url_uses_given_scope():
+    url = mail_auth.google_auth_url("cid", "http://127.0.0.1:1/oauth/google/callback", "st", "ch",
+                                    scope=mail_auth.CALENDAR_SCOPE)
+    assert "scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.readonly" in url
+    assert mail_auth.GMAIL_SCOPE not in urllib.parse.unquote(url)
+
+
+def test_google_auth_url_default_scope_is_still_gmail():
+    url = mail_auth.google_auth_url("cid", "http://127.0.0.1:1/oauth/google/callback", "st", "ch")
+    assert mail_auth.GMAIL_SCOPE in urllib.parse.unquote(url)
+
+
+def test_pending_state_records_kind_and_target():
+    st = mail_auth.create_pending_state("gcal-work", "v", "http://x/cb", kind="connector")
+    entry = mail_auth.consume_pending_state(st)
+    assert entry["kind"] == "connector" and entry["target"] == "gcal-work"
+
+
+def test_pending_state_default_kind_inbox_backcompat():
+    st = mail_auth.create_pending_state("work-gmail", "v", "http://x/cb")
+    entry = mail_auth.consume_pending_state(st)
+    assert entry["kind"] == "inbox" and entry["inbox"] == "work-gmail"
+
+
+def test_peek_pending_kind_does_not_consume():
+    st = mail_auth.create_pending_state("gcal-work", "v", "http://x/cb", kind="connector", now=1000)
+    assert mail_auth.peek_pending_kind(st, now=1001) == "connector"
+    assert mail_auth.peek_pending_kind("unknown", now=1001) is None
+    assert mail_auth.peek_pending_kind(st, now=1000 + 601) is None
+    assert mail_auth.consume_pending_state(st, now=1001)["target"] == "gcal-work"

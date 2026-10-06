@@ -13141,3 +13141,259 @@ def test_picker_search_keeps_english_name_in_other_language():
     finally:
         ds.i18n.set_language("en")
     assert "feishu" in _tile_for(out, "preset=feishu")[0]
+
+
+# --- P2c Task 1: Google Calendar connector with Google sign-in ---------------
+
+import mail_auth  # noqa: E402
+
+_GOOGLE_CLIENT = {"client_id": "cid-123", "client_secret": "csecret"}
+
+
+def _gcal_account(connected=False, **kw):
+    account = {"id": "gcal", "type": "google_calendar", "label": "Work cal", "enabled": True,
+               "settings": {"calendar_id": "primary"}, "managed_by": "native", **kw}
+    if connected:
+        account["oauth_connected"] = True
+    return account
+
+
+@pytest.fixture
+def oauth_stubs(monkeypatch):
+    """Every Google sign-in seam faked: no Keychain, no network, fixed PKCE,
+    a fresh pending-state table, and recorders for upsert/set_oauth_secret."""
+    mail_auth._PENDING.clear()
+    seen = {"upsert": [], "set_secret": [], "exchange": []}
+
+    def fake_upsert(fields, secret, original_id="", **kw):
+        seen["upsert"].append({"fields": fields, "secret": secret, "original_id": original_id})
+        return True, "Saved connector " + fields.get("id", "")
+
+    def fake_set(account_id, refresh_token, store=None, **kw):
+        seen["set_secret"].append((account_id, refresh_token))
+        return True, "Connected Work cal"
+
+    def fake_exchange(code, verifier, redirect_uri, client, token_url=None):
+        seen["exchange"].append((code, verifier, redirect_uri, client))
+        return {"access_token": "AT-SECRET", "refresh_token": "RT-SECRET"}
+
+    monkeypatch.setattr(ds.connectors_config, "upsert_account", fake_upsert)
+    monkeypatch.setattr(ds.connectors_config, "set_oauth_secret", fake_set)
+    monkeypatch.setattr(ds.inbox_config, "load_oauth", lambda *a, **k: {"google": dict(_GOOGLE_CLIENT)})
+    monkeypatch.setattr(mail_auth, "make_pkce", lambda: ("VERIFIER", "CHALLENGE"))
+    monkeypatch.setattr(mail_auth, "google_exchange_code", fake_exchange)
+    monkeypatch.setattr(mail_auth, "keychain_set", lambda *a, **k: pytest.fail("no Keychain writes"))
+    yield seen
+    mail_auth._PENDING.clear()
+
+
+def _start_fields(**extra):
+    fields = {"csrf_token": ds._CSRF_TOKEN, "type": "google_calendar", "label": "Work cal", "id": "gcal",
+              "calendar_id": "primary"}
+    fields.update(extra)
+    return fields
+
+
+def _callback(port, query):
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    try:
+        conn.request("GET", "/oauth/google/callback?" + urllib.parse.urlencode(query))
+        response = conn.getresponse()
+        response.read()
+        return response.status, response.getheader("Location")
+    finally:
+        conn.close()
+
+
+def test_connect_start_requires_csrf(oauth_stubs):
+    with _running_server() as port:
+        assert _post(port, "/connectors/oauth/google/start", {"id": "gcal", "type": "google_calendar"})[0] == 403
+        assert _post(port, "/connectors/oauth/google/start",
+                     {**_start_fields(), "csrf_token": "wrong"})[0] == 403
+        assert _post(port, "/connectors/oauth/google/start")[0] == 403
+    assert oauth_stubs["upsert"] == [] and mail_auth._PENDING == {}
+
+
+def test_connect_start_redirects_to_google_with_calendar_scope(oauth_stubs):
+    with _running_server() as port:
+        status, headers, _ = _post(port, "/connectors/oauth/google/start", _start_fields(secret="pasted"))
+    assert status == 303
+    location = headers["Location"]
+    assert location.startswith(mail_auth.GOOGLE_AUTH_URL + "?")
+    query = urllib.parse.parse_qs(urllib.parse.urlsplit(location).query)
+    assert query["scope"] == [mail_auth.CALENDAR_SCOPE]
+    assert query["client_id"] == ["cid-123"] and query["code_challenge"] == ["CHALLENGE"]
+    assert query["redirect_uri"][0].startswith("http://127.0.0.1:") and query["redirect_uri"][0].endswith(
+        "/oauth/google/callback")
+    assert "csecret" not in location
+    entry = mail_auth._PENDING[query["state"][0]]
+    assert entry["kind"] == "connector" and entry["target"] == "gcal" and entry["verifier"] == "VERIFIER"
+    # The account was saved first, with no secret (a pasted one is dropped).
+    assert oauth_stubs["upsert"] == [{"fields": {"type": "google_calendar", "label": "Work cal", "id": "gcal",
+                                                 "calendar_id": "primary"},
+                                      "secret": None, "original_id": ""}]
+
+
+def test_connect_start_from_account_row_uses_existing_account(oauth_stubs, monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [_gcal_account()])
+    with _running_server() as port:
+        status, headers, _ = _post(port, "/connectors/oauth/google/start",
+                                   {"csrf_token": ds._CSRF_TOKEN, "id": "gcal"})
+    assert status == 303 and headers["Location"].startswith(mail_auth.GOOGLE_AUTH_URL + "?")
+    assert oauth_stubs["upsert"] == []
+    state = urllib.parse.parse_qs(urllib.parse.urlsplit(headers["Location"]).query)["state"][0]
+    assert mail_auth._PENDING[state]["target"] == "gcal"
+
+
+def test_connect_start_refuses_non_oauth_types_and_unknown_accounts(oauth_stubs, monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [_gh_account()])
+    with _running_server() as port:
+        status, headers, _ = _post(port, "/connectors/oauth/google/start",
+                                   _start_fields(type="github", id="gh"))
+        assert status == 303 and "ok=0" in headers["Location"] and headers["Location"].startswith("/connectors")
+        for account_id in ("gh", "missing"):
+            status, headers, _ = _post(port, "/connectors/oauth/google/start",
+                                       {"csrf_token": ds._CSRF_TOKEN, "id": account_id})
+            assert status == 303 and "ok=0" in headers["Location"]
+    assert oauth_stubs["upsert"] == [] and mail_auth._PENDING == {}
+
+
+def test_connect_start_failed_save_rerenders_form(oauth_stubs, monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "upsert_account", lambda *a, **k: (False, "Label is required"))
+    with _running_server() as port:
+        status, _, body = _post(port, "/connectors/oauth/google/start", _start_fields(label=""))
+    assert status == 200 and "Label is required" in body and "connector-form" in body
+    assert mail_auth._PENDING == {}
+
+
+def test_connect_without_google_client_shows_setup_link(oauth_stubs, monkeypatch):
+    monkeypatch.setattr(ds.inbox_config, "load_oauth", lambda *a, **k: {})
+    with _running_server() as port:
+        status, headers, body = _post(port, "/connectors/oauth/google/start", _start_fields())
+    assert status == 200 and "Location" not in headers
+    assert "/loops/inbox-triage-loop?view=setup&amp;tab=gmail" in body
+    assert "connector-form" in body and "name='original_id' value='gcal'" in body
+    assert mail_auth._PENDING == {}
+
+
+def test_callback_connector_stores_refresh_token(oauth_stubs, monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [_gcal_account()])
+    state = mail_auth.create_pending_state("gcal", "VERIFIER", "http://127.0.0.1:1/oauth/google/callback",
+                                           kind="connector")
+    with _running_server() as port:
+        status, location = _callback(port, {"state": state, "code": "CODE-1"})
+    assert status == 303 and location.startswith("/connectors?")
+    assert "ok=1" in location and "Connected" in _flash(location)
+    assert oauth_stubs["set_secret"] == [("gcal", "RT-SECRET")]
+    assert oauth_stubs["exchange"] == [("CODE-1", "VERIFIER", "http://127.0.0.1:1/oauth/google/callback",
+                                        _GOOGLE_CLIENT)]
+    assert "RT-SECRET" not in location and "AT-SECRET" not in location and "CODE-1" not in location
+
+
+def test_callback_connector_cancelled_or_exchange_failure(oauth_stubs, monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [_gcal_account()])
+
+    def failing(*a, **k):
+        raise mail_auth.AuthFlowError("Google rejected the sign-in (invalid_grant)")
+    with _running_server() as port:
+        state = mail_auth.create_pending_state("gcal", "V", "http://cb", kind="connector")
+        status, location = _callback(port, {"state": state, "error": "access_denied"})
+        assert location.startswith("/connectors?") and "ok=0" in location and "cancelled" in _flash(location)
+        monkeypatch.setattr(mail_auth, "google_exchange_code", failing)
+        state = mail_auth.create_pending_state("gcal", "V", "http://cb", kind="connector")
+        status, location = _callback(port, {"state": state, "code": "c"})
+        assert location.startswith("/connectors?") and "ok=0" in location and "invalid_grant" in _flash(location)
+    assert oauth_stubs["set_secret"] == []
+
+
+def test_callback_rejects_state_of_other_kind(oauth_stubs, monkeypatch):
+    # An inbox state naming a connector id is handled as an inbox sign-in:
+    # no connector secret is written.
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [_gcal_account()])
+    inbox_calls = []
+    monkeypatch.setattr(ds.inbox_pages, "handle_google_callback",
+                        lambda query: inbox_calls.append(query) or (False, "No inbox named gcal"))
+    with _running_server() as port:
+        state = mail_auth.create_pending_state("gcal", "V", "http://cb", kind="inbox")
+        status, location = _callback(port, {"state": state, "code": "c"})
+        assert location.startswith("/loops/inbox-triage-loop?view=setup&tab=inboxes&")
+        assert len(inbox_calls) == 1
+        # A connector state whose account was deleted meanwhile: error, no write.
+        monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [])
+        state = mail_auth.create_pending_state("gcal", "V", "http://cb", kind="connector")
+        status, location = _callback(port, {"state": state, "code": "c"})
+        assert status == 303 and location.startswith("/connectors?") and "ok=0" in location
+        # ...or that is no longer an oauth type.
+        monkeypatch.setattr(ds.connectors_config, "list_accounts",
+                            lambda **kw: [_gh_account(id="gcal")])
+        state = mail_auth.create_pending_state("gcal", "V", "http://cb", kind="connector")
+        status, location = _callback(port, {"state": state, "code": "c"})
+        assert location.startswith("/connectors?") and "ok=0" in location
+        # An unknown kind is an error too, never the inbox handler.
+        state = mail_auth.create_pending_state("gcal", "V", "http://cb", kind="mystery")
+        status, location = _callback(port, {"state": state, "code": "c"})
+        assert "ok=0" in location and len(inbox_calls) == 1
+    assert oauth_stubs["set_secret"] == [] and oauth_stubs["exchange"] == []
+
+
+def test_callback_state_single_use(oauth_stubs, monkeypatch):
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda **kw: [_gcal_account()])
+    state = mail_auth.create_pending_state("gcal", "V", "http://cb", kind="connector")
+    with _running_server() as port:
+        _callback(port, {"state": state, "code": "c"})
+        status, location = _callback(port, {"state": state, "code": "c"})
+    assert status == 303 and "ok=0" in location
+    assert "expired or was already used" in _flash(location)
+    assert len(oauth_stubs["set_secret"]) == 1
+
+
+def test_form_for_oauth_type_has_connect_button_no_secret_input():
+    out = ds._connector_form_body("google_calendar")
+    assert "name='secret'" not in out and "id='cf-secret'" not in out
+    assert "formaction='/connectors/oauth/google/start'" in out
+    assert "Connect with Google" in out
+    assert "name='calendar_id'" in out and "value='primary'" in out
+    assert "support.google.com/calendar/answer/37082" in out
+
+
+def test_upsert_oauth_type_rejects_pasted_secret(tmp_path, monkeypatch):
+    store = {}
+
+    class Store:
+        def get(self, ref): return store.get(ref)
+        def put(self, ref, s): store[ref] = s
+        def delete(self, ref): store.pop(ref, None)
+    ok, msg = connectors_config.upsert_account(
+        {"id": "gcal", "type": "google_calendar", "label": "Cal", "calendar_id": "primary"}, "pasted-token",
+        config_path=tmp_path / "c.json", store=Store(), gitlab_config_path=tmp_path / "g.json",
+        slack_config_path=tmp_path / "s.json", inbox_config_path=tmp_path / "i.json")
+    assert (ok, store) == (False, {}) and "pasted-token" not in msg
+
+
+def test_account_row_shows_google_connection_state():
+    csrf = f"<input type='hidden' name='csrf_token' value=\"{ds._CSRF_TOKEN}\">"
+    row = ds._connector_account_row_html(_gcal_account(), csrf, None)
+    assert "Not connected" in row and "Connect with Google" in row
+    assert "action='/connectors/oauth/google/start'" in row and "name='id' value=\"gcal\"" in row
+    assert "Calendar" in row
+    row = ds._connector_account_row_html(_gcal_account(connected=True), csrf, None)
+    assert ">Connected<" in row and "Reconnect" in row
+    gh_row = ds._connector_account_row_html(_gh_account(), csrf, None)
+    assert "/connectors/oauth/google/start" not in gh_row and "Not connected" not in gh_row
+
+
+def test_picker_renders_unknown_category_under_other(monkeypatch):
+    out = ds._connector_type_picker_html()
+    assert "type=google_calendar" in out
+    tile_pos = out.index("type=google_calendar")
+    other_pos = out.index(">Other</h2>")
+    assert tile_pos > other_pos
+
+
+def test_google_calendar_brand_logo_is_svg():
+    assert ds.brand_logos.brand_logo_svg("googlecalendar", "Google Calendar").startswith("<svg")
+
+
+def test_google_connector_icons_are_in_the_font_subset():
+    names = ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
+    assert {"login", "calendar_month"} <= set(names) and names == sorted(names)

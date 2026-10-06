@@ -13,6 +13,7 @@ NOTIFY = "notify"
 FEED = "feed"
 MAIL = "mail"
 DOCS = "docs"
+CALENDAR = "calendar"
 
 TEST_TIMEOUT_SECONDS = 10
 
@@ -56,8 +57,12 @@ class Connector:
     brand = ""          # key into web/brand_logos.LOGOS
     description = ""    # one plain sentence, translated at render time
     docs_url = ""
-    category = "other"  # code | chat | tracking | knowledge | feeds | mail | other
+    category = "other"  # google | code | chat | tracking | knowledge | feeds | mail | other
     presets = ()
+    # "secret": the form takes a pasted secret (secret_label). "oauth_google":
+    # the stored secret is a Google refresh token obtained through the
+    # dashboard's Connect with Google flow - never typed into a form.
+    auth = "secret"
 
     def __init__(self, account, secret=None, http=None):
         self.account = account

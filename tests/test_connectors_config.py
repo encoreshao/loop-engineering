@@ -283,3 +283,93 @@ def test_store_failure_message_is_fixed_and_carries_no_exception_detail(tmp_path
     ok, msg = cc.upsert_account(gh("gh", "GH"), "SUPERSECRET", store=FailingStore(), **paths)
     assert not ok and msg == "Could not store the secret in the Keychain"
     assert "SUPERSECRET" not in msg and "security" not in msg
+
+
+# --- P2c: oauth_google types --------------------------------------------------
+
+class FakeCalendar(Connector):
+    type = "google_calendar"
+    label = "Google Calendar"
+    capabilities = frozenset({"calendar"})
+    fields = (Field("calendar_id", "Calendar ID", default="primary"),)
+    secret_label = None
+    auth = "oauth_google"
+
+
+@pytest.fixture
+def with_calendar(monkeypatch, fake_types):
+    types = dict(connectors.CONNECTOR_TYPES)
+    types["google_calendar"] = FakeCalendar
+    monkeypatch.setattr(connectors, "CONNECTOR_TYPES", types)
+
+
+def cal(id_, label="Cal", **kw):
+    return {"id": id_, "type": "google_calendar", "label": label, "calendar_id": "primary", **kw}
+
+
+def test_upsert_oauth_type_needs_no_secret(paths, with_calendar):
+    store = MemStore()
+    ok, msg = cc.upsert_account(cal("gcal"), None, store=store, **paths)
+    assert ok, msg
+    assert store.data == {}
+    assert cc.get_account("gcal", **paths)["settings"] == {"calendar_id": "primary"}
+
+
+def test_upsert_oauth_type_rejects_pasted_secret(paths, with_calendar):
+    store = MemStore()
+    ok, msg = cc.upsert_account(cal("gcal"), "pasted-refresh-token", store=store, **paths)
+    assert not ok and "pasted-refresh-token" not in msg
+    assert store.data == {} and not paths["config_path"].exists()
+
+
+def test_upsert_oauth_type_keeps_and_renames_stored_token(paths, with_calendar):
+    store = MemStore()
+    cc.upsert_account(cal("gcal"), None, store=store, **paths)
+    store.data["gcal"] = "RT"
+    ok, _ = cc.upsert_account(cal("gcal2", "Renamed"), "", original_id="gcal", store=store, **paths)
+    assert ok and store.data == {"gcal2": "RT"}
+
+
+def test_set_oauth_secret_stores_token_for_oauth_account(paths, with_calendar):
+    store = MemStore()
+    cc.upsert_account(cal("gcal"), None, store=store, **paths)
+    ok, msg = cc.set_oauth_secret("gcal", "RT-SECRET", store=store, **paths)
+    assert ok and store.data["gcal"] == "RT-SECRET" and "RT-SECRET" not in msg
+
+
+def test_set_oauth_secret_refuses_unknown_or_non_oauth_account(paths, with_calendar):
+    store = MemStore()
+    cc.upsert_account(gh("gh", "GH"), "tok", store=store, **paths)
+    for account_id in ("gh", "nope", "work", "me-gmail"):
+        ok, msg = cc.set_oauth_secret(account_id, "RT-SECRET", store=store, **paths)
+        assert not ok and "RT-SECRET" not in msg, account_id
+    assert store.data == {"gh": "tok"}
+
+
+def test_set_oauth_secret_keychain_failure_is_generic(paths, with_calendar):
+    class Failing(MemStore):
+        def put(self, ref, s):
+            raise RuntimeError(f"security: could not store {s}")
+    store = Failing()
+    cc.upsert_account(cal("gcal"), None, store=MemStore(), **paths)
+    ok, msg = cc.set_oauth_secret("gcal", "RT-SECRET", store=store, **paths)
+    assert not ok and "RT-SECRET" not in msg and "Keychain" in msg
+
+
+def test_set_oauth_secret_rejects_blank_or_control_char_token(paths, with_calendar):
+    store = MemStore()
+    cc.upsert_account(cal("gcal"), None, store=store, **paths)
+    for bad in ("", "a\nb", None):
+        assert cc.set_oauth_secret("gcal", bad, store=store, **paths)[0] is False
+    assert store.data == {}
+
+
+def test_oauth_connected_marker_set_by_sign_in_and_kept_on_edit(paths, with_calendar):
+    store = MemStore()
+    cc.upsert_account(cal("gcal"), None, store=store, **paths)
+    assert not cc.get_account("gcal", **paths).get("oauth_connected")
+    cc.set_oauth_secret("gcal", "RT", store=store, **paths)
+    assert cc.get_account("gcal", **paths)["oauth_connected"] is True
+    assert '"RT"' not in paths["config_path"].read_text()
+    cc.upsert_account(cal("gcal", "Edited"), "", original_id="gcal", store=store, **paths)
+    assert cc.get_account("gcal", **paths)["oauth_connected"] is True
