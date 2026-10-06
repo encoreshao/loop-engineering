@@ -131,3 +131,51 @@ def test_parse_answer_strips_fences():
 
 def test_parse_answer_free_text():
     assert loopkit.parse_answer("hello", ()) == "hello"
+
+
+def test_crash_in_item_two_keeps_item_one_seen_and_continues(env, monkeypatch):
+    kw, _ = env
+    real = loopkit.write_result
+    calls = []
+    def flaky(result, results_dir=None):
+        calls.append(1)
+        if len(calls) == 2:
+            raise OSError("disk full")
+        return real(result, results_dir)
+    monkeypatch.setattr(loopkit, "write_result", flaky)
+    p = Demo([WorkItem("a", "A"), WorkItem("b", "B"), WorkItem("c", "C")], ['{"verdict": "ok"}'] * 3)
+    out = loopkit.run_plugin(p, "run_1", **kw)
+    assert [o.status for o in out] == ["done", "failed", "done"]
+    assert "OSError" in out[1].summary
+    monkeypatch.setattr(loopkit, "write_result", real)
+    p2 = Demo([WorkItem("a", "A"), WorkItem("b", "B"), WorkItem("c", "C")], ['{"verdict": "ok"}'])
+    assert [o.item_key for o in loopkit.run_plugin(p2, "run_2", **kw)] == ["b"]
+
+
+def test_systemexit_in_item_two_persists_item_one_and_propagates(env):
+    kw, _ = env
+    def after(item, answer):
+        if item.key == "b":
+            raise SystemExit(143)
+        return Outcome(item.key, "done", "ok")
+    p = Demo([WorkItem("a", "A"), WorkItem("b", "B")], ['{"verdict": "ok"}'] * 2, after=after)
+    with pytest.raises(SystemExit):
+        loopkit.run_plugin(p, "run_1", **kw)
+    p2 = Demo([WorkItem("a", "A"), WorkItem("b", "B")], ['{"verdict": "ok"}'])
+    assert [o.item_key for o in loopkit.run_plugin(p2, "run_2", **kw)] == ["b"]
+
+
+def test_model_crash_summary_has_real_cause(env):
+    kw, _ = env
+    p = Demo([WorkItem("a", "A")], [RuntimeError("boom"), RuntimeError("boom")])
+    out = loopkit.run_plugin(p, "run_1", **kw)
+    assert "boom" in out[0].summary
+
+
+def test_definition_verifier_failure_gets_generic_feedback(env, tmp_path):
+    kw, _ = env
+    y = LOOP_YAML.replace("retry:", 'verifiers:\n  - {name: nope, type: command, command: "false"}\nretry:')
+    (tmp_path / "loops" / "demo" / "loop.yaml").write_text(y)
+    p = Demo([WorkItem("a", "A")], ['{"verdict": "ok"}'] * 2)
+    loopkit.run_plugin(p, "run_1", **kw)
+    assert "failed verification" in p.prompts[1] and "output contract" not in p.prompts[1]

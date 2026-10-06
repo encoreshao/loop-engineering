@@ -186,14 +186,19 @@ def _run_item(plugin, item, ctx, run_id, events_dir, results_dir, repo_root):
         previous = context.get("previous")
         if previous is not None and holder.get("text") is not None:
             failed = [r for r in previous.verification_results if not r.passed]
-            if failed:
+            if failed and failed[0].name == OutputContractVerifier.name:
                 prompt += ("\n\nYour previous answer violated the output contract: "
                            f"{failed[0].output}. Answer again with valid JSON only.")
+            elif failed:
+                prompt += ("\n\nYour previous attempt failed verification: "
+                           f"{failed[0].output}. Fix it and answer again.")
         holder.pop("error", None)
         holder["text"] = None
         try:
             res = plugin.call_model(prompt, ctx)
-        except Exception as exc:  # noqa: BLE001 - surfaced via the verifier so the runtime retries
+        except Exception as exc:  # noqa: BLE001
+            # Crashed model calls are surfaced as verification failures so LoopRuntime
+            # retries them (metrics show verification.failed; final state ESCALATED).
             holder["error"] = f"model call failed: {type(exc).__name__}: {exc}"
             return {"cost_usd": 0}
         holder["text"] = res["text"]
@@ -212,8 +217,12 @@ def _run_item(plugin, item, ctx, run_id, events_dir, results_dir, repo_root):
             return outcome
         except Exception as exc:  # noqa: BLE001 - one item's failure must not stop the run
             return Outcome(item.key, "failed", f"{type(exc).__name__}: {exc}", url=item.url)
-    return Outcome(item.key, "failed",
-                   f"loop ended {result.final_state.value}: {result.stop_reason}", url=item.url)
+    cause = holder.get("error") or next(
+        (r.output for it in reversed(result.iterations) for r in it.verification_results if not r.passed), "")
+    summary = f"loop ended {result.final_state.value}: {result.stop_reason}"
+    if cause:
+        summary += f" ({str(cause)[:200]})"
+    return Outcome(item.key, "failed", summary, url=item.url)
 
 
 def _write_reports(plugin, run_id, now, outcomes, history_dir, last_run_path):
@@ -276,15 +285,20 @@ def run_plugin(plugin, run_id, now=None, *, repo_root=None, results_dir=None, ev
         log(f"processing {len(items)} item(s)")
 
         outcomes = []
-        for item in items:
-            outcome = _run_item(plugin, item, ctx, run_id, events_dir, results_dir, repo_root)
-            if outcome.status in ("done", "skipped"):
-                seen.add(item.key)
-            outcomes.append(outcome)
-            log(f"item {_slug(item.key)}: {outcome.status}")
-        seen.save()
-
-        counts = _write_reports(plugin, run_id, now, outcomes, history_dir, loop_dir / "last-run.json")
+        try:
+            for item in items:
+                try:
+                    outcome = _run_item(plugin, item, ctx, run_id, events_dir, results_dir, repo_root)
+                except Exception as exc:  # noqa: BLE001 - one item's crash must not stop the run
+                    outcome = Outcome(item.key, "failed", f"{type(exc).__name__}: {exc}", url=item.url)
+                if outcome.status in ("done", "skipped"):
+                    seen.add(item.key)
+                    seen.save()  # persist now: a later crash/SIGTERM must not re-run acted-on items
+                outcomes.append(outcome)
+                log(f"item {_slug(item.key)}: {outcome.status}")
+        finally:
+            seen.save()
+            counts = _write_reports(plugin, run_id, now, outcomes, history_dir, loop_dir / "last-run.json")
         text = plugin.digest(outcomes, ctx)
         if text:
             notifier(loop_name, text)
