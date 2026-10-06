@@ -18,7 +18,8 @@ dashboard and tooling around it; follow them without being asked.
 `inbox_triage_runner.py`, `inbox_seen.py`, `inbox_status.py`,
 `mail_auth.py`, `mail_http.py`, `i18n.py` with its `locales/` catalogs, and the
 `mail_providers/` package). `bin/web/`
-— the dashboard web server (`dashboard_server.py`, `inbox_pages.py`) alone.
+— the dashboard web server (`dashboard_server.py`, `inbox_pages.py`) and
+`hub.py` (pure hub/tab navigation helpers) alone.
 `bin/scripts/` — one-shot shell scripts
 (`setup.sh`, `setup-nginx.sh`, `uninstall.sh`, `new_worktree.sh`,
 `open_merge_request.sh`). Moving a script between these means updating, in

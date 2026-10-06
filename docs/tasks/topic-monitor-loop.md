@@ -33,7 +33,7 @@ Topics are processed one at a time, in the order listed, never in parallel — s
 
 Each run produces, per configured topic:
 - `outputs/topic-monitor/history/<date>-<topic-name>.md` — that day's briefing
-- A status update the dashboard's Topic Monitor page reads (idle/running/last-run-time per topic)
+- A status update the dashboard's Loops → Topic Monitor page reads (idle/running/last-run-time per topic)
 - One Slack message via the webhook at `~/.slack/config.json` (or the topic's `slack_bundle` override), containing the briefing text directly — the dashboard is localhost-only, so messages never link to it
 
 And, across the whole run:

@@ -25,8 +25,8 @@ the one scheduler that runs all three, `bin/loop_scheduler.py`.
 `bin/scripts/setup.sh` scaffolds `~/.loop-engineering/inboxes.json` from
 `config/inboxes.json.template`, the same way it scaffolds `projects.json`
 and `topics.json`. Unlike those two, though, connecting an actual mailbox
-is not a hand-edit-JSON step: it all happens on the dashboard's **Inbox
-Setup** page (`/inbox/setup`):
+is not a hand-edit-JSON step: it all happens on the dashboard's **Loops →
+Inbox Triage → Setup** view (`/loops/inbox-triage-loop?view=setup`):
 
 1. Follow the per-provider numbered instructions to register an OAuth app
    (Google Cloud Console for Gmail, Azure App registrations for Outlook) and
@@ -46,9 +46,9 @@ Setup** page (`/inbox/setup`):
 The loop itself is registered in `~/.loop-engineering/loops.json` as
 `inbox-triage-loop`, **disabled by default** — like the GitLab and topic
 loops, it must not act before an inbox is actually connected. Enable it from
-the dashboard's **Daemons** page (or by hand-editing its `loops.json` entry)
+the dashboard's **Settings → Daemons** page (or by hand-editing its `loops.json` entry)
 once at least one inbox is connected, or just use the **Run now** button on
-the **Inbox Triage** page (`/inbox`) to trigger a run on demand — same
+the **Loops → Inbox Triage** page (`/loops/inbox-triage-loop`) to trigger a run on demand — same
 runner either way.
 
 ## Scope

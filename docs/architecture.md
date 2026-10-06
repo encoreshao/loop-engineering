@@ -51,18 +51,18 @@ other.
   `issue.completed`/`issue.escalated`, `memory.created`/`memory.reused`).
   `bin/metrics.py`, `bin/cost.py`, `bin/health.py`, `bin/learning.py`, and
   `bin/risk.py` all read *only* this log. This is what backs the
-  **Analytics**, **Cost**, and **Memory** dashboard pages.
+  **Insights** views (Analytics, Cost, Memory).
 - **`LoopRuntime`'s persisted results** — `outputs/loop-runs/<run_id>/result.json`,
   written by `bin/loop_serialize.py`, one file per `LoopRuntime.start()`
   call. `bin/loop_serialize.py` and `bin/loop_budget.py`'s
   `summarize_*` functions read *only* this. This is what backs the
-  **Loop Runs**, **Budget**, and **Audit** dashboard pages.
+  **Runs → Loop Runs**, **Insights → Budget**, and **Harness → Audit** views.
 
 The topic monitor loop only ever wrote to the second system (it was built
 directly on `LoopRuntime` from the start). The GitLab issue loop writes to
-*both*: its own event log (for Analytics/Cost/Memory, which predate
+*both*: its own event log (for Insights → Analytics/Cost/Memory, which predate
 `LoopRuntime`) and, since `bin/gitlab_loop_runner.py` wired it up, a
-`LoopRuntime` result per issue (for Loop Runs/Budget/Audit). Nothing here
+`LoopRuntime` result per issue (for Runs → Loop Runs, Insights → Budget, Harness → Audit). Nothing here
 merges the two — a fact worth knowing before assuming a dashboard number
 comes from "the" run history.
 
@@ -207,7 +207,7 @@ failure never crashes the runtime — same `|| true` philosophy as
   plan's experimental §17 metric: verified-successful runs / (total
   cost_usd × total duration_hours × total iterations), summed across all
   persisted `LoopRuntime` runs. Shown as one tile among several on the
-  Loop Runs page, deliberately not a standalone KPI.
+  Runs → Loop Runs view, deliberately not a standalone KPI.
 - **External GitLab issue verification** (`gitlab_loop_runner._external_verify_issue`)
   — independently re-runs a project's real `test_cmd`/`lint_cmd` against
   the worktree an issue's agent call actually used, recording the result

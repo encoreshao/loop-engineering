@@ -6,7 +6,7 @@ Every weekday, check GitLab issues already assigned to the configured user on th
 
 ## Setup
 
-New to this loop? Run `bin/scripts/setup.sh` once — it installs the `gitlab-config` skill this loop depends on (from [encore-skills](https://github.com/encoreshao/encore-skills)) and scaffolds `~/.loop-engineering/projects.json` from the template if you don't have one yet. The dashboard's Skills page (`/skills`) shows a live view of what's installed.
+New to this loop? Run `bin/scripts/setup.sh` once — it installs the `gitlab-config` skill this loop depends on (from [encore-skills](https://github.com/encoreshao/encore-skills)) and scaffolds `~/.loop-engineering/projects.json` from the template if you don't have one yet. The dashboard's Settings → Skills view (`/settings?view=skills`) shows a live view of what's installed.
 
 ## Scope
 
