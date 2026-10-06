@@ -21,7 +21,7 @@ def test_real_definition_verifies_externally_in_observe_mode_with_one_retry():
     # 30, not an invented number: it matches this repo's own
     # LoopDefinition/BudgetController default and
     # templates/gitlab-issue/loop.yaml, and bounds each issue independently
-    # inside run-loop.sh's outer 21600s whole-batch sanity timeout.
+    # inside the scheduler's outer 43200s whole-batch sanity timeout.
     assert definition.stop_conditions.max_runtime_minutes == 30
     assert definition.stop_conditions.max_cost_usd == 3
     assert definition.human_gates == ["merge", "production_deploy"]

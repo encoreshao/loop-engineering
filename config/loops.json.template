@@ -5,7 +5,7 @@
     "description": "Works your assigned GitLab issues: fixes, answers or escalates each one.",
     "schedule": {"frequency": "weekly", "weekdays": [1, 2, 3, 4, 5], "hour": 10, "minute": 0},
     "enabled": true,
-    "timeout_seconds": 21600,
+    "timeout_seconds": 43200,
     "log_suffix": "",
     "emit_run_events": true
   },

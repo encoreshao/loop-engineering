@@ -51,8 +51,9 @@ verifiers:
 
 stop_conditions:
   max_iterations: 2
-  # Bounds each issue independently, nested inside run-loop.sh's outer
-  # 21600s (6h) whole-batch sanity timeout - which is sized to leave room
+  # Bounds each issue independently, nested inside the scheduler's outer
+  # 43200s (12h) whole-batch sanity timeout (gitlab-loop's timeout_seconds in
+  # config/loops.json.template) - which is sized to leave room
   # for a double-digit issue count at this budget plus the end-of-run
   # wrap-up call, and must be raised alongside this value if this ever
   # grows. 30 matches this repo's own LoopDefinition/

@@ -410,3 +410,9 @@ def test_set_settings_limits_and_unknown_loop(tmp_path):
     ok, _ = lc.set_settings("nope", {"interests": "x"}, allowed_keys=("interests",),
                                       config_path=p, template_path=tmp_path / "none")
     assert not ok and p.read_text() == before
+
+
+def test_template_gitlab_loop_timeout_covers_gate_retries():
+    entries = json.loads((REPO_ROOT / "config" / "loops.json.template").read_text())
+    entry = next(e for e in entries if e["name"] == "gitlab-loop")
+    assert entry["timeout_seconds"] == 43200

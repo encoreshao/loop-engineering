@@ -22,13 +22,16 @@ boundary (`_invoke_cli_with_prompt`) and differing only in their prompt:
   reported" guarantee true now that no single session spans the batch."""
 import json
 import os
+import re
 import subprocess
 import sys
+import urllib.parse
 from pathlib import Path
 
 import ai_cli_config
 import cost as cost_module
 import events as events_module
+import connectors_config
 import issue_tracking_config
 import loop_config
 import slack_notify
@@ -53,6 +56,10 @@ _STDERR_EXCERPT_CHARS = 800
 # figure alone is not enough.
 _AGENT_COST_ATTR = "agent_cost_usd"
 _UNSET = object()
+
+# Where `_run_one_issue` stashes the gate-mode finalize outcome (same plain-
+# attribute trick as _AGENT_COST_ATTR, so result.json keeps its shape).
+_GATE_OUTCOME_ATTR = "gate_outcome"
 
 # Where `_run_one_issue` stashes an issue's summed token/cache usage (a
 # dict with the four fields below, or None if the issue never got real
@@ -495,6 +502,156 @@ def _emit_verification_events(run_id, issue_run_id, alias, issue_iid, mode, iter
         )
 
 
+_HANDOFF_ACTIONS = ("fix", "answer", "escalate")
+_NEEDS_HUMAN_LABEL = "loop:needs-human"
+_FAILURE_TAIL_CHARS = 1500
+_OPENER_TIMEOUT_SECONDS = 300
+
+
+def read_handoff(path, issue_iid):
+    """The agent's handoff JSON, or None when it is missing/malformed. A
+    `fix` must name exactly this issue's loop/issue-<iid> branch and carry a
+    non-empty target_branch and title."""
+    try:
+        data = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get("action") not in _HANDOFF_ACTIONS:
+        return None
+    if data["action"] == "fix":
+        branch = data.get("branch")
+        if not isinstance(branch, str) or not re.fullmatch(r"loop/issue-\d+", branch):
+            return None
+        if branch != f"loop/issue-{issue_iid}":
+            return None
+        for key in ("target_branch", "title"):
+            if not isinstance(data.get(key), str) or not data[key].strip():
+                return None
+    return data
+
+
+def _run_open_merge_request(local_path, branch, target_branch, title, repo_root=None):
+    """The real opener: open_merge_request.sh keeps its loop/issue-* guard."""
+    if repo_root is None:
+        repo_root = REPO_ROOT
+    script = Path(repo_root) / "bin" / "scripts" / "open_merge_request.sh"
+    try:
+        proc = subprocess.run(
+            ["bash", str(script), local_path, branch, target_branch, title],
+            cwd=str(repo_root), check=False, capture_output=True, text=True, timeout=_OPENER_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    return proc.returncode == 0, (proc.stdout + proc.stderr).strip()
+
+
+def _failure_text(result):
+    """Failing commands' per-command tails from the last iteration (falling
+    back to the verifier's own output), bounded."""
+    parts = []
+    iterations = getattr(result, "iterations", None) or []
+    for r in (iterations[-1].verification_results if iterations else []):
+        if r.passed:
+            continue
+        commands = (r.evidence or {}).get("commands")
+        if commands:
+            parts.extend(f"$ {c['command']}\n{c.get('output') or ''}" for c in commands if not c.get("passed"))
+        else:
+            parts.append(r.output or "")
+    return "\n\n".join(parts)[-_FAILURE_TAIL_CHARS:]
+
+
+def _escalation_comment(issue_iid, reason, failure_text):
+    if reason == "handoff_invalid":
+        tried = "I worked on this issue but did not leave a valid handoff, so the loop could not tell what to do next."
+        failed = "The handoff file was missing or malformed; no merge request was opened."
+    elif reason == "mr_open_failed":
+        tried = "I fixed this and the loop's own checks passed, but the merge request could not be opened."
+        failed = "Opening the merge request failed:"
+    else:
+        tried = "I implemented a fix, but the loop's own verification of it failed, so no merge request was opened."
+        failed = "The project's checks, re-run by the loop in my worktree, failed:"
+    fenced = f"\n\n```\n{failure_text}\n```" if failure_text else ""
+    return (
+        f"**What I tried**\n{tried}\n\n"
+        f"**What failed**\n{failed}{fenced}\n\n"
+        f"**Where the work is**\n- Branch `loop/issue-{issue_iid}` in this issue's local worktree (not pushed).\n\n"
+        f"**What I need from you**\n- Look at the failure above and the unpushed branch, then fix it or tell me how to proceed."
+    )
+
+
+def finalize_gated_issue(result, alias, issue_iid, run_id, repo_root, handoff=None, project=None,
+                         opener=None, gitlab=None, notifier=None, events_dir=None):
+    """Gate mode's last step: open the MR (only after verification passed)
+    or escalate. Returns "mr_opened" | "answered" | "escalated:<reason>".
+    GitLab/Slack calls are best-effort and never raise out of here."""
+    if project is None:
+        project = loop_config.get_project(alias)
+    if handoff is None:
+        handoff = handoff_path(run_id, alias, issue_iid, repo_root=repo_root)
+    issue_run_id = f"{run_id}_{alias}_{issue_iid}"
+    notes_path = f"/projects/{urllib.parse.quote(str(project['project_id']), safe='')}/issues/{issue_iid}"
+
+    def log(text):
+        try:
+            _append_unified_log(f"gate finalize {alias} #{issue_iid}: {text}", repo_root=repo_root)
+        except OSError:
+            pass
+
+    def api(method, path, body):
+        nonlocal gitlab
+        try:
+            if gitlab is None:
+                gitlab = connectors_config.load_connector(project["instance"])
+            gitlab.api(method, path, json_body=body)
+        except Exception as exc:  # noqa: BLE001 - best-effort, must not crash a batch
+            log(f"GitLab {method} {path} failed: {type(exc).__name__}: {exc}")
+
+    def emit(event_type, data):
+        _emit_best_effort(event_type, run_id=run_id, issue_run_id=issue_run_id, project=alias,
+                          issue_iid=issue_iid, data=data, events_dir=events_dir)
+
+    def escalate(reason, failure_text=""):
+        api("POST", f"{notes_path}/notes", {"body": _escalation_comment(issue_iid, reason, failure_text)})
+        api("PUT", notes_path, {"add_labels": _NEEDS_HUMAN_LABEL})
+        emit("issue.escalated", {"reason": reason, "gated": True})
+        message = f"Loop escalated {alias} #{issue_iid} ({reason}); see the issue for details."
+        try:
+            (notifier or _notify_slack_best_effort)(message)
+        except Exception as exc:  # noqa: BLE001
+            log(f"notify failed: {type(exc).__name__}: {exc}")
+        return f"escalated:{reason}"
+
+    data = read_handoff(handoff, issue_iid)
+    if data is None:
+        return escalate("handoff_invalid")
+    if data["action"] == "answer":
+        return "answered"
+    if data["action"] == "escalate":
+        return "escalated:agent"
+    if result.final_state != LoopState.COMPLETED:
+        return escalate("verification_failed", _failure_text(result))
+
+    if opener is None:
+        def opener(local_path, branch, target, title):
+            return _run_open_merge_request(local_path, branch, target, title, repo_root=repo_root)
+    try:
+        ok, detail = opener(project["local_path"], data["branch"], data["target_branch"], data["title"])
+    except Exception as exc:  # noqa: BLE001
+        ok, detail = False, f"{type(exc).__name__}: {exc}"
+    if not ok:
+        return escalate("mr_open_failed", str(detail)[-_FAILURE_TAIL_CHARS:])
+
+    checks = "\n".join(f"- `{project[k]}` \u2705" for k in ("test_cmd", "lint_cmd") if project.get(k))
+    body = (
+        f"Opened merge request for this fix: {data['branch']} \u2192 {data['target_branch']}. "
+        f"Verified by the loop with:\n{checks}\n\n{data.get('summary') or ''}"
+    ).rstrip()
+    api("POST", f"{notes_path}/notes", {"body": body})
+    emit("issue.completed", {"outcome": "mr_opened", "gated": True})
+    return "mr_opened"
+
+
 def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
                    agent_invoker=None, events_dir=None):
     """`agent_invoker` defaults to `invoke_issue_agent` (the dashboard's
@@ -553,6 +710,17 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
     # so outputs/loop-runs/<run>/result.json's shape is unchanged.
     setattr(result, _AGENT_COST_ATTR, _sum_or_none(raw_costs))
     setattr(result, _AGENT_USAGE_ATTR, _sum_usages(raw_usages))
+
+    if gate:
+        # An unexpected failure here must not crash the batch; the issue
+        # just keeps its runtime outcome.
+        try:
+            outcome = finalize_gated_issue(result, alias, issue_iid, run_id, repo_root, events_dir=events_dir)
+        except Exception as exc:  # noqa: BLE001
+            outcome = None
+            _append_unified_log(
+                f"gate finalize for {alias} #{issue_iid} failed: {type(exc).__name__}: {exc}", repo_root=repo_root)
+        setattr(result, _GATE_OUTCOME_ATTR, outcome)
 
     write_result(result, results_dir=results_dir)
     return result

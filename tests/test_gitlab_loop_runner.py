@@ -1316,3 +1316,185 @@ def test_invoke_cli_passes_env_only_when_given(tmp_path, monkeypatch):
     glr._invoke_cli_with_prompt("p", repo_root=tmp_path, unified_log_path=tmp_path / "u.log", env={"LOOP_HANDOFF_PATH": "/x"})
     assert "env" not in calls[0]
     assert calls[1]["env"]["LOOP_HANDOFF_PATH"] == "/x" and "PATH" in calls[1]["env"]
+
+
+# --- Gate mode: harness-owned MR creation and escalation ---------------------
+
+
+class FakeGitLabAPI:
+    def __init__(self, fail=False):
+        self.calls, self.fail = [], fail
+
+    def api(self, method, path, json_body=None, **kw):
+        self.calls.append((method, path, json_body))
+        if self.fail:
+            raise RuntimeError("gitlab down")
+        return {}
+
+
+def _loop_result(state, output="out", evidence=None):
+    import loop_result
+    from loop_state import LoopState
+    v = lv.VerificationResult("project_commands", state == LoopState.COMPLETED, 0, 1, output, evidence or {})
+    it = loop_result.IterationResult(1, state, [v], {}, True)
+    return loop_result.LoopResult("l", "run_web_7", "d", state, [it], "x")
+
+
+def completed_result():
+    from loop_state import LoopState
+    return _loop_result(LoopState.COMPLETED)
+
+
+def failed_result(output, evidence=None):
+    from loop_state import LoopState
+    return _loop_result(LoopState.ESCALATED, output, evidence)
+
+
+_PROJECT = {"local_path": "/x/web", "instance": "gl", "project_id": "grp/web",
+            "test_cmd": "rspec", "lint_cmd": "rubocop ."}
+_FIX = '{"action":"fix","branch":"loop/issue-7","target_branch":"main","title":"Fix #7: x","summary":"the summary"}'
+
+
+def _finalize(tmp_path, result, handoff_text=_FIX, opener=None, gitlab=None, notifier=None, **kw):
+    hp = tmp_path / "h.json"
+    if handoff_text is not None:
+        hp.write_text(handoff_text)
+    return glr.finalize_gated_issue(
+        result, "web", 7, "run", tmp_path, handoff=hp, project=_PROJECT, opener=opener,
+        gitlab=gitlab if gitlab is not None else FakeGitLabAPI(), notifier=notifier or (lambda *a: None),
+        events_dir=tmp_path / "ev", **kw)
+
+
+def test_gate_pass_opens_mr_and_comments(tmp_path):
+    opened, gl = [], FakeGitLabAPI()
+    out = _finalize(tmp_path, completed_result(), opener=lambda *a: opened.append(a) or (True, "ok"), gitlab=gl)
+    assert out == "mr_opened" and opened[0] == ("/x/web", "loop/issue-7", "main", "Fix #7: x")
+    assert gl.calls[0][0] == "POST" and gl.calls[0][1].endswith("/issues/7/notes")
+    assert "grp%2Fweb" in gl.calls[0][1]
+    body = gl.calls[0][2]["body"]
+    assert "Opened merge request for this fix: loop/issue-7 → main" in body
+    assert "`rspec` ✅" in body and "`rubocop .` ✅" in body and "the summary" in body
+
+
+def test_gate_fail_escalates_with_label_and_no_mr(tmp_path):
+    opened, gl, notes = [], FakeGitLabAPI(), []
+    out = _finalize(tmp_path, failed_result("1 example, 1 failure"), opener=lambda *a: opened.append(a),
+                    gitlab=gl, notifier=lambda *a: notes.append(a))
+    assert out == "escalated:verification_failed" and opened == [] and len(notes) == 1
+    note = gl.calls[0][2]["body"]
+    for section in ("**What I tried**", "**What failed**", "**Where the work is**", "**What I need from you**"):
+        assert section in note
+    assert "1 example, 1 failure" in note and "```" in note
+    assert gl.calls[1][0] == "PUT" and gl.calls[1][2]["add_labels"] == "loop:needs-human"
+    assert not gl.calls[1][1].endswith("/notes")
+
+
+def test_gate_fail_uses_per_command_tails_bounded(tmp_path):
+    ev = {"commands": [{"command": "rspec", "passed": False, "output": "BOOM"},
+                       {"command": "rubocop .", "passed": True, "output": "CLEAN"}]}
+    gl = FakeGitLabAPI()
+    _finalize(tmp_path, failed_result("x" * 9000, ev), gitlab=gl)
+    note = gl.calls[0][2]["body"]
+    assert "$ rspec\nBOOM" in note and "CLEAN" not in note
+    gl = FakeGitLabAPI()
+    _finalize(tmp_path, failed_result("Y" * 9000), gitlab=gl)
+    assert gl.calls[0][2]["body"].count("Y") == 1500
+
+
+def test_missing_handoff_escalates_without_mr(tmp_path):
+    opened, gl = [], FakeGitLabAPI()
+    out = _finalize(tmp_path, completed_result(), handoff_text=None, opener=lambda *a: opened.append(a), gitlab=gl)
+    assert out == "escalated:handoff_invalid" and opened == []
+    assert gl.calls[1][2]["add_labels"] == "loop:needs-human"
+
+
+def test_handoff_branch_must_match_issue(tmp_path):
+    hp = tmp_path / "h.json"
+    hp.write_text('{"action":"fix","branch":"loop/issue-8","target_branch":"main","title":"t","summary":"s"}')
+    assert glr.read_handoff(hp, issue_iid=7) is None
+    hp.write_text('{"action":"fix","branch":"main","target_branch":"main","title":"t"}')
+    assert glr.read_handoff(hp, issue_iid=7) is None
+    hp.write_text('{"action":"fix","branch":"loop/issue-7","target_branch":"","title":"t"}')
+    assert glr.read_handoff(hp, issue_iid=7) is None
+    hp.write_text("not json")
+    assert glr.read_handoff(hp, issue_iid=7) is None
+    hp.write_text('{"action":"answer"}')
+    assert glr.read_handoff(hp, issue_iid=7) == {"action": "answer"}
+    hp.write_text(_FIX)
+    assert glr.read_handoff(hp, issue_iid=7)["title"] == "Fix #7: x"
+
+
+def test_answer_and_escalate_handoffs_are_noops(tmp_path):
+    gl = FakeGitLabAPI()
+    assert _finalize(tmp_path, completed_result(), '{"action":"answer"}', gitlab=gl) == "answered"
+    assert _finalize(tmp_path, completed_result(), '{"action":"escalate"}', gitlab=gl) == "escalated:agent"
+    assert gl.calls == []
+
+
+def test_opener_failure_escalates_instead_of_claiming_success(tmp_path):
+    gl = FakeGitLabAPI()
+    out = _finalize(tmp_path, completed_result(), opener=lambda *a: (False, "push rejected"), gitlab=gl)
+    assert out == "escalated:mr_open_failed"
+    assert "push rejected" in gl.calls[0][2]["body"] and "Opened merge request" not in gl.calls[0][2]["body"]
+    assert gl.calls[1][2]["add_labels"] == "loop:needs-human"
+
+
+def test_gitlab_and_notifier_failures_never_raise(tmp_path):
+    def boom(*a):
+        raise RuntimeError("slack down")
+    out = _finalize(tmp_path, failed_result("f"), gitlab=FakeGitLabAPI(fail=True), notifier=boom)
+    assert out == "escalated:verification_failed"
+    out = _finalize(tmp_path, completed_result(), opener=lambda *a: (True, ""), gitlab=FakeGitLabAPI(fail=True))
+    assert out == "mr_opened"
+
+
+def test_gate_events_are_emitted(tmp_path):
+    import events as events_module
+    _finalize(tmp_path, completed_result(), opener=lambda *a: (True, ""))
+    _finalize(tmp_path, failed_result("f"))
+    recorded = list(events_module.iter_events(events_dir=tmp_path / "ev"))
+    done = [e for e in recorded if e["event_type"] == "issue.completed"]
+    esc = [e for e in recorded if e["event_type"] == "issue.escalated"]
+    assert done[0]["data"] == {"outcome": "mr_opened", "gated": True}
+    assert esc[0]["data"]["reason"] == "verification_failed"
+
+
+def test_default_opener_runs_the_script_with_the_four_arguments(tmp_path, monkeypatch):
+    seen = []
+
+    class Proc:
+        returncode, stdout, stderr = 0, "ok", ""
+
+    monkeypatch.setattr(glr.subprocess, "run", lambda cmd, **kw: seen.append((cmd, kw)) or Proc())
+    out = _finalize(tmp_path, completed_result())
+    cmd, kw = seen[0]
+    assert out == "mr_opened"
+    assert cmd[0] == "bash" and cmd[1].endswith("bin/scripts/open_merge_request.sh")
+    assert cmd[2:] == ["/x/web", "loop/issue-7", "main", "Fix #7: x"]
+    assert kw["timeout"] == 300 and kw["cwd"] == str(tmp_path)
+
+
+def test_observe_mode_keeps_agent_opening_mr(monkeypatch, tmp_path):
+    called = []
+    monkeypatch.setattr(glr, "finalize_gated_issue", lambda *a, **k: called.append(1))
+    monkeypatch.setattr(glr, "invoke_batch_issue_agent", lambda *a, **k: {"cost_usd": 0})
+    monkeypatch.setattr(glr, "build_verifiers", lambda *a, **k: [])
+    glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="observe"), tmp_path, tmp_path,
+                       agent_invoker=glr.invoke_batch_issue_agent, events_dir=tmp_path)
+    assert called == []
+
+
+def test_gate_mode_calls_finalize_and_survives_its_failure(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(glr, "finalize_gated_issue", lambda *a, **k: calls.append(a) or "mr_opened")
+    monkeypatch.setattr(glr, "build_verifiers", lambda *a, **k: [])
+    result = glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="gate"), tmp_path, tmp_path,
+                                agent_invoker=_fake_invoke, events_dir=tmp_path)
+    assert len(calls) == 1 and result.gate_outcome == "mr_opened"
+
+    def boom(*a, **k):
+        raise RuntimeError("x")
+    monkeypatch.setattr(glr, "finalize_gated_issue", boom)
+    result = glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="gate"), tmp_path, tmp_path,
+                                agent_invoker=_fake_invoke, events_dir=tmp_path)
+    assert result.final_state.value == "completed" and result.gate_outcome is None
