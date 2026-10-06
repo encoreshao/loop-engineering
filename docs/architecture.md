@@ -352,6 +352,8 @@ one's `loops.json` entry points its `entry_point` at that module, whose
 a loop definition and prompt under `loops/<definition_dir>/` (`loop.yaml`,
 `prompt.md`) and a spec under `docs/tasks/`.
 
+Design notes for the next batch of plugin loops: [`docs/loops-wave2-notes.md`](loops-wave2-notes.md).
+
 **Plugin contract.** A `LoopPlugin` sets `loop_name`, `definition_dir`,
 `max_items_per_run`, `output_keys` (the JSON keys the answer must contain) and
 optionally `settings_fields` (connector `Field`s the dashboard renders as the
