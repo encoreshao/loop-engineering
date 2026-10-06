@@ -212,3 +212,15 @@ def test_load_connector_native_and_external(paths):
     assert cc.load_connector("slack-default", store=store, **paths).secret == "https://hooks.slack.com/x"
     assert cc.load_connector("slack-ops", store=store, **paths).secret == "https://hooks.slack.com/ops"
     assert cc.load_connector("me-gmail", store=store, **paths).secret is None
+
+
+def test_id_length_boundary(paths):
+    assert cc.upsert_account(gh("a" * 48), "t", store=MemStore(), **paths)[0]
+    assert not cc.upsert_account(gh("a" * 49), "t", store=MemStore(), **paths)[0]
+
+
+def test_upsert_bool_values_rejected_except_enabled(paths):
+    assert not cc.upsert_account({**gh("a"), "id": True}, "t", store=MemStore(), **paths)[0]
+    assert not cc.upsert_account({**gh("a"), "api_url": True}, "t", store=MemStore(), **paths)[0]
+    assert cc.upsert_account({**gh("a"), "enabled": False}, "t", store=MemStore(), **paths)[0]
+    assert cc.get_account("a", **paths)["enabled"] is False

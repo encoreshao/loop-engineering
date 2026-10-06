@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import tempfile
 from datetime import date
 from pathlib import Path
 
@@ -8,6 +9,13 @@ SCRIPT = Path(__file__).resolve().parent.parent / "bin" / "scripts" / "setup.sh"
 
 
 def run_setup(*args, check=True, env=None):
+    env_arg = env
+    # Never run against the real $HOME: setup.sh scaffolds files under it.
+    env = {**os.environ, **(env or {})}
+    if "HOME" not in (env_arg or {}):
+        env["HOME"] = tempfile.mkdtemp(prefix="setup-home-")
+    # Keep pyenv shims (resolved via $HOME/.pyenv) working under a fake HOME.
+    env.setdefault("PYENV_ROOT", str(Path(os.path.expanduser("~")) / ".pyenv"))
     return subprocess.run(
         ["bash", str(SCRIPT), "--skip-skills-install", *args],
         check=check, capture_output=True, text=True, env=env,
@@ -123,10 +131,12 @@ def test_setup_creates_loops_config_from_template_when_missing(tmp_path):
 def test_setup_leaves_existing_loops_config_untouched(tmp_path):
     loops_path = tmp_path / "loops.json"
     loops_path.write_text('{"already": "configured"}')
+    (tmp_path / "state.json").write_text("{}")
 
     run_setup(
         "--config-path", str(tmp_path / "projects.json"),
         "--loops-config-path", str(loops_path),
+        "--state-path", str(tmp_path / "state.json"),
     )
 
     assert loops_path.read_text() == '{"already": "configured"}'
@@ -197,3 +207,27 @@ def test_setup_leaves_existing_connectors_config_untouched(tmp_path):
     run_setup("--config-path", str(projects_path), "--connectors-config-path", str(connectors_path))
 
     assert connectors_path.read_text() == '[{"id": "keep"}]'
+
+
+def test_run_setup_never_touches_real_home(tmp_path):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+
+    run_setup("--config-path", str(tmp_path / "projects.json"), env={"HOME": str(fake_home)})
+
+    base = fake_home / ".loop-engineering"
+    assert (base / "connectors.json").exists() and (base / "inboxes.json").exists()
+
+
+def test_run_setup_defaults_to_temp_home(tmp_path, monkeypatch):
+    seen = {}
+    real_run = subprocess.run
+
+    def spy(cmd, **kw):
+        seen["home"] = kw["env"]["HOME"]
+        return real_run(cmd, **kw)
+
+    monkeypatch.setattr(subprocess, "run", spy)
+    run_setup("--config-path", str(tmp_path / "projects.json"))
+    assert seen["home"] != str(Path.home())
+    assert (Path(seen["home"]) / ".loop-engineering" / "connectors.json").exists()

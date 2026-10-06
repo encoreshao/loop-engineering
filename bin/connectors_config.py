@@ -18,7 +18,7 @@ LOOP_ENGINEERING_HOME = Path(os.environ.get("LOOP_ENGINEERING_HOME", str(Path.ho
 DEFAULT_CONFIG_PATH = LOOP_ENGINEERING_HOME / "connectors.json"
 
 NATIVE = "native"
-_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
 
 
 class ConnectorConfigError(Exception):
@@ -152,7 +152,7 @@ def _write(entries, config_path):
 def upsert_account(fields, secret, original_id="", config_path=None, store=None, **paths):
     config_path, gl, sl, ib = _resolve(config_path, paths.get("gitlab_config_path"),
                                        paths.get("slack_config_path"), paths.get("inbox_config_path"))
-    if any(v is not None and not isinstance(v, (str, bool)) for v in fields.values()):
+    if any(v is not None and not isinstance(v, str) and not (k == "enabled" and isinstance(v, bool)) for k, v in fields.items()):
         return False, i18n.t("All connector fields must be text")
     new_id = (fields.get("id") or "").strip()
     type_name = (fields.get("type") or "").strip()
