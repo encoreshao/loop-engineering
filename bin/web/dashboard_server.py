@@ -2493,7 +2493,7 @@ def _loop_schedule_form_html(loop, csrf_input, return_to=None):
     )
 
 
-def _loop_action_html(loop, csrf_input, return_to=None):
+def _loop_action_html(loop, csrf_input, return_to=None, requirements_met=True):
     """The enable/disable switch for one Registered Loops row - same
     .switch is-on/is-off form pattern as the launchd table's own
     enable/disable action (see render_daemons_page), pointed at
@@ -2516,7 +2516,8 @@ def _loop_action_html(loop, csrf_input, return_to=None):
     return (
         f"<form method='post' action='/daemons/loops/{safe_name}/enable' class='daemon-action-form'>"
         f"{csrf_input}{_return_to_input_html(return_to)}"
-        f"<button type='submit' class='switch is-off' role='switch' aria-checked='false' "
+        f"<button type='submit' class='switch is-off' role='switch' aria-checked='false'"
+        f"{'' if requirements_met else ' disabled'} "
         f"aria-label='Enable {safe_name}' title='Enable {safe_name}'>"
         "<span class='switch-thumb'></span></button>"
         "</form>"
@@ -12532,7 +12533,80 @@ def loop_is_visible(loop, status_path_fn=None):
     return Path(status_path_fn(loop.get("name", "?"))).exists()
 
 
-def _loops_catalog_row(loop, csrf_input, pages):
+_CAPABILITY_LABELS = {
+    "issues": "Issues",
+    "merge_requests": "Merge requests",
+    "pipelines": "Pipelines",
+    "notify": "Notifications",
+    "feed": "Feeds",
+    "mail": "Mail",
+}
+
+
+def loop_requirements_met(loop, accounts_fn=None):
+    """(ok, missing): every capability in loop["requires"] needs at least one
+    enabled connector account. A malformed connectors.json counts as "no
+    accounts" and a non-list `requires` as no requirements - never raises."""
+    if accounts_fn is None:
+        def accounts_fn(capability):
+            return connectors_config.accounts_with_capability(capability)
+    requires = loop.get("requires") if isinstance(loop, dict) else None
+    if not isinstance(requires, list):
+        requires = []
+    missing = []
+    for capability in requires:
+        try:
+            found = accounts_fn(capability)
+        except connectors_config.ConnectorConfigError:
+            found = []
+        if not found:
+            missing.append(capability)
+    return (not missing), missing
+
+
+def _connector_type_for_capability(capability):
+    for type_name in sorted(connectors.CONNECTOR_TYPES):
+        cls = connectors.CONNECTOR_TYPES[type_name]
+        if not cls.external and capability in cls.capabilities:
+            return type_name
+    return None
+
+
+def _loop_requirement_chips_html(missing):
+    chips = []
+    for capability in missing:
+        name = _CAPABILITY_LABELS.get(capability, str(capability))
+        text = html.escape(_t("Needs: {capability}", capability=i18n.t(name)))
+        type_name = _connector_type_for_capability(capability)
+        if type_name:
+            href = "/connectors?view=add&amp;type=" + html.escape(urllib.parse.quote(type_name, safe=""))
+            chips.append(f"<a class='chip' href='{href}'>{text}</a>")
+        else:
+            chips.append(f"<span class='chip'>{text}</span>")
+    return " ".join(chips)
+
+
+def _loop_notify_form_html(loop, csrf_input, notify_accounts):
+    if not notify_accounts:
+        return ""
+    selected = loop.get("notify")
+    selected = {str(i) for i in selected} if isinstance(selected, list) else set()
+    options = "".join(
+        f"<option value='{html.escape(str(a['id']), quote=True)}'"
+        f"{' selected' if str(a['id']) in selected else ''}>"
+        f"{html.escape(str(a.get('label', '')))} ({html.escape(str(a['id']))})</option>"
+        for a in notify_accounts
+    )
+    safe_name = html.escape(urllib.parse.quote(str(loop.get("name", "?")), safe=""))
+    return (
+        f"<form method='post' action='/loops/{safe_name}/notify' class='daemon-action-form'>"
+        f"{csrf_input}<label>{html.escape(_t('Notify via'))} "
+        f"<select multiple name='notify'>{options}</select></label> "
+        f"<button type='submit' class='btn btn-neutral'>{html.escape(_t('Save'))}</button></form>"
+    )
+
+
+def _loops_catalog_row(loop, csrf_input, pages, notify_accounts=()):
     name = str(loop.get("name", "?"))
     safe_name = html.escape(name)
     page = pages.get(name)
@@ -12545,13 +12619,16 @@ def _loops_catalog_row(loop, csrf_input, pages):
         f"<a class='btn' href='/loops/{urllib.parse.quote(name)}'>{html.escape(_t('Open'))}</a>"
         if page else ""
     )
+    requirements_met, missing = loop_requirements_met(loop)
     return (
         f"<tr data-loop='{safe_name}'>"
-        f"<td>{icon} {label}</td>"
+        f"<td>{icon} <span class='loop-label'>{label}</span>"
+        f"{(' ' + _loop_requirement_chips_html(missing)) if missing else ''}"
+        f"{_loop_notify_form_html(loop, csrf_input, notify_accounts)}</td>"
         f"<td>{_loop_schedule_form_html(loop, csrf_input, return_to='/loops')}</td>"
         f"<td>{_status_badge_markup(loop_status)}</td>"
         f"<td>{last_run}</td>"
-        f"<td>{_loop_action_html(loop, csrf_input, return_to='/loops')} {open_html}</td>"
+        f"<td>{_loop_action_html(loop, csrf_input, return_to='/loops', requirements_met=requirements_met)} {open_html}</td>"
         "</tr>"
     )
 
@@ -12568,6 +12645,10 @@ def _loops_catalog_body(flash=None, flash_ok=True):
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
     active = [l for l in loops if loop_is_visible(l)]
     available = [l for l in loops if not loop_is_visible(l)]
+    try:
+        notify_accounts = connectors_config.accounts_with_capability("notify")
+    except connectors_config.ConnectorConfigError:
+        notify_accounts = []
 
     def section(title, rows, attrs=""):
         if rows:
@@ -12576,7 +12657,7 @@ def _loops_catalog_body(flash=None, flash_ok=True):
             inner = (
                 "<div class='table-wrap'><table class='daemons'>"
                 f"<thead><tr>{head}</tr></thead><tbody>"
-                + "".join(_loops_catalog_row(l, csrf_input, pages) for l in rows)
+                + "".join(_loops_catalog_row(l, csrf_input, pages, notify_accounts) for l in rows)
                 + "</tbody></table></div>"
             )
         else:
@@ -13144,8 +13225,38 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._forbidden()
                 return
             name = urllib.parse.unquote(self.path[len("/daemons/loops/"):-len("/enable")])
-            ok, message = loops_config.set_enabled(name, True)
+            try:
+                loop = loops_config.get_loop(name)
+            except (KeyError, FileNotFoundError, json.JSONDecodeError, TypeError):
+                loop = None
+            met, missing = loop_requirements_met(loop) if loop else (True, [])
+            if not met:
+                ok, message = False, _t("Cannot enable {name}: missing connector for {capabilities}",
+                                        name=name, capabilities=", ".join(missing))
+            else:
+                ok, message = loops_config.set_enabled(name, True)
             self._redirect_with_flash(ok, message, location=self._loop_return_to(body))
+            return
+
+        if self.path.startswith("/loops/") and self.path.endswith("/notify") and self.path.count("/") == 3:
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            name = urllib.parse.unquote(self.path[len("/loops/"):-len("/notify")])
+            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
+            ids = [i for i in form.get("notify", []) if i]
+            try:
+                known = {l.get("name") for l in loops_config.list_loops() if isinstance(l, dict)}
+                allowed = {a["id"] for a in connectors_config.accounts_with_capability("notify")}
+            except (OSError, ValueError, KeyError, TypeError, connectors_config.ConnectorConfigError):
+                known, allowed = set(), set()
+            if name not in known:
+                ok, message = False, _t("Unknown loop {name}", name=name)
+            elif any(i not in allowed for i in ids):
+                ok, message = False, _t("Choose only enabled notification connectors")
+            else:
+                ok, message = loops_config.set_notify(name, ids)
+            self._redirect_with_flash(ok, message, location="/loops")
             return
 
         if self.path.startswith("/daemons/loops/") and self.path.endswith("/disable"):

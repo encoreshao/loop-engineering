@@ -12216,6 +12216,7 @@ def test_loops_catalog_splits_active_and_available(monkeypatch, tmp_path):
 
 def test_loops_catalog_unknown_loop_has_no_open_link(monkeypatch, tmp_path):
     monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [{"name": "mystery-loop", "enabled": True}])
+    monkeypatch.setattr(ds.connectors_config, "accounts_with_capability", lambda cap, **kw: [])
     monkeypatch.setattr(ds, "status_path_for_loop", lambda n, base_dir=None: tmp_path / f"{n}.json")
     out = ds._loops_catalog_body()
     assert "data-loop='mystery-loop'" in out
@@ -12578,3 +12579,115 @@ def test_connectors_hub_page_renders(monkeypatch):
     page = ds.render_hub_page("connectors")
     assert "GH" in page and "view=add" in page
     assert "connectors" in ds._AI_PANEL_PROMPTS and len(ds._AI_PANEL_PROMPTS["connectors"]) <= 4
+
+
+# --- Task 7: loop <-> connector wiring on /loops ---
+
+def test_loop_requirements_met_reports_missing():
+    ok, missing = ds.loop_requirements_met({"requires": ["merge_requests", "feed"]},
+                                           accounts_fn=lambda cap: [{"id": "w"}] if cap == "merge_requests" else [])
+    assert (ok, missing) == (False, ["feed"])
+
+
+def test_loop_requirements_met_tolerates_bad_requires_and_config_error(monkeypatch):
+    assert ds.loop_requirements_met({"requires": "feed"}, accounts_fn=lambda cap: []) == (True, [])
+    def boom(cap, **kw):
+        raise ds.connectors_config.ConnectorConfigError("bad")
+    monkeypatch.setattr(ds.connectors_config, "accounts_with_capability", boom)
+    assert ds.loop_requirements_met({"requires": ["feed"]}) == (False, ["feed"])
+
+
+def _stub_catalog(monkeypatch, tmp_path, loops, accounts_fn):
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: loops)
+    monkeypatch.setattr(ds.connectors_config, "accounts_with_capability", accounts_fn)
+    monkeypatch.setattr(ds, "status_path_for_loop", lambda n, base_dir=None: tmp_path / "none.json")
+
+
+def test_enable_switch_disabled_when_requirements_missing(monkeypatch, tmp_path):
+    _stub_catalog(monkeypatch, tmp_path,
+                  [{"name": "rss-watch-loop", "enabled": False, "requires": ["feed"]}],
+                  lambda cap, **kw: [])
+    out = ds._loops_catalog_body()
+    assert "href='/connectors?view=add&amp;type=rss'" in out
+    row = out.split("data-loop='rss-watch-loop'")[1].split("data-loop=")[0]
+    assert " disabled" in row
+
+
+def test_enable_switch_not_disabled_when_requirements_met(monkeypatch, tmp_path):
+    _stub_catalog(monkeypatch, tmp_path,
+                  [{"name": "rss-watch-loop", "enabled": False, "requires": ["feed"]}],
+                  lambda cap, **kw: [{"id": "r", "label": "R"}])
+    row = ds._loops_catalog_body().split("data-loop='rss-watch-loop'")[1]
+    assert "aria-label='Enable rss-watch-loop'" in row
+    assert "class='switch is-off' role='switch' aria-checked='false' disabled" not in row
+
+
+def test_notify_select_lists_notify_accounts_preselected(monkeypatch, tmp_path):
+    accts = [{"id": "feishu-team", "label": "Team <b>"}, {"id": "slack-x", "label": "Slack"}]
+    _stub_catalog(monkeypatch, tmp_path,
+                  [{"name": "gitlab-loop", "enabled": True, "notify": ["slack-x"]}],
+                  lambda cap, **kw: accts if cap == "notify" else [])
+    out = ds._loops_catalog_body()
+    assert "<select multiple name='notify'" in out
+    assert "action='/loops/gitlab-loop/notify'" in out
+    assert "Team &lt;b&gt;" in out and "<b>" not in out.split("data-loop='gitlab-loop'")[1].split("Team")[1][:20]
+    assert "value='slack-x' selected" in out
+    assert "value='feishu-team' selected" not in out
+
+
+def _notify_server(monkeypatch, tmp_path, notify_accounts=("feishu-team",)):
+    calls = []
+    monkeypatch.setattr(ds.loops_config, "list_loops",
+                        lambda *a, **k: [{"name": "gitlab-loop", "enabled": True}])
+    monkeypatch.setattr(ds.loops_config, "set_notify",
+                        lambda name, ids, **k: calls.append((name, ids)) or (True, "ok"))
+    monkeypatch.setattr(ds.connectors_config, "accounts_with_capability",
+                        lambda cap, **kw: [{"id": i, "label": i} for i in notify_accounts] if cap == "notify" else [])
+    monkeypatch.setattr(ds, "status_path_for_loop", lambda n, base_dir=None: tmp_path / "none.json")
+    return calls
+
+
+def test_post_loop_notify_requires_csrf(monkeypatch, tmp_path):
+    calls = _notify_server(monkeypatch, tmp_path)
+    with _running_server() as port:
+        status, _h, _b = _post(port, "/loops/gitlab-loop/notify", {"csrf_token": "", "notify": "feishu-team"})
+    assert status == 403 and calls == []
+
+
+def test_post_loop_notify_saves_valid_ids(monkeypatch, tmp_path):
+    calls = _notify_server(monkeypatch, tmp_path)
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/loops")
+        status, headers, _b = _post(port, "/loops/gitlab-loop/notify",
+                                    {"csrf_token": token, "notify": "feishu-team"})
+    assert status == 303 and headers["Location"].startswith("/loops?")
+    assert calls == [("gitlab-loop", ["feishu-team"])]
+
+
+def test_post_loop_notify_rejects_non_notify_ids_and_unknown_loop(monkeypatch, tmp_path):
+    calls = _notify_server(monkeypatch, tmp_path)
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/loops")
+        s1, h1, _ = _post(port, "/loops/gitlab-loop/notify", {"csrf_token": token, "notify": "evil"})
+        s2, h2, _ = _post(port, "/loops/nope-loop/notify", {"csrf_token": token, "notify": "feishu-team"})
+    assert s1 == 303 and "ok=0" in h1["Location"]
+    assert s2 == 303 and "ok=0" in h2["Location"]
+    assert calls == []
+
+
+def test_post_enable_refused_when_requirements_missing(monkeypatch, tmp_path):
+    enabled = []
+    monkeypatch.setattr(ds.loops_config, "list_loops",
+                        lambda *a, **k: [{"name": "rss-watch-loop", "enabled": False, "requires": ["feed"]}])
+    monkeypatch.setattr(ds.loops_config, "set_enabled", lambda n, e, **k: enabled.append((n, e)) or (True, "x"))
+    monkeypatch.setattr(ds.connectors_config, "accounts_with_capability", lambda cap, **kw: [])
+    monkeypatch.setattr(ds, "status_path_for_loop", lambda n, base_dir=None: tmp_path / "none.json")
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/loops")
+        status, headers, _ = _post(port, "/daemons/loops/rss-watch-loop/enable",
+                                   {"csrf_token": token, "return_to": "/loops"})
+        assert status == 303 and headers["Location"].startswith("/loops?") and "ok=0" in headers["Location"]
+        assert enabled == []
+        status, headers, _ = _post(port, "/daemons/loops/rss-watch-loop/disable",
+                                   {"csrf_token": token, "return_to": "/loops"})
+    assert enabled == [("rss-watch-loop", False)]

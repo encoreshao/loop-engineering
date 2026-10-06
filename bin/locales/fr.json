@@ -707,5 +707,15 @@
   "Add": "Ajouter",
   "Connector id": "Identifiant du connecteur",
   "Which connectors are configured?": "Quels connecteurs sont configurés ?",
-  "Lowercase letters, digits and dashes": "Lettres minuscules, chiffres et tirets"
+  "Lowercase letters, digits and dashes": "Lettres minuscules, chiffres et tirets",
+  "Needs: {capability}": "Requis : {capability}",
+  "Issues": "Tickets",
+  "Merge requests": "Demandes de fusion",
+  "Pipelines": "Pipelines",
+  "Feeds": "Flux",
+  "Mail": "Courrier",
+  "Notify via": "Notifier via",
+  "Cannot enable {name}: missing connector for {capabilities}": "Impossible d'activer {name} : connecteur manquant pour {capabilities}",
+  "Unknown loop {name}": "Boucle inconnue {name}",
+  "Choose only enabled notification connectors": "Choisissez uniquement des connecteurs de notification activés"
 }

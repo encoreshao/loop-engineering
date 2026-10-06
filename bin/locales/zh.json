@@ -707,5 +707,15 @@
   "Add": "添加",
   "Connector id": "连接器 ID",
   "Which connectors are configured?": "已配置了哪些连接器？",
-  "Lowercase letters, digits and dashes": "小写字母、数字和短横线"
+  "Lowercase letters, digits and dashes": "小写字母、数字和短横线",
+  "Needs: {capability}": "需要：{capability}",
+  "Issues": "议题",
+  "Merge requests": "合并请求",
+  "Pipelines": "流水线",
+  "Feeds": "订阅源",
+  "Mail": "邮件",
+  "Notify via": "通知方式",
+  "Cannot enable {name}: missing connector for {capabilities}": "无法启用 {name}：缺少 {capabilities} 的连接器",
+  "Unknown loop {name}": "未知循环 {name}",
+  "Choose only enabled notification connectors": "只能选择已启用的通知连接器"
 }
