@@ -141,7 +141,7 @@
   "Could not reach Telegram": "无法连接 Telegram",
   "Could not remove the stored secret: {detail}": "无法删除已保存的密钥：{detail}",
   "Could not start assistant thread: {error}": "无法启动助手线程：{error}",
-  "Could not store the secret: {detail}": "无法保存密钥：{detail}",
+  "Could not store the secret in the Keychain": "无法将密钥保存到钥匙串",
   "Couldn't check: {message}": "无法检查:{message}",
   "Couldn't load this section.": "无法加载此部分。",
   "Critical": "严重",

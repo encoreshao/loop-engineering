@@ -54,7 +54,7 @@ def test_send_failure_message_has_no_secret():
     conn.secret = secret
     out = notify.notify("x", "hi", loop_lookup=lambda n: {"notify": ["w"]}, loader=lambda i: conn)
     assert out[0][0] == "w" and out[0][1] is False
-    assert out[0][2].startswith("MailHTTPError:")
+    assert out[0][2] == "HTTP 500"
     assert "SECRET-TOKEN" not in out[0][2] and secret not in out[0][2]
 
 
@@ -112,3 +112,16 @@ def test_routes_blocks_to_a_real_webhook_connector():
                         loader=lambda i: conn, default_sender=lambda t, b: None)
     assert out == [("feishu-team", True, "sent")]
     assert posted == [("POST", "https://hook.example/x", {"msg_type": "text", "content": {"text": "hi"}})]
+
+
+def test_unexpected_exception_message_has_no_detail():
+    conn = FakeConn({"notify"}, exc=RuntimeError("https://hooks.example/SECRET"))
+    out = notify.notify("x", "hi", loop_lookup=lambda n: {"notify": ["w"]}, loader=lambda i: conn)
+    assert out == [("w", False, "RuntimeError")]
+    assert "SECRET" not in out[0][2] and "hooks.example" not in out[0][2]
+
+
+def test_http_error_message_is_status_only():
+    conn = FakeConn({"notify"}, exc=mail_http.MailHTTPError(500, "body", "https://hooks.example/SECRET"))
+    out = notify.notify("x", "hi", loop_lookup=lambda n: {"notify": ["w"]}, loader=lambda i: conn)
+    assert out == [("w", False, "HTTP 500")]

@@ -77,7 +77,7 @@ LOGOS = {
 _CURRENT_COLOR = {"github", "notion"}
 
 _LETTER_PALETTE = ("#5B6CFF", "#0F9D8A", "#D9731F", "#B4478C", "#3F8F3F", "#7A5AF8", "#C2410C", "#0E7490")
-_CLS_RE = re.compile(r"^[a-z0-9 -]+$")
+_CLS_RE = re.compile(r"[a-z0-9 -]+")
 
 
 def _clamp_size(size):
@@ -93,7 +93,7 @@ def _initials(label):
 
 def brand_logo_svg(key, label="", size=28, cls="brand-logo"):
     """Return static markup for a brand mark: an inline SVG, or a lettermark span."""
-    if not isinstance(cls, str) or not _CLS_RE.match(cls):
+    if not isinstance(cls, str) or not _CLS_RE.fullmatch(cls):
         cls = "brand-logo"
     size = _clamp_size(size)
     entry = LOGOS.get(key) if isinstance(key, str) else None
@@ -105,4 +105,4 @@ def brand_logo_svg(key, label="", size=28, cls="brand-logo"):
     color = _LETTER_PALETTE[zlib.crc32(str(key).encode("utf-8")) % len(_LETTER_PALETTE)]
     initials = html.escape(_initials(label or key))
     return (f"<span class='{cls} brand-lettermark' aria-hidden='true' "
-            f"style='--brand:{color}'>{initials}</span>")
+            f"style='--brand:{color};width:{size}px;height:{size}px'>{initials}</span>")

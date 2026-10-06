@@ -275,7 +275,7 @@ Un connecteur est un compte auquel les boucles peuvent se connecter : une instan
 - **Add** ouvre une galerie des types de connecteurs, regroupés en Code hosting, Chat & notifications, Work tracking, Knowledge, Feeds et Mail, avec un champ de recherche pour filtrer.
 - Chaque tuile et chaque ligne de compte affiche le logo du service (logos Simple Icons intégrés ; les services sans logo — Feishu, DingTalk, le webhook générique — reçoivent une lettre-monogramme).
 - La tuile du webhook de messagerie se déploie en préréglages (voir ci-dessus), chacun avec une courte indication (par exemple, les webhooks Workflows de Teams peuvent exiger des Adaptive Cards) et un lien **Where do I get this?** vers la documentation du service.
-- Le formulaire d'ajout/modification comporte une section **Account** (**Label** et **Connector id** ; l'id est suggéré à partir du label tant que vous ne le modifiez pas) et une section **Connection** (les réglages du type, puis le secret).
+- Le formulaire d'ajout/modification comporte une section **Account** (**Label** et **Connector id** ; l'id est suggéré à partir du label tant que vous ne le modifiez pas), une section **Connection** (les réglages du type) et une section **Credentials** (le secret).
 - Les champs obligatoires sont marqués `*`, les autres indiquent « (optional) », et les champs ont des exemples en filigrane. Le champ secret a une bascule **Show**/**Hide**.
 - Boutons : **Save**, **Save and test** (enregistre puis lance la sonde) et **Cancel**. Si l'enregistrement échoue, le formulaire est réaffiché avec vos valeurs non secrètes conservées.
 

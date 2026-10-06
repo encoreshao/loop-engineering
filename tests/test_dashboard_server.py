@@ -13037,15 +13037,19 @@ def test_failed_save_rerender_keeps_values_but_not_secret(monkeypatch):
                                  "evil": "<NOT-ECHOED>"}
 
 
-def test_failed_save_scrubs_secret_echoed_in_error(monkeypatch):
-    seen = []
-    monkeypatch.setattr(ds.connectors_config, "upsert_account",
-                        _failing_upsert(seen, "Could not store the secret: bad SUPERSECRET"))
+def test_failed_save_shows_generic_keychain_message_without_secret(tmp_path, monkeypatch):
+    class FailingStore:
+        def put(self, ref, s):
+            raise RuntimeError(f"security: bad {s}")
+    monkeypatch.setattr(ds.connectors_config, "DEFAULT_CONFIG_PATH", tmp_path / "c.json")
+    monkeypatch.setattr(ds.connectors_config, "_store", lambda store=None: FailingStore())
+    secret = "SUPER<SECRET>&"
     with _running_server() as port:
         status, _, body = _post(port, "/connectors/save", {
             "csrf_token": ds._CSRF_TOKEN, "type": "github", "label": "L", "id": "l",
-            "secret": "SUPERSECRET"})
-    assert status == 200 and "SUPERSECRET" not in body and "Could not store the secret" in body
+            "api_url": "https://api.github.com", "username": "u", "secret": secret})
+    assert status == 200 and "Could not store the secret in the Keychain" in body
+    assert secret not in body and html.escape(secret) not in body and "SUPER" not in body
 
 
 def test_failed_save_keeps_preset_and_original_id(monkeypatch):
@@ -13114,3 +13118,26 @@ def test_failed_save_and_test_does_not_run_test(monkeypatch):
             "then_test": "1"})
     assert status == 200 and calls == []
     assert not ds.CONNECTOR_TEST_RESULTS_PATH.exists()
+
+
+def _tile_for(out, needle):
+    return [m for m in re.findall(r"<a class='connector-tile'[^>]*>", out) if needle in m]
+
+
+def test_picker_search_matches_aliases_and_keys():
+    out = ds._connector_type_picker_html()
+    wecom = [t for t in _tile_for(out, "preset=wecom")][0]
+    assert "wechat" in wecom and "weixin" in wecom and "微信" in wecom
+    mail = [t for t in _tile_for(out, "inbox-triage-loop")][0]
+    assert "gmail" in mail and "outlook" in mail
+    assert "lark" in _tile_for(out, "preset=feishu")[0]
+    assert "tg" in _tile_for(out, "type=telegram")[0].split('data-name="')[1]
+
+
+def test_picker_search_keeps_english_name_in_other_language():
+    ds.i18n.set_language("zh")
+    try:
+        out = ds._connector_type_picker_html()
+    finally:
+        ds.i18n.set_language("en")
+    assert "feishu" in _tile_for(out, "preset=feishu")[0]

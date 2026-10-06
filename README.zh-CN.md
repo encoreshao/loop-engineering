@@ -271,7 +271,7 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 - **Add** 会打开连接器类型图库，按 Code hosting、Chat & notifications、Work tracking、Knowledge、Feeds、Mail 分组，并带搜索框用于筛选。
 - 每个卡片和每个账号行都带有对应服务的品牌标志（内联的 Simple Icons 图标；没有图标的服务——Feishu、DingTalk、通用 Webhook——使用字母标记）。
 - 聊天 Webhook 卡片会展开为上述预设，每个预设带一行提示（例如 Teams 的 Workflows Webhook 可能需要 Adaptive Cards）以及指向该服务官方文档的 **Where do I get this?** 链接。
-- 添加/编辑表单包含 **Account** 部分（**Label** 和 **Connector id**；id 会根据 label 自动建议，直到你手动修改）和 **Connection** 部分（该类型的设置，随后是密钥）。
+- 添加/编辑表单包含 **Account** 部分（**Label** 和 **Connector id**；id 会根据 label 自动建议，直到你手动修改）、**Connection** 部分（该类型的设置）和 **Credentials** 部分（密钥）。
 - 必填项标有 `*`，其余标注「(optional)」，并带有示例占位文字。密钥框带有 **Show**/**Hide** 切换。
 - 按钮有 **Save**、**Save and test**（先保存再探测）和 **Cancel**。保存失败时，表单会重新显示，并保留已填写的非机密值。
 

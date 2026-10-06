@@ -288,8 +288,12 @@ def test_get_access_token_missing_client_config_requires_reauth(monkeypatch):
         mail_auth.get_access_token({"name": "w", "provider": "gmail"}, oauth={})
 
 
-def test_suite_guard_blocks_the_real_keychain():
+def test_suite_guard_blocks_the_real_keychain(_no_real_keychain):
     """tests/conftest.py's autouse guard: an unpatched Keychain call fails
-    loudly instead of reaching /usr/bin/security."""
+    loudly instead of reaching /usr/bin/security. The hit is recorded (so a
+    swallowed one still fails the test at teardown); this test provokes it
+    on purpose, so it clears the recorder."""
     with pytest.raises(AssertionError, match="real Keychain"):
         mail_auth.keychain_get("work")
+    assert len(_no_real_keychain) == 1
+    _no_real_keychain.clear()

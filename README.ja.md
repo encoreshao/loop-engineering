@@ -274,7 +274,7 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 - **Add** を開くとコネクタの種類のギャラリーが表示されます。Code hosting、Chat & notifications、Work tracking、Knowledge、Feeds、Mail に分類され、検索ボックスで絞り込めます。
 - 各タイルとアカウント行にはサービスのブランドロゴが付きます（インラインの Simple Icons マーク。マークのないサービス（Feishu、DingTalk、汎用 Webhook）はレターマーク）。
 - チャット Webhook のタイルは上記のプリセットに展開され、それぞれに一行の説明（例：Teams の Workflows Webhook は Adaptive Cards が必要な場合があります）と、そのサービス自身のドキュメントへの **Where do I get this?** リンクが付きます。
-- 追加・編集フォームは **Account** セクション（**Label** と **Connector id**。id は編集するまでラベルから自動提案されます）と **Connection** セクション（種類ごとの設定、続いてシークレット）で構成されます。
+- 追加・編集フォームは **Account** セクション（**Label** と **Connector id**。id は編集するまでラベルから自動提案されます）、**Connection** セクション（種類ごとの設定）、**Credentials** セクション（シークレット）で構成されます。
 - 必須項目には `*` が付き、それ以外は「(optional)」と表示され、入力例のプレースホルダーもあります。シークレット欄には **Show**／**Hide** の切り替えがあります。
 - ボタンは **Save**、**Save and test**（保存してからプローブを実行）、**Cancel** です。保存に失敗した場合は、シークレット以外の入力値を保持したままフォームが再表示されます。
 

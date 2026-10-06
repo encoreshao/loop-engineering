@@ -141,7 +141,7 @@
   "Could not reach Telegram": "Impossible de joindre Telegram",
   "Could not remove the stored secret: {detail}": "Impossible de supprimer le secret enregistré : {detail}",
   "Could not start assistant thread: {error}": "Impossible de démarrer le thread de l'assistant : {error}",
-  "Could not store the secret: {detail}": "Impossible d'enregistrer le secret : {detail}",
+  "Could not store the secret in the Keychain": "Impossible d'enregistrer le secret dans le trousseau",
   "Couldn't check: {message}": "Vérification impossible : {message}",
   "Couldn't load this section.": "Impossible de charger cette section.",
   "Critical": "Critique",

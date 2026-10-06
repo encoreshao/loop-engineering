@@ -273,3 +273,13 @@ def test_upsert_refuses_changing_an_existing_accounts_type(paths, monkeypatch):
     ok, msg = cc.upsert_account({**gh("gh"), "type": "jira"}, "", original_id="gh", store=store, **paths)
     assert ok is False and "type" in msg.lower()
     assert cc.get_account("gh", **paths)["type"] == "github"
+
+
+def test_store_failure_message_is_fixed_and_carries_no_exception_detail(tmp_path):
+    class FailingStore(MemStore):
+        def put(self, ref, s):
+            raise RuntimeError(f"security: could not add {s}")
+    paths = dict(config_path=tmp_path / "c.json")
+    ok, msg = cc.upsert_account(gh("gh", "GH"), "SUPERSECRET", store=FailingStore(), **paths)
+    assert not ok and msg == "Could not store the secret in the Keychain"
+    assert "SUPERSECRET" not in msg and "security" not in msg

@@ -9,6 +9,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import mail_http  # noqa: E402
+
 DEFAULT_ID = "slack-default"
 
 
@@ -28,7 +30,12 @@ def _default_sender(text, blocks):
 
 
 def _describe(exc):
-    return f"{type(exc).__name__}: {exc}"
+    """Class name (or HTTP status) only - exception text can carry a webhook
+    URL or token."""
+    status = getattr(exc, "status", None)
+    if isinstance(exc, mail_http.MailHTTPError) and isinstance(status, int):
+        return f"HTTP {status}"
+    return type(exc).__name__
 
 
 def notify(loop_name, text, blocks=None, loop_lookup=None, loader=None, default_sender=None):

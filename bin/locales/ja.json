@@ -141,7 +141,7 @@
   "Could not reach Telegram": "Telegram に接続できませんでした",
   "Could not remove the stored secret: {detail}": "保存されたシークレットを削除できませんでした: {detail}",
   "Could not start assistant thread: {error}": "アシスタントのスレッドを開始できませんでした: {error}",
-  "Could not store the secret: {detail}": "シークレットを保存できませんでした: {detail}",
+  "Could not store the secret in the Keychain": "シークレットをキーチェーンに保存できませんでした",
   "Couldn't check: {message}": "確認できませんでした: {message}",
   "Couldn't load this section.": "このセクションを読み込めませんでした。",
   "Critical": "重大",

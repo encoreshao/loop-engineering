@@ -55,13 +55,24 @@ def _no_real_keychain(monkeypatch):
     recorded a real mailbox's "Authorized" probe result. A test that fakes
     the Keychain still works - either by monkeypatching `_security` itself
     (it replaces this guard) or `subprocess.run` (the guard then delegates
-    to the real wrapper, which calls the fake)."""
+    to the real wrapper, which calls the fake).
+
+    Production code often wraps the Keychain in `except Exception`, which
+    would swallow the guard's AssertionError, so every hit is also recorded
+    on `request`-independent list `keychain_hits` and teardown fails the
+    test if any were recorded. Yields the list; a test that deliberately
+    provokes a hit must clear it."""
     import mail_auth
     real_security = mail_auth._security
     real_run = subprocess.run
+    hits = []
 
     def guarded(args, stdin=None):
         if mail_auth.subprocess.run is real_run:
+            hits.append(list(args))
             raise AssertionError("test reached the real Keychain")
         return real_security(args, stdin=stdin)
     monkeypatch.setattr(mail_auth, "_security", guarded)
+    yield hits
+    if hits:
+        pytest.fail(f"test reached the real Keychain: {hits}")

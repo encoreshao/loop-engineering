@@ -214,8 +214,9 @@ def upsert_account(fields, secret, original_id="", config_path=None, store=None,
             if old:
                 secrets.put(new_id, old)
             secrets.delete(original_id)
-    except Exception as exc:
-        return False, i18n.t("Could not store the secret: {detail}", detail=exc)
+    except Exception:
+        # No exception detail: Keychain stderr can echo the secret.
+        return False, i18n.t("Could not store the secret in the Keychain")
     if existing is not None:
         entries = [entry if e is existing else e for e in entries]
     else:

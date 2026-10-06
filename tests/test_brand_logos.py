@@ -44,3 +44,17 @@ def test_dark_brands_use_current_color_and_lettermark_has_brand_var():
     assert "fill='currentColor'" in bl.brand_logo_svg("notion")
     out = bl.brand_logo_svg("webhook", label="Web Hook")
     assert "--brand:#" in out and ">WH<" in out
+
+
+def test_lettermark_size_matches_svg_box():
+    out = bl.brand_logo_svg("webhook", label="Web Hook", size=32)
+    assert "width:32px" in out and "height:32px" in out
+    clamped = bl.brand_logo_svg("webhook", label="Web Hook", size="9999")
+    assert "width:96px" in clamped and "height:96px" in clamped
+
+
+def test_class_with_trailing_newline_falls_back():
+    out = bl.brand_logo_svg("gitlab", cls="brand-logo\n")
+    assert "class='brand-logo'" in out and "\n" not in out
+    out = bl.brand_logo_svg("webhook", cls="x\n")
+    assert "class='brand-logo brand-lettermark'" in out

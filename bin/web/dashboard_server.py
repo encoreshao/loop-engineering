@@ -5741,7 +5741,7 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
    chip so dark brand colors (Slack purple, Notion black) stay legible in dark mode. */
 .brand-logo {{ flex: none; box-sizing: content-box; padding: 4px; border-radius: 8px; background: #ffffffd9; vertical-align: middle; }}
 svg.brand-logo[fill="currentColor"] {{ color: #181717; }}
-.brand-lettermark {{ display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; padding: 0; background: var(--brand, var(--md-primary)); color: #fff; font-size: 0.8rem; font-weight: 700; }}
+.brand-lettermark {{ display: inline-flex; align-items: center; justify-content: center; box-sizing: content-box; padding: 4px; border-radius: 50%; background: var(--brand, var(--md-primary)); color: #fff; font-size: 0.8rem; font-weight: 700; }}
 .connector-row-title {{ display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }}
 .connector-search {{ width: 100%; max-width: 24rem; margin: 0.5rem 0 1rem; padding: 0.55rem 0.8rem; border: 1px solid var(--md-outline); border-radius: 8px; background: var(--md-surface-container-lowest); color: var(--md-on-surface); font: inherit; }}
 .connector-category h2 {{ margin: 1.25rem 0 0.6rem; font-size: 1rem; color: var(--md-on-surface-variant); }}
@@ -12505,12 +12505,25 @@ _CONNECTOR_CATEGORIES = (
 )
 
 
-def _connector_tile_html(href, brand, label, description, capabilities):
+_CONNECTOR_SEARCH_ALIASES = {
+    "wecom": "wechat weixin 微信 企业微信",
+    "gmail": "gmail outlook email mail",
+    "feishu": "feishu lark 飞书",
+    "dingtalk": "dingtalk 钉钉",
+    "microsoftteams": "teams",
+    "googlechat": "google chat",
+    "telegram": "tg",
+}
+
+
+def _connector_tile_html(href, brand, label, description, capabilities, type_key="", preset_key=""):
     chips = "".join(f"<span class='pill pill-grey'>{html.escape(i18n.t(_CAPABILITY_LABELS.get(c, c)))}</span>"
                     for c in sorted(capabilities))
     name = i18n.t(label)
+    search = " ".join(p for p in (name, label, type_key, preset_key, brand,
+                                  _CONNECTOR_SEARCH_ALIASES.get(brand, "")) if p).lower()
     return (
-        f"<a class='connector-tile' href='{href}' data-name=\"{html.escape(name.lower(), quote=True)}\">"
+        f"<a class='connector-tile' href='{href}' data-name=\"{html.escape(search, quote=True)}\">"
         f"{brand_logos.brand_logo_svg(brand, name, 32)}"
         f"<span class='connector-tile-body'><strong>{html.escape(name)}</strong>"
         f"<span class='section-subtitle'>{html.escape(i18n.t(description)) if description else ''}</span>"
@@ -12524,17 +12537,19 @@ def _connector_type_picker_html():
         quoted = urllib.parse.quote(name, safe="")
         if cls.external:
             tile = _connector_tile_html("/loops/inbox-triage-loop?view=setup", "gmail", cls.label,
-                                        cls.description, cls.capabilities)
+                                        cls.description, cls.capabilities, type_key=name)
             by_category.setdefault(cls.category, []).append(tile)
         elif cls.presets:
             for preset in cls.presets:
                 href = (f"/connectors?view=add&amp;type={quoted}"
                         f"&amp;preset={urllib.parse.quote(preset.key, safe='')}")
                 by_category.setdefault(cls.category, []).append(_connector_tile_html(
-                    href, preset.brand, preset.label, preset.description or cls.description, cls.capabilities))
+                    href, preset.brand, preset.label, preset.description or cls.description, cls.capabilities,
+                    type_key=name, preset_key=preset.key))
         else:
             by_category.setdefault(cls.category, []).append(_connector_tile_html(
-                f"/connectors?view=add&amp;type={quoted}", cls.brand, cls.label, cls.description, cls.capabilities))
+                f"/connectors?view=add&amp;type={quoted}", cls.brand, cls.label, cls.description, cls.capabilities,
+                type_key=name))
     sections = []
     for key, heading in _CONNECTOR_CATEGORIES:
         tiles = by_category.get(key)
@@ -13411,9 +13426,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             old_id, new_id = form.get("original_id", "").strip(), form.get("id", "").strip()
             if not ok:
                 # Re-render (200) with the submitted non-secret values; the
-                # secret is never echoed, even inside an error message.
-                if secret.strip():
-                    message = str(message).replace(secret, "••••").replace(secret.strip(), "••••")
+                # secret is never echoed (upsert_account's messages carry no
+                # exception detail).
                 self._send_html(render_hub_page(
                     "connectors", view="add", flash=message, flash_ok=False,
                     type=form.get("type", ""), submitted=_connector_submitted_values(form)))
