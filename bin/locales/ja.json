@@ -631,5 +631,10 @@
   "General": "一般",
   "Loops": "ループ",
   "Observe": "観測",
-  "GitLab Issues": "GitLab Issue"
+  "GitLab Issues": "GitLab Issue",
+  "Active loops": "アクティブなループ",
+  "Available loops": "利用可能なループ",
+  "Open": "開く",
+  "never": "なし",
+  "No loops here.": "ループはありません。"
 }

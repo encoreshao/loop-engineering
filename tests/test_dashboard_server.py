@@ -12264,3 +12264,51 @@ def test_loop_pages_shape():
     assert set(pages) == {"gitlab-loop", "topic-loop", "inbox-triage-loop"}
     for name, page in pages.items():
         assert page.path == f"/loops/{name}" and page.key == "loops"
+
+
+def test_loop_is_visible_enabled():
+    assert ds.loop_is_visible({"name": "x", "enabled": True}, status_path_fn=lambda n: Path("/nonexistent"))
+
+
+def test_loop_is_visible_disabled_never_run(tmp_path):
+    assert not ds.loop_is_visible({"name": "x", "enabled": False}, status_path_fn=lambda n: tmp_path / "missing.json")
+
+
+def test_loop_is_visible_disabled_but_has_run(tmp_path):
+    p = tmp_path / "s.json"
+    p.write_text("{}")
+    assert ds.loop_is_visible({"name": "x", "enabled": False}, status_path_fn=lambda n: p)
+
+
+def test_loops_catalog_splits_active_and_available(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [
+        {"name": "gitlab-loop", "enabled": True}, {"name": "inbox-triage-loop", "enabled": False}])
+    monkeypatch.setattr(ds, "status_path_for_loop", lambda n, base_dir=None: tmp_path / f"{n}.json")
+    out = ds._loops_catalog_body()
+    active, available = out.split("data-section='available'")
+    assert "/loops/gitlab-loop" in active
+    assert "/loops/inbox-triage-loop" in available
+    assert "data-loop='gitlab-loop'" in active
+    assert "data-loop='inbox-triage-loop'" in available
+
+
+def test_loops_catalog_unknown_loop_has_no_open_link(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [{"name": "mystery-loop", "enabled": True}])
+    monkeypatch.setattr(ds, "status_path_for_loop", lambda n, base_dir=None: tmp_path / f"{n}.json")
+    out = ds._loops_catalog_body()
+    assert "data-loop='mystery-loop'" in out
+    assert "mystery-loop</" in out
+    assert "href='/loops/mystery-loop'" not in out
+
+
+def test_loops_catalog_renders_without_loops_json(monkeypatch):
+    def boom(*a, **k):
+        raise FileNotFoundError("loops.json")
+    monkeypatch.setattr(ds.loops_config, "list_loops", boom)
+    assert "data-section='available'" in ds._loops_catalog_body()
+
+
+def test_loops_route_serves_catalog_and_loop_pages_still_work(monkeypatch):
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [])
+    assert "data-section='available'" in ds.render_loops_catalog_page()
+    assert ds.render_loop_page("nope") is None

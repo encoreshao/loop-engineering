@@ -631,5 +631,10 @@
   "General": "Général",
   "Loops": "Boucles",
   "Observe": "Observer",
-  "GitLab Issues": "Issues GitLab"
+  "GitLab Issues": "Issues GitLab",
+  "Active loops": "Boucles actives",
+  "Available loops": "Boucles disponibles",
+  "Open": "Ouvrir",
+  "never": "jamais",
+  "No loops here.": "Aucune boucle ici."
 }

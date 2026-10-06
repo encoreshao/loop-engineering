@@ -12218,6 +12218,80 @@ def _loop_pages():
     }
 
 
+def loop_is_visible(loop, status_path_fn=None):
+    """A loop shows under "Active loops" when it is enabled or has ever run
+    (its status file exists); otherwise it is only "Available"."""
+    if status_path_fn is None:
+        status_path_fn = status_path_for_loop
+    if loop.get("enabled"):
+        return True
+    return Path(status_path_fn(loop.get("name", "?"))).exists()
+
+
+def _loops_catalog_row(loop, csrf_input, pages):
+    name = str(loop.get("name", "?"))
+    safe_name = html.escape(name)
+    page = pages.get(name)
+    icon = page.icon if page else _SECTION_ICON_OVERVIEW
+    label = html.escape(i18n.t(page.label) if page else name)
+    loop_status = read_status(status_path_for_loop(name))
+    updated = loop_status.get("updated_at")
+    last_run = html.escape(_relative_time(updated)) if updated else html.escape(_t("never"))
+    open_html = (
+        f"<a class='btn' href='/loops/{urllib.parse.quote(name)}'>{html.escape(_t('Open'))}</a>"
+        if page else ""
+    )
+    return (
+        f"<tr data-loop='{safe_name}'>"
+        f"<td>{icon} {label}</td>"
+        f"<td>{_loop_schedule_form_html(loop, csrf_input)}</td>"
+        f"<td>{_status_badge_markup(loop_status)}</td>"
+        f"<td>{last_run}</td>"
+        f"<td>{_loop_action_html(loop, csrf_input)} {open_html}</td>"
+        "</tr>"
+    )
+
+
+def _loops_catalog_body():
+    """The /loops catalog: loops that are enabled or have run vs. the rest.
+    Never raises on a missing/malformed loops.json (renders empty sections)."""
+    try:
+        loops = loops_config.list_loops()
+    except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError):
+        loops = []
+    pages = _loop_pages()
+    csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
+    active = [l for l in loops if loop_is_visible(l)]
+    available = [l for l in loops if not loop_is_visible(l)]
+
+    def section(title, rows, attrs=""):
+        if rows:
+            head = "".join(
+                f"<th>{html.escape(_t(c))}</th>" for c in ("Loop", "Schedule", "Status", "Last run", "Action"))
+            inner = (
+                "<div class='table-wrap'><table class='daemons'>"
+                f"<thead><tr>{head}</tr></thead><tbody>"
+                + "".join(_loops_catalog_row(l, csrf_input, pages) for l in rows)
+                + "</tbody></table></div>"
+            )
+        else:
+            inner = f"<p>{html.escape(_t('No loops here.'))}</p>"
+        return (
+            f"<section class='card'{attrs}>"
+            f"<div class='section-header'><h2>{html.escape(_t(title))}</h2></div>{inner}</section>"
+        )
+
+    return (
+        f"<div class='page-title'><h1>{html.escape(_t('Loops'))}</h1></div>"
+        + section("Active loops", active)
+        + section("Available loops", available, " data-section='available'")
+    )
+
+
+def render_loops_catalog_page():
+    return _render_shell("Loops · Loop X Engineering", "loops", _default_badge(), _loops_catalog_body())
+
+
 def render_loop_page(name, view=None, flash=None, flash_ok=True, **ctx):
     """A loop's tabbed page; None for an unknown loop name (caller 404s)."""
     page = _loop_pages().get(name)
@@ -12302,6 +12376,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 _HUB_PATHS[split.path], view=query.get("view", [None])[0],
                 flash=query.get("flash", [None])[0],
                 flash_ok=query.get("ok", ["1"])[0] != "0", **ctx))
+            return
+
+        if split.path == "/loops":
+            self._send_html(render_loops_catalog_page())
             return
 
         if split.path.startswith("/loops/") and split.path.count("/") == 2:

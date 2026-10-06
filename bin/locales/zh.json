@@ -631,5 +631,10 @@
   "General": "常规",
   "Loops": "循环",
   "Observe": "观察",
-  "GitLab Issues": "GitLab Issue"
+  "GitLab Issues": "GitLab Issue",
+  "Active loops": "活跃循环",
+  "Available loops": "可用循环",
+  "Open": "打开",
+  "never": "从未",
+  "No loops here.": "这里没有循环。"
 }
