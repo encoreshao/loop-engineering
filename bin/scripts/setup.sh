@@ -28,6 +28,7 @@ SKIP_SKILLS_INSTALL=0
 CONFIG_PATH="$HOME/.loop-engineering/projects.json"
 TOPICS_CONFIG_PATH="$HOME/.loop-engineering/topics.json"
 INBOXES_CONFIG_PATH="$HOME/.loop-engineering/inboxes.json"
+CONNECTORS_CONFIG_PATH="$HOME/.loop-engineering/connectors.json"
 AI_CLI_CONFIG_PATH="$HOME/.loop-engineering/ai_cli.json"
 LOOPS_CONFIG_PATH="$HOME/.loop-engineering/loops.json"
 STATE_PATH="$HOME/.loop-engineering/loop_scheduler_state.json"
@@ -46,6 +47,10 @@ while [ "$#" -gt 0 ]; do
       TOPICS_CONFIG_PATH="$2"
       shift 2
       ;;
+    --connectors-config-path)
+      CONNECTORS_CONFIG_PATH="$2"
+      shift 2
+      ;;
     --ai-cli-config-path)
       AI_CLI_CONFIG_PATH="$2"
       shift 2
@@ -59,7 +64,7 @@ while [ "$#" -gt 0 ]; do
       shift 2
       ;;
     *)
-      echo "${C_RED}Usage: setup.sh [--skip-skills-install] [--config-path PATH] [--topics-config-path PATH] [--ai-cli-config-path PATH] [--loops-config-path PATH] [--state-path PATH]${C_RESET}" >&2
+      echo "${C_RED}Usage: setup.sh [--skip-skills-install] [--config-path PATH] [--topics-config-path PATH] [--connectors-config-path PATH] [--ai-cli-config-path PATH] [--loops-config-path PATH] [--state-path PATH]${C_RESET}" >&2
       exit 1
       ;;
   esac
@@ -99,6 +104,15 @@ else
   mkdir -p "$(dirname "$INBOXES_CONFIG_PATH")"
   cp "$LOOP_DIR/config/inboxes.json.template" "$INBOXES_CONFIG_PATH"
   echo "${C_YELLOW}    Only needed for the Inbox Triage loop - connect mailboxes from the dashboard's Inbox Triage setup page.${C_RESET}"
+fi
+
+if [ -f "$CONNECTORS_CONFIG_PATH" ]; then
+  echo "${C_BLUE}==> $CONNECTORS_CONFIG_PATH already exists, leaving it alone${C_RESET}"
+else
+  echo "${C_BLUE}==> Creating $CONNECTORS_CONFIG_PATH from the template${C_RESET}"
+  mkdir -p "$(dirname "$CONNECTORS_CONFIG_PATH")"
+  cp "$LOOP_DIR/config/connectors.json.template" "$CONNECTORS_CONFIG_PATH"
+  echo "${C_YELLOW}    Connector accounts (GitHub, Jira, Linear, ...) - add them from the dashboard's Connectors page; secrets go to the Keychain, never this file.${C_RESET}"
 fi
 
 if [ -f "$AI_CLI_CONFIG_PATH" ]; then

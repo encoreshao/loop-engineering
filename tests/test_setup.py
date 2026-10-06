@@ -178,3 +178,22 @@ def test_setup_leaves_existing_inboxes_config_untouched(tmp_path):
     run_setup("--config-path", str(projects_path), env=env)
 
     assert inboxes_path.read_text() == '{"already": "configured"}'
+
+
+def test_setup_creates_connectors_config_from_template_when_missing(tmp_path):
+    projects_path = tmp_path / "projects.json"
+    connectors_path = tmp_path / "connectors.json"
+
+    run_setup("--config-path", str(projects_path), "--connectors-config-path", str(connectors_path))
+
+    assert json.loads(connectors_path.read_text()) == []
+
+
+def test_setup_leaves_existing_connectors_config_untouched(tmp_path):
+    projects_path = tmp_path / "projects.json"
+    connectors_path = tmp_path / "connectors.json"
+    connectors_path.write_text('[{"id": "keep"}]')
+
+    run_setup("--config-path", str(projects_path), "--connectors-config-path", str(connectors_path))
+
+    assert connectors_path.read_text() == '[{"id": "keep"}]'
