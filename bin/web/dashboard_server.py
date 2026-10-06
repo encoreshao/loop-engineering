@@ -5211,6 +5211,12 @@ html .chat-page.is-empty .activity-composer {{
   padding: 1.25rem 1.5rem;
   min-width: 0;
 }}
+/* Page-level blocks in normal flow get the same 1.25rem gap the grid and
+   flex stacks use. Scoped to direct children of .wrap so cards inside a
+   grid/flex container (which use gap, and where item margins would
+   misalign rows) are untouched. Vertical margins collapse, so a following
+   element with its own margin-top isn't doubled. */
+.wrap > .card + * {{ margin-top: 1.25rem; }}
 /* Settings > Notifications: the Block Kit Builder card sits directly
    under the Slack card, so give it the same 1.25rem gap the card
    stacks use elsewhere. */

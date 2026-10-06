@@ -1202,6 +1202,11 @@ def test_pills_badges_flash_use_solid_container_colors_not_rgba_tints():
     assert "background: var(--md-error-container)" in ds._STYLE  # pill-red
 
 
+def test_page_level_sibling_cards_get_shared_spacing():
+    rule = ds._STYLE.split(".wrap > .card + * {")[1].split("}")[0]
+    assert "margin-top: 1.25rem;" in rule
+
+
 def test_nav_active_state_css_rule_present():
     assert ".sidebar-nav a.active" in ds._STYLE
 
@@ -13877,3 +13882,18 @@ def test_gate_stats_counts_run_incomplete_as_an_escalation_not_a_block():
     events = [_gate_ev("issue.escalated", 1, {"reason": "run_incomplete", "gated": True})]
     s = ds.gate_stats(events_iter=lambda days: events)
     assert s["escalated_verification"] == 1 and s["gated_blocks"] == 0
+
+
+def test_page_level_sibling_cards_get_the_shared_gap(tmp_path):
+    page = ds._render_shell("T", "harness", "", "<section class='card'>a</section><section class='card'>b</section>")
+    assert ".wrap > .card + * { margin-top: 1.25rem; }" in page
+
+
+def test_gates_view_sections_are_bare_page_level_siblings(tmp_path):
+    import re
+    body = ds._gates_body(loops_dir=tmp_path, events_iter=lambda days: [])
+    # No wrapper div around the cards: they must stay direct children of
+    # .wrap so the shared `.wrap > .card + *` gap applies.
+    tops = re.findall(r"^<(\w+)[^>]*>", body.strip(), flags=re.M)
+    assert tops.count("section") == 3
+    assert re.search(r"</section>\s*<section class=\"card\">", body)

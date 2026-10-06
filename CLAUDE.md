@@ -269,6 +269,15 @@ competing for a 64px rail); if a collapsed/narrow layout ever "loses" an
 element that has `display` set correctly, check the flex-shrink math on
 its container before touching `display` again.
 
+## Page sections: let the shared card spacing do it
+
+`.card` has no margin by design. Sibling cards at page level (direct children
+of `.wrap`) get their 1.25rem gap from the shared `.wrap > .card + *` rule;
+cards inside a container go in `.grid` or a flex stack that sets `gap`. Never
+add per-page margin hacks, and never wrap a new view's cards in an extra div
+that isn't `.grid`/a gap stack — that silently opts out of the shared rule.
+This bit Connectors → Accounts and Harness → Gates.
+
 ## A bare `bundle exec rubocop` lint_cmd silently breaks under `worktree_root`
 
 Any `worktree_root` nested under a dot-directory (the scaffolded default,
