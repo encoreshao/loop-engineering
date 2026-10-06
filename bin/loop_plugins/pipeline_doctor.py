@@ -46,8 +46,18 @@ def trace_tail(text, n=TRACE_TAIL_LINES):
     return "\n".join(lines[-n:] if n > 0 else [])
 
 
-def fingerprint(job_name, explanation_first_line):
-    raw = f"{job_name}\n{explanation_first_line}".encode()
+_NUMBER_RUN = re.compile(r"[0-9a-f]*[0-9][0-9a-f]*")
+
+
+def _normalise(text):
+    """Lowercase, collapse whitespace and replace digit/hex runs with '#', so
+    line numbers, shas and job indexes do not split one recurring failure."""
+    text = " ".join(str(text or "").lower().split())
+    return _NUMBER_RUN.sub("#", text)
+
+
+def fingerprint(job_name, category, culprit):
+    raw = "\n".join(_normalise(p) for p in (job_name, category, culprit)).encode()
     return hashlib.sha1(raw).hexdigest()[:12]
 
 
@@ -82,8 +92,10 @@ class FingerprintStore:
             data = json.loads(self._recorded_path().read_text())
         except (OSError, ValueError):
             return {}
+        if not isinstance(data, dict):
+            return {}
         cutoff = (now - timedelta(days=RECURRING_WINDOW_DAYS)).isoformat()
-        return {k: v for k, v in data.items() if isinstance(data, dict) and isinstance(v, str) and v >= cutoff}
+        return {k: v for k, v in data.items() if isinstance(v, str) and v >= cutoff}
 
     def record(self, fp, pipeline_key=None):
         """Count this occurrence; with pipeline_key, each pipeline counts once
@@ -263,8 +275,7 @@ class PipelineDoctor(loopkit.LoopPlugin):
             confidence = 0.0
         jobs = payload.get("jobs") or []
         first_job = jobs[0]["name"] if jobs else ""
-        first_line = (explanation.splitlines() or [""])[0]
-        recurring = self._store(ctx).record(fingerprint(first_job, first_line), item.key)
+        recurring = self._store(ctx).record(fingerprint(first_job, category, culprit), item.key)
         summary = f"[{category}] {payload.get('project')} #{payload.get('pipeline_id')}: {culprit}"
         return loopkit.Outcome(
             item.key, "done", summary, url=item.url or payload.get("web_url", ""),

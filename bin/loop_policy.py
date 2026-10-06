@@ -25,6 +25,8 @@ ACTION_RISK_LEVELS = {
     "summarize": RiskLevel.L0_READ_ONLY,
     "review_diff": RiskLevel.L0_READ_ONLY,
     "diagnose_failure": RiskLevel.L0_READ_ONLY,
+    "diagnose_pipeline": RiskLevel.L0_READ_ONLY,
+    "rank_entries": RiskLevel.L0_READ_ONLY,
     "send_notification": RiskLevel.L2_EXTERNAL_CHANGE,
     "create_draft_review_note": RiskLevel.L2_EXTERNAL_CHANGE,
     "modify_worktree": RiskLevel.L1_LOCAL_MUTATION,

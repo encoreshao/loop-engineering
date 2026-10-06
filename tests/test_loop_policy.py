@@ -99,3 +99,18 @@ def test_new_actions_have_explicit_levels():
     assert ACTION_RISK_LEVELS["send_notification"] is RiskLevel.L2_EXTERNAL_CHANGE
     for a in ("fetch_connector_data", "summarize", "review_diff", "diagnose_failure"):
         assert ACTION_RISK_LEVELS[a] is RiskLevel.L0_READ_ONLY
+
+
+def test_every_shipped_loop_definition_passes_policy():
+    import glob
+    from pathlib import Path
+    from loop_definition import LoopDefinition
+    from loop_policy import PolicyEngine
+    root = Path(__file__).resolve().parent.parent
+    paths = sorted(glob.glob(str(root / "loops" / "*" / "loop.yaml")))
+    assert len(paths) >= 6
+    for path in paths:
+        d = LoopDefinition.from_yaml(path)
+        assert PolicyEngine().validate_definition(d) == [], path
+        for action in d.actions:
+            assert action in __import__("loop_policy").ACTION_RISK_LEVELS, (path, action)

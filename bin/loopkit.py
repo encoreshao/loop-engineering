@@ -258,11 +258,12 @@ def _run_item(plugin, item, ctx, run_id, events_dir, results_dir, repo_root):
 def _write_reports(plugin, run_id, now, outcomes, history_dir, last_run_path):
     counts = {s: sum(1 for o in outcomes if o.status == s) for s in ("done", "skipped", "failed")}
     history_dir = Path(history_dir)
-    history_dir.mkdir(parents=True, exist_ok=True)
-    lines = [f"# {plugin.loop_name} run {run_id}", ""]
-    for o in outcomes:
-        lines.append(f"- [{o.status}] {o.item_key}: {o.summary}" + (f" ({o.url})" if o.url else ""))
-    (history_dir / f"{now.strftime('%Y-%m-%d_%H%M%S')}.md").write_text("\n".join(lines) + "\n")
+    if outcomes:
+        history_dir.mkdir(parents=True, exist_ok=True)
+        lines = [f"# {plugin.loop_name} run {run_id}", ""]
+        for o in outcomes:
+            lines.append(f"- [{o.status}] {o.item_key}: {o.summary}" + (f" ({o.url})" if o.url else ""))
+        (history_dir / f"{now.strftime('%Y-%m-%d_%H%M%S')}.md").write_text("\n".join(lines) + "\n")
     last_run_path.parent.mkdir(parents=True, exist_ok=True)
     last_run_path.write_text(json.dumps({
         "run_id": run_id,
@@ -274,9 +275,24 @@ def _write_reports(plugin, run_id, now, outcomes, history_dir, last_run_path):
     return counts
 
 
+def _record_notified(last_run_path, results):
+    """Add notification status to last-run.json: connector ids and ok flags
+    only, never the result messages."""
+    try:
+        data = json.loads(last_run_path.read_text())
+        data["notified"] = any(ok for _, ok, _ in results)
+        data["notify_targets"] = [{"id": cid, "ok": ok} for cid, ok, _ in results]
+        last_run_path.write_text(json.dumps(data, indent=2) + "\n")
+    except (OSError, ValueError):
+        pass
+
+
 def run_plugin(plugin, run_id, now=None, *, repo_root=None, results_dir=None, events_dir=None,
                state_dir=None, history_dir=None, lock_path=None, loop_lookup=None, notifier=None,
-               force=False):
+               force=False, report=None):
+    """report: optional dict the caller passes in; run_plugin sets
+    report["notify_failed"] = True when a digest was produced and every
+    notification target failed."""
     repo_root = Path(repo_root) if repo_root is not None else REPO_ROOT
     now = now or datetime.now(timezone.utc)
     loop_name = plugin.loop_name
@@ -305,7 +321,8 @@ def run_plugin(plugin, run_id, now=None, *, repo_root=None, results_dir=None, ev
         try:
             items = plugin.discover(ctx)
         except Exception as exc:
-            notifier(loop_name, f"{loop_name} FAILED during discovery: {type(exc).__name__}: {exc}")
+            notifier(loop_name, 
+                     f"{loop_name} FAILED during discovery: {chat_text(type(exc).__name__)}")
             log(f"discovery failed: {type(exc).__name__}")
             raise
         seen = seen_store.SeenStore(loop_name, state_dir=state_dir, now_fn=lambda: now)
@@ -315,6 +332,15 @@ def run_plugin(plugin, run_id, now=None, *, repo_root=None, results_dir=None, ev
         log(f"processing {len(items)} item(s)")
 
         outcomes = []
+
+        def send(text):
+            raw = notifier(loop_name, text)
+            results = [(str(r[0]), bool(r[1]), r[2]) for r in raw] if isinstance(raw, (list, tuple)) else [
+                ("default", True, "sent")]
+            for cid, ok, message in results:
+                log(f"notify {chat_text(cid, 60)}: {'ok' if ok else 'FAILED'}")
+            return results
+
         try:
             for item in items:
                 try:
@@ -329,11 +355,17 @@ def run_plugin(plugin, run_id, now=None, *, repo_root=None, results_dir=None, ev
         finally:
             seen.save()
             counts = _write_reports(plugin, run_id, now, outcomes, history_dir, loop_dir / "last-run.json")
+        sends = digest_sends = []
         text = plugin.digest(outcomes, ctx)
         if text:
-            notifier(loop_name, text)
+            digest_sends = send(text)
+            sends = list(digest_sends)
         if counts["failed"]:
-            notifier(loop_name, f"{loop_name}: {counts['failed']} of {len(outcomes)} item(s) failed")
+            sends += send(f"{loop_name}: {counts['failed']} of {len(outcomes)} item(s) failed")
+        if sends:
+            _record_notified(loop_dir / "last-run.json", sends)
+        if text and report is not None and not any(ok for _, ok, _ in digest_sends):
+            report["notify_failed"] = True
         return outcomes
 
 
@@ -345,7 +377,10 @@ def main(plugin, argv=None):
         print(f"Usage: {plugin.loop_name} <run_id> [--force]", file=sys.stderr)
         return 2
     signal.signal(signal.SIGTERM, raise_on_sigterm)
-    outcomes = run_plugin(plugin, args[0], force=force)
+    report = {}
+    outcomes = run_plugin(plugin, args[0], force=force, report=report)
+    if report.get("notify_failed"):
+        return 1
     if outcomes and all(o.status == "failed" for o in outcomes):
         return 1
     return 0

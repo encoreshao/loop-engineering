@@ -13381,12 +13381,18 @@ def _generic_loop_settings_body(name, flash=None, flash_ok=True):
             + form + "</section>")
 
 
+def _plugin_loop_label(name, loop):
+    """Short display name of a registered plugin loop: its `label`, else the
+    loop name (the long description is a subtitle, never the name)."""
+    return str((loop or {}).get("label") or name)
+
+
 def _generic_loop_page(name, loop=None):
     """Generic tabbed page (Live + History, plus Settings when the plugin
     declares settings_fields) for a registered LoopKit plugin loop with no
-    bespoke page. The label is the registry description, else the loop name."""
+    bespoke page. The label is the registry's short `label`, else the loop name."""
     V = hub_mod.HubView
-    label = str((loop or {}).get("description") or name)
+    label = _plugin_loop_label(name, loop)
     views = [
         V("live", "Live", lambda **kw: _generic_loop_live_body(name, **_only(kw, "flash", "flash_ok")), refresh=True),
         V("history", "History", lambda **kw: _generic_loop_history_body(name, **_only(kw, "flash", "flash_ok"))),
@@ -13538,7 +13544,7 @@ def _loops_catalog_row(loop, csrf_input, pages, notify_accounts=()):
     page = pages.get(name) or _generic_loop_page(name, loop)
     icon = page.icon if page else _SECTION_ICON_OVERVIEW
     bespoke = _loop_pages().get(name)
-    label = html.escape(i18n.t(bespoke.label) if bespoke else name)
+    label = html.escape(i18n.t(bespoke.label) if bespoke else i18n.t(_plugin_loop_label(name, loop)))
     description = str(loop.get("description") or "")
     description_html = (
         f"<p class='loop-description'>{html.escape(i18n.t(description))}</p>" if description else "")

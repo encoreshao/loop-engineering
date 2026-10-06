@@ -98,7 +98,7 @@ def test_discover_failure_notifies_and_raises(env):
         def discover(self, ctx): raise RuntimeError("api down")
     with pytest.raises(RuntimeError):
         loopkit.run_plugin(Broken([], []), "run_1", **kw)
-    assert "api down" in sent[0]
+    assert "RuntimeError" in sent[0] and "api down" not in sent[0]
 
 
 def test_second_run_skips_when_locked(env, tmp_path):
@@ -199,3 +199,54 @@ def test_chat_url_rejects_unsafe():
 def test_chat_link_plain_text():
     assert loopkit.chat_link("Review", "https://gl/1") == "Review (https://gl/1)"
     assert loopkit.chat_link("<!channel>", "https://evil|x") == "\u2039!channel\u203a"
+
+
+def _failing_notifier(sent):
+    def n(loop, text):
+        sent.append(text)
+        return [("slack-default", False, "HTTP 500"), ("mail", False, "Boom")]
+    return n
+
+
+def test_notify_results_recorded_status_only(env, tmp_path):
+    kw, sent = env
+    kw["notifier"] = lambda loop, text: [("slack-default", True, "sent"), ("mail", False, "secret-url")]
+    loopkit.run_plugin(Demo([WorkItem("a", "A")], ['{"verdict": "ok"}']), "run_1", **kw)
+    raw = (tmp_path / "outputs" / "loops" / "demo-loop" / "last-run.json").read_text()
+    last = json.loads(raw)
+    assert last["notified"] is True
+    assert last["notify_targets"] == [{"id": "slack-default", "ok": True}, {"id": "mail", "ok": False}]
+    assert "secret-url" not in raw
+    log = (tmp_path / "logs" / "loop-engineering.log").read_text()
+    assert "mail" in log and "secret-url" not in log
+
+
+def test_all_notify_targets_failing_sets_report_and_exit_code(env, tmp_path, monkeypatch):
+    kw, sent = env
+    kw["notifier"] = _failing_notifier(sent)
+    report = {}
+    out = loopkit.run_plugin(Demo([WorkItem("a", "A")], ['{"verdict": "ok"}']), "run_1", report=report, **kw)
+    assert out[0].status == "done" and report["notify_failed"] is True
+    last = json.loads((tmp_path / "outputs" / "loops" / "demo-loop" / "last-run.json").read_text())
+    assert last["notified"] is False
+    # items stay seen
+    assert loopkit.run_plugin(Demo([WorkItem("a", "A")], []), "run_2", **kw) == []
+    # main() turns it into exit code 1
+    monkeypatch.setattr(loopkit, "run_plugin", lambda plugin, run_id, force=False, report=None: (
+        report.update(notify_failed=True), out)[1])
+    assert loopkit.main(Demo([], []), ["run_3"]) == 1
+
+
+def test_partial_notify_failure_keeps_exit_zero(env, monkeypatch):
+    kw, _ = env
+    kw["notifier"] = lambda loop, text: [("a", True, "sent"), ("b", False, "x")]
+    report = {}
+    loopkit.run_plugin(Demo([WorkItem("a", "A")], ['{"verdict": "ok"}']), "run_1", report=report, **kw)
+    assert not report.get("notify_failed")
+
+
+def test_no_history_file_when_no_outcomes_but_last_run_written(env, tmp_path):
+    kw, _ = env
+    loopkit.run_plugin(Demo([], []), "run_1", **kw)
+    assert not list((tmp_path / "history").glob("*.md")) if (tmp_path / "history").exists() else True
+    assert (tmp_path / "outputs" / "loops" / "demo-loop" / "last-run.json").exists()

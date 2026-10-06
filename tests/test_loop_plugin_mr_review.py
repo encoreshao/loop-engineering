@@ -233,3 +233,12 @@ def test_definition_and_template():
     assert e["entry_point"] == "bin.loop_plugins.mr_review" and e["enabled"] is False
     prompt = (REPO / "loops" / "mr-review" / "prompt.md").read_text()
     assert "untrusted" in prompt and "{{item_json}}" in prompt
+
+
+def test_foreign_draft_quoting_signature_midtext_not_deleted():
+    quoted = "I disagree with \u201c_\u2014 Loop X pre-review_\u201d being added here, thoughts?"
+    conn = Fake2(existing=[{"id": 11, "note": "x\n\n_\u2014 Loop X pre-review_\n"},
+                           {"id": 12, "note": quoted}])
+    mr.post_review(conn, MR, {"summary": "s", "findings": F3[:1]})
+    deletes = [p for m, p, _ in conn.calls if m == "DELETE"]
+    assert deletes == ["/projects/9/merge_requests/7/draft_notes/11"]

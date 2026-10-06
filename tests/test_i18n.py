@@ -206,3 +206,12 @@ def test_loop_template_descriptions_have_translations(lang):
     assert len(descriptions) == len(template)  # every shipped loop has one
     catalog = _catalog(lang)
     assert sorted(d for d in descriptions if not catalog.get(d)) == []
+
+
+@pytest.mark.parametrize("lang", ["ja", "zh", "fr"])
+def test_loop_template_labels_have_translations(lang):
+    template = json.loads((ROOT / "config" / "loops.json.template").read_text("utf-8"))
+    labels = [e["label"] for e in template if e["entry_point"].startswith("bin.loop_plugins.")]
+    assert sorted(labels) == ["Daily Digest", "MR Review", "Pipeline Doctor", "RSS Watch"]
+    catalog = _catalog(lang)
+    assert sorted(l for l in labels if not catalog.get(l)) == []

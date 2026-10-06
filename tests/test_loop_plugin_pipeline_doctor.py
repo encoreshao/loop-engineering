@@ -49,9 +49,33 @@ def test_corrupt_store_starts_empty(tmp_path):
 
 
 def test_fingerprint_is_stable_12_hex():
-    fp = pd.fingerprint("rspec", "Timeout in x")
-    assert fp == pd.fingerprint("rspec", "Timeout in x") and len(fp) == 12
-    assert fp != pd.fingerprint("lint", "Timeout in x")
+    fp = pd.fingerprint("rspec", "flaky", "spec/x_spec.rb")
+    assert fp == pd.fingerprint("rspec", "flaky", "spec/x_spec.rb") and len(fp) == 12
+    assert fp != pd.fingerprint("lint", "flaky", "spec/x_spec.rb")
+    assert fp != pd.fingerprint("rspec", "lint", "spec/x_spec.rb")
+
+
+def test_fingerprint_normalises_case_space_and_digits():
+    a = pd.fingerprint("rspec 3/10", "flaky", "Timeout  in  spec/x_spec.rb:42 (abc123def)")
+    b = pd.fingerprint("RSPEC 7/10", "flaky", "timeout in spec/x_spec.rb:99 (0badf00d1)")
+    assert a == b
+
+
+def test_recurrence_ignores_explanation_wording(tmp_path):
+    ctx = C(); ctx.repo_root = tmp_path
+    plugin = pd.PipelineDoctor(state_dir=tmp_path / "state")
+    outs = []
+    for i in range(3):
+        answer = {"category": "flaky", "culprit": "spec/x_spec.rb", "explanation": f"Different words {i}",
+                  "suggested_fix": "retry", "confidence": 0.8}
+        outs.append(plugin.after_item(_item(100 + i), answer, ctx))
+    assert [o.data["recurring"] for o in outs] == [False, False, True]
+
+
+def test_recorded_non_dict_json_treated_as_empty(tmp_path):
+    (tmp_path / "recorded_pipelines.json").write_text("[1, 2]")
+    store = pd.FingerprintStore(tmp_path / "fp.json", now_fn=lambda: NOW)
+    assert store.record("abc", "pipe:1") is False
 
 
 class G:

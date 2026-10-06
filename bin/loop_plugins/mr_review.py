@@ -78,7 +78,7 @@ def _clear_old_drafts(conn, mr):
     Drafts without the Loop X signature are never touched."""
     rows = conn.api("GET", _drafts_path(mr) + "?per_page=100")
     for row in rows if isinstance(rows, list) else []:
-        if isinstance(row, dict) and row.get("id") is not None and _SIGNATURE.strip() in str(row.get("note") or ""):
+        if isinstance(row, dict) and row.get("id") is not None and str(row.get("note") or "").rstrip().endswith(_SIGNATURE.strip()):
             conn.api("DELETE", f"{_drafts_path(mr)}/{int(row['id'])}", max_attempts=1)
 
 

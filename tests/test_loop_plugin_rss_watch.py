@@ -78,3 +78,33 @@ def test_settings_fields_declared():
     assert f.kind == "textarea" and not f.required
     assert rw.RSSWatch.settings_fields == rw.SETTINGS_FIELDS
     assert loopkit.LoopPlugin.settings_fields == ()
+
+
+def test_persistent_feed_entries_never_expire_from_seen(tmp_path):
+    from datetime import timedelta
+    clock = {"now": NOW}
+
+    class Growing:
+        settings = {"feeds": "https://a/feed"}
+        def __init__(self, n): self.n = n
+        def entries(self, url):
+            return [{"title": f"t{i}", "link": f"https://a/{i}", "published": ""} for i in range(self.n)]
+
+    def mk(n):
+        return rw.RSSWatch(accounts_fn=lambda cap: [{"id": "news", "type": "rss"}], loader=lambda i: Growing(n),
+                           seen=seen_store.SeenStore("rss-watch-loop-entries", state_dir=tmp_path,
+                                                     now_fn=lambda: clock["now"]))
+
+    class Ctx(C):
+        pass
+    p = mk(3)
+    p.after_item(p.discover(Ctx())[0], {"highlights": []}, Ctx())
+    clock["now"] += timedelta(days=31)           # entries 0-2 still in the feed, plus a new one
+    Ctx.now = clock["now"]
+    p = mk(4)
+    items = p.discover(Ctx())
+    assert [e["link"] for e in items[0].payload["entries"]] == ["https://a/3"]
+    p.after_item(items[0], {"highlights": []}, Ctx())
+    clock["now"] += timedelta(days=1)
+    Ctx.now = clock["now"]
+    assert mk(4).discover(Ctx()) == []

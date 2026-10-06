@@ -13637,9 +13637,10 @@ def test_generic_loop_page_not_used_for_bespoke_names(monkeypatch):
 
 def test_sidebar_links_plugin_loop_with_description(monkeypatch):
     out = ds._sidebar_html("loop:rss-watch-loop",
-                           loops=[{"name": "rss-watch-loop", "enabled": True, "description": "Watch RSS"}],
+                           loops=[{"name": "rss-watch-loop", "enabled": True, "label": "RSS Watch",
+                                   "description": "Watch RSS"}],
                            status_path_fn=lambda n: Path("/nonexistent"))
-    assert "href='/loops/rss-watch-loop'" in out and "Watch RSS" in out
+    assert "href='/loops/rss-watch-loop'" in out and "RSS Watch" in out and "Watch RSS" not in out
 
 
 def _plain_get(port, path):
@@ -13726,3 +13727,28 @@ def test_catalog_shows_template_description(monkeypatch, tmp_path):
     out = ds._loops_catalog_body()
     assert "<p class='loop-description'>Ranks &lt;new&gt; entries &amp; more.</p>" in out
     assert "rss-watch-loop</span>" in out  # the name stays the row title
+
+
+_RSS_LOOP = {"name": "rss-watch-loop", "enabled": True, "label": "RSS Watch",
+             "description": "Ranks new entries from your feeds and sends a digest."}
+
+
+def test_plugin_loop_uses_short_label_in_sidebar_title_and_h1(monkeypatch, tmp_path):
+    _plugin_loop_sandbox(monkeypatch, tmp_path)
+    monkeypatch.setattr(ds.loops_config, "get_loop", lambda n, *a, **k: dict(_RSS_LOOP))
+    side = ds._sidebar_html("overview", loops=[_RSS_LOOP], status_path_fn=lambda n: Path("/nonexistent"))
+    assert "<span class='nav-label'>RSS Watch</span>" in side
+    out = ds.render_loop_page("rss-watch-loop")
+    assert "<title>RSS Watch" in out and "<h1>RSS Watch</h1>" in out
+
+
+def test_plugin_loop_without_label_falls_back_to_name():
+    loop = {"name": "x-loop", "enabled": True, "description": "Long text"}
+    side = ds._sidebar_html("overview", loops=[loop], status_path_fn=lambda n: Path("/nonexistent"))
+    assert "<span class='nav-label'>x-loop</span>" in side
+
+
+def test_catalog_row_shows_label_with_description_below():
+    row = ds._loops_catalog_row(dict(_RSS_LOOP), "", {})
+    assert "<span class='loop-label'>RSS Watch</span>" in row
+    assert "<p class='loop-description'>Ranks new entries" in row

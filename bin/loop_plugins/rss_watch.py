@@ -62,6 +62,7 @@ class RSSWatch(loopkit.LoopPlugin):
     def discover(self, ctx):
         accounts_fn, loader = self._resolve()
         seen = self._seen_store()
+        refreshed = False
         interests = str((ctx.settings or {}).get("interests") or "")[:1000]
         items = []
         for account in accounts_fn("feed"):
@@ -81,7 +82,14 @@ class RSSWatch(loopkit.LoopPlugin):
                     continue
                 for row in rows or []:
                     link = loopkit.chat_url(row.get("link")) if isinstance(row, dict) else ""
-                    if not link or link in links or seen.has(link):
+                    if not link or link in links:
+                        continue
+                    if seen.has(link):
+                        # Still in the feed: refresh its timestamp so a persistent
+                        # entry never ages out of the seen window and gets re-sent.
+                        seen.add(link)
+                        links.add(link)
+                        refreshed = True
                         continue
                     links.add(link)
                     entries.append({"title": loopkit.chat_text(row.get("title", ""), MAX_TITLE),
@@ -90,6 +98,8 @@ class RSSWatch(loopkit.LoopPlugin):
                 items.append(loopkit.WorkItem(
                     key=f"rss:{aid}:{ctx.now.astimezone().date()}", title=aid,
                     payload={"interests": interests, "entries": entries[:MAX_ENTRIES]}))
+        if refreshed:
+            seen.save()
         return items
 
     def after_item(self, item, answer, ctx):
