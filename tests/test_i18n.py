@@ -131,3 +131,58 @@ def test_translations_keep_the_same_format_placeholders(lang):
         src_fields = {f for _, f, _, _ in formatter.parse(source) if f}
         dst_fields = {f for _, f, _, _ in formatter.parse(translated) if f}
         assert src_fields == dst_fields, (source, translated)
+
+
+def _connector_message_keys():
+    """Literal first args of i18n.t(...) in bin/connectors/*.py and
+    bin/connectors_config.py."""
+    keys = set()
+    paths = list((ROOT / "bin" / "connectors").glob("*.py")) + [ROOT / "bin" / "connectors_config.py"]
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "t"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "i18n"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                keys.add(node.args[0].value)
+    return keys
+
+
+def _connector_label_keys():
+    import connectors
+    connectors._load_all()
+    keys = set()
+    for cls in connectors.CONNECTOR_TYPES.values():
+        assert cls.label, cls
+        keys.add(cls.label)
+        if cls.secret_label:
+            keys.add(cls.secret_label)
+        for field in cls.fields:
+            assert field.label, (cls.type, field.key)
+            keys.add(field.label)
+            if field.help:
+                keys.add(field.help)
+    return keys
+
+
+@pytest.mark.parametrize("lang", ["ja", "zh", "fr"])
+def test_connector_messages_have_translations(lang):
+    keys = _connector_message_keys()
+    assert keys, "expected the connector modules to use i18n.t()"
+    catalog = _catalog(lang)
+    assert sorted(k for k in keys if not catalog.get(k)) == []
+
+
+@pytest.mark.parametrize("lang", ["ja", "zh", "fr"])
+def test_connector_labels_have_translations(lang):
+    keys = _connector_label_keys()
+    assert len(keys) > 8
+    catalog = _catalog(lang)
+    assert sorted(k for k in keys if not catalog.get(k)) == []

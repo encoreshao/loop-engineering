@@ -17,5 +17,6 @@ def get_type(name):
 
 def _load_all():
     # Imported lazily so `import connectors` stays cheap and cycle-free.
-    # Task 4 adds one import per type module here.
-    return
+    from connectors import (  # noqa: F401
+        github, gitlab, jira, linear, mailbox, rss, slack, webhook,
+    )

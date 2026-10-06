@@ -41,7 +41,6 @@ def test_base_test_not_implemented():
     assert ok is False and "not supported" in msg
 
 
-@pytest.mark.xfail(strict=True, reason="types land in Task 4")
 def test_registry_lists_all_shipped_types():
     import connectors
     connectors.get_type  # noqa: B018
