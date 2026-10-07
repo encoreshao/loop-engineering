@@ -12775,7 +12775,7 @@ def test_notify_existing_list_on_non_routing_loop_is_read_only_with_clear(monkey
     _stub_catalog(monkeypatch, tmp_path, [{"name": "gitlab-loop", "enabled": True, "notify": ["slack-x"]}],
                   lambda cap, **kw: [{"id": "slack-x", "label": "Slack"}] if cap == "notify" else [])
     row = ds._loops_catalog_body().split("data-loop='gitlab-loop'")[1]
-    assert "<select" not in row.split("<td>")[1]
+    assert "<select multiple name='notify'" not in row
     assert "Notify via" in row and "slack-x" in row
     assert "action='/loops/gitlab-loop/notify'" in row and "Clear" in row
 
@@ -13751,6 +13751,47 @@ def test_plugin_loop_without_label_falls_back_to_name():
     loop = {"name": "x-loop", "enabled": True, "description": "Long text"}
     side = ds._sidebar_html("overview", loops=[loop], status_path_fn=lambda n: Path("/nonexistent"))
     assert "<span class='nav-label'>x-loop</span>" in side
+
+
+def test_loop_schedule_summary_reads_each_frequency():
+    s = ds._loop_schedule_summary
+    assert s({"schedule": {"frequency": "weekly", "hour": 10, "minute": 0, "weekdays": [1, 2, 3, 4, 5]}}) == "Weekdays at 10:00"
+    assert s({"schedule": {"frequency": "weekly", "hour": 9, "minute": 5, "weekdays": [1, 3]}}) == "Mon, Wed at 09:05"
+    assert s({"schedule": {"frequency": "weekly", "hour": 8, "minute": 0, "weekdays": [1, 2, 3, 4, 5, 6, 7]}}) == "Daily at 08:00"
+    assert s({"schedule": {"frequency": "daily", "hour": 8, "minute": 0}}) == "Daily at 08:00"
+    assert s({"schedule": {"frequency": "hourly", "interval_hours": 2}}) == "Every 2 hours"
+    assert s({"schedule": {"frequency": "hourly", "interval_hours": 1}}) == "Every hour"
+    assert s({"schedule": {"frequency": "monthly", "day": 3, "hour": 7, "minute": 30}}) == "Monthly on day 3 at 07:30"
+    assert s({}) == "No schedule"
+    assert s({"schedule": {"frequency": "weekly", "hour": "x", "weekdays": ["bad"]}}) == "Daily at 09:00"
+
+
+def test_catalog_active_rows_are_a_list_and_available_loops_are_cards(monkeypatch, tmp_path):
+    _stub_catalog(monkeypatch, tmp_path,
+                  [{"name": "gitlab-loop", "enabled": True,
+                    "schedule": {"frequency": "weekly", "hour": 10, "minute": 0, "weekdays": [1, 2, 3, 4, 5]}},
+                   {"name": "rss-watch-loop", "enabled": False, "requires": ["feed"],
+                    "schedule": {"frequency": "daily", "hour": 8, "minute": 0}}],
+                  lambda cap, **kw: [])
+    out = ds._loops_catalog_body()
+    active, available = out.split("data-section='available'")
+    assert "<ul class='loop-list'><li class='loop-row' data-loop='gitlab-loop'>" in active
+    assert "<ul class='loop-gallery'><li class='loop-tile' data-loop='rss-watch-loop'>" in available
+    assert "Weekdays at 10:00" in active and "Daily at 08:00" in available
+    # the schedule editor is folded away, the switch says what state it is in
+    assert "<details class='loop-settings'>" in active and "name='time'" in active
+    assert "loop-toggle-text'>On<" in active and "loop-toggle-text'>Off<" in available
+    assert "Add the connector to enable this loop." in available
+    assert "<span class='badge-count'>1</span>" in active
+
+
+def test_catalog_row_shows_last_run_only_when_the_loop_has_run(monkeypatch, tmp_path):
+    status = tmp_path / "gitlab-loop.json"
+    monkeypatch.setattr(ds, "status_path_for_loop", lambda n, base_dir=None: status)
+    loop = {"name": "gitlab-loop", "enabled": True}
+    assert "Last run" not in ds._loops_catalog_row(loop, "", {})
+    status.write_text(json.dumps({"state": "idle", "updated_at": "2026-10-06T08:00:00Z"}))
+    assert "Last run " in ds._loops_catalog_row(loop, "", {})
 
 
 def test_catalog_row_shows_label_with_description_below():

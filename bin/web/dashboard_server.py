@@ -4086,7 +4086,7 @@ _FONT_FACE_VARS = "\n".join(
 _MATERIAL_SYMBOLS_ICON_NAMES = (
     "account_balance_wallet,add,add_comment,arrow_forward,arrow_upward,auto_awesome,autorenew,bolt,calendar_month,cancel,check,check_circle,chevron_left,circle,"
     "close,code,content_copy,delete,description,dns,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,help,history,hub,"
-    "lightbulb,login,loop,mail,merge,monitoring,newspaper,open_in_new,palette,payments,rss_feed,save,search,send,settings,smart_toy,space_dashboard,speed,task_alt,terminal,topic,"
+    "lightbulb,login,loop,mail,merge,monitoring,newspaper,open_in_new,palette,payments,rss_feed,save,schedule,search,send,settings,smart_toy,space_dashboard,speed,task_alt,terminal,topic,"
     "translate,tune,warning,webhook,widgets"
 )
 
@@ -5657,6 +5657,67 @@ ul.plain li {{ font-size: 0.9rem; }}
   letter-spacing: 0.02em;
 }}
 
+/* /loops catalog: active loops as a managed list, available loops as
+   cards. Each loop's schedule shows as one readable line; the editor sits
+   in a <details> so rows stay short and scannable. */
+.loop-section-hint {{ margin: -0.35rem 0 1rem; color: var(--md-on-surface-variant); font-size: 0.87rem; }}
+.loop-empty {{ margin: 0; color: var(--md-on-surface-variant); }}
+.loop-list, .loop-gallery {{ list-style: none; margin: 0; padding: 0; }}
+.loop-list {{ display: flex; flex-direction: column; gap: 0.75rem; }}
+.loop-gallery {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.85rem; }}
+.loop-row, .loop-tile {{
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 16px;
+  background: var(--md-surface);
+  min-width: 0;
+}}
+.loop-row {{ display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0.25rem 1rem; padding: 1rem 1.1rem; align-items: start; }}
+.loop-tile {{ display: flex; flex-direction: column; gap: 0.6rem; padding: 1rem; }}
+.loop-icon {{
+  width: 40px; height: 40px; border-radius: 12px; flex: 0 0 40px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--md-surface-container-highest); color: var(--md-on-surface-variant);
+}}
+.loop-icon svg {{ width: 22px; height: 22px; }}
+.loop-icon .material-symbols-outlined {{ font-size: 22px; }}
+.loop-main {{ min-width: 0; }}
+.loop-heading, .loop-tile-head {{ display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }}
+.loop-tile-head {{ flex-wrap: nowrap; gap: 0.75rem; }}
+.loop-title {{ font-size: 1rem; font-weight: 500; color: var(--md-on-surface); text-decoration: none; }}
+a.loop-title:hover, a.loop-title:focus-visible {{ color: var(--md-primary); text-decoration: underline; }}
+.loop-description {{ margin: 0.25rem 0 0; color: var(--md-on-surface-variant); font-size: 0.87rem; line-height: 1.45; }}
+.loop-tile .loop-description {{ margin: 0; flex: 1 1 auto; }}
+.loop-meta {{ display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1rem; margin-top: 0.6rem; font-size: 0.82rem; color: var(--md-on-surface-variant); }}
+.loop-tile .loop-meta {{ margin-top: 0; }}
+.loop-meta-item {{ display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap; }}
+.loop-meta-item .material-symbols-outlined {{ font-size: 16px; }}
+.loop-actions {{ display: flex; align-items: center; gap: 0.75rem; }}
+.loop-toggle {{ display: inline-flex; align-items: center; gap: 0.45rem; }}
+.loop-toggle .switch[disabled] {{ opacity: 0.45; cursor: not-allowed; }}
+.loop-toggle-text {{ font-size: 0.82rem; font-weight: 500; color: var(--md-on-surface-variant); min-width: 1.6rem; }}
+.loop-tile-foot {{ display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding-top: 0.6rem; border-top: 1px solid var(--md-outline-variant); }}
+.loop-needs {{ display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }}
+.loop-needs-hint {{ font-size: 0.78rem; color: var(--md-on-surface-variant); }}
+.chip {{
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.22rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 500; line-height: 1.2;
+  background: var(--md-warning-container); color: var(--md-on-warning-container); text-decoration: none; white-space: nowrap;
+}}
+.chip .material-symbols-outlined {{ font-size: 14px; }}
+a.chip:hover, a.chip:focus-visible {{ text-decoration: underline; }}
+.loop-settings {{ margin-top: 0.6rem; }}
+.loop-settings > summary {{
+  display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; list-style: none;
+  font-size: 0.82rem; font-weight: 500; color: var(--md-primary); border-radius: 8px; padding: 0.15rem 0.2rem;
+}}
+.loop-settings > summary::-webkit-details-marker {{ display: none; }}
+.loop-settings > summary .material-symbols-outlined {{ font-size: 16px; }}
+.loop-settings[open] > summary {{ margin-bottom: 0.5rem; }}
+.loop-settings-body {{ display: flex; flex-direction: column; gap: 0.6rem; padding: 0.75rem; border-radius: 12px; background: var(--md-surface-container-low); }}
+@media (max-width: 720px) {{
+  .loop-row {{ grid-template-columns: auto minmax(0, 1fr); }}
+  .loop-actions {{ grid-column: 1 / -1; justify-content: space-between; padding-top: 0.6rem; border-top: 1px solid var(--md-outline-variant); }}
+}}
 table.daemons {{ border-collapse: collapse; width: 100%; font-size: 0.87rem; }}
 table.daemons th {{
   text-align: left;
@@ -13776,6 +13837,9 @@ def _connector_type_for_capability(capability):
     return None
 
 
+_LOOP_NEED_ICON = "<span class='material-symbols-outlined' aria-hidden='true'>warning</span>"
+
+
 def _loop_requirement_chips_html(missing):
     chips = []
     for capability in missing:
@@ -13784,9 +13848,9 @@ def _loop_requirement_chips_html(missing):
         type_name = _connector_type_for_capability(capability)
         if type_name:
             href = "/connectors?view=add&amp;type=" + html.escape(urllib.parse.quote(type_name, safe=""))
-            chips.append(f"<a class='chip' href='{href}'>{text}</a>")
+            chips.append(f"<a class='chip' href='{href}'>{_LOOP_NEED_ICON}{text}</a>")
         else:
-            chips.append(f"<span class='chip'>{text}</span>")
+            chips.append(f"<span class='chip'>{_LOOP_NEED_ICON}{text}</span>")
     return " ".join(chips)
 
 
@@ -13822,40 +13886,147 @@ def _loop_notify_form_html(loop, csrf_input, notify_accounts):
     )
 
 
-def _loops_catalog_row(loop, csrf_input, pages, notify_accounts=()):
+_LOOP_SUMMARY_WEEKDAYS = {1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat", 7: "Sun"}
+
+
+def _loop_schedule_summary(loop):
+    """One readable line for a loops.json schedule ("Weekdays at 10:00",
+    "Every 2 hours", ...) so the catalog can show it without the editor
+    open. Reads the same shapes as _loop_schedule_form_html, never raises."""
+    schedule = loop.get("schedule") if isinstance(loop, dict) else None
+    if not isinstance(schedule, dict) or not schedule:
+        return _t("No schedule")
+    frequency = schedule.get("frequency")
+    if frequency not in ("daily", "weekly", "monthly", "hourly"):
+        frequency = "daily" if schedule.get("weekdays") == "all" else "weekly"
+    try:
+        time_value = f"{int(schedule.get('hour', 9)):02d}:{int(schedule.get('minute', 0)):02d}"
+    except (TypeError, ValueError):
+        time_value = "09:00"
+    if frequency == "hourly":
+        hours = str(schedule.get("interval_hours") or 4)
+        if hours == "1":
+            return _t("Every hour")
+        return _t("Every {hours} hours", hours=hours)
+    if frequency == "monthly":
+        return _t("Monthly on day {day} at {time}", day=schedule.get("day") or 1, time=time_value)
+    weekdays = schedule.get("weekdays")
+    if frequency == "daily" or not isinstance(weekdays, list):
+        return _t("Daily at {time}", time=time_value)
+    try:
+        days = sorted({int(d) for d in weekdays})
+    except (TypeError, ValueError):
+        return _t("Daily at {time}", time=time_value)
+    if days == [1, 2, 3, 4, 5, 6, 7]:
+        return _t("Daily at {time}", time=time_value)
+    if days == [1, 2, 3, 4, 5]:
+        return _t("Weekdays at {time}", time=time_value)
+    if not days:
+        return _t("No days selected")
+    labels = ", ".join(i18n.t(_LOOP_SUMMARY_WEEKDAYS[d]) for d in days if d in _LOOP_SUMMARY_WEEKDAYS)
+    return _t("{days} at {time}", days=labels, time=time_value)
+
+
+def _loop_catalog_parts(loop, csrf_input, pages, notify_accounts):
+    """Everything both catalog layouts (active row, available card) need
+    for one loop, as already-escaped HTML fragments."""
     name = str(loop.get("name", "?"))
-    safe_name = html.escape(name)
     page = pages.get(name) or _generic_loop_page(name, loop)
-    icon = page.icon if page else _SECTION_ICON_OVERVIEW
     bespoke = _loop_pages().get(name)
     label = html.escape(i18n.t(bespoke.label) if bespoke else i18n.t(_plugin_loop_label(name, loop)))
     description = str(loop.get("description") or "")
-    description_html = (
-        f"<p class='loop-description'>{html.escape(i18n.t(description))}</p>" if description else "")
-    loop_status = read_status(status_path_for_loop(name))
-    updated = loop_status.get("updated_at")
-    last_run = html.escape(_relative_time(updated)) if updated else html.escape(_t("never"))
-    open_html = (
-        f"<a class='btn' href='/loops/{urllib.parse.quote(name)}'>{html.escape(_t('Open'))}</a>"
-        if page else ""
-    )
     requirements_met, missing = loop_requirements_met(loop)
+    href = f"/loops/{urllib.parse.quote(name)}"
+    schedule_summary = html.escape(_loop_schedule_summary(loop))
+    settings = (
+        "<details class='loop-settings'>"
+        "<summary><span class='material-symbols-outlined' aria-hidden='true'>tune</span>"
+        f"{html.escape(_t('Edit schedule'))}</summary>"
+        f"<div class='loop-settings-body'>{_loop_schedule_form_html(loop, csrf_input, return_to='/loops')}"
+        f"{_loop_notify_form_html(loop, csrf_input, notify_accounts)}</div>"
+        "</details>"
+    )
+    enabled = bool(loop.get("enabled", True))
+    toggle_text = _t("On") if enabled else _t("Off")
+    toggle = (
+        "<div class='loop-toggle'>"
+        f"{_loop_action_html(loop, csrf_input, return_to='/loops', requirements_met=requirements_met)}"
+        f"<span class='loop-toggle-text'>{html.escape(toggle_text)}</span></div>"
+    )
+    return {
+        "name": name,
+        "safe_name": html.escape(name),
+        "icon": page.icon if page else _SECTION_ICON_OVERVIEW,
+        "label": label,
+        "title": (f"<a class='loop-title' href='{html.escape(href)}'><span class='loop-label'>{label}</span></a>"
+                  if page else f"<span class='loop-title'><span class='loop-label'>{label}</span></span>"),
+        "description_html": (
+            f"<p class='loop-description'>{html.escape(i18n.t(description))}</p>" if description else ""),
+        "missing_html": _loop_requirement_chips_html(missing) if missing else "",
+        "requirements_met": requirements_met,
+        "schedule_html": (
+            "<span class='loop-meta-item'>"
+            "<span class='material-symbols-outlined' aria-hidden='true'>schedule</span>"
+            f"{schedule_summary}</span>"),
+        "settings_html": settings,
+        "toggle_html": toggle,
+        "open_html": (f"<a class='btn btn-neutral loop-open' href='{html.escape(href)}'>{html.escape(_t('Open'))}</a>"
+                      if page else ""),
+    }
+
+
+def _loops_catalog_row(loop, csrf_input, pages, notify_accounts=()):
+    """One active loop as a list row: identity on the left, its state
+    (status, last run, schedule summary) under the description, the on/off
+    switch and Open on the right, and the schedule editor folded away."""
+    parts = _loop_catalog_parts(loop, csrf_input, pages, notify_accounts)
+    loop_status = read_status(status_path_for_loop(parts["name"]))
+    updated = loop_status.get("updated_at")
+    # A loop that never ran already says so in its status pill.
+    last_run_html = (
+        "<span class='loop-meta-item'><span class='material-symbols-outlined' aria-hidden='true'>history</span>"
+        f"{html.escape(_t('Last run {when}', when=_relative_time(updated)))}</span>" if updated else "")
     return (
-        f"<tr data-loop='{safe_name}'>"
-        f"<td>{icon} <span class='loop-label'>{label}</span>"
-        f"{(' ' + _loop_requirement_chips_html(missing)) if missing else ''}"
-        f"{description_html}"
-        f"{_loop_notify_form_html(loop, csrf_input, notify_accounts)}</td>"
-        f"<td>{_loop_schedule_form_html(loop, csrf_input, return_to='/loops')}</td>"
-        f"<td>{_status_badge_markup(loop_status)}</td>"
-        f"<td>{last_run}</td>"
-        f"<td>{_loop_action_html(loop, csrf_input, return_to='/loops', requirements_met=requirements_met)} {open_html}</td>"
-        "</tr>"
+        f"<li class='loop-row' data-loop='{parts['safe_name']}'>"
+        f"<div class='loop-icon'>{parts['icon']}</div>"
+        "<div class='loop-main'>"
+        f"<div class='loop-heading'>{parts['title']}{parts['missing_html']}</div>"
+        f"{parts['description_html']}"
+        "<div class='loop-meta'>"
+        f"{_status_badge_markup(loop_status)}"
+        f"{last_run_html}"
+        f"{parts['schedule_html']}"
+        "</div>"
+        f"{parts['settings_html']}"
+        "</div>"
+        f"<div class='loop-actions'>{parts['toggle_html']}{parts['open_html']}</div>"
+        "</li>"
+    )
+
+
+def _loops_catalog_tile(loop, csrf_input, pages, notify_accounts=()):
+    """One available (never-run, disabled) loop as a card: what it does,
+    what it still needs, when it would run, and the switch to turn it on."""
+    parts = _loop_catalog_parts(loop, csrf_input, pages, notify_accounts)
+    needs = (
+        f"<div class='loop-needs'>{parts['missing_html']}"
+        f"<span class='loop-needs-hint'>{html.escape(_t('Add the connector to enable this loop.'))}</span></div>"
+        if parts["missing_html"] else "")
+    return (
+        f"<li class='loop-tile' data-loop='{parts['safe_name']}'>"
+        f"<div class='loop-tile-head'><div class='loop-icon'>{parts['icon']}</div>{parts['title']}</div>"
+        f"{parts['description_html']}"
+        f"{needs}"
+        f"<div class='loop-meta'>{parts['schedule_html']}</div>"
+        f"{parts['settings_html']}"
+        f"<div class='loop-tile-foot'>{parts['toggle_html']}{parts['open_html']}</div>"
+        "</li>"
     )
 
 
 def _loops_catalog_body(flash=None, flash_ok=True):
-    """The /loops catalog: loops that are enabled or have run vs. the rest.
+    """The /loops catalog: loops that are enabled or have run (a list you
+    manage day to day) vs. the rest (cards to browse and switch on).
     Never raises on a missing/malformed loops.json (renders empty sections)."""
     try:
         loops = loops_config.list_loops()
@@ -13871,28 +14042,26 @@ def _loops_catalog_body(flash=None, flash_ok=True):
     except connectors_config.ConnectorConfigError:
         notify_accounts = []
 
-    def section(title, rows, attrs=""):
+    def section(title, hint, rows, render, list_class, attrs=""):
         if rows:
-            head = "".join(
-                f"<th>{html.escape(_t(c))}</th>" for c in ("Loop", "Schedule", "Status", "Last run", "Action"))
-            inner = (
-                "<div class='table-wrap'><table class='daemons'>"
-                f"<thead><tr>{head}</tr></thead><tbody>"
-                + "".join(_loops_catalog_row(l, csrf_input, pages, notify_accounts) for l in rows)
-                + "</tbody></table></div>"
-            )
+            inner = (f"<ul class='{list_class}'>"
+                     + "".join(render(l, csrf_input, pages, notify_accounts) for l in rows) + "</ul>")
         else:
-            inner = f"<p>{html.escape(_t('No loops here.'))}</p>"
+            inner = f"<p class='loop-empty'>{html.escape(_t('No loops here.'))}</p>"
         return (
-            f"<section class='card'{attrs}>"
-            f"<div class='section-header'><h2>{html.escape(_t(title))}</h2></div>{inner}</section>"
+            f"<section class='card loop-section'{attrs}>"
+            f"<div class='section-header'><h2>{html.escape(_t(title))}</h2>"
+            f"<span class='badge-count'>{len(rows)}</span></div>"
+            f"<p class='loop-section-hint'>{html.escape(_t(hint))}</p>{inner}</section>"
         )
 
     return (
         f"<div class='page-title'><h1>{html.escape(_t('Loops'))}</h1></div>"
         + _flash_html(flash, flash_ok)
-        + section("Active loops", active)
-        + section("Available loops", available, " data-section='available'")
+        + section("Active loops", "Loops that are on or have run. Turn them off, change when they run, or open one for details.",
+                  active, _loops_catalog_row, "loop-list")
+        + section("Available loops", "Loops you can add. Turn one on to start it on its schedule.",
+                  available, _loops_catalog_tile, "loop-gallery", " data-section='available'")
     )
 
 
