@@ -897,5 +897,8 @@
   "Mail lookback (days)": "Historique des e-mails (jours)",
   "Search recent mail with the attendees; 0 turns mail off": "Rechercher les e-mails récents avec les participants ; 0 désactive les e-mails",
   "Include solo events": "Inclure les événements solo",
-  "yes also briefs events with no other attendees": "yes prépare aussi les événements sans autre participant"
+  "yes also briefs events with no other attendees": "yes prépare aussi les événements sans autre participant",
+  "Release Notes": "Notes de version",
+  "When a tracked project gets a new tag, writes release notes from the MRs merged since the previous tag and sends a short summary.": "Quand un projet suivi reçoit un nouveau tag, rédige les notes de version à partir des MR fusionnées depuis le tag précédent et envoie un court résumé.",
+  "Comma-separated project aliases to watch; empty watches every tracked project": "Alias des projets à surveiller, séparés par des virgules ; vide = tous les projets suivis"
 }

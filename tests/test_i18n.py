@@ -212,6 +212,6 @@ def test_loop_template_descriptions_have_translations(lang):
 def test_loop_template_labels_have_translations(lang):
     template = json.loads((ROOT / "config" / "loops.json.template").read_text("utf-8"))
     labels = [e["label"] for e in template if e["entry_point"].startswith("bin.loop_plugins.")]
-    assert sorted(labels) == ["Calendar Prep", "Daily Digest", "MR Review", "Pipeline Doctor", "RSS Watch"]
+    assert sorted(labels) == ["Calendar Prep", "Daily Digest", "MR Review", "Pipeline Doctor", "RSS Watch", "Release Notes"]
     catalog = _catalog(lang)
     assert sorted(l for l in labels if not catalog.get(l)) == []

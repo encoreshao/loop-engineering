@@ -16,6 +16,11 @@ and `output_keys` for the required answer JSON keys.
 
 ## Release Notes
 
+- **Shipped** (2026-10-07): `bin/loop_plugins/release_notes.py`, see
+  `docs/tasks/release-notes-loop.md`. It triggers on a new tag (the first tag
+  seen per project is only a baseline) rather than listing everything since
+  the latest tag, and links come from the offered MRs, never from the model.
+  The notes below are the original plan.
 - **discover**: merged MRs on the default branch since the latest tag.
   `GET /projects/:id/repository/tags?per_page=1` for the tag date, then
   `GET /merge_requests?state=merged&target_branch=<default>&updated_after=<tag date>`

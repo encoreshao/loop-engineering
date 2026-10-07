@@ -897,5 +897,8 @@
   "Mail lookback (days)": "邮件回溯天数",
   "Search recent mail with the attendees; 0 turns mail off": "搜索与参会者的近期邮件；0 表示关闭邮件",
   "Include solo events": "包括单人日程",
-  "yes also briefs events with no other attendees": "填 yes 时也为没有其他参会者的日程生成摘要"
+  "yes also briefs events with no other attendees": "填 yes 时也为没有其他参会者的日程生成摘要",
+  "Release Notes": "发布说明",
+  "When a tracked project gets a new tag, writes release notes from the MRs merged since the previous tag and sends a short summary.": "当跟踪的项目有新标签时，根据上一个标签以来合并的 MR 编写发布说明并发送简短摘要。",
+  "Comma-separated project aliases to watch; empty watches every tracked project": "要监视的项目别名（逗号分隔）；留空则监视所有跟踪的项目"
 }

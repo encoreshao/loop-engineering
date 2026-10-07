@@ -73,6 +73,7 @@ Loop X Engineering の使命は、Issue のトリアージに奪われる時間�
 | Pipeline Doctor | 追跡中のプロジェクトと自分の MR の失敗した CI パイプラインを診断し、繰り返す失敗を指摘（既定では無効） | `pipelines` コネクタ（GitLab） | 毎時 | 通知のみ |
 | RSS Watch | フィードの新着エントリを関心に合わせてランク付けし、短いダイジェストを送信（既定では無効） | `feed` コネクタ（RSS） | 毎日 08:00 | 通知のみ |
 | Calendar Prep | 各会議の前に準備メモを送信：議題、リンクされた GitLab の作業、参加者との最近のメール、前回からのフォローアップ（既定では無効） | `calendar` コネクタ（Google カレンダー）、任意で GitLab とメールボックス | 15 分ごと | 通知のみ |
+| Release Notes | 追跡中のプロジェクトに新しいタグが付くと、前回のタグ以降にマージされた MR からリリースノートを作成（既定では無効） | `merge_requests` コネクタ（GitLab） | 1 時間ごと | ローカルの Markdown ファイル + 通知 |
 
 後ろの 4 つは LoopKit プラグイン（`bin/loopkit.py`、`bin/loop_plugins/`）です。モデルはツールも MCP サーバーも持たない密閉状態で実行され、項目ごとに分離されるため 1 件の失敗で実行全体が止まらず、通知はループの **Notify via** コネクタ経由で送られます。詳しくは [`docs/architecture.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/architecture.md#loopkit) を参照してください。
 

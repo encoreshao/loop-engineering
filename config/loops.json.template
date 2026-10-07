@@ -93,5 +93,18 @@
     "emit_run_events": false,
     "routes_notifications": true,
     "requires": ["calendar"]
+  },
+  {
+    "name": "release-notes-loop",
+    "label": "Release Notes",
+    "entry_point": "bin.loop_plugins.release_notes",
+    "description": "When a tracked project gets a new tag, writes release notes from the MRs merged since the previous tag and sends a short summary.",
+    "schedule": {"frequency": "hourly", "interval_hours": 1},
+    "enabled": false,
+    "timeout_seconds": 900,
+    "log_suffix": "-release-notes-loop",
+    "emit_run_events": false,
+    "routes_notifications": true,
+    "requires": ["merge_requests"]
   }
 ]
