@@ -227,3 +227,29 @@ def test_get_provider_factory():
     assert isinstance(mail_providers.get_provider({"provider": "gmail", "account": "a@b.co"}, "tok"), gmail.GmailProvider)
     with pytest.raises(ValueError):
         mail_providers.get_provider({"provider": "yahoo", "account": "a@b.co"}, "tok")
+
+
+def _meta(msg_id, sender="Ann <ann@x.com>", subject="Plan", ms=1790000000000, snippet="See you then"):
+    return {"id": msg_id, "internalDate": str(ms), "snippet": snippet,
+            "payload": {"headers": [{"name": "From", "value": sender}, {"name": "Subject", "value": subject}]}}
+
+
+def test_search_recent_queries_participants_and_returns_metadata_only():
+    with StubServer() as stub:
+        stub.add("GET", f"{U}/messages", body={"messages": [{"id": "a"}, {"id": "b"}]})
+        stub.add("GET", f"{U}/messages/a", body=_meta("a", ms=1790000900000))
+        stub.add("GET", f"{U}/messages/b", body=_meta("b", subject="Older", ms=1790000100000))
+        rows = _provider(stub).search_recent(["ann@x.com", "bob@y.org", "bad addr\" OR x"], days=30, limit=10)
+        list_query = next(r["query"] for r in stub.requests if r["path"] == f"{U}/messages")
+        get_query = next(r["query"] for r in stub.requests if r["path"] == f"{U}/messages/a")
+    assert list_query["q"] == ["{from:ann@x.com to:ann@x.com from:bob@y.org to:bob@y.org} newer_than:30d"]
+    assert get_query["format"] == ["metadata"]
+    assert [r["subject"] for r in rows] == ["Plan", "Older"]
+    assert rows[0] == {"subject": "Plan", "from": "Ann <ann@x.com>",
+                       "date": datetime.fromtimestamp(1790000900, timezone.utc).isoformat(), "snippet": "See you then"}
+
+
+def test_search_recent_without_valid_addresses_makes_no_call():
+    with StubServer() as stub:
+        assert _provider(stub).search_recent(["not an address"], days=30, limit=10) == []
+        assert stub.requests == []

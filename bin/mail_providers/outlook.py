@@ -3,11 +3,11 @@ deliver mail at all (see mail_auth.OUTLOOK_SCOPE). Mailbox writes are limited to
 categories, appending a category to a message, and creating a reply draft
 via createReply. Nothing here archives, deletes, or changes read state."""
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import inbox_config
 import inbox_triage
-from mail_providers.base import BaseProvider
+from mail_providers.base import BaseProvider, plain_addresses
 
 _PREFER_TEXT = {"Prefer": 'outlook.body-content-type="text"'}
 _SELECT = "id,conversationId,from,toRecipients,ccRecipients,subject,receivedDateTime,body,hasAttachments,internetMessageId"
@@ -56,6 +56,33 @@ class OutlookProvider(BaseProvider):
     def profile_address(self):
         me = self._call("GET", "/me")
         return (me.get("mail") or me.get("userPrincipalName") or "").strip().lower()
+
+    def search_recent(self, addresses, days, limit, now=None):
+        """Subject/From/date/preview of the newest `limit` messages with any
+        of `addresses` as a participant in the last `days` days - never
+        bodies. Graph's $search cannot be combined with a date $filter or
+        $orderby, so the window is applied here."""
+        addresses = plain_addresses(addresses)
+        if not addresses:
+            return []
+        now = now or datetime.now(timezone.utc)
+        search = " OR ".join(f"participants:{a}" for a in addresses)
+        params = {"$search": f'"{search}"', "$select": "subject,from,receivedDateTime,bodyPreview",
+                  "$top": 50}
+        page = self._call("GET", f"/me/messages?{urllib.parse.urlencode(params)}")
+        cutoff = now - timedelta(days=int(days))
+        rows = []
+        for raw in page.get("value", []):
+            try:
+                received = datetime.fromisoformat(str(raw.get("receivedDateTime")).replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if received < cutoff:
+                continue
+            rows.append({"subject": raw.get("subject") or "", "from": _person(raw.get("from")),
+                         "date": received.isoformat(), "snippet": raw.get("bodyPreview") or ""})
+        rows.sort(key=lambda r: r["date"], reverse=True)
+        return rows[:int(limit)]
 
     def fetch_new(self, since, seen_ids, exclude, limit):
         since_utc = since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

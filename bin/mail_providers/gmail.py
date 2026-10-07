@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 import inbox_config
 import inbox_triage
-from mail_providers.base import BaseProvider
+from mail_providers.base import BaseProvider, plain_addresses
 
 _LIST_PAGE_LIMIT = 20  # safety cap: 20 pages of maxResults=100
 
@@ -120,6 +120,30 @@ class GmailProvider(BaseProvider):
         for message in messages:
             message["prior_thread"] = self._prior_thread(message)
         return messages
+
+    def search_recent(self, addresses, days, limit):
+        """Subject/From/date/snippet of the newest `limit` messages from or
+        to any of `addresses` in the last `days` days - never bodies."""
+        addresses = plain_addresses(addresses)
+        if not addresses:
+            return []
+        terms = " ".join(f"from:{a} to:{a}" for a in addresses)
+        params = {"q": f"{{{terms}}} newer_than:{int(days)}d", "maxResults": int(limit)}
+        page = self._call("GET", f"/users/me/messages?{urllib.parse.urlencode(params)}")
+        rows = []
+        for ref in page.get("messages", [])[:int(limit)]:
+            query = urllib.parse.urlencode([("format", "metadata"), ("metadataHeaders", "From"),
+                                            ("metadataHeaders", "Subject")])
+            raw = self._call("GET", f"/users/me/messages/{ref['id']}?{query}")
+            headers = (raw.get("payload") or {}).get("headers") or []
+            rows.append({
+                "subject": _header(headers, "Subject") or "",
+                "from": _header(headers, "From") or "",
+                "date": datetime.fromtimestamp(int(raw.get("internalDate") or 0) / 1000, timezone.utc).isoformat(),
+                "snippet": raw.get("snippet") or "",
+            })
+        rows.sort(key=lambda r: r["date"], reverse=True)
+        return rows
 
     def _prior_thread(self, message):
         thread = self._call("GET", f"/users/me/threads/{message['thread_id']}?format=full")

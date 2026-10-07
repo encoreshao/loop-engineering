@@ -157,3 +157,18 @@ def test_outlook_source_has_no_send_and_only_interface_methods():
     assert not re.search(r"(?i)\bsend(mail)?\b|/send", source)
     public = {n for n, _ in inspect.getmembers(outlook.OutlookProvider, inspect.isfunction) if not n.startswith("_")}
     assert public == base.PUBLIC_METHODS
+
+
+def test_search_recent_searches_participants_and_drops_old_mail():
+    with StubServer() as stub:
+        stub.add("GET", f"{V}/messages", body={"value": [
+            {"subject": "Old", "from": {"emailAddress": {"name": "Ann", "address": "ann@x.com"}},
+             "receivedDateTime": "2026-08-01T07:00:00Z", "bodyPreview": "old"},
+            {"subject": "New", "from": {"emailAddress": {"name": "Ann", "address": "ann@x.com"}},
+             "receivedDateTime": "2026-10-06T07:00:00Z", "bodyPreview": "new one"}]})
+        rows = _provider(stub).search_recent(["ann@x.com", "x\" OR y"], days=30, limit=10,
+                                             now=datetime(2026, 10, 7, tzinfo=timezone.utc))
+        query = stub.requests[0]["query"]
+    assert query["$search"] == ['"participants:ann@x.com"']
+    assert "bodyPreview" in query["$select"][0] and "body," not in query["$select"][0]
+    assert rows == [{"subject": "New", "from": "Ann <ann@x.com>", "date": "2026-10-06T07:00:00+00:00", "snippet": "new one"}]
