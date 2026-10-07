@@ -5838,6 +5838,24 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
 svg.brand-logo[fill="currentColor"] {{ color: #181717; }}
 .brand-lettermark {{ display: inline-flex; align-items: center; justify-content: center; box-sizing: content-box; padding: 4px; border-radius: 50%; background: var(--brand, var(--md-primary)); color: #fff; font-size: 0.8rem; font-weight: 700; }}
 .connector-row-title {{ display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }}
+/* Connectors > Accounts: one row per account - identity and status pills on
+   the left, actions on the right (wrapping underneath on narrow screens). */
+.connector-accounts .section-header {{ padding-bottom: 0.75rem; margin-bottom: 0.25rem; border-bottom: 1px solid var(--md-outline-variant); }}
+.connector-accounts .section-header h2 {{ font-size: 1.05rem; }}
+.account-row {{ display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1.5rem;
+  margin: 0 -0.75rem; padding: 0.9rem 0.75rem; border-radius: 12px; transition: background-color 0.15s; }}
+.account-row:hover {{ background: var(--md-surface-container-low); }}
+.project-block.account-row + .project-block.account-row {{ margin-top: 0; padding-top: 0.9rem; border-top: 0; }}
+.account-row + .account-row {{ box-shadow: 0 -1px 0 var(--md-outline-variant); }}
+.account-main {{ flex: 1 1 18rem; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem; }}
+.account-main .connector-row-title {{ flex-wrap: nowrap; min-width: 0; }}
+.account-main .connector-row-title strong {{ font-size: 0.95rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+.account-main .connector-row-title code {{ font-size: 0.75rem; padding: 0.1rem 0.45rem; border-radius: 6px;
+  background: var(--md-surface-container-high); color: var(--md-on-surface-variant); white-space: nowrap; }}
+.account-main .pill-row {{ margin-top: 0; gap: 0.3rem; }}
+.account-actions {{ display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; flex: 0 1 auto; }}
+.account-actions .btn[class] {{ padding: 0.35rem 0.75rem; font-size: 0.8rem; }}
+.account-actions .btn .material-symbols-outlined {{ font-size: 16px; }}
 /* Connector gallery cards. Tiles (.connector-tile), the search box and the
    form's brand header (.connector-hero) read the --cg-* tokens below, which
    derive from the theme accent (--md-nav-*), so picking another accent on
@@ -6390,7 +6408,25 @@ svg.brand-logo[fill="currentColor"] {{ color: #181717; }}
 /* Inbox Setup's numbered "how to register an OAuth app" steps (Google/
    Microsoft) - plain ordered list, spaced like the rest of this app's
    prose rather than the browser's cramped default list spacing. */
-.wizard-steps {{ display: flex; flex-direction: column; gap: 0.5rem; margin: 0.5rem 0; padding-left: 1.25rem; font-size: 0.85rem; }}
+.wizard-steps {{ list-style: none; counter-reset: wizard; display: flex; flex-direction: column; gap: 0.35rem; margin: 0.75rem 0 1.25rem; padding: 0; font-size: 0.875rem; line-height: 1.55; }}
+.wizard-steps li {{ counter-increment: wizard; position: relative; padding: 0.6rem 0.9rem 0.6rem 2.9rem; border-radius: 10px;
+  background: var(--md-surface-container-low); }}
+.wizard-steps li::before {{ content: counter(wizard); position: absolute; left: 0.8rem; top: 0.65rem; width: 1.55rem; height: 1.55rem;
+  display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 0.78rem; font-weight: 500;
+  background: var(--md-primary-container, var(--md-surface-container-high)); color: var(--md-on-primary-container, var(--md-on-surface)); }}
+.wizard-steps code {{ font-size: 0.78rem; overflow-wrap: anywhere; }}
+/* Inbox Setup forms: wider than a single 32rem column. Short fields pair up
+   two-to-a-row, long ones (textareas, hints) span the full width. */
+.stack-form {{ max-width: 46rem; }}
+.stack-form h3 {{ display: flex; align-items: center; gap: 0.5rem; margin: 0; font-size: 1rem; }}
+.inbox-section .section-fields {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr)); gap: 1rem 1.25rem; align-items: start; }}
+.inbox-section.is-wide .section-fields {{ grid-template-columns: 1fr; }}
+.inbox-section {{ padding-top: 1.25rem; margin-top: 1.25rem; }}
+.inbox-section > h3 {{ margin: 0 0 0.9rem; font-size: 0.95rem; font-weight: 500; }}
+.stack-form input:focus, .stack-form select:focus, .stack-form textarea:focus {{ outline: 2px solid var(--md-primary); outline-offset: -1px; }}
+.stack-form input, .stack-form select, .stack-form textarea {{ padding: 0.55rem 0.75rem; }}
+.inbox-card-footer {{ padding-top: 1rem; border-top: 1px solid var(--md-outline-variant); margin-top: 1.5rem; }}
+.wizard-client {{ padding: 1.1rem 1.25rem; border-radius: 12px; border: 1px solid var(--md-outline-variant); background: var(--md-surface-container-lowest, var(--md-surface)); }}
 
 /* Outlook's device-code sign-in flow (see _DEVICE_FLOW_SCRIPT in
    inbox_pages.py) - hidden until the connect button's poll finds a
@@ -13018,11 +13054,11 @@ def _connector_account_row_html(account, csrf_input, result):
         )
     disabled = "" if account.get("enabled", True) else f" <span class='pill pill-grey'>{html.escape(_t('Disabled'))}</span>"
     return (
-        "<div class='project-block'>"
+        "<div class='project-block account-row'><div class='account-main'>"
         f"<div class='connector-row-title'>{brand_logos.brand_logo_svg(_connector_brand_key(account), account['label'], 24)}"
         f"<strong>{html.escape(account['label'])}</strong> <code>{safe_id}</code>{disabled}</div>"
-        f"<div class='pill-row'>{chips}{badge}{oauth_html}{result_html}</div>"
-        f"<div class='pill-row'>{buttons}</div>"
+        f"<div class='pill-row'>{chips}{badge}{oauth_html}{result_html}</div></div>"
+        f"<div class='account-actions'>{buttons}</div>"
         "</div>"
     )
 

@@ -242,7 +242,7 @@ def _client_form(provider, title, oauth, csrf_input, with_secret):
     secret = _labelled(_t("Client secret"), "<input type='password' name='client_secret' autocomplete='off'>",
                        e(_t("Leave blank to keep the saved secret."))) if with_secret else ""
     return (
-        f"<form method='POST' action='/inbox/oauth-client' class='stack-form'>{csrf_input}"
+        f"<form method='POST' action='/inbox/oauth-client' class='stack-form wizard-client'>{csrf_input}"
         f"<input type='hidden' name='provider' value='{provider}'><h3>{e(title)} {configured}</h3>"
         + _labelled(_t("Client ID"), f"<input type='text' name='client_id' value=\"{e(client_id)}\" required>")
         + secret
@@ -278,8 +278,8 @@ def _plain_select(name, options, selected, empty_label=None):
     return f"<select name='{e(name)}'>{tags}</select>"
 
 
-def _section(title, inner):
-    return f"<div class='inbox-section'><h3>{e(title)}</h3>{inner}</div>"
+def _section(title, inner, wide=False):
+    return f"<div class='inbox-section{' is-wide' if wide else ''}'><h3>{e(title)}</h3><div class='section-fields'>{inner}</div></div>"
 
 
 def _field(label, control, hint=""):
@@ -333,7 +333,7 @@ def _inbox_fields(inbox, is_new, select_html, slack_bundles):
     notifications = _field(e(_t("Slack bundle")), select_html("slack_bundle", bundles, inbox.get("slack_bundle") or "",
                                                               empty_label=_t("(use default webhook)")),
                            e(_t("Which Slack webhook gets this inbox's urgent alerts.")))
-    return (_section(_t("Account"), account) + _section(_t("Triage rules"), triage)
+    return (_section(_t("Account"), account) + _section(_t("Triage rules"), triage, wide=True)
             + _section(_t("Notifications"), notifications))
 
 

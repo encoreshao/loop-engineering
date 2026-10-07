@@ -21,6 +21,9 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Changed
 
+- Inbox Setup (Add inbox, Gmail app, Outlook app) and Connectors > Accounts have
+  a roomier layout: paired form fields, numbered setup steps, and account rows
+  with status on the left and actions on the right.
 - The built-in agent instructions moved into one `instructions/` folder:
   `LOOPX_INSTRUCTIONS.md` is now `instructions/gitlab-issue.md`,
   `TOPIC_MONITOR_INSTRUCTIONS.md` is `instructions/topic-monitor.md` and
