@@ -33,6 +33,9 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Fixed
 
+- Connectors: a failed save no longer leaves a secret behind in the Keychain
+  (a new account's secret is removed, a replaced or renamed one is restored),
+  and simultaneous saves or Test clicks no longer overwrite each other.
 - MR Review no longer downloads the diff of an MR whose current commit it
   already reviewed, finds its old draft notes beyond the first 100, and
   anchors notes on unchanged context lines and renamed files (they used to

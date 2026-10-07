@@ -5,9 +5,12 @@ keyed by the connector id). GitLab instances (~/.gitlab/config.json), Slack
 webhooks (~/.slack/config.json) and mailboxes (inboxes.json) are read through
 as external, read-only accounts that their own pages keep managing.
 Nothing returned by list_accounts/get_account ever contains a secret."""
+import functools
 import json
 import os
 import re
+import threading
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -131,9 +134,9 @@ def get_account(account_id, **paths):
     raise KeyError(account_id)
 
 
-def accounts_with_capability(capability, **paths):
+def _with_capability(accounts, capability):
     found = []
-    for account in list_accounts(**paths):
+    for account in accounts:
         if not account["enabled"]:
             continue
         try:
@@ -145,6 +148,19 @@ def accounts_with_capability(capability, **paths):
     return found
 
 
+def accounts_with_capability(capability, **paths):
+    return _with_capability(list_accounts(**paths), capability)
+
+
+def capability_lookup(**paths):
+    """accounts_with_capability for many capabilities from ONE read of every
+    account source (a page that asks per row would otherwise re-read
+    connectors.json and the GitLab/Slack/inbox configs each time). Raises
+    ConnectorConfigError like list_accounts."""
+    accounts = list_accounts(**paths)
+    return lambda capability: _with_capability(accounts, capability)
+
+
 def _store(store):
     if store is None:
         import secret_store
@@ -154,12 +170,43 @@ def _store(store):
 
 def _write(entries, config_path):
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = config_path.with_name(f".{config_path.name}.tmp")
-    with open(tmp, "w") as f:
-        json.dump(entries, f, indent=2)
-    tmp.replace(config_path)
+    # Unique per write: the dashboard serves requests on several threads.
+    tmp = config_path.with_name(f".{config_path.name}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        with open(tmp, "w") as f:
+            json.dump(entries, f, indent=2)
+        tmp.replace(config_path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
+# Serialises read-modify-write of connectors.json (and the Keychain entries
+# that go with it) across the dashboard's request threads.
+_WRITE_LOCK = threading.RLock()
+
+
+def _locked(fn):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with _WRITE_LOCK:
+            return fn(*args, **kwargs)
+    return wrapper
+
+
+def _restore_secrets(secrets, snapshot):
+    """Best effort: put every snapshotted Keychain entry back as it was
+    (None = it did not exist) after the config write failed."""
+    for ref, value in snapshot.items():
+        try:
+            if value is None:
+                secrets.delete(ref)
+            else:
+                secrets.put(ref, value)
+        except Exception:  # noqa: BLE001 - the save already failed; report that
+            pass
+
+
+@_locked
 def upsert_account(fields, secret, original_id="", config_path=None, store=None, **paths):
     config_path, gl, sl, ib = _resolve(config_path, paths.get("gitlab_config_path"),
                                        paths.get("slack_config_path"), paths.get("inbox_config_path"))
@@ -218,6 +265,10 @@ def upsert_account(fields, secret, original_id="", config_path=None, store=None,
         entry["oauth_connected_at"] = existing["oauth_connected_at"]
     secrets = _store(store)
     try:
+        # What the Keychain held before, so a failed config write can undo
+        # the secret changes instead of leaving an orphan or a broken rename.
+        touched = {new_id} | ({original_id} if existing and original_id != new_id else set())
+        snapshot = {ref: secrets.get(ref) for ref in touched} if (secret or len(touched) > 1) else {}
         if secret:
             secrets.put(new_id, secret)
             if existing and original_id != new_id:
@@ -237,10 +288,12 @@ def upsert_account(fields, secret, original_id="", config_path=None, store=None,
     try:
         _write(entries, config_path)
     except OSError as exc:
+        _restore_secrets(secrets, snapshot)
         return False, i18n.t("Could not save connectors: {detail}", detail=exc)
     return True, i18n.t("Saved connector {id}", id=new_id)
 
 
+@_locked
 def set_oauth_secret(account_id, refresh_token, store=None, **paths):
     """Store the refresh token a Connect with Google sign-in returned for a
     native account whose type has auth == "oauth_google". Returns (ok,
@@ -279,6 +332,7 @@ def set_oauth_secret(account_id, refresh_token, store=None, **paths):
     return True, i18n.t("Connected {label}", label=_str(entry.get("label")) or account_id)
 
 
+@_locked
 def delete_account(account_id, config_path=None, store=None):
     config_path = Path(config_path) if config_path is not None else DEFAULT_CONFIG_PATH
     try:

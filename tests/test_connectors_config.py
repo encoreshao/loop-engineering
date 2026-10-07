@@ -373,3 +373,46 @@ def test_oauth_connected_marker_set_by_sign_in_and_kept_on_edit(paths, with_cale
     assert '"RT"' not in paths["config_path"].read_text()
     cc.upsert_account(cal("gcal", "Edited"), "", original_id="gcal", store=store, **paths)
     assert cc.get_account("gcal", **paths)["oauth_connected"] is True
+
+
+def _failing_write(monkeypatch):
+    def boom(entries, config_path):
+        raise OSError("disk full")
+    monkeypatch.setattr(cc, "_write", boom)
+
+
+def test_failed_save_of_a_new_account_leaves_no_secret_behind(paths, monkeypatch):
+    store = MemStore()
+    _failing_write(monkeypatch)
+    ok, _ = cc.upsert_account(gh("gh"), "tok", store=store, **paths)
+    assert ok is False and store.data == {}
+
+
+def test_failed_save_of_a_new_secret_restores_the_old_one(paths, monkeypatch):
+    store = MemStore()
+    cc.upsert_account(gh("gh"), "old", store=store, **paths)
+    _failing_write(monkeypatch)
+    ok, _ = cc.upsert_account(gh("gh"), "new", original_id="gh", store=store, **paths)
+    assert ok is False and store.data == {"gh": "old"}
+
+
+def test_failed_rename_moves_the_secret_back(paths, monkeypatch):
+    store = MemStore()
+    cc.upsert_account(gh("gh"), "tok", store=store, **paths)
+    _failing_write(monkeypatch)
+    ok, _ = cc.upsert_account(gh("gh-renamed"), "", original_id="gh", store=store, **paths)
+    assert ok is False and store.data == {"gh": "tok"}
+
+
+def test_connectors_json_temp_file_is_unique_per_write(tmp_path, monkeypatch):
+    names = []
+    real_open = open
+
+    def spy(path, *a, **k):
+        names.append(Path(path).name)
+        return real_open(path, *a, **k)
+    monkeypatch.setattr("builtins.open", spy)
+    cc._write([], tmp_path / "connectors.json")
+    cc._write([], tmp_path / "connectors.json")
+    tmps = [n for n in names if n.endswith(".tmp")]
+    assert len(tmps) == 2 and tmps[0] != tmps[1]

@@ -12625,6 +12625,7 @@ def test_loop_requirements_met_tolerates_bad_requires_and_config_error(monkeypat
 def _stub_catalog(monkeypatch, tmp_path, loops, accounts_fn):
     monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: loops)
     monkeypatch.setattr(ds.connectors_config, "accounts_with_capability", accounts_fn)
+    monkeypatch.setattr(ds.connectors_config, "capability_lookup", lambda **kw: (lambda cap: accounts_fn(cap)))
     monkeypatch.setattr(ds, "status_path_for_loop", lambda n, base_dir=None: tmp_path / "none.json")
 
 
@@ -14117,3 +14118,36 @@ def test_health_tiles_without_figures_show_no_detail_line():
 def test_health_learning_delta_can_be_negative():
     out = ds._health_section_html(_health_report(delta=-0.12), _METRICS_STUB)
     assert "-12 pts with memory" in out
+
+
+def test_concurrent_connector_test_results_are_all_kept(tmp_path, monkeypatch):
+    import threading
+    import time as _time
+    results_path = tmp_path / "test-results.json"
+    real_read = ds._read_connector_test_results
+
+    def slow_read(path=None):
+        data = real_read(path)
+        _time.sleep(0.05)  # widen the read-modify-write window
+        return data
+    monkeypatch.setattr(ds, "_read_connector_test_results", slow_read)
+    threads = [threading.Thread(target=ds._record_connector_test_result, args=(f"acct-{n}", True, "ok", results_path))
+               for n in range(5)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    import json
+    assert sorted(json.loads(results_path.read_text())) == [f"acct-{n}" for n in range(5)]
+
+
+def test_loops_catalog_reads_connector_accounts_once(monkeypatch):
+    loops = [{"name": f"l{n}", "entry_point": "x", "enabled": False, "requires": ["issues", "feed"],
+              "schedule": {"frequency": "daily", "hour": 9, "minute": 0}} for n in range(4)]
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: loops)
+    calls = []
+    monkeypatch.setattr(ds.connectors_config, "list_accounts",
+                        lambda **kw: calls.append(1) or [{"id": "gl", "type": "gitlab", "enabled": True}])
+    out = ds._loops_catalog_body()
+    assert len(calls) == 1
+    assert "data-loop='l0'" in out

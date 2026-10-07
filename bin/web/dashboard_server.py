@@ -12805,6 +12805,20 @@ def _read_connector_test_results(results_path=None):
     return data if isinstance(data, dict) else {}
 
 
+# Serialises the test-results read-merge-write across request threads.
+_CONNECTOR_RESULTS_LOCK = threading.Lock()
+
+
+def _write_connector_test_results(results, results_path):
+    results_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = results_path.with_name(f"{results_path.name}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        tmp.write_text(json.dumps(results, indent=2))
+        os.replace(tmp, results_path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def _record_connector_test_result(account_id, ok, message, results_path=None):
     """Atomically merge one {ok, message, at} entry into the per-checkout
     test-results file. Never holds a secret: `message` is the connector's own
@@ -12812,15 +12826,13 @@ def _record_connector_test_result(account_id, ok, message, results_path=None):
     if results_path is None:
         results_path = CONNECTOR_TEST_RESULTS_PATH
     results_path = Path(results_path)
-    results = _read_connector_test_results(results_path)
-    results[account_id] = {
-        "ok": bool(ok), "message": str(message)[:500],
-        "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    }
-    results_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = results_path.with_name(results_path.name + f".{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(results, indent=2))
-    os.replace(tmp, results_path)
+    with _CONNECTOR_RESULTS_LOCK:
+        results = _read_connector_test_results(results_path)
+        results[account_id] = {
+            "ok": bool(ok), "message": str(message)[:500],
+            "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        _write_connector_test_results(results, results_path)
 
 
 def _connector_renamed_or_deleted(old_id, new_id=None, results_path=None):
@@ -12831,17 +12843,16 @@ def _connector_renamed_or_deleted(old_id, new_id=None, results_path=None):
     if results_path is None:
         results_path = CONNECTOR_TEST_RESULTS_PATH
     results_path = Path(results_path)
-    results = _read_connector_test_results(results_path)
-    if old_id in results:
-        entry = results.pop(old_id)
-        if new_id:
-            results[new_id] = entry
-        try:
-            tmp = results_path.with_name(results_path.name + f".{os.getpid()}.tmp")
-            tmp.write_text(json.dumps(results, indent=2))
-            os.replace(tmp, results_path)
-        except OSError:
-            pass
+    with _CONNECTOR_RESULTS_LOCK:
+        results = _read_connector_test_results(results_path)
+        if old_id in results:
+            entry = results.pop(old_id)
+            if new_id:
+                results[new_id] = entry
+            try:
+                _write_connector_test_results(results, results_path)
+            except OSError:
+                pass
     try:
         loops_config.replace_notify_id(old_id, new_id)
     except (OSError, ValueError, TypeError, AttributeError):
@@ -13997,15 +14008,16 @@ def _loop_schedule_summary(loop):
     return _t("{days} at {time}", days=labels, time=time_value)
 
 
-def _loop_catalog_parts(loop, csrf_input, pages, notify_accounts):
+def _loop_catalog_parts(loop, csrf_input, pages, notify_accounts, accounts_fn=None):
     """Everything both catalog layouts (active row, available card) need
-    for one loop, as already-escaped HTML fragments."""
+    for one loop, as already-escaped HTML fragments. `accounts_fn` is the
+    page's shared capability lookup (one read of every account source)."""
     name = str(loop.get("name", "?"))
     page = pages.get(name) or _generic_loop_page(name, loop)
     bespoke = _loop_pages().get(name)
     label = html.escape(i18n.t(bespoke.label) if bespoke else i18n.t(_plugin_loop_label(name, loop)))
     description = str(loop.get("description") or "")
-    requirements_met, missing = loop_requirements_met(loop)
+    requirements_met, missing = loop_requirements_met(loop, accounts_fn=accounts_fn)
     href = f"/loops/{urllib.parse.quote(name)}"
     schedule_summary = html.escape(_loop_schedule_summary(loop))
     settings = (
@@ -14045,11 +14057,11 @@ def _loop_catalog_parts(loop, csrf_input, pages, notify_accounts):
     }
 
 
-def _loops_catalog_row(loop, csrf_input, pages, notify_accounts=()):
+def _loops_catalog_row(loop, csrf_input, pages, notify_accounts=(), accounts_fn=None):
     """One active loop as a list row: identity on the left, its state
     (status, last run, schedule summary) under the description, the on/off
     switch and Open on the right, and the schedule editor folded away."""
-    parts = _loop_catalog_parts(loop, csrf_input, pages, notify_accounts)
+    parts = _loop_catalog_parts(loop, csrf_input, pages, notify_accounts, accounts_fn)
     loop_status = read_status(status_path_for_loop(parts["name"]))
     updated = loop_status.get("updated_at")
     # A loop that never ran already says so in its status pill.
@@ -14074,10 +14086,10 @@ def _loops_catalog_row(loop, csrf_input, pages, notify_accounts=()):
     )
 
 
-def _loops_catalog_tile(loop, csrf_input, pages, notify_accounts=()):
+def _loops_catalog_tile(loop, csrf_input, pages, notify_accounts=(), accounts_fn=None):
     """One available (never-run, disabled) loop as a card: what it does,
     what it still needs, when it would run, and the switch to turn it on."""
-    parts = _loop_catalog_parts(loop, csrf_input, pages, notify_accounts)
+    parts = _loop_catalog_parts(loop, csrf_input, pages, notify_accounts, accounts_fn)
     needs = (
         f"<div class='loop-needs'>{parts['missing_html']}"
         f"<span class='loop-needs-hint'>{html.escape(_t('Add the connector to enable this loop.'))}</span></div>"
@@ -14108,14 +14120,15 @@ def _loops_catalog_body(flash=None, flash_ok=True):
     active = [l for l in loops if loop_is_visible(l)]
     available = [l for l in loops if not loop_is_visible(l)]
     try:
-        notify_accounts = _notify_choice_accounts()
+        accounts_fn = connectors_config.capability_lookup()
     except connectors_config.ConnectorConfigError:
-        notify_accounts = []
+        accounts_fn = lambda capability: []  # noqa: E731 - malformed config counts as no accounts
+    notify_accounts = [a for a in accounts_fn("notify") if connectors_config.is_valid_id(a.get("id"))]
 
     def section(title, hint, rows, render, list_class, attrs=""):
         if rows:
             inner = (f"<ul class='{list_class}'>"
-                     + "".join(render(l, csrf_input, pages, notify_accounts) for l in rows) + "</ul>")
+                     + "".join(render(l, csrf_input, pages, notify_accounts, accounts_fn) for l in rows) + "</ul>")
         else:
             inner = f"<p class='loop-empty'>{html.escape(_t('No loops here.'))}</p>"
         return (
