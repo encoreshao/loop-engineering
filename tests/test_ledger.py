@@ -299,3 +299,23 @@ def test_backfill_does_not_reread_results_that_already_have_a_loop_result(tmp_pa
     assert ledger.backfill_from_results(tmp_path / "results", tmp_path / "events") == 1
     # The run dir is named by its run_id: a known one is skipped unread.
     assert [p.parent.name for p in read] == ["old_2"]
+
+
+def _backfilled(tmp_path):
+    ledger.backfill_from_results(tmp_path / "results", tmp_path / "events")
+    line = (tmp_path / "events" / "backfill-loop-result.jsonl").read_text().splitlines()[0]
+    return json.loads(line)["data"]
+
+
+def test_backfill_records_a_legacy_zero_cost_as_unknown(tmp_path):
+    # Legacy result.json coerced an unknown cost (Codex, topic monitor) to 0;
+    # a run with a model call never really costs exactly $0.
+    write_sample_result_json(tmp_path / "results", run_id="old_codex", cost=0.0, iterations=2)
+    data = _backfilled(tmp_path)
+    assert data["total_cost_usd"] is None
+    assert [i["cost_usd"] for i in data["iterations"]] == [None, None]
+
+
+def test_backfill_keeps_a_real_legacy_cost(tmp_path):
+    write_sample_result_json(tmp_path / "results", run_id="old_claude", cost=0.42)
+    assert _backfilled(tmp_path)["total_cost_usd"] == 0.42

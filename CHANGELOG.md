@@ -17,6 +17,11 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
   lists your GitLab issues and MRs idle 14+ days and reviews waiting on you
   3+ days. It makes no model call.
 
+### Fixed
+
+- Older runs added to the ledger by the backfill whose cost was never
+  reported (Codex, topic monitor) now show an unknown cost instead of $0.
+
 ## [0.1.0] - 2026-10-07
 
 The first tagged release. It records everything shipped up to this point;

@@ -158,6 +158,13 @@ def _backfill_line(path, seen, events, loop_budget, loop_serialize):
     if not run_id or run_id in seen:
         return None
     summary = loop_serialize.result_summary(data)
+    if summary["iterations"] and not summary["total_cost_usd"]:
+        # Legacy result.json coerced an unknown cost (Codex, topic monitor)
+        # to 0, and a run that called a model never costs exactly $0: book
+        # it as unknown rather than claim a free run.
+        summary["total_cost_usd"] = None
+        for it in summary["iterations"]:
+            it["cost_usd"] = None
     started = loop_budget.run_timestamp(run_id)
     if started is not None:
         finished = started + timedelta(milliseconds=summary["duration_ms"])
