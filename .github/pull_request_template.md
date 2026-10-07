@@ -5,6 +5,7 @@
 ## Verification
 
 - [ ] `python3 -m pytest tests/ -q` passes
+- [ ] `CHANGELOG.md` has a line under `[Unreleased]` (user-visible changes only)
 
 ## Golden eval (agent instruction/tool changes only)
 

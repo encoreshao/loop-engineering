@@ -389,6 +389,28 @@ but for any cop (in any project) that reads external state outside what
 RuboCop's own cache key covers, prefer disabling the cache over trying to
 guess which cached entries are stale.
 
+## Changelog and releases
+
+`CHANGELOG.md` follows Keep a Changelog with SemVer (`0.x` for now). Every
+user-visible change - a new loop, page, setting, connector, CLI command or a
+behavior change someone would notice - adds one line under `## [Unreleased]`
+(in `Added` / `Changed` / `Fixed` / `Removed` / `Security`) in the same commit
+or PR. Pure refactors, test-only and internal-doc changes don't need a line.
+`tests/test_changelog.py` checks the structure (Unreleased first, dated
+`X.Y.Z` releases in descending order, a link reference for each heading).
+
+To cut a release, only when asked:
+
+1. Rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and add a fresh empty
+   `## [Unreleased]` above it.
+2. Update the link references at the bottom: `[Unreleased]` compares
+   `vX.Y.Z...HEAD`, and add `[X.Y.Z]` pointing at the `vX.Y.Z` release tag.
+3. Commit, then `git tag -a vX.Y.Z -m "vX.Y.Z"` on that commit and push the
+   branch and the tag.
+
+Minor bump for new features, patch for fixes only; while on `0.x` a breaking
+change is a minor bump and must be called out under `Changed`/`Removed`.
+
 ## Git hygiene for this repo
 
 - `outputs/` (`daily-review.md`, `messages.json`, `history/*.md`), `.claude/`,
