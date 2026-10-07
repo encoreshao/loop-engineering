@@ -11,6 +11,8 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-07
+
 ### Added
 
 - **Stale Work Sweeper** loop (disabled by default): every Monday at 09:00 it
@@ -26,7 +28,6 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
   (previously uncapped), each attempt at what is left of it.
 - Topic Monitor reports what each Claude run cost (the CLI now runs with JSON
   output), so its runs show a real cost instead of unknown.
-
 - Insights → Analytics: the Loop Health tiles for cost efficiency, retry rate
   and learning effectiveness now show the figure behind the score ($ per
   verified issue, % of runs retried, points gained with memory).
@@ -152,5 +153,6 @@ later releases list only what changed since the previous one.
 - `install.sh`, `uninstall.sh` and `setup.sh` with launchd agents and an
   optional nginx front end.
 
-[Unreleased]: https://github.com/encoreshao/loop-engineering/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/encoreshao/loop-engineering/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/encoreshao/loop-engineering/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/encoreshao/loop-engineering/releases/tag/v0.1.0
