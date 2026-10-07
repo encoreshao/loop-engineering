@@ -224,7 +224,8 @@ def test_disallowed_tools_denies_the_installed_launchagents_plist():
 def test_run_all_topics_writes_one_result_per_topic(tmp_path, monkeypatch):
     calls = []
 
-    def fake_invoke(name, repo_root=None, timeout_seconds=1800, unified_log_path=None):
+    def fake_invoke(name, repo_root=None, timeout_seconds=1800, unified_log_path=None,
+                    max_budget_usd=None):
         calls.append(name)
         return {"changed": True, "cost_usd": None}
 
@@ -256,7 +257,8 @@ def test_run_all_topics_skips_disabled_topics_when_names_not_given(tmp_path, mon
 
     calls = []
 
-    def fake_invoke(name, repo_root=None, timeout_seconds=1800, unified_log_path=None):
+    def fake_invoke(name, repo_root=None, timeout_seconds=1800, unified_log_path=None,
+                    max_budget_usd=None):
         calls.append(name)
         return {"changed": True, "cost_usd": None}
 
@@ -272,7 +274,8 @@ def test_run_all_topics_skips_disabled_topics_when_names_not_given(tmp_path, mon
 
 
 def test_run_all_topics_continues_after_one_topic_fails(tmp_path, monkeypatch):
-    def fake_invoke(name, repo_root=None, timeout_seconds=1800, unified_log_path=None):
+    def fake_invoke(name, repo_root=None, timeout_seconds=1800, unified_log_path=None,
+                    max_budget_usd=None):
         if name == "ai-news":
             raise RuntimeError("agent crashed")
         return {"changed": True, "cost_usd": None}
@@ -304,7 +307,8 @@ def test_run_all_topics_marks_a_crashed_topic_failed_via_write_topic_status(tmp_
         lambda topic_name, state, status_path=None, **extra: writes.append((topic_name, state)),
     )
 
-    def fake_invoke(name, repo_root=None, timeout_seconds=1800, unified_log_path=None):
+    def fake_invoke(name, repo_root=None, timeout_seconds=1800, unified_log_path=None,
+                    max_budget_usd=None):
         if name == "ai-news":
             raise RuntimeError("agent crashed")
         return {"changed": True, "cost_usd": None}
@@ -329,7 +333,8 @@ def test_run_all_topics_failed_status_lands_in_the_real_status_json(tmp_path, mo
     status_path = tmp_path / "status.json"
     status_path.write_text(json.dumps({"topics": {"ai-coding-tools": {"state": "idle"}}}))
 
-    def fake_invoke(name, repo_root=None, timeout_seconds=1800, unified_log_path=None):
+    def fake_invoke(name, repo_root=None, timeout_seconds=1800, unified_log_path=None,
+                    max_budget_usd=None):
         raise RuntimeError("agent crashed")
 
     monkeypatch.setattr(tmr, "invoke_topic_agent", fake_invoke)
@@ -353,7 +358,7 @@ def test_run_all_topics_does_not_touch_status_when_every_topic_completes(tmp_pat
     )
     monkeypatch.setattr(
         tmr, "invoke_topic_agent",
-        lambda name, repo_root=None, timeout_seconds=1800, unified_log_path=None: {
+        lambda name, repo_root=None, timeout_seconds=1800, unified_log_path=None, max_budget_usd=None: {
             "changed": True, "cost_usd": None,
         },
     )
@@ -374,7 +379,8 @@ def test_main_alerts_slack_when_a_topic_does_not_complete(tmp_path, monkeypatch)
     sent = []
     monkeypatch.setattr(tmr.slack_notify, "post_message", lambda text, **kwargs: sent.append(text))
 
-    def fake_invoke(name, repo_root=None, timeout_seconds=1800, unified_log_path=None):
+    def fake_invoke(name, repo_root=None, timeout_seconds=1800, unified_log_path=None,
+                    max_budget_usd=None):
         if name == "ai-news":
             raise RuntimeError("agent crashed")
         return {"changed": True, "cost_usd": None}
@@ -402,7 +408,7 @@ def test_main_does_not_alert_slack_when_every_topic_completes(tmp_path, monkeypa
     monkeypatch.setattr(tmr.slack_notify, "post_message", lambda text, **kwargs: sent.append(text))
     monkeypatch.setattr(
         tmr, "invoke_topic_agent",
-        lambda name, repo_root=None, timeout_seconds=1800, unified_log_path=None: {
+        lambda name, repo_root=None, timeout_seconds=1800, unified_log_path=None, max_budget_usd=None: {
             "changed": True, "cost_usd": None,
         },
     )
@@ -439,3 +445,10 @@ def test_main_rejects_wrong_argv_length(monkeypatch):
     assert tmr.main_with_argv([]) == 2
     assert tmr.main_with_argv(["a", "b"]) == 2
     assert calls == []
+
+
+def test_cli_command_claude_budget_and_codex_never():
+    cmd = tmr._cli_command("claude", "p", Path("/loop"), max_budget_usd=1.0)
+    assert cmd[cmd.index("--max-budget-usd") + 1] == "1.00"
+    assert "--max-budget-usd" not in tmr._cli_command("claude", "p", Path("/loop"))
+    assert "--max-budget-usd" not in tmr._cli_command("codex", "p", Path("/loop"), max_budget_usd=1.0)

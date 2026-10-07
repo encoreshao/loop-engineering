@@ -146,3 +146,16 @@ def test_claude_agent_passes_add_dirs_and_tool_flags(tmp_path, monkeypatch):
     assert "--disallowedTools" in argv
     assert "Bash(git merge*)" in argv
     assert argv[-1] == "a prompt"
+
+
+def test_claude_agent_passes_max_budget_flag(tmp_path, monkeypatch):
+    import subprocess
+    seen = []
+    def fake_run(cmd, **kw):
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout='{"result": "ok"}', stderr="")
+    monkeypatch.setattr("agents.claude.subprocess.run", fake_run)
+    ClaudeAgent().run("p", {}, cwd=tmp_path, timeout_seconds=5, max_budget_usd=0.5)
+    assert seen[0][seen[0].index("--max-budget-usd") + 1] == "0.50"
+    ClaudeAgent().run("p", {}, cwd=tmp_path, timeout_seconds=5)
+    assert "--max-budget-usd" not in seen[1]

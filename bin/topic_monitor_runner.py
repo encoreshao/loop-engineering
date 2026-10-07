@@ -31,6 +31,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "web"))
 
 import ai_cli_config
+import cost as cost_module
 import dashboard_server
 import slack_notify
 import topic_config
@@ -171,7 +172,7 @@ def build_prompt(name=None, repo_root=None):
     return result.stdout.strip()
 
 
-def _cli_command(ai_cli, prompt, repo_root):
+def _cli_command(ai_cli, prompt, repo_root, max_budget_usd=None):
     if ai_cli == "codex":
         return [
             "codex", "exec", "--sandbox", "workspace-write",
@@ -185,6 +186,7 @@ def _cli_command(ai_cli, prompt, repo_root):
         "--permission-mode", "acceptEdits",
         "--allowedTools", _allowed_tools(repo_root),
         "--disallowedTools", _disallowed_tools(),
+        *cost_module.budget_args(max_budget_usd),
         "--output-format", "text",
         prompt,
     ]
@@ -290,7 +292,8 @@ def _exception_output(exc):
     return ""
 
 
-def invoke_topic_agent(name, repo_root=None, timeout_seconds=1800, unified_log_path=None):
+def invoke_topic_agent(name, repo_root=None, timeout_seconds=1800, unified_log_path=None,
+                       max_budget_usd=None):
     """The one subprocess boundary - tests monkeypatch this function
     directly, never run_all_topics. Returns {"changed": True,
     "cost_usd": None} (this loop's claude invocation uses
@@ -307,7 +310,7 @@ def invoke_topic_agent(name, repo_root=None, timeout_seconds=1800, unified_log_p
     repo_root = Path(repo_root)
     prompt = build_prompt(name, repo_root=repo_root)
     ai_cli = ai_cli_config.get_selected_cli()
-    cmd = _cli_command(ai_cli, prompt, repo_root)
+    cmd = _cli_command(ai_cli, prompt, repo_root, max_budget_usd=max_budget_usd)
 
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_seconds, check=True)
@@ -345,6 +348,7 @@ def _run_one_topic(run_id, name, definition, results_dir, repo_root, events_dir=
     timeout_seconds = definition.stop_conditions.max_runtime_minutes * 60
     agent_fn = lambda context: invoke_topic_agent(  # noqa: E731
         name, repo_root=repo_root, timeout_seconds=timeout_seconds,
+        max_budget_usd=definition.stop_conditions.max_cost_usd,
     )
     verifiers = build_verifiers(definition.verifiers, cwd=None)
     runtime = LoopRuntime(agent_fn=agent_fn, verifiers=verifiers, events_dir=events_dir)

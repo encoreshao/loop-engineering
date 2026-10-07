@@ -8,13 +8,14 @@ import tempfile
 import time
 
 import ai_cli_config
+import cost as cost_module
 
 
 class SealedCallFailed(Exception):
     pass
 
 
-def sealed_command():
+def sealed_command(max_budget_usd=None):
     """No tools and no MCP servers: without --strict-mcp-config the user's
     own claude.ai connectors (which can include a Gmail connector able to
     deliver mail) would load into this session. The prompt goes on stdin so
@@ -36,10 +37,12 @@ def sealed_command():
     There is deliberately no codex command: see the inbox_triage_runner module docstring."""
     return ["claude", "-p", "--output-format", "json", "--tools", "",
             "--strict-mcp-config", "--mcp-config", json.dumps({"mcpServers": {}}),
-            "--no-session-persistence", "--settings", json.dumps({"disableAllHooks": True})]
+            "--no-session-persistence", "--settings", json.dumps({"disableAllHooks": True}),
+            *cost_module.budget_args(max_budget_usd)]
 
 
-def sealed_call(prompt, timeout_seconds, log=None, runner=None, cli_fn=None, command_fn=None):
+def sealed_call(prompt, timeout_seconds, log=None, runner=None, cli_fn=None, command_fn=None,
+                max_budget_usd=None):
     """Run one sealed Claude call in a disposable scratch cwd (never a repo,
     so no CLAUDE.md/auto-memory loads). Returns {"text", "cost_usd",
     "duration_ms"}. Raises SealedCallFailed (with the original subprocess
@@ -57,7 +60,7 @@ def sealed_call(prompt, timeout_seconds, log=None, runner=None, cli_fn=None, com
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="loop-sealed-") as scratch_dir:
         try:
-            proc = runner(command_fn(), input=prompt, capture_output=True, text=True,
+            proc = runner([*command_fn(), *cost_module.budget_args(max_budget_usd)], input=prompt, capture_output=True, text=True,
                           timeout=timeout_seconds, check=True, cwd=scratch_dir)
         except subprocess.TimeoutExpired as exc:
             emit(f"FAILED (timed out after {timeout_seconds}s)")

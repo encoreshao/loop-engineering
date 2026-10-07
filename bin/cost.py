@@ -293,5 +293,22 @@ def main():
         sys.exit(1)
 
 
+def budget_args(max_budget_usd):
+    """`claude --max-budget-usd` argv for a per-call cost cap; empty when no
+    cap is set. Always passed when set: the installed CLI supports it and
+    there is no cheap capability probe (no `claude --help` per call)."""
+    if max_budget_usd is None:
+        return []
+    return ["--max-budget-usd", f"{max_budget_usd:.2f}"]
+
+
+def remaining_budget(max_cost_usd, spent_usd, floor=0.05):
+    """Cap for the next call: what is left of the run's budget, never below
+    `floor`. None when the run has no budget."""
+    if max_cost_usd is None:
+        return None
+    return max(floor, max_cost_usd - (spent_usd or 0))
+
+
 if __name__ == "__main__":
     main()

@@ -219,7 +219,7 @@ def build_batch_end_of_run_prompt(repo_root=None):
     return _run_build_run_prompt(["--batch-end-of-run"], repo_root)
 
 
-def _cli_command(ai_cli, prompt, repo_root, worktree_root, gate=False):
+def _cli_command(ai_cli, prompt, repo_root, worktree_root, gate=False, max_budget_usd=None):
     if ai_cli == "codex":
         # `codex exec` (unlike top-level `codex`) has no --ask-for-approval
         # and no --add-dir at all - both are rejected outright with
@@ -249,6 +249,7 @@ def _cli_command(ai_cli, prompt, repo_root, worktree_root, gate=False):
         "--permission-mode", "acceptEdits",
         "--allowedTools", _allowed_tools(repo_root, gate=gate),
         "--disallowedTools", f"{_DISALLOWED_TOOLS} {_GATE_DISALLOWED_TOOLS}" if gate else _DISALLOWED_TOOLS,
+        *cost_module.budget_args(max_budget_usd),
         "--output-format", "json",
         prompt,
     ]
@@ -326,7 +327,8 @@ def _exception_output(exc):
 
 
 def _invoke_cli_with_prompt(prompt, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                            alias=None, issue_iid=None, events_dir=None, env=None, gate=False):
+                            alias=None, issue_iid=None, events_dir=None, env=None, gate=False,
+                            max_budget_usd=None):
     """The one subprocess boundary: everything `invoke_issue_agent` used to
     do after building its prompt. `alias`/`issue_iid`/`events_dir` are used
     only to label the `issue.agent_failed` event on the failure path. `env`
@@ -343,7 +345,7 @@ def _invoke_cli_with_prompt(prompt, repo_root=None, timeout_seconds=900, unified
     repo_root = Path(repo_root)
     worktree_root = loop_config.get_worktree_root()
     ai_cli = ai_cli_config.get_selected_cli()
-    cmd = _cli_command(ai_cli, prompt, repo_root, worktree_root, gate=gate)
+    cmd = _cli_command(ai_cli, prompt, repo_root, worktree_root, gate=gate, max_budget_usd=max_budget_usd)
     run_kwargs = {"env": {**os.environ, **env}} if env else {}
 
     try:
@@ -402,7 +404,7 @@ def _with_feedback(prompt, feedback):
 
 
 def invoke_issue_agent(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                       feedback=None, gate=False, run_id=None):
+                       feedback=None, gate=False, run_id=None, max_budget_usd=None):
     """The dashboard's on-demand single-issue invocation, unchanged: the
     2-arg prompt, which does its own full "End of run"."""
     if repo_root is None:
@@ -415,11 +417,12 @@ def invoke_issue_agent(alias, issue_iid, repo_root=None, timeout_seconds=900, un
     return _invoke_cli_with_prompt(
         prompt, repo_root=repo_root, timeout_seconds=timeout_seconds,
         unified_log_path=unified_log_path, alias=alias, issue_iid=issue_iid, env=env, gate=gate,
+        max_budget_usd=max_budget_usd,
     )
 
 
 def invoke_batch_issue_agent(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                             feedback=None, gate=False, run_id=None):
+                             feedback=None, gate=False, run_id=None, max_budget_usd=None):
     """One issue inside the scheduled batch: no "End of run" here - the
     batch's single wrap-up call below does that once for the whole run."""
     if repo_root is None:
@@ -432,6 +435,7 @@ def invoke_batch_issue_agent(alias, issue_iid, repo_root=None, timeout_seconds=9
     return _invoke_cli_with_prompt(
         prompt, repo_root=repo_root, timeout_seconds=timeout_seconds,
         unified_log_path=unified_log_path, alias=alias, issue_iid=issue_iid, env=env, gate=gate,
+        max_budget_usd=max_budget_usd,
     )
 
 
@@ -737,6 +741,8 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
         agent_result = agent_invoker(
             alias, issue_iid, repo_root=repo_root, timeout_seconds=timeout_seconds,
             feedback=feedback, gate=gate, run_id=run_id,
+            max_budget_usd=cost_module.remaining_budget(
+                definition.stop_conditions.max_cost_usd, sum(c or 0 for c in raw_costs)),
         )
         if isinstance(agent_result, dict):
             raw_costs.append(agent_result.get("cost_usd"))

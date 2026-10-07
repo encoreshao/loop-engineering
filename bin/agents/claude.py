@@ -13,7 +13,7 @@ from agents.base import Agent, AgentResult, failure_result
 
 class ClaudeAgent(Agent):
     def run(self, prompt, context, *, cwd, timeout_seconds, allowed_tools=None,
-            disallowed_tools=None, add_dirs=(), output_format="json"):
+            disallowed_tools=None, add_dirs=(), output_format="json", max_budget_usd=None):
         cmd = ["claude", "-p"]
         for add_dir in add_dirs:
             cmd += ["--add-dir", str(add_dir)]
@@ -22,6 +22,7 @@ class ClaudeAgent(Agent):
             cmd += ["--allowedTools", allowed_tools]
         if disallowed_tools is not None:
             cmd += ["--disallowedTools", disallowed_tools]
+        cmd += cost_module.budget_args(max_budget_usd)
         cmd += ["--output-format", output_format, prompt]
 
         start = time.monotonic()

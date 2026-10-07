@@ -289,7 +289,7 @@ def test_run_all_issues_writes_one_result_per_issue(tmp_path, monkeypatch):
     calls = []
 
     def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                    feedback=None, gate=False, run_id=None):
+                    feedback=None, gate=False, run_id=None, max_budget_usd=None):
         calls.append((alias, issue_iid))
         return {"changed": True, "cost_usd": 0.1}
 
@@ -326,7 +326,7 @@ def test_run_all_issues_writes_one_result_per_issue(tmp_path, monkeypatch):
 
 def test_run_all_issues_continues_after_one_issue_fails(tmp_path, monkeypatch):
     def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                    feedback=None, gate=False, run_id=None):
+                    feedback=None, gate=False, run_id=None, max_budget_usd=None):
         if issue_iid == 1:
             raise RuntimeError("agent crashed")
         return {"changed": True, "cost_usd": 0.1}
@@ -356,7 +356,7 @@ def test_run_all_issues_skips_issues_disabled_in_issue_tracking_config(tmp_path,
     calls = []
 
     def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                    feedback=None, gate=False, run_id=None):
+                    feedback=None, gate=False, run_id=None, max_budget_usd=None):
         calls.append((alias, issue_iid))
         return {"changed": True, "cost_usd": 0.1}
 
@@ -389,7 +389,7 @@ def test_run_all_issues_skips_issues_disabled_in_issue_tracking_config(tmp_path,
 def test_run_single_issue_writes_its_own_result(tmp_path, monkeypatch):
     monkeypatch.setattr(
         glr, "invoke_issue_agent",
-        lambda alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None, feedback=None, gate=False, run_id=None: {
+        lambda alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None, feedback=None, gate=False, run_id=None, max_budget_usd=None: {
             "changed": True, "cost_usd": 0.2,
         },
     )
@@ -432,7 +432,7 @@ def _read_events(events_dir):
 
 def _fake_per_issue_invoker(calls, failing_iids=()):
     def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                    feedback=None, gate=False, run_id=None):
+                    feedback=None, gate=False, run_id=None, max_budget_usd=None):
         calls.append(("issue", alias, issue_iid, timeout_seconds))
         if issue_iid in failing_iids:
             raise RuntimeError(f"agent crashed on {issue_iid}")
@@ -443,7 +443,7 @@ def _fake_per_issue_invoker(calls, failing_iids=()):
 
 def _fake_wrapup_invoker(calls, exc=None):
     def fake_wrapup(repo_root=None, timeout_seconds=900, unified_log_path=None,
-                    feedback=None, gate=False, run_id=None):
+                    feedback=None, gate=False, run_id=None, max_budget_usd=None):
         calls.append(("wrapup",))
         if exc is not None:
             raise exc
@@ -564,7 +564,7 @@ def test_run_one_issue_derives_its_timeout_from_max_runtime_minutes(tmp_path):
     captured = []
 
     def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                    feedback=None, gate=False, run_id=None):
+                    feedback=None, gate=False, run_id=None, max_budget_usd=None):
         captured.append(timeout_seconds)
         return {"changed": True, "cost_usd": 0.0}
 
@@ -577,7 +577,7 @@ def test_run_one_issue_derives_its_timeout_from_max_runtime_minutes(tmp_path):
 
 
 def _fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                 feedback=None, gate=False, run_id=None):
+                 feedback=None, gate=False, run_id=None, max_budget_usd=None):
     return {"changed": True, "cost_usd": 0.0}
 
 
@@ -790,7 +790,7 @@ def _fake_per_issue_invoker_with_usage(calls, usages):
     _invoke_cli_with_prompt's return value through to run.completed's
     emitted data can be exercised end-to-end."""
     def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                    feedback=None, gate=False, run_id=None):
+                    feedback=None, gate=False, run_id=None, max_budget_usd=None):
         calls.append(("issue", alias, issue_iid, timeout_seconds))
         usage = usages[issue_iid]
         return {"changed": True, "cost_usd": usage["cost_usd"], "usage": usage}
@@ -860,7 +860,7 @@ def _fake_unpriced_invoker(calls):
     """Every issue comes back with `cost_usd: None` - the Codex path (which
     reports no cost at all), or a Claude run whose cost extraction failed."""
     def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                    feedback=None, gate=False, run_id=None):
+                    feedback=None, gate=False, run_id=None, max_budget_usd=None):
         calls.append(("issue", alias, issue_iid, timeout_seconds))
         return {"changed": True, "cost_usd": None}
 
@@ -1296,7 +1296,7 @@ def test_run_one_issue_passes_run_id_to_the_invoker(tmp_path):
     seen = []
 
     def invoker(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                feedback=None, gate=False, run_id=None):
+                feedback=None, gate=False, run_id=None, max_budget_usd=None):
         seen.append(run_id)
         return {"cost_usd": 0}
 
@@ -1562,7 +1562,7 @@ def _gate_env(tmp_path, monkeypatch, test_cmd="false"):
 
 def _handoff_writer(tmp_path, texts, calls):
     def invoker(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
-                feedback=None, gate=False, run_id=None):
+                feedback=None, gate=False, run_id=None, max_budget_usd=None):
         calls.append(feedback)
         text = texts[min(len(calls), len(texts)) - 1]
         if isinstance(text, Exception):
@@ -1701,3 +1701,26 @@ def test_gated_verification_failure_keeps_the_runtime_stop_reason(tmp_path, monk
                                 agent_invoker=_fake_invoke, events_dir=tmp_path / "ev")
     assert result.final_state.value == "escalated" and result.stop_reason == "no_progress"
     assert glr._alert_on_incomplete_results([result]) == [] and slack_calls == []
+
+
+def test_cli_command_budget_flag_claude_only():
+    cmd = glr._cli_command("claude", "p", Path("/loop"), "/wt", max_budget_usd=2.0)
+    assert cmd[cmd.index("--max-budget-usd") + 1] == "2.00"
+    assert "--max-budget-usd" not in glr._cli_command("claude", "p", Path("/loop"), "/wt")
+    assert "--max-budget-usd" not in glr._cli_command("codex", "p", Path("/loop"), "/wt", max_budget_usd=2.0)
+
+
+def test_gitlab_second_iteration_gets_remaining_budget(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(glr, "invoke_batch_issue_agent",
+                        lambda *a, **k: seen.append(k["max_budget_usd"]) or {"cost_usd": 2.0})
+    monkeypatch.setattr(glr, "build_verifiers",
+                        lambda *a, **k: [SequenceVerifier(iter([False, True]))])
+    glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="gate"), tmp_path, tmp_path,
+                       agent_invoker=glr.invoke_batch_issue_agent, events_dir=tmp_path)
+    assert seen == [3.0, 1.0]
+
+
+def test_remaining_budget_floor():
+    assert glr.cost_module.remaining_budget(3, 2.99) == 0.05
+    assert glr.cost_module.remaining_budget(None, 1) is None

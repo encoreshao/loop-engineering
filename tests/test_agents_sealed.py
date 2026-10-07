@@ -43,3 +43,24 @@ def test_sealed_call_log_has_no_content():
     sealed.sealed_call("SECRET-BODY", 30, log=logs.append,
                        runner=fake_run(json.dumps({"result": "SECRET-ANSWER"})), cli_fn=lambda: "claude")
     assert logs and all("SECRET" not in l for l in logs)
+
+
+def test_sealed_command_includes_budget():
+    cmd = sealed.sealed_command(max_budget_usd=0.5)
+    assert cmd[cmd.index("--max-budget-usd") + 1] == "0.50"
+
+
+def test_sealed_command_no_budget_by_default():
+    assert "--max-budget-usd" not in sealed.sealed_command()
+
+
+def test_sealed_call_passes_budget_to_command(monkeypatch):
+    seen = []
+    def run(cmd, **kw):
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({"result": "x"}), stderr="")
+    sealed.sealed_call("p", 5, runner=run, cli_fn=lambda: "claude", max_budget_usd=1.234)
+    assert seen[0][seen[0].index("--max-budget-usd") + 1] == "1.23"
+    seen.clear()
+    sealed.sealed_call("p", 5, runner=run, cli_fn=lambda: "claude")
+    assert "--max-budget-usd" not in seen[0]

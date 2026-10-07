@@ -83,7 +83,8 @@ class LoopPlugin:
 
     def call_model(self, prompt, ctx):
         timeout = ctx.definition.stop_conditions.max_runtime_minutes * 60
-        return sealed.sealed_call(prompt, timeout, log=ctx.log)
+        return sealed.sealed_call(prompt, timeout, log=ctx.log,
+                                  max_budget_usd=ctx.definition.stop_conditions.max_cost_usd)
 
     def after_item(self, item, answer, ctx):
         raise NotImplementedError
