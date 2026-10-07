@@ -119,20 +119,20 @@ GOOD = json.dumps([{"id": "m1", "category": "fyi", "reason": "r", "draft_body": 
 
 def test_classify_retries_once_on_bad_json_then_succeeds():
     replies = iter([{"text": "garbage", "cost_usd": 0.01}, {"text": GOOD, "cost_usd": 0.02}])
-    decisions, cost = runner.classify("p", MSGS, CATS, invoke=lambda prompt: next(replies))
+    decisions, cost = runner.classify("p", MSGS, CATS, invoke=lambda prompt, **kw: next(replies))
     assert decisions[0]["category"] == "fyi"
     assert cost == pytest.approx(0.03)
 
 
 def test_classify_fails_after_two_bad_replies():
     with pytest.raises(runner.TriageFailed, match="no JSON array"):
-        runner.classify("p", MSGS, CATS, invoke=lambda prompt: {"text": "nope", "cost_usd": None})
+        runner.classify("p", MSGS, CATS, invoke=lambda prompt, **kw: {"text": "nope", "cost_usd": None})
 
 
 def test_classify_retries_on_subprocess_failure():
     calls = []
 
-    def invoke(prompt):
+    def invoke(prompt, **kw):
         calls.append(1)
         if len(calls) == 1:
             raise subprocess.TimeoutExpired(["claude"], 900)
@@ -201,7 +201,7 @@ class FakeProvider:
 
 
 def _reply(*decisions):
-    return lambda prompt: {"text": json.dumps(list(decisions)), "cost_usd": 0.01}
+    return lambda prompt, **kw: {"text": json.dumps(list(decisions)), "cost_usd": 0.01}
 
 
 def _run(provider, invoke, tmp_path, inbox=INBOX, token_fn=None):
@@ -281,7 +281,7 @@ def test_auth_expired_during_fetch_is_needs_reauth(tmp_path):
 
 def test_bad_ai_output_applies_nothing_and_records_nothing(tmp_path):
     provider = FakeProvider([_m(1)])
-    outcome = _run(provider, lambda prompt: {"text": "not json", "cost_usd": None}, tmp_path)
+    outcome = _run(provider, lambda prompt, **kw: {"text": "not json", "cost_usd": None}, tmp_path)
     assert outcome["status"] == "failed"
     assert provider.labelled == [] and provider.drafts == []
     assert inbox_seen.load("w", state_dir=tmp_path)["seen"] == {}
@@ -728,3 +728,33 @@ def test_send_digests_retry_failure_does_not_raise(monkeypatch):
     def post(text, bundle=None, blocks=None):
         raise OSError("down")
     runner.send_digests([_outcome_ok()], NOW, post=post)
+
+
+def test_invoke_passes_a_budget_cap_to_claude(monkeypatch, tmp_path):
+    monkeypatch.setattr(runner.ai_cli_config, "get_selected_cli", lambda: "claude")
+    fake = _Run(json.dumps({"result": "[]", "total_cost_usd": 0.02, "is_error": False}))
+    monkeypatch.setattr(runner.subprocess, "run", fake)
+    runner.invoke_triage_agent("p", repo_root=tmp_path, unified_log_path=tmp_path / "l", max_budget_usd=1.5)
+    cmd, _ = fake.calls[0]
+    assert cmd[cmd.index("--max-budget-usd") + 1] == "1.50"
+
+
+def test_classify_caps_each_attempt_at_the_remaining_budget():
+    caps = []
+    replies = iter([{"text": "garbage", "cost_usd": 0.5}, {"text": GOOD, "cost_usd": 0.1}])
+
+    def invoke(prompt, max_budget_usd=None):
+        caps.append(max_budget_usd)
+        return next(replies)
+    runner.classify("p", MSGS, CATS, invoke=invoke, max_cost_usd=2.0)
+    assert caps == [2.0, pytest.approx(1.5)]
+
+
+def test_classify_default_budget_comes_from_the_loop_definition():
+    caps = []
+
+    def invoke(prompt, max_budget_usd=None):
+        caps.append(max_budget_usd)
+        return {"text": GOOD, "cost_usd": None}
+    runner.classify("p", MSGS, CATS, invoke=invoke)
+    assert caps == [2]

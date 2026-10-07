@@ -259,3 +259,52 @@ def test_loop_result_goes_to_callers_events_dir(env):
     loopkit.run_plugin(p, "run_1", **kw)
     rows = [_json.loads(line) for f in (kw["events_dir"]).glob("*.jsonl") for line in f.read_text().splitlines()]
     assert [r["event_type"] for r in rows].count("loop.result") == 1
+
+
+class BudgetDemo(Demo):
+    def __init__(self, items, answers, costs):
+        super().__init__(items, answers)
+        self.costs, self.caps = list(costs), []
+
+    def call_model(self, prompt, ctx):
+        self.caps.append(ctx.call_budget_usd)
+        a = self.answers.pop(0)
+        return {"text": a, "cost_usd": self.costs.pop(0)}
+
+
+def test_a_retry_gets_only_the_remaining_budget(env):
+    kw, _ = env
+    p = BudgetDemo([WorkItem("a", "A")], ["not json", '{"verdict": "ok"}'], [0.3, 0.1])
+    assert loopkit.run_plugin(p, "run_1", **kw)[0].status == "done"
+    assert p.caps == [1, pytest.approx(0.7)]
+
+
+def test_an_unknown_cost_is_booked_at_the_cap(env):
+    kw, _ = env
+    p = BudgetDemo([WorkItem("a", "A")], ["not json", '{"verdict": "ok"}'], [None, 0.01])
+    loopkit.run_plugin(p, "run_1", **kw)
+    assert p.caps == [1, 0.05]
+
+
+def test_each_item_starts_with_the_full_budget(env):
+    kw, _ = env
+    p = BudgetDemo([WorkItem("a", "A"), WorkItem("b", "B")], ['{"verdict": "ok"}'] * 2, [0.9, 0.9])
+    loopkit.run_plugin(p, "run_1", **kw)
+    assert p.caps == [1, 1]
+
+
+def test_base_call_model_passes_the_call_budget(env, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(loopkit.sealed, "sealed_call",
+                        lambda prompt, timeout, log=None, max_budget_usd=None: seen.update(cap=max_budget_usd)
+                        or {"text": "x", "cost_usd": 0})
+    import dataclasses
+    from loop_definition import LoopDefinition
+    kw, _ = env
+    definition = LoopDefinition.from_yaml(kw["repo_root"] / "loops" / "demo" / "loop.yaml")
+    ctx = loopkit.LoopContext(loop_name="demo-loop", run_id="r", now=kw["now"], definition=definition,
+                              settings={}, history_dir=kw["history_dir"], log=lambda m: None)
+    loopkit.LoopPlugin().call_model("p", dataclasses.replace(ctx, call_budget_usd=0.4))
+    assert seen["cap"] == 0.4
+    loopkit.LoopPlugin().call_model("p", ctx)
+    assert seen["cap"] == 1

@@ -466,3 +466,22 @@ def test_topic_run_loop_result_has_unknown_cost_in_callers_events_dir(tmp_path, 
     results = [r for r in rows if r["event_type"] == "loop.result"]
     assert len(results) == 1
     assert results[0]["data"]["total_cost_usd"] is None
+
+
+def test_invoke_topic_agent_reads_the_cost_from_claudes_json_output(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir()
+    envelope = json.dumps({"result": "a json briefing", "total_cost_usd": 0.42, "is_error": False})
+    _write_fake_cli(bin_dir, "claude", output_text=envelope)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    monkeypatch.setattr(tmr, "build_prompt", lambda name=None, repo_root=None: "a prompt")
+    monkeypatch.setattr(tmr.ai_cli_config, "get_selected_cli", lambda: "claude")
+    unified_log = tmp_path / "unified.log"
+    result = tmr.invoke_topic_agent("ai-news", repo_root=REPO_ROOT, unified_log_path=unified_log)
+    assert result == {"changed": True, "cost_usd": 0.42}
+    assert "a json briefing" in unified_log.read_text() and "total_cost_usd" not in unified_log.read_text()
+
+
+def test_cli_command_asks_claude_for_json_output():
+    cmd = tmr._cli_command("claude", "p", Path("/loop"))
+    assert cmd[cmd.index("--output-format") + 1] == "json"

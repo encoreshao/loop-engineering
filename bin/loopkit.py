@@ -7,6 +7,7 @@ answer is retried with feedback), result/history/last-run files and Slack
 notifications. Paths resolve at call time under repo_root so tests can
 point everything at tmp_path."""
 import contextlib
+import dataclasses
 import fcntl
 import hashlib
 import json
@@ -18,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+import cost as cost_module
 import loops_config
 import notify as _notify
 import seen_store
@@ -60,6 +62,9 @@ class LoopContext:
     log: Callable[[str], None]
     repo_root: Path = REPO_ROOT
     force: bool = False
+    # What is left of this item's max_cost_usd for the next model call (set
+    # per call by LoopKit); None means the definition's full max_cost_usd.
+    call_budget_usd: float | None = None
 
 
 class LoopPlugin:
@@ -83,8 +88,10 @@ class LoopPlugin:
 
     def call_model(self, prompt, ctx):
         timeout = ctx.definition.stop_conditions.max_runtime_minutes * 60
-        return sealed.sealed_call(prompt, timeout, log=ctx.log,
-                                  max_budget_usd=ctx.definition.stop_conditions.max_cost_usd)
+        cap = ctx.call_budget_usd
+        if cap is None:
+            cap = ctx.definition.stop_conditions.max_cost_usd
+        return sealed.sealed_call(prompt, timeout, log=ctx.log, max_budget_usd=cap)
 
     def after_item(self, item, answer, ctx):
         raise NotImplementedError
@@ -211,6 +218,12 @@ def _make_logger(repo_root, loop_name):
 
 def _run_item(plugin, item, ctx, run_id, events_dir, results_dir, repo_root):
     holder = {}
+    max_cost = ctx.definition.stop_conditions.max_cost_usd
+    spent = {"usd": 0.0}
+
+    def charge(cost, cap):
+        # An unknown cost is booked at the cap it ran under (never $0).
+        spent["usd"] += cost if cost is not None else (cap or 0)
 
     def agent_fn(context):
         prompt = plugin.build_prompt(item, ctx)
@@ -225,15 +238,19 @@ def _run_item(plugin, item, ctx, run_id, events_dir, results_dir, repo_root):
                            f"{failed[0].output}. Fix it and answer again.")
         holder.pop("error", None)
         holder["text"] = None
+        # Each attempt may spend only what is left of the item's budget.
+        cap = cost_module.remaining_budget(max_cost, spent["usd"])
         try:
-            res = plugin.call_model(prompt, ctx)
+            res = plugin.call_model(prompt, dataclasses.replace(ctx, call_budget_usd=cap))
         except Exception as exc:  # noqa: BLE001
             # Crashed model calls are surfaced as verification failures so LoopRuntime
             # retries them (metrics show verification.failed; final state ESCALATED).
             holder["error"] = f"model call failed: {type(exc).__name__}: {exc}"
             # Unknown spend is None, never a claimed $0.
+            charge(getattr(exc, "cost_usd", None), cap)
             return {"cost_usd": getattr(exc, "cost_usd", None)}
         holder["text"] = res["text"]
+        charge(res.get("cost_usd"), cap)
         return {"cost_usd": res.get("cost_usd")}
 
     verifiers = [OutputContractVerifier(holder, plugin.output_keys)]

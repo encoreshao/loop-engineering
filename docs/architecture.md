@@ -59,12 +59,13 @@ metrics/cost/learning.
 - **Cost** — `total_cost_usd` is the sum of what agent calls reported,
   including a failed call's spend (e.g. a `--max-budget-usd` stop, carried as
   `exc.cost_usd`). It is `None` (unknown), never `0`, when no call reported a
-  cost: every Codex run, and every topic-monitor run (that loop runs the CLI
-  with text output, so it never has a cost figure). Health's cost efficiency
+  cost: every Codex run (topic-monitor runs before 2026-10-07 also have no
+  cost figure; that loop now runs the CLI with JSON output). Health's cost efficiency
   leaves `None`-cost runs out of the numerator and the denominator and counts
   only `gitlab-issue-loop` runs; the `summarize_*`/Budget rollups add `None`
-  as `0`, as before. Backfilled legacy runs cannot tell unknown from `$0`, so
-  they keep the budget's recorded figure.
+  as `0`, as before. Backfilled legacy runs cannot tell unknown from `$0`: a
+  recorded `$0` on a run with at least one iteration is booked as `None`
+  (no run that called a model really costs `$0`); any other figure is kept.
 - **Backfill** — `loop ledger backfill [--results-dir DIR] [--events-dir DIR]`
   appends a `loop.result` for each pre-existing finished `result.json` that has
   none. It is idempotent (keyed by `run_id`), skips a corrupt `result.json`

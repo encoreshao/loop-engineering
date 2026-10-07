@@ -39,9 +39,9 @@ stop_conditions:
   # max_cost_usd is passed to the Claude CLI as a per-call
   # --max-budget-usd cap (bin/cost.py budget_args), so Claude itself stops
   # the single topic call at this spend; Codex has no equivalent flag and
-  # runs uncapped. The run's spend is still never *reported*: the CLI runs
-  # with --output-format text, so invoke_topic_agent returns cost_usd None
-  # and the ledger records total_cost_usd None (unknown), not $0. With
+  # runs uncapped. The CLI runs with --output-format json, so
+  # invoke_topic_agent returns Claude's total_cost_usd (None under Codex, so
+  # the ledger records an unknown cost, not $0). With
   # max_iterations 1 the BudgetController is only consulted around the
   # single call, and no-progress detection needs at least two iterations.
   # The per-topic subprocess timeout derived from max_runtime_minutes is the

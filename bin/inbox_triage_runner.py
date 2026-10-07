@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import ai_cli_config
+import cost as cost_module
 import inbox_config
 import inbox_seen
 import inbox_status
@@ -53,9 +54,9 @@ class TriageFailed(Exception):
     pass
 
 
-def _cli_command():
+def _cli_command(max_budget_usd=None):
     """Kept so existing callers/tests keep working: see agents.sealed.sealed_command."""
-    return sealed.sealed_command()
+    return sealed.sealed_command(max_budget_usd=max_budget_usd)
 
 
 def _append_unified_log(text, repo_root, unified_log_path):
@@ -75,7 +76,8 @@ def _default_timeout_seconds(definition_path=None):
     return LoopDefinition.from_yaml(definition_path).stop_conditions.max_runtime_minutes * 60
 
 
-def invoke_triage_agent(prompt, repo_root=None, timeout_seconds=None, unified_log_path=None):
+def invoke_triage_agent(prompt, repo_root=None, timeout_seconds=None, unified_log_path=None,
+                        max_budget_usd=None):
     """The one AI subprocess boundary - tests monkeypatch this (or
     subprocess.run). Only exit status, timing, and error class are logged:
     stdout/stderr can echo message content, which must never persist.
@@ -96,7 +98,8 @@ def invoke_triage_agent(prompt, repo_root=None, timeout_seconds=None, unified_lo
         out = sealed.sealed_call(prompt, timeout_seconds, log=log,
                                  runner=lambda *a, **kw: subprocess.run(*a, **kw),
                                  cli_fn=lambda: ai_cli_config.get_selected_cli(),
-                                 command_fn=lambda max_budget_usd=None: _cli_command())
+                                 command_fn=lambda max_budget_usd=None: _cli_command(max_budget_usd),
+                                 max_budget_usd=max_budget_usd)
     except sealed.SealedCallFailed as exc:
         if isinstance(exc.__cause__, (subprocess.TimeoutExpired, subprocess.CalledProcessError)):
             raise exc.__cause__ from None
@@ -106,16 +109,30 @@ def invoke_triage_agent(prompt, repo_root=None, timeout_seconds=None, unified_lo
     return {"text": out["text"], "cost_usd": out["cost_usd"]}
 
 
-def classify(prompt, messages, categories, invoke=None, timeout_seconds=None):
+def _default_max_cost_usd(definition_path=None):
+    """Per-inbox spend cap, from loop.yaml's stop_conditions.max_cost_usd."""
+    if definition_path is None:
+        definition_path = DEFAULT_DEFINITION_PATH
+    return LoopDefinition.from_yaml(definition_path).stop_conditions.max_cost_usd
+
+
+def classify(prompt, messages, categories, invoke=None, timeout_seconds=None, max_cost_usd=None):
+    """Up to two AI attempts; each is capped at what is left of the
+    inbox's max_cost_usd (an attempt with unknown cost is booked at its cap)."""
     if invoke is None:
         invoke = functools.partial(invoke_triage_agent, timeout_seconds=timeout_seconds)
-    total_cost, last_error = None, None
+    if max_cost_usd is None:
+        max_cost_usd = _default_max_cost_usd()
+    total_cost, last_error, spent = None, None, 0.0
     for _attempt in range(2):
+        cap = cost_module.remaining_budget(max_cost_usd, spent)
         try:
-            out = invoke(prompt)
+            out = invoke(prompt, max_budget_usd=cap)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, TriageFailed) as exc:
             last_error = f"AI call failed: {type(exc).__name__}"
+            spent += cap or 0
             continue
+        spent += out["cost_usd"] if out.get("cost_usd") is not None else (cap or 0)
         if out.get("cost_usd") is not None:
             total_cost = (total_cost or 0) + out["cost_usd"]
         try:

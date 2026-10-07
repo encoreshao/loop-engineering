@@ -16,6 +16,7 @@ any more (both mirror the GitLab loop's own equivalents):
 - `_alert_on_incomplete_results` - LoopRuntime contains a per-topic
   failure, so it never reaches run-topic-monitor-loop.sh's exit code and
   its ERR-trap Slack alert can no longer fire."""
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -187,7 +188,7 @@ def _cli_command(ai_cli, prompt, repo_root, max_budget_usd=None):
         "--allowedTools", _allowed_tools(repo_root),
         "--disallowedTools", _disallowed_tools(),
         *cost_module.budget_args(max_budget_usd),
-        "--output-format", "text",
+        "--output-format", "json",
         prompt,
     ]
 
@@ -326,8 +327,9 @@ def invoke_topic_agent(name, repo_root=None, timeout_seconds=1800, unified_log_p
         )
         raise
 
-    print(proc.stdout)
-    _append_unified_log(proc.stdout, repo_root=repo_root, unified_log_path=unified_log_path)
+    text, cost = _parse_cli_output(proc.stdout)
+    print(text)
+    _append_unified_log(text, repo_root=repo_root, unified_log_path=unified_log_path)
     # run-topic-monitor-loop.sh let the CLI's stderr flow to the per-run
     # dated log regardless of exit code (it never redirected 2>&1 away
     # from the script's own inherited fd2). subprocess.run captures it
@@ -339,7 +341,21 @@ def invoke_topic_agent(name, repo_root=None, timeout_seconds=1800, unified_log_p
             f"{ai_cli} stderr:\n{proc.stderr}", repo_root=repo_root, unified_log_path=unified_log_path
         )
 
-    return {"changed": True, "cost_usd": None}
+    return {"changed": True, "cost_usd": cost}
+
+
+def _parse_cli_output(stdout):
+    """(text, cost_usd) from the CLI's stdout: Claude's --output-format json
+    envelope gives the result text and total_cost_usd; anything else (codex,
+    or an older plain-text run) is returned as-is with an unknown cost."""
+    try:
+        envelope = json.loads(stdout)
+    except (TypeError, ValueError):
+        return stdout, None
+    if not isinstance(envelope, dict) or "result" not in envelope:
+        return stdout, None
+    cost = envelope.get("total_cost_usd")
+    return str(envelope.get("result") or ""), cost if isinstance(cost, (int, float)) else None
 
 
 def _run_one_topic(run_id, name, definition, results_dir, repo_root, events_dir=None,

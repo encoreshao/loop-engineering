@@ -17,6 +17,16 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
   lists your GitLab issues and MRs idle 14+ days and reviews waiting on you
   3+ days. It makes no model call.
 
+### Changed
+
+- LoopKit loops cap each retry at what is left of the item's
+  `max_cost_usd`, so a retry can no longer spend the full budget a second
+  time.
+- Inbox Triage AI calls are now capped by the loop's `max_cost_usd`
+  (previously uncapped), each attempt at what is left of it.
+- Topic Monitor reports what each Claude run cost (the CLI now runs with JSON
+  output), so its runs show a real cost instead of unknown.
+
 ### Fixed
 
 - Older runs added to the ledger by the backfill whose cost was never
