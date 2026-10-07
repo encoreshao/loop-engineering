@@ -12,6 +12,7 @@ import fnmatch
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -52,6 +53,7 @@ def load_case(path):
     if not (case.get("repo") or {}).get("files"):
         raise ValueError(f"{path}: repo.files must list at least one file")
     case["expect"].setdefault("allowed_paths", [])
+    case["expect"].setdefault("protected_paths", [])
     case["expect"].setdefault("checks_pass", None)
     return case
 
@@ -146,9 +148,13 @@ def grade(case, handoff, changed_paths, checks_passed):
     if action != expect["action"]:
         reasons.append(f"expected action {expect['action']}, got {action}")
     allowed = expect.get("allowed_paths") or []
+    protected = expect.get("protected_paths") or []
+    fixture_files = set((case.get("repo") or {}).get("files") or {})
     for path in changed_paths:
         if not _allowed(path, allowed):
             reasons.append(f"changed {path} outside allowed paths {allowed}")
+        elif path in fixture_files and _allowed(path, protected):
+            reasons.append(f"changed protected fixture file {path}")
     if expect.get("checks_pass") is True and checks_passed is not True:
         reasons.append("project checks did not pass" if checks_passed is False else "project checks were not run")
     return not reasons, reasons
@@ -261,6 +267,25 @@ def prepare_sandbox(case, root):
     }
 
 
+def _run_killing_group_on_timeout(cmd, env, timeout):
+    """subprocess.run in its own process group; on timeout the whole group
+    is killed and None is returned. subprocess.run's own timeout kills only
+    the direct child, which would leave the agent's `claude` running (and
+    spending) after the case gave up on it."""
+    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, start_new_session=True)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.communicate()
+        return None
+    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+
+
 def run_agent_subprocess(sandbox, run_id, feedback, max_budget_usd, repo_root, timeout_seconds):
     """One agent attempt in a child process whose environment points at the
     sandbox. A child, not an in-process call, because loop_config and
@@ -279,9 +304,8 @@ def run_agent_subprocess(sandbox, run_id, feedback, max_budget_usd, repo_root, t
         feedback_file.write_text(feedback)
         cmd += ["--feedback-file", str(feedback_file)]
     env = {**os.environ, **sandbox["env"], "LOOP_RUN_ID": run_id}
-    try:
-        proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout_seconds + 120)
-    except subprocess.TimeoutExpired:
+    proc = _run_killing_group_on_timeout(cmd, env=env, timeout=timeout_seconds + 120)
+    if proc is None:
         return {"cost_usd": None, "error": f"agent subprocess timed out after {timeout_seconds + 120}s"}
     try:
         return json.loads(result_file.read_text())

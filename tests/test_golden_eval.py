@@ -365,13 +365,13 @@ def test_agent_subcommand_reports_a_failed_call_with_its_cost(tmp_path, monkeypa
 def test_default_agent_runner_runs_the_agent_subcommand_in_the_sandbox_env(tmp_path, monkeypatch):
     seen = {}
 
-    def fake_run(cmd, **kw):
-        seen["cmd"], seen["env"] = cmd, kw["env"]
+    def fake_run(cmd, env, timeout):
+        seen["cmd"], seen["env"] = cmd, env
         result_file = Path(cmd[cmd.index("--result-file") + 1])
         result_file.write_text(json.dumps({"cost_usd": 0.1, "error": None}))
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
-    monkeypatch.setattr(ge.subprocess, "run", fake_run)
+    monkeypatch.setattr(ge, "_run_killing_group_on_timeout", fake_run)
     sandbox = {"root": tmp_path, "issue_file": tmp_path / "i.json", "log": tmp_path / "l.log",
                "env": {"LOOP_ENGINEERING_HOME": str(tmp_path / "h"), "LOOP_EVENTS_DIR": str(tmp_path / "e")}}
     out = ge.run_agent_subprocess(sandbox, "golden-x", "FB", 1.5, tmp_path, 60)
@@ -550,3 +550,63 @@ def test_write_last_run_honors_loop_evals_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("LOOP_EVALS_DIR", str(tmp_path))
     path = ge.write_last_run({"results": [], "not_run": [], "spent_usd": 0}, budget_usd=1.0)
     assert path == tmp_path / "golden-last.json" and path.exists()
+
+
+def test_run_killing_group_on_timeout_kills_grandchildren(tmp_path):
+    # The agent child spawns `claude`; a timeout must not leave it running.
+    pid_file = tmp_path / "grandchild.pid"
+    cmd = ["/bin/sh", "-c", f"sleep 60 & echo $! > {pid_file}; wait"]
+    proc = ge._run_killing_group_on_timeout(cmd, env=dict(os.environ), timeout=1)
+    assert proc is None
+    pid = int(pid_file.read_text())
+    import time
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.05)
+    else:
+        os.kill(pid, 9)
+        raise AssertionError("grandchild survived the timeout")
+
+
+def test_run_killing_group_on_timeout_returns_the_finished_process():
+    proc = ge._run_killing_group_on_timeout(["/bin/sh", "-c", "echo hi; echo err >&2; exit 3"],
+                                            env=dict(os.environ), timeout=10)
+    assert (proc.returncode, proc.stdout, proc.stderr) == (3, "hi\n", "err\n")
+
+
+def test_agent_subprocess_timeout_is_reported(tmp_path, monkeypatch):
+    monkeypatch.setattr(ge, "_run_killing_group_on_timeout", lambda cmd, env, timeout: None)
+    sandbox = {"root": tmp_path, "issue_file": tmp_path / "i.json", "log": tmp_path / "l.log", "env": {}}
+    out = ge.run_agent_subprocess(sandbox, "golden-x", None, None, tmp_path, 60)
+    assert out == {"cost_usd": None, "error": "agent subprocess timed out after 180s"}
+
+
+def test_shipped_fix_cases_allow_a_new_regression_test():
+    # Adding a test under tests/ is good practice, never a scope violation.
+    for case in ge.load_cases():
+        if case["expect"]["action"] == "fix":
+            assert ge.grade(case, {"action": "fix"}, ["lib/x.py", "tests/test_new.py"], True) == (True, []), case["name"]
+
+
+def test_grade_rejects_editing_a_protected_fixture_test():
+    case = {"name": "p", "repo": {"files": {"lib/a.py": "", "tests/test_a.py": ""}},
+            "expect": {"action": "fix", "allowed_paths": ["lib/**", "tests/**"],
+                       "protected_paths": ["tests/**"], "checks_pass": True}}
+    ok, reasons = ge.grade(case, {"action": "fix"}, ["lib/a.py", "tests/test_a.py"], True)
+    assert not ok and any("tests/test_a.py" in r and "protected" in r for r in reasons)
+    # A new test file under a protected glob is fine.
+    assert ge.grade(case, {"action": "fix"}, ["lib/a.py", "tests/test_b.py"], True) == (True, [])
+
+
+def test_shipped_fix_cases_protect_their_existing_tests():
+    for case in ge.load_cases():
+        if case["expect"]["action"] != "fix":
+            continue
+        for path in case["repo"]["files"]:
+            if path.startswith("tests/"):
+                ok, _ = ge.grade(case, {"action": "fix"}, ["lib/x.py", path], True)
+                assert not ok, (case["name"], path)

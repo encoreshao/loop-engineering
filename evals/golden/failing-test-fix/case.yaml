@@ -29,5 +29,7 @@ repo:
   lint_cmd: ""
 expect:
   action: fix
-  allowed_paths: ["lib/**"]
+  allowed_paths: ["lib/**", "tests/**"]
+  # New regression tests are welcome; editing the fixture's own tests is not.
+  protected_paths: ["tests/**"]
   checks_pass: true
