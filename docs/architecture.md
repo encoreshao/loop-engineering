@@ -10,7 +10,7 @@ below links to its own spec rather than re-explaining it.
 
 Read [`README.md`](../README.md) first for what this project *does*
 (schedule, dashboard, safety boundaries). Read
-[`LOOPX_INSTRUCTIONS.md`](../LOOPX_INSTRUCTIONS.md) for the GitLab issue
+[`instructions/gitlab-issue.md`](../instructions/gitlab-issue.md) for the GitLab issue
 loop's own step-by-step spec — this file is about the runtime underneath
 both scheduled loops, not either loop's own decision logic.
 

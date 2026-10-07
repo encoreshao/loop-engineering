@@ -48,7 +48,7 @@ ENTRY_SCRIPT="$LOOP_DIR/$(echo "$ENTRY_POINT" | tr . /).py"
 # A stable identity for this run - see run-loop.sh's former comment on
 # this (a real, collision-free timestamp is cheap and deterministic to
 # generate here). Exported unconditionally for every loop:
-# LOOPX_INSTRUCTIONS.md's agent reads it for the GitLab loop; it's simply
+# instructions/gitlab-issue.md's agent reads it for the GitLab loop; it's simply
 # unread (harmless) for any loop whose agent doesn't look for it.
 RUN_ID="run_$(date -u +%Y%m%d_%H%M%S)"
 export LOOP_RUN_ID="$RUN_ID"

@@ -15,10 +15,10 @@ set -euo pipefail
 LOOP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 if [[ $# -eq 0 ]]; then
-  echo "Follow TOPIC_MONITOR_INSTRUCTIONS.md in $LOOP_DIR exactly. This is a scheduled headless run - there is no user available to answer questions."
+  echo "Follow instructions/topic-monitor.md in $LOOP_DIR exactly. This is a scheduled headless run - there is no user available to answer questions."
 elif [[ $# -eq 1 ]]; then
   TOPIC_NAME="$1"
-  echo "Follow TOPIC_MONITOR_INSTRUCTIONS.md in $LOOP_DIR exactly, except skip Step 1 (listing today's topics) entirely. Process exactly one topic: '$TOPIC_NAME'. Look up its details via \`python3 $LOOP_DIR/bin/topic_config.py topic $TOPIC_NAME\`, then follow Step 2's per-topic procedure for just this topic and stop. This run's own verification checklist applies only to this one topic, not the full topic list: do NOT check whether every configured topic has a briefing or a terminal status - the other topics are other sessions' work and are not yours to verify. This is still a headless run with no user available to answer questions."
+  echo "Follow instructions/topic-monitor.md in $LOOP_DIR exactly, except skip Step 1 (listing today's topics) entirely. Process exactly one topic: '$TOPIC_NAME'. Look up its details via \`python3 $LOOP_DIR/bin/topic_config.py topic $TOPIC_NAME\`, then follow Step 2's per-topic procedure for just this topic and stop. This run's own verification checklist applies only to this one topic, not the full topic list: do NOT check whether every configured topic has a briefing or a terminal status - the other topics are other sessions' work and are not yours to verify. This is still a headless run with no user available to answer questions."
 else
   echo "Usage: build_topic_prompt.sh [topic_name]" >&2
   exit 1

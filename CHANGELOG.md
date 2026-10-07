@@ -11,6 +11,21 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ## [Unreleased]
 
+### Added
+
+- Custom instructions now apply to the topic monitor and inbox triage loops
+  too, not just the GitLab issue loop. Besides the global
+  `~/.loop-engineering/instructions.md`, you can add per-loop files at
+  `~/.loop-engineering/instructions/<loop>.md` (`gitlab-issue`,
+  `topic-monitor`, `inbox-triage`).
+
+### Changed
+
+- The built-in agent instructions moved into one `instructions/` folder:
+  `LOOPX_INSTRUCTIONS.md` is now `instructions/gitlab-issue.md`,
+  `TOPIC_MONITOR_INSTRUCTIONS.md` is `instructions/topic-monitor.md` and
+  `INBOX_TRIAGE_INSTRUCTIONS.md` is `instructions/inbox-triage.md`.
+
 ## [0.2.0] - 2026-10-07
 
 ### Added

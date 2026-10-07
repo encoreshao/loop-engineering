@@ -25,8 +25,8 @@ loop(s) are due — there is no longer a separate `launchd/*.plist` per task.
 Each task gets its own spec under `docs/tasks/`, its own instructions doc,
 and its own entry script — the topic monitor loop answered the "own
 instructions doc? own config? shares `projects.json`?" question this file
-used to defer: it has its own (`TOPIC_MONITOR_INSTRUCTIONS.md`,
+used to defer: it has its own (`instructions/topic-monitor.md`,
 `~/.loop-engineering/topics.json`), and shares nothing with the GitLab
 loop's files except the one scheduler that runs both. The Inbox Triage loop
-likewise has its own instructions doc (`INBOX_TRIAGE_INSTRUCTIONS.md`) and
+likewise has its own instructions doc (`instructions/inbox-triage.md`) and
 config (`inboxes.json`, `mail_oauth.json`).

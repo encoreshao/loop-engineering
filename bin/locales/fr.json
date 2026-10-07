@@ -264,7 +264,7 @@
   "Inbox triage": "Tri de la boîte de réception",
   "Inbox triage started - check back here for results": "Tri de la boîte de réception lancé - revenez ici pour voir les résultats",
   "Inboxes": "Boîtes de réception",
-  "Include specific instructions in {cli}'s system prompt whenever the loop runs. Saved to {path} - read at the start of every run, on top of everything already in {spec}.": "Instructions spécifiques ajoutées au prompt système de {cli} à chaque exécution de la boucle. Enregistrées dans {path} : lues au début de chaque exécution, en plus de tout ce que contient déjà {spec}.",
+  "Include specific instructions in {cli}'s system prompt whenever the loop runs. Saved to {path} - read at the start of every run, on top of everything already in {spec}. For one loop only, add a file under {per_loop} (gitlab-issue.md, topic-monitor.md or inbox-triage.md).": "Instructions spécifiques ajoutées au prompt système de {cli} à chaque exécution de la boucle. Enregistrées dans {path} : lues au début de chaque exécution, en plus de tout ce que contient déjà {spec}. Pour une seule boucle, ajoutez un fichier dans {per_loop} (gitlab-issue.md, topic-monitor.md ou inbox-triage.md).",
   "Indigo": "Indigo",
   "Insights": "Analyses détaillées",
   "Instance": "Instance",

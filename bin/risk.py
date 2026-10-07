@@ -5,7 +5,7 @@ disk-free like bin/health.py: score() takes a plain string, no event
 log access, no LLM call. Risk is advisory only this sprint - nothing
 here changes what the loop does with any issue; the score is
 computed and reported alongside the agent's own type/complexity
-judgment in an issue.classified event (see LOOPX_INSTRUCTIONS.md)."""
+judgment in an issue.classified event (see instructions/gitlab-issue.md)."""
 import json
 import sys
 

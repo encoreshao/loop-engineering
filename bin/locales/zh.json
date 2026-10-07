@@ -264,7 +264,7 @@
   "Inbox triage": "收件箱分拣",
   "Inbox triage started - check back here for results": "已开始收件箱分拣 - 请回到此处查看结果",
   "Inboxes": "收件箱",
-  "Include specific instructions in {cli}'s system prompt whenever the loop runs. Saved to {path} - read at the start of every run, on top of everything already in {spec}.": "每次循环运行时加入 {cli} 系统提示词的特定指令。保存在 {path}——在每次运行开始时读取,作为 {spec} 现有内容之外的补充。",
+  "Include specific instructions in {cli}'s system prompt whenever the loop runs. Saved to {path} - read at the start of every run, on top of everything already in {spec}. For one loop only, add a file under {per_loop} (gitlab-issue.md, topic-monitor.md or inbox-triage.md).": "每次循环运行时加入 {cli} 系统提示词的特定指令。保存在 {path}——在每次运行开始时读取,作为 {spec} 现有内容之外的补充。 若只针对某个循环，请在 {per_loop} 下添加文件（gitlab-issue.md、topic-monitor.md 或 inbox-triage.md）。",
   "Indigo": "靛蓝",
   "Insights": "洞察",
   "Instance": "实例",

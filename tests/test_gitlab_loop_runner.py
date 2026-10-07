@@ -462,7 +462,7 @@ def test_run_single_issue_writes_its_own_result(tmp_path, monkeypatch):
 # once. Now discovery is Python's job and each issue gets its own session, so
 # "End of run" has to be its own separate, UNCONDITIONAL call - otherwise a
 # morning with zero assigned issues produces no digest at all, breaking
-# LOOPX_INSTRUCTIONS.md's "a quiet morning is still reported" guarantee.
+# instructions/gitlab-issue.md's "a quiet morning is still reported" guarantee.
 
 
 def _must_not_be_called(*args, **kwargs):
@@ -984,7 +984,7 @@ def test_an_unpriced_runs_issues_stay_out_of_cost_pers_denominators(tmp_path, mo
     )
 
     # The issue.* events a real --batch-issue session emits for itself
-    # (LOOPX_INSTRUCTIONS.md Step 2), which main() does not emit.
+    # (instructions/gitlab-issue.md Step 2), which main() does not emit.
     for iid in (1, 2):
         for event_type in ("issue.started", "issue.completed"):
             glr.events_module.emit(

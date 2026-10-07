@@ -24,7 +24,7 @@ from pathlib import Path
 # bin/web/dashboard_server.py owns outputs/topic-monitor/status.json - its
 # `write_topic_status` is the very function its `write-topic-status` CLI
 # subcommand wraps, i.e. the one the agent itself calls in
-# TOPIC_MONITOR_INSTRUCTIONS.md's steps 2 and 8. It lives in bin/web/, not
+# instructions/topic-monitor.md's steps 2 and 8. It lives in bin/web/, not
 # this file's own directory, so it needs that directory on sys.path
 # explicitly; called in-process here rather than shelled out, matching how
 # `slack_notify.post_message` is used below and in
@@ -50,7 +50,7 @@ DEFAULT_DEFINITION_PATH = REPO_ROOT / "loops" / "topic-monitor" / "loop.yaml"
 # loop in this repo whose input is untrusted web content (WebSearch/
 # WebFetch), it runs under --permission-mode acceptEdits with nobody
 # approving each action, and everything it could reach includes
-# LOOPX_INSTRUCTIONS.md and run-loop.sh - the far higher-privilege
+# instructions/gitlab-issue.md and run-loop.sh - the far higher-privilege
 # GitLab loop's own control files (git push, GitLab API tokens). A
 # prompt injection in a fetched page must not be able to rewrite those.
 # Writes are meant to be confined to outputs/topic-monitor/ - this loop
@@ -61,7 +61,7 @@ DEFAULT_DEFINITION_PATH = REPO_ROOT / "loops" / "topic-monitor" / "loop.yaml"
 #
 # Three things about how that confinement is actually achieved, each
 # verified by running the real CLI rather than assumed (see the
-# "Tool permissions policy" section of TOPIC_MONITOR_INSTRUCTIONS.md):
+# "Tool permissions policy" section of instructions/topic-monitor.md):
 #
 #   1. NOT via --add-dir. --add-dir only *adds* directories to the
 #      workspace. The agent's cwd is already the repo root, so an
@@ -81,7 +81,7 @@ DEFAULT_DEFINITION_PATH = REPO_ROOT / "loops" / "topic-monitor" / "loop.yaml"
 # Write included. A `Write(path)` rule matches nothing and the CLI
 # prints a warning about it, so there are deliberately none here.
 #
-# These strings and TOPIC_MONITOR_INSTRUCTIONS.md's own "Tool
+# These strings and instructions/topic-monitor.md's own "Tool
 # permissions policy" section describe the same policy in prose; the two
 # must be kept in sync whenever either changes (see
 # bin/gitlab_loop_runner.py's own equivalent comment on this).
@@ -90,7 +90,8 @@ DEFAULT_DEFINITION_PATH = REPO_ROOT / "loops" / "topic-monitor" / "loop.yaml"
 def _allowed_tools(repo_root):
     return (
         "Read(**/outputs/topic-monitor/**) Edit(**/outputs/topic-monitor/**) "
-        "Read(**/TOPIC_MONITOR_INSTRUCTIONS.md) Read(**/docs/tasks/topic-monitor-loop.md) "
+        "Read(**/instructions/topic-monitor.md) Read(**/docs/tasks/topic-monitor-loop.md) "
+        "Read(**/.loop-engineering/instructions.md) Read(**/.loop-engineering/instructions/topic-monitor.md) "
         "WebSearch WebFetch "
         "Bash(cd *) "
         "Bash(python3 bin/topic_config.py*) Bash(python3 bin/topic_seen.py*) "
@@ -129,7 +130,7 @@ def _allowed_tools(repo_root):
 # literal `$HOME`. run-topic-monitor-loop.sh's own DISALLOWED_TOOLS is a
 # double-quoted bash string, so bash expands $HOME to the real path
 # BEFORE the CLI ever sees it, producing a `//`-prefixed absolute rule
-# (the exact form TOPIC_MONITOR_INSTRUCTIONS.md documents). This Python
+# (the exact form instructions/topic-monitor.md documents). This Python
 # port hands argv straight to subprocess.run with no shell involved, so a
 # literal "$HOME" string would never be expanded and would match nothing
 # on disk - `_disallowed_tools` resolves it itself via `Path.home()`
@@ -141,7 +142,7 @@ def _allowed_tools(repo_root):
 # get arbitrary code execution on the machine's own schedule - the same
 # escalation class this loop's confinement exists to prevent.
 #
-# Residual gap, known and accepted (see TOPIC_MONITOR_INSTRUCTIONS.md): a
+# Residual gap, known and accepted (see instructions/topic-monitor.md): a
 # new root-level file whose extension isn't denied below (a stray
 # .md/.txt) can still be created - clutter, not a privilege escalation,
 # since nothing reads such a file and every existing control file at that
@@ -157,7 +158,7 @@ def _disallowed_tools(home=None):
         "Edit(**/*.sh) Edit(**/*.py) Edit(**/*.plist) Edit(**/*.json) Edit(**/*.yml) Edit(**/*.yaml) Edit(**/*.toml) "
         "Edit(**/bin/**) Edit(**/launchd/**) Edit(**/docs/**) Edit(**/config/**) Edit(**/tests/**) Edit(**/assets/**) "
         "Edit(**/.claude/**) Edit(**/.git/**) Edit(**/.ssh/**) "
-        "Edit(**/LOOPX_INSTRUCTIONS.md) Edit(**/TOPIC_MONITOR_INSTRUCTIONS.md) Edit(**/CLAUDE.md) "
+        "Edit(**/instructions/gitlab-issue.md) Edit(**/instructions/topic-monitor.md) Edit(**/CLAUDE.md) "
         "Edit(**/README.md) Edit(**/TASK.md) Edit(**/PROGRESS.md) "
         "Edit(**/outputs/history/**) Edit(**/outputs/daily-review.md) "
         f"Edit(/{home}/Library/LaunchAgents/**)"
@@ -234,7 +235,7 @@ def _mark_topic_failed(name, status_path=None):
     """Write this topic's terminal `failed` state to
     outputs/topic-monitor/status.json ourselves.
 
-    Normally the agent does this itself (TOPIC_MONITOR_INSTRUCTIONS.md's
+    Normally the agent does this itself (instructions/topic-monitor.md's
     step 8, via `dashboard_server.py write-topic-status <name> idle|failed`)
     after writing `running` in step 2. But status.json is a single, shared,
     cross-topic file and `trigger_topic_monitor_run` refuses to start a new

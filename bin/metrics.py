@@ -212,7 +212,7 @@ def compute_failure_taxonomy(events, project=None):
     FAILURE_REASON_CATEGORY_MAP. A reason not in the map, or a missing
     reason field, counts under "unknown" rather than raising or being
     dropped - a future escalation path introduced without a matching
-    LOOPX_INSTRUCTIONS.md update degrades safely instead of silently
+    instructions/gitlab-issue.md update degrades safely instead of silently
     vanishing from the taxonomy. by_category_pct is {} (not filled with
     0.0s) when total is 0. Same project filtering as compute_issue_metrics."""
     by_category = {}

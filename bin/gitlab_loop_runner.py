@@ -18,7 +18,7 @@ boundary (`_invoke_cli_with_prompt`) and differing only in their prompt:
   Uses `--batch-end-of-run`, which does ONLY "End of run", reconstructing
   the run's outcomes from the event log. `run_all_issues` calls this
   unconditionally - including on a morning with zero assigned issues,
-  which is what keeps LOOPX_INSTRUCTIONS.md's "a quiet morning is still
+  which is what keeps instructions/gitlab-issue.md's "a quiet morning is still
   reported" guarantee true now that no single session spans the batch."""
 import json
 import os
@@ -76,7 +76,7 @@ _USAGE_TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_read_tokens", "ca
 
 # The actually-enforced permission list, moved here verbatim from
 # run-loop.sh's former ALLOWED_TOOLS/DISALLOWED_TOOLS shell variables.
-# LOOPX_INSTRUCTIONS.md's "Tool permissions policy" section describes the
+# instructions/gitlab-issue.md's "Tool permissions policy" section describes the
 # same policy in prose; the two must be kept in sync whenever either
 # changes. Everything below is *why* these strings look the way they do -
 # it was load-bearing commentary in run-loop.sh and stays load-bearing
@@ -270,7 +270,7 @@ def _cli_command(ai_cli, prompt, repo_root, worktree_root, gate=False, max_budge
         # network_access=true is added too - this loop needs `git push` and
         # GitLab API calls to work. Codex's -c overrides are far coarser
         # than Claude's per-command allow/deny lists: see
-        # LOOPX_INSTRUCTIONS.md's "Tool permissions policy" for what that
+        # instructions/gitlab-issue.md's "Tool permissions policy" for what that
         # means for this loop's guardrails when Codex is selected.
         #
         # separators=(",", ":") so this matches run-loop.sh's former

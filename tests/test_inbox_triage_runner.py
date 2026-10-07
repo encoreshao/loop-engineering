@@ -142,7 +142,7 @@ def test_classify_retries_on_subprocess_failure():
 
 
 def test_instructions_doc_exists_and_states_json_contract():
-    text = runner.INSTRUCTIONS_PATH.read_text()
+    text = (runner.REPO_ROOT / "instructions" / "inbox-triage.md").read_text()
     for needle in ('"id"', '"category"', '"reason"', '"draft_body"', "JSON array", "never"):
         assert needle in text
 

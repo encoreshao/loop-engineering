@@ -264,7 +264,7 @@
   "Inbox triage": "受信トレイの仕分け",
   "Inbox triage started - check back here for results": "受信トレイの仕分けを開始しました - 結果はここで確認できます",
   "Inboxes": "受信トレイ",
-  "Include specific instructions in {cli}'s system prompt whenever the loop runs. Saved to {path} - read at the start of every run, on top of everything already in {spec}.": "ループ実行時に {cli} のシステムプロンプトへ含める指示です。{path} に保存され、毎回の実行開始時に {spec} の内容に加えて読み込まれます。",
+  "Include specific instructions in {cli}'s system prompt whenever the loop runs. Saved to {path} - read at the start of every run, on top of everything already in {spec}. For one loop only, add a file under {per_loop} (gitlab-issue.md, topic-monitor.md or inbox-triage.md).": "ループ実行時に {cli} のシステムプロンプトへ含める指示です。{path} に保存され、毎回の実行開始時に {spec} の内容に加えて読み込まれます。 特定のループだけに適用するには、{per_loop} の下にファイル（gitlab-issue.md、topic-monitor.md、inbox-triage.md）を追加してください。",
   "Indigo": "インディゴ",
   "Insights": "インサイト",
   "Instance": "インスタンス",

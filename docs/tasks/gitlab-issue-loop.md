@@ -27,7 +27,7 @@ Each run produces or updates:
 - **Never merge a merge request.** The loop's job ends at "MR opened, verification passing." Merging is always a manual step for the human.
 - Every code change happens inside an isolated git worktree, under the configured `worktree_root`, on a branch named `loop/issue-<iid>`, never on the checkout's target branch.
 - An MR is only opened if the project's own configured `test_cmd`/`lint_cmd` pass, and the diff only touches files relevant to the issue.
-- Only the command allow-list in `LOOPX_INSTRUCTIONS.md` may run — no arbitrary shell, no dependency upgrades, no reading `.env`/credentials/SSH keys.
+- Only the command allow-list in `instructions/gitlab-issue.md` may run — no arbitrary shell, no dependency upgrades, no reading `.env`/credentials/SSH keys.
 - Issues are processed one at a time, sequentially — never multiple worktrees/fixes in parallel in the same run.
 - In `observe` mode (the default) the same verification failure on the same issue is not retried within a run — it escalates via a GitLab comment instead. In `gate` mode the loop retries at most `stop_conditions.max_iterations` times (see below); it never opens an MR whose tests/lint fail.
 - The loop only touches: issues/comments/MRs on the projects listed in `~/.loop-engineering/projects.json`, its own git worktrees (under the configured `worktree_root`), and its own state files (`PROGRESS.md`, `outputs/`).

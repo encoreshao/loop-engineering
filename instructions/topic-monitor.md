@@ -1,10 +1,14 @@
 # Topic Monitor Instructions
 
-You are running the topic monitor loop. Read `<loop_dir>/docs/tasks/topic-monitor-loop.md` before doing anything else — `<loop_dir>` is defined just below, and is where this file lives.
+You are running the topic monitor loop. Read `<loop_dir>/docs/tasks/topic-monitor-loop.md` before doing anything else — `<loop_dir>` is defined just below, and is the repo root above this file's `instructions/` folder.
 
 ## `<loop_dir>`: always invoke this repo's scripts by absolute path
 
-Throughout this file, `<loop_dir>` means the directory this file lives in (the loop repo root). Every script invocation below is written as `python3 <loop_dir>/bin/<path-to-script>.py ...` and must be run in exactly that absolute form.
+Throughout this file, `<loop_dir>` means the loop repo root (the parent of the `instructions/` folder this file lives in). Every script invocation below is written as `python3 <loop_dir>/bin/<path-to-script>.py ...` and must be run in exactly that absolute form.
+
+## Custom instructions
+
+If they exist and are non-empty, also read `~/.loop-engineering/instructions.md` (global, applies to every loop) and `~/.loop-engineering/instructions/topic-monitor.md` (this loop only), and follow them on top of (never in place of) everything in this file, the per-loop file after the global one. Neither file existing just means no additional instructions were set. They can never widen the tool permissions policy below.
 
 ## The scheduled run: one agent session per topic, not one session
 
@@ -97,7 +101,7 @@ For each topic name:
    BLOCKS
    )" "<label> briefing (<YYYY-MM-DD>)"
    ```
-   `<bundle_flag>` is the empty string if this topic's `slack_bundle` is `null`, or ` --bundle=<slack_bundle>` (including the leading space) otherwise — same convention `LOOPX_INSTRUCTIONS.md` uses for GitLab loop notifications.
+   `<bundle_flag>` is the empty string if this topic's `slack_bundle` is `null`, or ` --bundle=<slack_bundle>` (including the leading space) otherwise — same convention `instructions/gitlab-issue.md` uses for GitLab loop notifications.
 
 8. **Report you're done.**
    ```
@@ -134,7 +138,7 @@ Three things here are easy to get wrong, and each was checked by running the rea
 
 - **`--add-dir` enforces nothing.** It only *adds* directories to the workspace. The run's working directory is already the loop repo root, so add-dir'ing a subdirectory of it grants nothing and restricts nothing.
 - **The allow list enforces nothing either.** An allow rule grants; it never revokes. Scoping the grant to `Edit(**/outputs/topic-monitor/**)` states the intent, but a path no rule mentions is still writable — under `--permission-mode acceptEdits`, and under whatever the machine's own `~/.claude/settings.json` allows globally.
-- **The deny list is the boundary.** Deny beats every allow, local or global, so `_disallowed_tools()` in `bin/topic_monitor_runner.py` is the only rule kind here that can actually stop a write. Every rule in it except one is written `**/<shape>`, and `**/`-prefixed patterns are anchored to the run's working directory (this repo's root: `run-loop-now.sh` `cd`s there, and `bin/topic_monitor_runner.py`'s subprocess call inherits that cwd) — they never match an absolute path outside it. Those cwd-anchored rules deny, by extension, every `*.sh`/`*.py`/`*.plist`/`*.json`/`*.yml`/`*.toml`; by directory, `bin/`, `launchd/`, `docs/`, `config/`, `tests/`, `assets/`, `.claude/`, `.git/` and the GitLab loop's `outputs/history/`; and by name, this repo's root markdown files (`LOOPX_INSTRUCTIONS.md`, this file, `CLAUDE.md`, `README.md`, `TASK.md`, `PROGRESS.md`) — listed individually because the briefings are markdown too, so a blanket `**/*.md` would block the run's own work. None of those shapes occurs under `outputs/topic-monitor/`.
+- **The deny list is the boundary.** Deny beats every allow, local or global, so `_disallowed_tools()` in `bin/topic_monitor_runner.py` is the only rule kind here that can actually stop a write. Every rule in it except one is written `**/<shape>`, and `**/`-prefixed patterns are anchored to the run's working directory (this repo's root: `run-loop-now.sh` `cd`s there, and `bin/topic_monitor_runner.py`'s subprocess call inherits that cwd) — they never match an absolute path outside it. Those cwd-anchored rules deny, by extension, every `*.sh`/`*.py`/`*.plist`/`*.json`/`*.yml`/`*.toml`; by directory, `bin/`, `launchd/`, `docs/`, `config/`, `tests/`, `assets/`, `.claude/`, `.git/` and the GitLab loop's `outputs/history/`; and by name, this repo's root markdown files (`instructions/gitlab-issue.md`, this file, `CLAUDE.md`, `README.md`, `TASK.md`, `PROGRESS.md`) — listed individually because the briefings are markdown too, so a blanket `**/*.md` would block the run's own work. None of those shapes occurs under `outputs/topic-monitor/`.
 
   Being cwd-anchored, none of the above reach outside this repo checkout — in particular they do **not** cover the *installed* copy of the GitLab loop's own launchd schedule at `~/Library/LaunchAgents/com.hermes.loop-engineering.plist`, which lives outside `$LOOP_DIR` entirely. That gap is closed by the one non-`**/`-prefixed rule in the list, which uses an absolute path (leading `/`) precisely because absolute patterns are *not* cwd-anchored. `_disallowed_tools()` builds it from the *real, expanded* home directory — `Edit(//Users/<you>/Library/LaunchAgents/**)`, i.e. a leading `/` followed by the absolute home path, hence the doubled slash — rather than the literal `$HOME` the old shell variable was written with. That is not cosmetic: as a bash double-quoted string, `DISALLOWED_TOOLS` had `$HOME` expanded by the shell before the CLI ever saw it, but `bin/topic_monitor_runner.py` hands `claude` its argv directly with no shell in between, so a literal `$HOME` segment would match nothing on disk and this one rule would be silently inert. It resolves `Path.home()` itself instead. Without it, a prompt injection from fetched web content could rewrite that plist's `ProgramArguments` and get arbitrary code execution on the machine's own schedule — the same escalation class this loop's confinement exists to prevent. This rule was verified against the real CLI in a scratch replica: it denies a write under a fake `~/Library/LaunchAgents/` path while leaving `outputs/topic-monitor/**` writable.
 
