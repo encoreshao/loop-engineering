@@ -49,3 +49,28 @@ def test_add_learning_survives_alongside_other_project_memory(tmp_path, monkeypa
     project = gitlab_cache.get_project(INSTANCE, PROJECT)
     assert project["_memory"]["some_other_key"] == "some_other_value"
     assert len(project["_memory"]["fix_learnings"]) == 1
+
+
+def _run_with_scratch_home(tmp_path, code):
+    import os
+    import subprocess
+    env = {**os.environ, "HOME": str(tmp_path / "home"), "LOOP_ENGINEERING_HOME": str(tmp_path / "le")}
+    (tmp_path / "home").mkdir()
+    return subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parent.parent,
+                          env=env, capture_output=True, text=True, timeout=60)
+
+
+def test_reads_work_without_the_gitlab_config_skill(tmp_path):
+    proc = _run_with_scratch_home(tmp_path, (
+        "import sys; sys.path.insert(0, 'bin'); import project_memory as pm\n"
+        "print(pm.get_learnings('acme', 'p'))\n"
+        "try:\n    pm.add_learning('acme', 'p', 'x')\n"
+        "except RuntimeError as exc:\n    print('refused:', exc)\n"))
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.splitlines()[0] == "[]"
+    assert proc.stdout.splitlines()[1].startswith("refused:") and "gitlab-config" in proc.stdout
+
+
+def test_dashboard_imports_without_the_gitlab_config_skill(tmp_path):
+    proc = _run_with_scratch_home(tmp_path, "import sys; sys.path.insert(0, 'bin/web'); import dashboard_server\n")
+    assert proc.returncode == 0, proc.stderr

@@ -27,8 +27,19 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 - Topic Monitor reports what each Claude run cost (the CLI now runs with JSON
   output), so its runs show a real cost instead of unknown.
 
+- Insights → Analytics: the Loop Health tiles for cost efficiency, retry rate
+  and learning effectiveness now show the figure behind the score ($ per
+  verified issue, % of runs retried, points gained with memory).
+
 ### Fixed
 
+- Daily Digest's "yesterday" and "today's meetings" windows no longer drift by
+  an hour on a daylight-saving change day.
+- A LoopKit loop that is interrupted (SIGTERM, crash) now always reports the
+  original error, even if writing its run report fails too; a crashed item's
+  summary is capped at 300 characters.
+- The dashboard starts without the gitlab-config skill installed (e.g. in a
+  sandbox with a scratch `HOME`); legacy project learnings then read as empty.
 - Older runs added to the ledger by the backfill whose cost was never
   reported (Codex, topic monitor) now show an unknown cost instead of $0.
 
