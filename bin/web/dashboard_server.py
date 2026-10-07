@@ -4906,7 +4906,7 @@ html.collapsed .sidebar-top {{
    is a glance strip, not a focal point. */
 .dash-stats-grid {{
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr));
   gap: 0.5rem;
   margin-bottom: 0.75rem;
 }}
@@ -4927,9 +4927,9 @@ html.collapsed .sidebar-top {{
 .analytics-days-selector a.active {{ background: var(--md-primary); color: var(--md-on-primary); }}
 .analytics-health-score {{ font-size: 2.5rem; font-weight: 700; margin: 0.25rem 0; }}
 .analytics-health-note {{ font-size: 0.8rem; color: var(--md-on-surface-variant); margin: 0 0 0.75rem 0; }}
-.analytics-breakdown-columns {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-top: 0.75rem; }}
+.analytics-breakdown-columns {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 1rem; margin-top: 0.75rem; }}
 .analytics-breakdown-columns h3 {{ font-size: 0.8rem; font-weight: 500; margin: 0 0 0.35rem; color: var(--md-on-surface-variant); }}
-.trend-charts-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }}
+.trend-charts-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 1rem; }}
 .trend-chart {{ background: var(--md-surface-container-low); border-radius: 8px; padding: 0.75rem; }}
 .trend-chart-title {{ font-size: 0.85rem; font-weight: 500; margin: 0 0 0.5rem 0; color: var(--md-on-surface-variant); }}
 .trend-chart-note {{ font-size: 0.75rem; color: var(--md-on-surface-variant); margin: 0 0 0.5rem 0; }}
@@ -5089,6 +5089,7 @@ html .chat-page.is-empty .activity-composer {{
   z-index: 1;
   width: 100%;
   max-width: calc(var(--chat-width) + 2.5rem);
+  box-sizing: border-box;
   background: none;
   padding: 0 1.25rem;
 }}
@@ -5304,7 +5305,7 @@ html .chat-page.is-empty .activity-composer {{
    list gap (0.5rem) - the first real use of this control surfaced how
    cramped the original placeholder values (0.25rem padding/gap) looked
    once actual multi-word labels ("Notifications", "AI CLI") sat in it. */
-.tab-list {{ display: flex; gap: 0.5rem; margin: -0.25rem 0 1rem; border-bottom: 1px solid var(--md-outline-variant); }}
+.tab-list {{ display: flex; gap: 0.5rem; margin: -0.25rem 0 1rem; border-bottom: 1px solid var(--md-outline-variant); overflow-x: auto; scrollbar-width: none; }}
 .tab-button {{
   display: inline-flex;
   align-items: center;
@@ -5673,7 +5674,7 @@ ul.plain li {{ font-size: 0.9rem; }}
 .loop-empty {{ margin: 0; color: var(--md-on-surface-variant); }}
 .loop-list, .loop-gallery {{ list-style: none; margin: 0; padding: 0; }}
 .loop-list {{ display: flex; flex-direction: column; gap: 0.75rem; }}
-.loop-gallery {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.85rem; }}
+.loop-gallery {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 0.85rem; }}
 .loop-row, .loop-tile {{
   border: 1px solid var(--md-outline-variant);
   border-radius: 16px;
@@ -5797,6 +5798,19 @@ table.skills tr.skill-row.is-expanded .skill-expand-icon {{ transform: rotate(18
    controls rather than small badges next to big buttons. */
 .topbar .header-right .pill {{ height: 40px; padding: 0 1rem; font-size: 0.8rem; gap: 0.45rem; }}
 .topbar .header-right .pill .material-symbols-outlined {{ font-size: 18px; }}
+@media (max-width: 720px) {{ /* narrow topbar */
+  /* A phone leaves the topbar ~330px: let its controls shrink and scroll
+     sideways instead of being clipped off the right edge. */
+  .topbar {{ gap: 0.4rem; padding-right: var(--shell-gap); }}
+  /* flex-start + an auto margin, not flex-end: content overflowing on the
+     start side of a flex-end row can never be scrolled into view. */
+  .topbar .header-right {{ flex-shrink: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; gap: 0.4rem;
+    justify-content: flex-start; }}
+  .topbar .header-right > :first-child {{ margin-left: auto; }}
+  .topbar .header-right::-webkit-scrollbar {{ display: none; }}
+  .topbar .header-right > * {{ flex-shrink: 0; }}
+  .topbar .header-right .pill {{ padding: 0 0.7rem; }}
+}}
 /* Overview page's status-hero pill: the same state pill shown small in
    the topbar on every page, sized up since here it's the Latest Run
    card's headline value, not a small persistent indicator. */
@@ -5934,7 +5948,7 @@ svg.brand-logo[fill="currentColor"] {{ color: #181717; }}
 .connector-count {{ display: inline-flex; align-items: center; justify-content: center; min-width: 1.4rem; height: 1.4rem; padding: 0 0.4rem; box-sizing: border-box; border-radius: 999px; background: var(--cg-badge-bg); color: var(--cg-badge-fg); font-size: 0.72rem; font-weight: 500; }}
 /* Google leads the gallery: its section sits on its own accent panel. */
 .connector-category[data-category="google"] {{ padding: 1.1rem 1.25rem 1.25rem; border: 1px solid var(--cg-border); border-radius: 20px; background: var(--cg-panel); }}
-.connector-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 1rem; }}
+.connector-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(min(15rem, 100%), 1fr)); gap: 1rem; }}
 .connector-tile {{
   position: relative; isolation: isolate; overflow: hidden;
   display: flex; flex-direction: column; gap: 0.6rem;
@@ -6276,7 +6290,7 @@ svg.brand-logo[fill="currentColor"] {{ color: #181717; }}
 }}
 .block-builder {{ display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem; }}
 .block-builder-row {{ display: flex; flex-wrap: wrap; gap: 0.75rem; }}
-.block-builder-row label {{ display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; flex: 1 1 200px; }}
+.block-builder-row label {{ display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; flex: 1 1 min(200px, 100%); min-width: 0; }}
 .block-builder-row input, .block-builder-row select {{
   padding: 0.4rem 0.6rem; border-radius: 8px; border: 1px solid var(--md-outline-variant);
   background: var(--md-surface-container-low); color: var(--md-on-surface);
@@ -6356,7 +6370,7 @@ svg.brand-logo[fill="currentColor"] {{ color: #181717; }}
 .inbox-section h3 {{ margin: 0 0 0.6rem; font-size: 0.95rem; }}
 .inbox-count {{ display: inline-block; min-width: 1.4rem; padding: 0 0.4rem; margin-left: 0.25rem; border-radius: 999px;
   background: var(--md-surface-container-high); color: var(--md-on-surface-variant); font-size: 0.75rem; font-weight: 500; text-align: center; vertical-align: middle; }}
-.inbox-stats {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: 0.75rem; }}
+.inbox-stats {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(min(8.5rem, 100%), 1fr)); gap: 0.75rem; }}
 .inbox-stat {{ display: flex; flex-direction: column; gap: 0.15rem; padding: 0.75rem 1rem; border-radius: 10px;
   background: var(--md-surface-container-lowest, var(--md-surface)); border: 1px solid var(--md-outline-variant); }}
 .inbox-stat-value {{ font-size: 1.5rem; font-weight: 500; line-height: 1.2; font-variant-numeric: tabular-nums; }}
@@ -13811,19 +13825,27 @@ def _plugin_loop_label(name, loop):
     return str((loop or {}).get("label") or name)
 
 
+def _loop_status_badge(name):
+    return _status_badge_markup(read_status(status_path_for_loop(name)))
+
+
 def _generic_loop_page(name, loop=None):
     """Generic tabbed page (Live + History, plus Settings when the plugin
     declares settings_fields) for a registered LoopKit plugin loop with no
     bespoke page. The label is the registry's short `label`, else the loop name."""
     V = hub_mod.HubView
     label = _plugin_loop_label(name, loop)
+    badge = lambda: _loop_status_badge(name)  # noqa: E731 - this loop's own state, never GitLab's
     views = [
-        V("live", "Live", lambda **kw: _generic_loop_live_body(name, **_only(kw, "flash", "flash_ok")), refresh=True),
-        V("history", "History", lambda **kw: _generic_loop_history_body(name, **_only(kw, "flash", "flash_ok"))),
+        V("live", "Live", lambda **kw: _generic_loop_live_body(name, **_only(kw, "flash", "flash_ok")),
+          refresh=True, badge_fn=badge),
+        V("history", "History", lambda **kw: _generic_loop_history_body(name, **_only(kw, "flash", "flash_ok")),
+          badge_fn=badge),
     ]
     if _loop_settings_fields(name, loop):
         views.append(V("settings", "Settings",
-                       lambda **kw: _generic_loop_settings_body(name, **_only(kw, "flash", "flash_ok"))))
+                       lambda **kw: _generic_loop_settings_body(name, **_only(kw, "flash", "flash_ok")),
+                       badge_fn=badge))
     return hub_mod.Hub("loops", f"/loops/{urllib.parse.quote(name)}", label, _SECTION_ICON_LOOPS, tuple(views))
 
 
@@ -14269,7 +14291,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 f"{html.escape(_t('Back to history'))}</a></p>"
                 f"<section class='card'>{render_markdown(target.read_text(errors='replace'))}</section>")
             self._send_html(_render_shell(
-                f"{fname[:-3]} · Loop X Engineering", f"loop:{loop_name}", _default_badge(), body_html))
+                f"{fname[:-3]} · Loop X Engineering", f"loop:{loop_name}", _loop_status_badge(loop_name), body_html))
             return
 
         if split.path.startswith("/loops/") and split.path.count("/") == 2:

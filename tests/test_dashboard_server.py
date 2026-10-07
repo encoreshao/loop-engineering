@@ -14151,3 +14151,56 @@ def test_loops_catalog_reads_connector_accounts_once(monkeypatch):
     out = ds._loops_catalog_body()
     assert len(calls) == 1
     assert "data-loop='l0'" in out
+
+
+def test_plugin_loop_pages_show_their_own_status_badge(monkeypatch, tmp_path):
+    d = _plugin_loop_sandbox(monkeypatch, tmp_path)
+    (d / "history" / "2026-10-06_080000.md").write_text("# run\n")
+    plugin_status = ds.status_path_for_loop("rss-watch-loop")
+    monkeypatch.setattr(ds, "read_status",
+                        lambda path: {"state": "idle"} if Path(path) == Path(plugin_status) else {"state": "needs_reauth"})
+    page = ds.render_loop_page("rss-watch-loop")
+    assert "Needs Reauth" not in page and "Idle" in page
+    with _running_server() as port:
+        status, _h, body = _plain_get(port, "/loops/rss-watch-loop/history/2026-10-06_080000.md")
+    assert status == 200 and "Needs Reauth" not in body and "Idle" in body
+
+
+def test_loop_run_now_unknown_or_bespoke_loop_is_404(monkeypatch, tmp_path):
+    _plugin_loop_sandbox(monkeypatch, tmp_path)
+    monkeypatch.setattr(ds.loops_config, "get_loop", lambda n, *a, **k: (_ for _ in ()).throw(KeyError(n)))
+    calls = []
+    monkeypatch.setattr(ds, "trigger_manual_run", lambda **kw: calls.append(kw) or (True, "started"))
+    with _running_server() as port:
+        for name in ("no-such-loop", "gitlab-loop"):
+            status, _h, _b = _post(port, f"/loops/{name}/run-now", {"csrf_token": ds._CSRF_TOKEN})
+            assert status == 404, name
+    assert calls == []
+
+
+def test_loop_run_now_refuses_while_a_run_is_in_progress(monkeypatch, tmp_path):
+    _plugin_loop_sandbox(monkeypatch, tmp_path)
+    status_path = Path(ds.status_path_for_loop("rss-watch-loop"))
+    status_path.parent.mkdir(parents=True, exist_ok=True)
+    status_path.write_text('{"state": "running"}')
+    launched = []
+    monkeypatch.setattr(ds.subprocess, "Popen", lambda *a, **k: launched.append(a))
+    with _running_server() as port:
+        status, headers, _b = _post(port, "/loops/rss-watch-loop/run-now", {"csrf_token": ds._CSRF_TOKEN})
+    assert status == 303 and "ok=0" in headers["Location"] and launched == []
+
+
+def test_auto_grids_never_force_a_column_wider_than_a_phone_card():
+    # repeat(auto-fill|auto-fit, minmax(280px, 1fr)) overflows a card narrower
+    # than 280px (a 390px phone leaves ~220px); min(280px, 100%) never does.
+    import re
+    style = ds._STYLE if hasattr(ds, "_STYLE") else ""
+    source = Path(ds.__file__).read_text()
+    bad = re.findall(r"repeat\(auto-(?:fill|fit),\s*minmax\(\d+(?:\.\d+)?(?:px|rem)", source + style)
+    assert bad == []
+
+
+def test_topbar_controls_scroll_instead_of_being_clipped_on_narrow_screens():
+    source = Path(ds.__file__).read_text()
+    narrow = source.split("@media (max-width: 720px) {{ /* narrow topbar */")[1].split("}}\n}}")[0]
+    assert ".topbar .header-right" in narrow and "overflow-x: auto" in narrow and "min-width: 0" in narrow

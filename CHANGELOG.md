@@ -33,6 +33,11 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Fixed
 
+- On phone-width screens (about 390px) the topbar's controls scroll sideways
+  instead of being cut off, and cards, grids and tab bars stay inside the
+  page.
+- A plugin loop's page and its run history files show that loop's own status
+  in the topbar, not the GitLab loop's.
 - Connectors: a failed save no longer leaves a secret behind in the Keychain
   (a new account's secret is removed, a replaced or renamed one is restored),
   and simultaneous saves or Test clicks no longer overwrite each other.
