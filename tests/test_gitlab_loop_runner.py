@@ -1751,22 +1751,63 @@ def test_budget_exceeded_envelope_is_a_failure_with_cost(tmp_path, monkeypatch, 
     assert [f["data"]["reason"] for f in failures] == ["budget_exceeded"]
 
 
-def _failing_run(monkeypatch, tmp_path, cost):
+def _failing_then_ok_run(monkeypatch, tmp_path, fail_cost):
+    seen = []
     def invoker(*a, **k):
-        exc = RuntimeError("boom")
-        if cost is not None:
-            exc.cost_usd = cost
-        raise exc
+        seen.append(k["max_budget_usd"])
+        if len(seen) == 1:
+            exc = RuntimeError("boom")
+            if fail_cost is not None:
+                exc.cost_usd = fail_cost
+            raise exc
+        return {"cost_usd": 0.1}
     monkeypatch.setattr(glr, "build_verifiers", lambda *a, **k: [SequenceVerifier(iter([True]))])
-    return glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="gate"), tmp_path, tmp_path,
-                              agent_invoker=invoker, events_dir=tmp_path)
+    result = glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="gate"), tmp_path, tmp_path,
+                                agent_invoker=invoker, events_dir=tmp_path)
+    return seen, result
 
 
-def test_failed_call_cost_is_recorded(monkeypatch, tmp_path):
-    result = _failing_run(monkeypatch, tmp_path, 2.0)
+def test_failed_call_with_cost_is_recorded(monkeypatch, tmp_path):
+    # LoopRuntime stops on agent_failed (no retry), so the effect is on the recorded cost.
+    seen, result = _failing_then_ok_run(monkeypatch, tmp_path, 2.0)
+    assert seen == [3.0]
     assert getattr(result, glr._AGENT_COST_ATTR) == 2.0
 
 
-def test_failed_call_without_cost_records_the_cap(monkeypatch, tmp_path):
-    result = _failing_run(monkeypatch, tmp_path, None)
-    assert getattr(result, glr._AGENT_COST_ATTR) == 3
+def test_failed_call_with_unknown_cost_records_none_not_the_cap(monkeypatch, tmp_path):
+    seen, result = _failing_then_ok_run(monkeypatch, tmp_path, None)
+    assert getattr(result, glr._AGENT_COST_ATTR) is None
+
+
+def _stub_cli(tmp_path, monkeypatch, body, exit_code):
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir(exist_ok=True)
+    script = bin_dir / "claude"
+    script.write_text(f"#!/usr/bin/env python3\nimport sys, json\n{body}\nsys.exit({exit_code})\n")
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    monkeypatch.setattr(glr.ai_cli_config, "get_selected_cli", lambda: "claude")
+    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(tmp_path))
+
+
+def _invoke_failing(tmp_path, cap=1.5):
+    with pytest.raises(Exception) as info:
+        glr._invoke_cli_with_prompt("p", repo_root=REPO_ROOT, unified_log_path=tmp_path / "u.log",
+                                    alias="harbor", issue_iid=1, events_dir=tmp_path / "e", max_budget_usd=cap)
+    return info.value
+
+
+def test_budget_stop_without_cost_records_the_cap(tmp_path, monkeypatch):
+    _stub_cli(tmp_path, monkeypatch,
+              "print(json.dumps({'is_error': True, 'subtype': 'error_max_budget_usd'}))", 1)
+    assert _invoke_failing(tmp_path).cost_usd == 1.5
+
+
+def test_non_budget_failure_without_envelope_records_unknown(tmp_path, monkeypatch):
+    _stub_cli(tmp_path, monkeypatch, "print('plain crash', file=sys.stderr)", 3)
+    assert _invoke_failing(tmp_path).cost_usd is None
+
+
+def test_non_budget_envelope_without_cost_records_unknown(tmp_path, monkeypatch):
+    _stub_cli(tmp_path, monkeypatch, "print(json.dumps({'is_error': True, 'subtype': 'error_during_execution'}))", 0)
+    assert _invoke_failing(tmp_path).cost_usd is None

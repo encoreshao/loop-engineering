@@ -335,6 +335,16 @@ class AgentCallError(Exception):
         self.cost_usd = cost_usd
 
 
+def _failed_call_cost(envelope, budget_stop, cap):
+    """Spend of a failed call: the envelope's figure; the cap we passed only
+    when the CLI stopped on that cap without reporting one; else None
+    (unknown - never booked as spend)."""
+    cost = envelope.get("total_cost_usd") if envelope else None
+    if cost is None and budget_stop:
+        return cap
+    return cost
+
+
 def _parse_envelope(stdout):
     """The Claude CLI's JSON result object, or None when absent/unparseable."""
     if isinstance(stdout, bytes):
@@ -399,8 +409,8 @@ def _invoke_cli_with_prompt(prompt, repo_root=None, timeout_seconds=900, unified
         envelope = _parse_envelope(getattr(exc, "stdout", None)) if ai_cli == "claude" else None
         # What the failed call spent (the CLI's JSON error envelope still
         # carries total_cost_usd), so the run's remaining budget stays honest.
-        exc.cost_usd = envelope.get("total_cost_usd") if envelope else None
         budget = bool(envelope) and envelope.get("subtype") == "error_max_budget_usd"
+        exc.cost_usd = _failed_call_cost(envelope, budget, max_budget_usd)
         report_failure(reason, detail, "budget_exceeded" if budget else None)
         raise
 
@@ -409,7 +419,8 @@ def _invoke_cli_with_prompt(prompt, repo_root=None, timeout_seconds=900, unified
         if parsed is not None and parsed.get("is_error"):
             budget = parsed.get("subtype") == "error_max_budget_usd"
             report_failure("error envelope on exit 0", proc.stdout, "budget_exceeded" if budget else None)
-            raise AgentCallError("claude reported an error", cost_usd=parsed.get("total_cost_usd"))
+            raise AgentCallError("claude reported an error",
+                                 cost_usd=_failed_call_cost(parsed, budget, max_budget_usd))
         result_text = cost_module.extract_result_text(parsed) if parsed else "(no result text in CLI output)"
         usage = cost_module.extract_claude_usage(parsed) if parsed else None
         cost_usd = usage["cost_usd"] if usage else None
@@ -781,10 +792,8 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
                 feedback=feedback, gate=gate, run_id=run_id, max_budget_usd=cap,
             )
         except Exception as exc:
-            # A failed call still spent money: its own figure if the CLI
-            # reported one, else assume it used the whole cap it was given.
-            failed_cost = getattr(exc, "cost_usd", None)
-            raw_costs.append(failed_cost if failed_cost is not None else cap)
+            # A failed call may still have spent money; None = unknown.
+            raw_costs.append(getattr(exc, "cost_usd", None))
             raise
         if isinstance(agent_result, dict):
             raw_costs.append(agent_result.get("cost_usd"))
