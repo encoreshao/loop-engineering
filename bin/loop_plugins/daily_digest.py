@@ -25,6 +25,15 @@ def _local_now(ctx):
     return ctx.now.astimezone()
 
 
+def _local_midnight(ctx, days=0):
+    """Local midnight `days` after today's, with that day's own UTC offset.
+    Built from the calendar date (a naive local time resolved by the
+    system's zone rules), never by adding 24 hours to an offset-fixed
+    datetime, so a DST change day keeps its real 23 or 25 hours."""
+    day = _local_now(ctx).date() + timedelta(days=days)
+    return datetime.combine(day, datetime.min.time()).astimezone()
+
+
 def _err(exc):
     # Class name only: str(exc) can carry URLs or tokens.
     return type(exc).__name__
@@ -82,8 +91,8 @@ def _collect_github(conn, yesterday):
 def _default_loop_x(ctx, events_dir=None):
     import events
     # Yesterday in LOCAL time; event files and timestamps are UTC.
-    end = _local_now(ctx).replace(hour=0, minute=0, second=0, microsecond=0)
-    start = end - timedelta(days=1)
+    end = _local_midnight(ctx)
+    start = _local_midnight(ctx, days=-1)
     utc = timezone.utc
     since = str(start.astimezone(utc).date())
     until = str((end - timedelta(seconds=1)).astimezone(utc).date())
@@ -136,8 +145,8 @@ def _safe(fn, *args):
 
 
 def _meetings(ctx, accounts, loader):
-    start = _local_now(ctx).replace(hour=0, minute=0, second=0, microsecond=0)
-    end = start + timedelta(days=1)
+    start = _local_midnight(ctx)
+    end = _local_midnight(ctx, days=1)
     out = []
     for account in accounts:
         try:

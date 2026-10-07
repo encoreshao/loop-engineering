@@ -185,3 +185,35 @@ def test_local_dates_near_midnight(monkeypatch, tmp_path):
     assert [e["project"] for e in out["completed"]] == ["in"] and [e["project"] for e in out["escalated"]] == ["in2"]
     monkeypatch.setattr(dd, "collect", lambda c, **kw: {})
     assert [i.key for i in dd.DailyDigest().discover(C())] == ["digest:2026-10-06"]
+
+
+def test_yesterday_window_spans_a_dst_change(monkeypatch, tmp_path):
+    # New York leaves DST on 2026-11-01: that local day is 25 hours long,
+    # 2026-11-01T04:00Z (EDT midnight) .. 2026-11-02T05:00Z (EST midnight).
+    monkeypatch.setenv("TZ", "America/New_York"); time.tzset()
+    class C: now = datetime(2026, 11, 2, 14, 30, tzinfo=timezone.utc); settings = {}; log = staticmethod(lambda m: None)
+    (tmp_path / "2026-11-01.jsonl").write_text(
+        json.dumps({"event_type": "issue.completed", "project": "first-hour", "issue_iid": 1,
+                    "timestamp": "2026-11-01T04:30:00.000Z"}) + "\n"
+        + json.dumps({"event_type": "issue.completed", "project": "before", "issue_iid": 2,
+                      "timestamp": "2026-11-01T03:30:00.000Z"}) + "\n")
+    (tmp_path / "2026-11-02.jsonl").write_text(
+        json.dumps({"event_type": "issue.completed", "project": "last-hour", "issue_iid": 3,
+                    "timestamp": "2026-11-02T04:30:00.000Z"}) + "\n")
+    out = dd._default_loop_x(C(), events_dir=tmp_path)
+    assert [e["project"] for e in out["completed"]] == ["first-hour", "last-hour"]
+
+
+def test_todays_meetings_window_spans_a_dst_change(monkeypatch):
+    monkeypatch.setenv("TZ", "America/New_York"); time.tzset()
+    class C: now = datetime(2026, 11, 1, 14, 30, tzinfo=timezone.utc); settings = {}; log = staticmethod(lambda m: None)
+    calls = []
+
+    class Cal:
+        def list_events(self, time_min, time_max, max_results=50):
+            calls.append((time_min, time_max))
+            return []
+    dd._meetings(C(), [{"id": "cal"}], lambda aid: Cal())
+    t_min, t_max = (datetime.fromisoformat(t) for t in calls[0])
+    assert t_min.astimezone(timezone.utc) == datetime(2026, 11, 1, 4, 0, tzinfo=timezone.utc)
+    assert t_max.astimezone(timezone.utc) == datetime(2026, 11, 2, 5, 0, tzinfo=timezone.utc)
