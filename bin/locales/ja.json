@@ -841,5 +841,20 @@
   "Cost efficiency": "コスト効率",
   "Learning effectiveness": "学習効果",
   "Needs review": "要レビュー",
-  "Reuse of this lesson preceded repeated failures; check it is still correct.": "この教訓の再利用後に失敗が繰り返されました。内容が正しいか確認してください。"
+  "Reuse of this lesson preceded repeated failures; check it is still correct.": "この教訓の再利用後に失敗が繰り返されました。内容が正しいか確認してください。",
+  "Evals": "評価",
+  "Last scripted and golden evaluation runs.": "直近のスクリプト評価とゴールデン評価の実行結果。",
+  "Scripted evals": "スクリプト評価",
+  "Golden evals": "ゴールデン評価",
+  "No scripted run yet. Run `loop eval` to record one.": "スクリプト評価の実行はまだありません。`loop eval` を実行して記録してください。",
+  "No golden run yet. Run `loop eval --golden` to record one.": "ゴールデン評価の実行はまだありません。`loop eval --golden` を実行して記録してください。",
+  "Passed": "合格",
+  "{passed}/{total} cases passed": "{passed}/{total} ケースが合格",
+  "Finished {when}": "完了: {when}",
+  "Result": "結果",
+  "Case": "ケース",
+  "Reasons": "理由",
+  "No cases recorded.": "記録されたケースはありません。",
+  "Spent ${spent} of ${budget} budget": "予算 ${budget} のうち ${spent} を使用",
+  "Not run (budget reached)": "未実行（予算上限に到達）"
 }

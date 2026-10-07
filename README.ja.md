@@ -369,6 +369,8 @@ python3 -m pytest tests/
 
 `bin/` 配下のすべてのスクリプト（Python でもシェルでも、どのフォルダにあっても）には対応する `tests/test_*.py` があり、可能な限りモックではなく実際のサブプロセスや一時ディレクトリを使ってテストされています（実際のローカル git リポジトリを使う例として `tests/test_new_worktree.py` を参照）。
 
+`loop eval` はスクリプト評価ケースを実行し（無料）、`outputs/evals/last.json` を書き出します。`loop eval --golden [--budget-usd N] [--case NAME]` は合成フィクスチャリポジトリ上で実際のエージェントを実行し（有料：予算の既定は 10 USD で、使い切ると新しいケースは開始されません）、`outputs/evals/golden-last.json` を書き出します。どちらの結果も Harness → Evals に表示されます。`loop ledger backfill` は過去の `result.json` からレジャーのレコードを再構築します。
+
 ## プロジェクトドキュメント
 
 

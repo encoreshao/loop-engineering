@@ -13843,7 +13843,7 @@ def test_gates_body_empty_shows_na(tmp_path):
 
 
 def test_harness_hub_first_view_is_gates():
-    assert [v.key for v in ds._hubs()["harness"].views] == ["gates", "audit"]
+    assert [v.key for v in ds._hubs()["harness"].views] == ["gates", "evals", "audit"]
 
 
 def test_gate_stats_ignores_gate_mode_verdicts_for_agreement():
@@ -13915,3 +13915,30 @@ def test_render_memory_page_shows_needs_review_badge_and_filter(monkeypatch, tmp
     assert "memory-filter-needs-review" in output
     assert output.count("data-needs-review='1'") == 1
     assert "Needs review" in output
+
+
+def test_harness_evals_view_reads_last_runs(tmp_path, monkeypatch):
+    import json
+    evals = tmp_path / "outputs" / "evals"
+    evals.mkdir(parents=True)
+    (evals / "last.json").write_text(json.dumps({
+        "finished_at": "2026-10-06T10:00:00+00:00",
+        "results": [{"name": "scripted-alpha", "passed": True, "reasons": []},
+                    {"name": "scripted-beta", "passed": False, "reasons": ["too many <retries>"]}]}))
+    (evals / "golden-last.json").write_text(json.dumps({
+        "finished_at": "2026-10-06T11:00:00+00:00", "budget_usd": 10, "spent_usd": 1.25,
+        "results": [{"name": "golden-gamma", "passed": True, "reasons": [], "cost_usd": 0.75},
+                    {"name": "golden-delta", "passed": False, "reasons": ["verifier failed"], "cost_usd": None}],
+        "not_run": ["golden-eps"]}))
+    monkeypatch.setattr(ds, "LOOP_DIR", tmp_path)
+    out = ds._evals_body()
+    for name in ("scripted-alpha", "scripted-beta", "golden-gamma", "golden-delta", "golden-eps"):
+        assert name in out
+    assert "check_circle" in out and "cancel" in out
+    assert "$0.75" in out and "&lt;retries&gt;" in out
+    assert "evals" in [v.key for v in ds._hubs()["harness"].views]
+
+
+def test_harness_evals_view_empty(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "LOOP_DIR", tmp_path)
+    assert "loop eval" in ds._evals_body()

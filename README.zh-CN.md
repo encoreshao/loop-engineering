@@ -366,6 +366,8 @@ python3 -m pytest tests/
 
 `bin/` 下的每个脚本（无论是 Python 还是 shell，无论位于哪个文件夹）都有对应的 `tests/test_*.py`，并尽可能针对真实子进程/临时目录而非 mock 进行测试（示例参见 `tests/test_new_worktree.py`，它使用了一个真实的本地 git 仓库）。
 
+`loop eval` 运行脚本化评测用例（免费），并写入 `outputs/evals/last.json`。`loop eval --golden [--budget-usd N] [--case NAME]` 在合成的夹具仓库上运行真实智能体（付费：预算默认为 10 美元，花完后不再启动新用例），并写入 `outputs/evals/golden-last.json`。两者的结果都显示在 Harness → Evals。`loop ledger backfill` 会根据旧的 `result.json` 重建账本记录。
+
 ## 项目文档
 
 

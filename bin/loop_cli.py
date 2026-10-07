@@ -5,9 +5,11 @@ argparse). `run` invokes a real agent via `--prompt`/`--prompt-file`; with
 neither flag given, its agent_fn falls back to the original no-op
 (L0/observe, plan section 32). `replay` also re-invokes a real agent, using
 the prompt and definition path recorded by the original `run`."""
+import json
 import sys
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from agents.base import get_agent
@@ -23,6 +25,7 @@ from loop_verifiers import build_verifiers
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = REPO_ROOT / "templates"
 DEFAULT_EVAL_CASES_DIR = REPO_ROOT / "evals" / "cases"
+DEFAULT_EVAL_LAST_PATH = REPO_ROOT / "outputs" / "evals" / "last.json"
 
 # Floor guardrail for the CLI's own run/replay invocations - same deny list
 # as bin/gitlab_loop_runner.py's _DISALLOWED_TOOLS. Defense in depth: even if
@@ -432,6 +435,24 @@ def _cmd_eval_golden(argv):
     return golden_eval.exit_code(summary)
 
 
+def _write_eval_last(outcomes, path=None):
+    """outputs/evals/last.json - the latest scripted `loop eval` run, per
+    checkout (the Harness > Evals view reads it)."""
+    if path is None:
+        path = DEFAULT_EVAL_LAST_PATH
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "results": [
+            {"name": o.case_name, "passed": bool(o.passed), "reasons": [o.detail] if o.detail else []}
+            for o in outcomes
+        ],
+    }
+    path.write_text(json.dumps(data, indent=2) + "\n")
+    return path
+
+
 def _cmd_eval(argv):
     if "--golden" in argv:
         return _cmd_eval_golden([a for a in argv if a != "--golden"])
@@ -451,6 +472,7 @@ def _cmd_eval(argv):
         if not outcome.passed:
             print(f"      {outcome.detail}")
 
+    _write_eval_last(outcomes)
     passed_count = sum(1 for o in outcomes if o.passed)
     print()
     print(f"{passed_count}/{len(outcomes)} cases passed")

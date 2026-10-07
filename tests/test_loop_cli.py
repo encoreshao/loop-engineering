@@ -789,3 +789,22 @@ def test_eval_golden_rejects_bad_arguments(monkeypatch, tmp_path):
     assert loop_cli.main(["eval", "--golden", "--budget-usd", "lots"]) == 2
     assert "names" not in seen
     assert not (tmp_path / "golden-last.json").exists()
+
+
+def test_scripted_eval_writes_last_json(monkeypatch, tmp_path, capsys):
+    import json
+    sys.path.insert(0, str(REPO_ROOT / "bin"))
+    import loop_cli
+    from loop_eval import EvalOutcome
+
+    outcomes = [EvalOutcome("good", True, {}, {}), EvalOutcome("bad", False, {}, {}, detail="boom")]
+    monkeypatch.setattr(loop_cli, "run_all", lambda d: outcomes)
+    monkeypatch.setattr(loop_cli, "DEFAULT_EVAL_LAST_PATH", tmp_path / "evals" / "last.json")
+    rc = loop_cli.main(["eval"])
+    assert rc == 1
+    data = json.loads((tmp_path / "evals" / "last.json").read_text())
+    assert data["finished_at"]
+    assert data["results"] == [
+        {"name": "good", "passed": True, "reasons": []},
+        {"name": "bad", "passed": False, "reasons": ["boom"]},
+    ]

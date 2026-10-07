@@ -841,5 +841,20 @@
   "Cost efficiency": "成本效率",
   "Learning effectiveness": "学习成效",
   "Needs review": "需要审核",
-  "Reuse of this lesson preceded repeated failures; check it is still correct.": "复用此经验后多次失败，请确认其是否仍然正确。"
+  "Reuse of this lesson preceded repeated failures; check it is still correct.": "复用此经验后多次失败，请确认其是否仍然正确。",
+  "Evals": "评测",
+  "Last scripted and golden evaluation runs.": "最近一次脚本评测和黄金评测的运行结果。",
+  "Scripted evals": "脚本评测",
+  "Golden evals": "黄金评测",
+  "No scripted run yet. Run `loop eval` to record one.": "尚无脚本评测记录。运行 `loop eval` 以记录一次。",
+  "No golden run yet. Run `loop eval --golden` to record one.": "尚无黄金评测记录。运行 `loop eval --golden` 以记录一次。",
+  "Passed": "通过",
+  "{passed}/{total} cases passed": "{passed}/{total} 个用例通过",
+  "Finished {when}": "完成于 {when}",
+  "Result": "结果",
+  "Case": "用例",
+  "Reasons": "原因",
+  "No cases recorded.": "没有记录任何用例。",
+  "Spent ${spent} of ${budget} budget": "预算 ${budget} 中已花费 ${spent}",
+  "Not run (budget reached)": "未运行（已达预算上限）"
 }

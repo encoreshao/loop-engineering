@@ -841,5 +841,20 @@
   "Cost efficiency": "Efficacité des coûts",
   "Learning effectiveness": "Efficacité de l'apprentissage",
   "Needs review": "À examiner",
-  "Reuse of this lesson preceded repeated failures; check it is still correct.": "La réutilisation de cette leçon a précédé des échecs répétés ; vérifiez qu'elle est toujours correcte."
+  "Reuse of this lesson preceded repeated failures; check it is still correct.": "La réutilisation de cette leçon a précédé des échecs répétés ; vérifiez qu'elle est toujours correcte.",
+  "Evals": "Évaluations",
+  "Last scripted and golden evaluation runs.": "Dernières exécutions des évaluations scriptées et golden.",
+  "Scripted evals": "Évaluations scriptées",
+  "Golden evals": "Évaluations golden",
+  "No scripted run yet. Run `loop eval` to record one.": "Aucune exécution scriptée pour l'instant. Lancez `loop eval` pour en enregistrer une.",
+  "No golden run yet. Run `loop eval --golden` to record one.": "Aucune exécution golden pour l'instant. Lancez `loop eval --golden` pour en enregistrer une.",
+  "Passed": "Réussi",
+  "{passed}/{total} cases passed": "{passed}/{total} cas réussis",
+  "Finished {when}": "Terminé {when}",
+  "Result": "Résultat",
+  "Case": "Cas",
+  "Reasons": "Raisons",
+  "No cases recorded.": "Aucun cas enregistré.",
+  "Spent ${spent} of ${budget} budget": "${spent} dépensés sur un budget de ${budget}",
+  "Not run (budget reached)": "Non exécutés (budget atteint)"
 }

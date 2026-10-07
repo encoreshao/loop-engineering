@@ -369,6 +369,8 @@ python3 -m pytest tests/
 
 Every script under `bin/` (Python or shell, whichever folder it lives in) has a matching `tests/test_*.py`, exercised against real subprocesses/tmp dirs rather than mocks wherever practical (see `tests/test_new_worktree.py` for an example using a real local git repo).
 
+`loop eval` runs the scripted evaluation cases (free) and writes `outputs/evals/last.json`. `loop eval --golden [--budget-usd N] [--case NAME]` runs the real agent on synthetic fixture repos (paid: the budget defaults to 10 USD and no new case starts once it is spent) and writes `outputs/evals/golden-last.json`. Both results show under Harness → Evals. `loop ledger backfill` rebuilds ledger records from older `result.json` files.
+
 ## Project docs
 
 

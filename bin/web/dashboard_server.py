@@ -4084,7 +4084,7 @@ _FONT_FACE_VARS = "\n".join(
 # name that isn't listed here renders as tofu/missing glyph. Add a new name
 # to this list before shipping a new icon constant that uses it.
 _MATERIAL_SYMBOLS_ICON_NAMES = (
-    "account_balance_wallet,add,add_comment,arrow_forward,arrow_upward,auto_awesome,autorenew,bolt,calendar_month,check,check_circle,chevron_left,circle,"
+    "account_balance_wallet,add,add_comment,arrow_forward,arrow_upward,auto_awesome,autorenew,bolt,calendar_month,cancel,check,check_circle,chevron_left,circle,"
     "close,code,content_copy,delete,description,dns,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,help,history,hub,"
     "lightbulb,login,loop,mail,merge,monitoring,newspaper,open_in_new,palette,payments,rss_feed,save,search,send,settings,smart_toy,space_dashboard,speed,task_alt,terminal,topic,"
     "translate,tune,warning,webhook,widgets"
@@ -13354,6 +13354,87 @@ def _only(kwargs, *keys):
     return {k: kwargs[k] for k in keys if k in kwargs}
 
 
+def _read_eval_json(name, base_dir=None):
+    """outputs/evals/<name> under the checkout, or None when absent/corrupt."""
+    if base_dir is None:
+        base_dir = LOOP_DIR
+    try:
+        data = json.loads((Path(base_dir) / "outputs" / "evals" / name).read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _eval_result_rows_html(results):
+    rows = []
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        passed = bool(r.get("passed"))
+        icon = "check_circle" if passed else "cancel"
+        label = _t("Passed") if passed else _t("Failed")
+        cost = r.get("cost_usd")
+        cost_text = f"${cost:.2f}" if isinstance(cost, (int, float)) else "\u2014"
+        reasons = "; ".join(str(x) for x in (r.get("reasons") or []))
+        rows.append(
+            "<tr>"
+            f"<td><span class='material-symbols-outlined' aria-hidden='true'>{icon}</span> "
+            f"{html.escape(label)}</td>"
+            f"<td>{html.escape(str(r.get('name', '')))}</td>"
+            f"<td>{html.escape(cost_text)}</td>"
+            f"<td>{html.escape(reasons)}</td>"
+            "</tr>"
+        )
+    return "".join(rows)
+
+
+def _eval_card_html(title, data, empty_hint, extra=""):
+    head = f"<div class='section-header'><h2>{html.escape(title)}</h2></div>"
+    if not data:
+        return f"<section class=\"card\">{head}<p>{html.escape(empty_hint)}</p></section>"
+    results = data.get("results") or []
+    passed = sum(1 for r in results if isinstance(r, dict) and r.get("passed"))
+    summary = _t("{passed}/{total} cases passed", passed=passed, total=len(results))
+    finished = _t("Finished {when}", when=str(data.get("finished_at", "")))
+    table = (
+        "<div class='table-wrap'><table class='daemons'><thead><tr>"
+        f"<th>{html.escape(_t('Result'))}</th><th>{html.escape(_t('Case'))}</th>"
+        f"<th>{html.escape(_t('Cost'))}</th><th>{html.escape(_t('Reasons'))}</th>"
+        f"</tr></thead><tbody>{_eval_result_rows_html(results)}</tbody></table></div>"
+        if results else f"<p>{html.escape(_t('No cases recorded.'))}</p>"
+    )
+    return (f"<section class=\"card\">{head}<p>{html.escape(summary)} \u00b7 {html.escape(finished)}</p>"
+            f"{extra}{table}</section>")
+
+
+def _evals_body(base_dir=None):
+    """Harness > Evals: the last scripted (`loop eval`) and golden
+    (`loop eval --golden`) runs, read from outputs/evals/."""
+    scripted = _read_eval_json("last.json", base_dir)
+    golden = _read_eval_json("golden-last.json", base_dir)
+    golden_extra = ""
+    if golden:
+        spent = golden.get("spent_usd")
+        budget = golden.get("budget_usd")
+        if isinstance(spent, (int, float)):
+            line = _t("Spent ${spent} of ${budget} budget",
+                      spent=f"{spent:.2f}",
+                      budget=f"{budget:.2f}" if isinstance(budget, (int, float)) else "?")
+            golden_extra += f"<p>{html.escape(line)}</p>"
+        not_run = [str(n) for n in (golden.get("not_run") or [])]
+        if not_run:
+            golden_extra += (f"<p>{html.escape(_t('Not run (budget reached)'))}: "
+                             f"{html.escape(', '.join(not_run))}</p>")
+    return f"""
+<div class="page-title">
+<h1>{html.escape(_t('Evals'))}</h1>
+<p class="subtitle">{html.escape(_t('Last scripted and golden evaluation runs.'))}</p>
+</div>
+{_eval_card_html(_t('Scripted evals'), scripted, _t('No scripted run yet. Run `loop eval` to record one.'))}
+{_eval_card_html(_t('Golden evals'), golden, _t('No golden run yet. Run `loop eval --golden` to record one.'), golden_extra)}
+"""
+
+
 def _hubs():
     """Built per call (not at import) so monkeypatched _*_body functions and
     per-request translation both apply. View labels are English literals,
@@ -13377,6 +13458,7 @@ def _hubs():
         )),
         "harness": hub_mod.Hub("harness", "/harness", "Harness", _SECTION_ICON_AUDIT, (
             V("gates", "Gates", lambda **kw: _gates_body()),
+            V("evals", "Evals", lambda **kw: _evals_body()),
             V("audit", "Audit", lambda **kw: _audit_body()),
         )),
         "connectors": hub_mod.Hub("connectors", "/connectors", "Connectors", _SECTION_ICON_CONNECTORS, (

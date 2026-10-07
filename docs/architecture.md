@@ -33,38 +33,48 @@ Trigger → Goal → Context → Agent → Actions → Verification → Evaluati
                                    Memory + Metrics accumulate alongside every run
 ```
 
-## 2. Two run-history systems, not yet unified
+## 2. Ledger
 
-This is the single most important thing to know before reading further:
-**there are two independent, non-overlapping histories of what this
-project has done**, and most of the code below belongs to one or the
-other.
+There is one run history: the **ledger** (`bin/ledger.py`). `ledger.iter_runs`
+joins the append-only event log (`outputs/events/*.jsonl`, written by
+`bin/events.py`) with each `LoopRuntime`'s persisted result
+(`outputs/loop-runs/<run_id>/result.json`, written by `bin/loop_serialize.py`)
+into one `RunRecord` per run, so a dashboard number no longer depends on which
+of two stores a reader happened to open.
 
-- **The GitLab issue loop's own event log** — `outputs/events/*.jsonl`,
-  written by `bin/events.py`'s CLI (`bin/events.py emit --type ...`),
-  called directly from `run-loop-now.sh` (`run.started`/`run.failed`, gated
-  per loop by its `loops.json` entry's `emit_run_events` — `true` only for
-  `gitlab-loop` today, matching the "topic monitor writes to only
-  the second system" split below) and by
-  the agent itself per `LOOPX_INSTRUCTIONS.md` (`issue.started`,
-  `issue.classified`, `verification.started/passed/failed`,
-  `issue.completed`/`issue.escalated`, `memory.created`/`memory.reused`).
-  `bin/metrics.py`, `bin/cost.py`, `bin/health.py`, `bin/learning.py`, and
-  `bin/risk.py` all read *only* this log. This is what backs the
-  **Insights** views (Analytics, Cost, Memory).
-- **`LoopRuntime`'s persisted results** — `outputs/loop-runs/<run_id>/result.json`,
-  written by `bin/loop_serialize.py`, one file per `LoopRuntime.start()`
-  call. `bin/loop_serialize.py` and `bin/loop_budget.py`'s
-  `summarize_*` functions read *only* this. This is what backs the
-  **Runs → Loop Runs**, **Insights → Budget**, and **Harness → Audit** views.
+- **The `loop.result` event** — `loop_serialize.write_result` emits it when a
+  run's status is `finished`. Its payload is small (at most 8 KB: ids, states,
+  counts, cost, duration, per-iteration `{state, passed, cost_usd}`; no
+  verifier output, no prompts), so the event log alone is enough to rebuild a
+  run's outcome. `RunRecord.has_result` says whether a full `result.json` is
+  also on disk.
+- **Backfill** — `loop ledger backfill [--results-dir DIR] [--events-dir DIR]`
+  appends a `loop.result` for each pre-existing `result.json` that has none.
+  It is idempotent (keyed by `run_id`) and never rewrites existing JSONL: it
+  writes only `outputs/events/backfill-loop-result.jsonl`.
+- **Readers** — `metrics.py`, `cost.py`, `health.py`, `learning.py`, `risk.py`
+  (Insights Analytics/Cost/Memory) and `loop_budget.py`/`loop_serialize`'s
+  `summarize_*` (Runs → Loop Runs, Insights → Budget, Harness → Audit) read
+  through the ledger. `LOOP_EVENTS_DIR` overrides the events directory
+  (`events.default_events_dir()`), e.g. for tests and golden sandboxes.
 
-The topic monitor loop only ever wrote to the second system (it was built
-directly on `LoopRuntime` from the start). The GitLab issue loop writes to
-*both*: its own event log (for Insights → Analytics/Cost/Memory, which predate
-`LoopRuntime`) and, since `bin/gitlab_loop_runner.py` wired it up, a
-`LoopRuntime` result per issue (for Runs → Loop Runs, Insights → Budget, Harness → Audit). Nothing here
-merges the two — a fact worth knowing before assuming a dashboard number
-comes from "the" run history.
+The GitLab issue loop still emits its own domain events
+(`issue.started`/`issue.completed`/`verification.*`/`memory.*`) into the same
+log, and the topic monitor loop emits `loop.result` only.
+
+### Golden evals
+
+`loop eval` (scripted agent, §8) tests the runtime; `loop eval --golden`
+tests the real agent. `bin/golden_eval.py` builds a synthetic fixture repo per
+case from `evals/golden/<case>/case.yaml` (generated repos and invented issue
+text only, never real issue content), runs the issue-loop path against it in a
+sandboxed `LOOP_ENGINEERING_HOME`/events dir, and checks the project's checks
+afterwards. It is paid, so it requires a budget: `--budget-usd N` (default 10);
+each agent call is capped by `--max-budget-usd` derived from the case's
+`stop_conditions.max_cost_usd`, and no new case starts once spend reaches the
+budget (unstarted cases are listed as `not_run`). `--case NAME` selects cases.
+Results go to `outputs/evals/golden-last.json`; the scripted run writes
+`outputs/evals/last.json`. Both show on **Harness → Evals**.
 
 ## 3. Module map
 
@@ -88,8 +98,8 @@ subdirectories — see §9.
 | `loop_eval.py` | Evaluation dataset harness — drives a real `LoopRuntime` with a scripted agent/verifiers |
 | `loop_cli.py` | The `loop` CLI: `init`/`validate`/`run`/`status`/`inspect`/`audit`/`cost`/`doctor`/`replay`/`eval` |
 | `agents/base.py`, `agents/claude.py`, `agents/codex.py` | `Agent` ABC + `AgentResult` + provider adapters |
-| `events.py` | Append-only JSONL event log (the GitLab-issue-loop world, §2) |
-| `metrics.py`, `cost.py`, `health.py`, `learning.py` | Pure report builders over the event log (the GitLab-issue-loop world, §2) |
+| `events.py` | Append-only JSONL event log (read through the ledger, §2) |
+| `metrics.py`, `cost.py`, `health.py`, `learning.py` | Pure report builders over the event log (read through the ledger, §2) |
 | `gitlab_loop_runner.py` | Wires the real GitLab issue loop through `LoopRuntime`, one issue at a time |
 | `topic_monitor_runner.py` | Wires the real Topic Monitor loop through `LoopRuntime`, one topic at a time |
 | `loop_scheduler.py` | The single launchd-scheduled poll loop: reads `loops_config.list_loops()` and runs whichever registered loop(s) are due, via `run-loop-now.sh` |
@@ -186,17 +196,21 @@ failure never crashes the runtime — same `|| true` philosophy as
 
 - **Events** — `outputs/events/<UTC date>.jsonl`, one JSON object per
   line: `{event_id, run_id, iteration, type, timestamp, data}`. See §2 for
-  which subsystems read which event stream.
+  how the ledger joins the event log with persisted results.
 - **Metrics** (`metrics.py`) — issue/verification/classification/failure-
   taxonomy/quality-and-autonomy metrics computed from the event log.
 - **Cost** (`cost.py`) — Claude-only usage/cost extraction (`claude -p
-  --output-format json`'s `total_cost_usd`); Codex is skipped, its
-  success-path usage schema being unverified.
-- **Health** (`health.py`) — a *partial* Loop Health score: only 4 of the
-  plan's 7 weighted components have a real data source today (Retry Rate
-  and Learning Effectiveness need data that doesn't exist yet; "Cost
-  Efficiency" has no defined formula in the plan) — reported as partial
-  rather than guessed.
+  --output-format json`'s `total_cost_usd`); Codex cost is still
+  unverified and reported as `None` (its success-path usage schema has not
+  been confirmed against a real sample). Failed budget stops are booked at
+  the per-call cap (`--max-budget-usd`, from `stop_conditions.max_cost_usd`);
+  other unknown costs stay `None`.
+- **Health** (`health.py`) — a 7-component Loop Health score (weights:
+  resolution 30, autonomy 25, verification 15, cost efficiency 10, retry rate
+  10, escalation 5, learning effectiveness 5). Retry rate and cost efficiency
+  come from the ledger's per-run records; learning effectiveness from memory
+  reuse outcomes. A component with no data yet is reported as such rather
+  than guessed, and the score is flagged partial in that case.
 - **Audit** (`loop_audit.py`) — `loop audit <loop.yaml>... [--min-score N]` scores a
   `LoopDefinition`'s readiness: goal/trigger/verification/stop_conditions/
   retry/budget/no_progress_detection/human_gates/context_strategy/
