@@ -416,3 +416,25 @@ def test_template_gitlab_loop_timeout_covers_gate_retries():
     entries = json.loads((REPO_ROOT / "config" / "loops.json.template").read_text())
     entry = next(e for e in entries if e["name"] == "gitlab-loop")
     assert entry["timeout_seconds"] == 43200
+
+
+def test_set_schedule_accepts_minute_intervals(tmp_path):
+    config_path = tmp_path / "loops.json"
+    _write_registry(config_path, [{"name": "topic-loop", "entry_point": "x"}])
+    for minutes in (15, 30, 45):
+        ok, _ = lc.set_schedule("topic-loop", {"frequency": "hourly", "interval_minutes": minutes},
+                                config_path=config_path)
+        assert ok is True
+    assert lc.get_loop("topic-loop", config_path=config_path)["schedule"] == {
+        "frequency": "hourly", "interval_minutes": 45}
+
+
+def test_set_schedule_rejects_bad_minute_intervals(tmp_path):
+    config_path = tmp_path / "loops.json"
+    _write_registry(config_path, [{"name": "topic-loop", "entry_point": "x"}])
+    for schedule in ({"frequency": "hourly", "interval_minutes": 10},
+                     {"frequency": "hourly", "interval_minutes": "15"},
+                     {"frequency": "hourly", "interval_minutes": 15, "interval_hours": 1},
+                     {"frequency": "hourly"}):
+        ok, _ = lc.set_schedule("topic-loop", schedule, config_path=config_path)
+        assert ok is False, schedule

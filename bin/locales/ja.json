@@ -883,5 +883,9 @@
   "incomplete": "未完了",
   "started {when}": "開始 {when}",
   "Incomplete runs": "未完了の実行",
-  "Started but never recorded a result in the last {days} days: crashed, killed, or still running.": "過去 {days} 日間に開始されたが結果が記録されていない実行です（クラッシュ、強制終了、または実行中）。"
+  "Started but never recorded a result in the last {days} days: crashed, killed, or still running.": "過去 {days} 日間に開始されたが結果が記録されていない実行です（クラッシュ、強制終了、または実行中）。",
+  "{n} minutes": "{n} 分",
+  "{n} hour(s)": "{n} 時間",
+  "every": "間隔",
+  "Every {minutes} minutes": "{minutes} 分ごと"
 }

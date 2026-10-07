@@ -225,6 +225,9 @@ _SCHEDULE_REQUIRED_FIELDS = {
     "monthly": ("day", "hour", "minute"),
     "hourly": ("interval_hours",),
 }
+# An "hourly" schedule may give interval_minutes instead of interval_hours
+# (the scheduler polls every 15 minutes, so only these values are honest).
+_INTERVAL_MINUTES_CHOICES = (15, 30, 45)
 
 
 def set_schedule(name, schedule, config_path=None):
@@ -237,6 +240,14 @@ def set_schedule(name, schedule, config_path=None):
     frequency = schedule.get("frequency")
     if frequency not in _SCHEDULE_REQUIRED_FIELDS:
         return False, f"Unknown schedule frequency: {frequency!r}"
+    if frequency == "hourly" and "interval_minutes" in schedule:
+        minutes = schedule["interval_minutes"]
+        if "interval_hours" in schedule:
+            return False, "Give either interval_hours or interval_minutes, not both"
+        if isinstance(minutes, bool) or minutes not in _INTERVAL_MINUTES_CHOICES:
+            choices = ", ".join(str(m) for m in _INTERVAL_MINUTES_CHOICES)
+            return False, f"interval_minutes must be one of {choices}, got {minutes!r}"
+        return _write_schedule(name, schedule, config_path)
     missing = [f for f in _SCHEDULE_REQUIRED_FIELDS[frequency] if f not in schedule]
     if missing:
         return False, f"Schedule for {frequency!r} is missing: {', '.join(missing)}"
@@ -251,6 +262,10 @@ def set_schedule(name, schedule, config_path=None):
             if not isinstance(weekdays, list) or not all(isinstance(d, int) and 1 <= d <= 7 for d in weekdays):
                 return False, f"weekdays must be \"all\" or a list of integers 1-7, got {weekdays!r}"
 
+    return _write_schedule(name, schedule, config_path)
+
+
+def _write_schedule(name, schedule, config_path):
     loops = list_loops(config_path)
     for loop in loops:
         if loop["name"] == name:

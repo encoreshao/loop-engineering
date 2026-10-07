@@ -883,5 +883,9 @@
   "incomplete": "未完成",
   "started {when}": "开始于 {when}",
   "Incomplete runs": "未完成的运行",
-  "Started but never recorded a result in the last {days} days: crashed, killed, or still running.": "过去 {days} 天内已开始但从未记录结果的运行：崩溃、被终止或仍在运行。"
+  "Started but never recorded a result in the last {days} days: crashed, killed, or still running.": "过去 {days} 天内已开始但从未记录结果的运行：崩溃、被终止或仍在运行。",
+  "{n} minutes": "{n} 分钟",
+  "{n} hour(s)": "{n} 小时",
+  "every": "每",
+  "Every {minutes} minutes": "每 {minutes} 分钟"
 }

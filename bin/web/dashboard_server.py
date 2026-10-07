@@ -2427,6 +2427,9 @@ def _describe_schedule(schedule):
 _LOOP_WEEKDAY_LABELS = (("1", "Mon"), ("2", "Tue"), ("3", "Wed"), ("4", "Thu"), ("5", "Fri"), ("6", "Sat"), ("7", "Sun"))
 _LOOP_SCHEDULE_FREQUENCIES = ("Daily", "Weekly", "Monthly", "Hourly")
 _LOOP_HOURLY_INTERVAL_CHOICES = ("1", "2", "3", "4", "6", "8", "12", "24")
+# Sub-hour intervals (loops_config._INTERVAL_MINUTES_CHOICES), submitted in
+# the same interval_hours field with an "m" suffix.
+_LOOP_MINUTE_INTERVAL_CHOICES = ("15", "30", "45")
 
 
 _LOOP_RETURN_TO_DEFAULT = "/settings?view=daemons"
@@ -2477,8 +2480,13 @@ def _loop_schedule_form_html(loop, csrf_input, return_to=None):
     )
     day_of_month = schedule.get("day") or 1
     day_select = _custom_select("day_of_month", (str(d) for d in range(1, 32)), str(day_of_month))
-    interval_hours = str(schedule.get("interval_hours") or 4)
-    interval_select = _custom_select("interval_hours", _LOOP_HOURLY_INTERVAL_CHOICES, interval_hours)
+    if schedule.get("interval_minutes"):
+        interval_value = f"{schedule['interval_minutes']}m"
+    else:
+        interval_value = str(schedule.get("interval_hours") or 4)
+    interval_options = ([(f"{m}m", _t("{n} minutes", n=m)) for m in _LOOP_MINUTE_INTERVAL_CHOICES]
+                        + [(h, _t("{n} hour(s)", n=h)) for h in _LOOP_HOURLY_INTERVAL_CHOICES])
+    interval_select = _custom_select("interval_hours", interval_options, interval_value)
     freq_select = _custom_select("frequency", _LOOP_SCHEDULE_FREQUENCIES, frequency)
 
     time_style = " style='display:none'" if frequency == "Hourly" else ""
@@ -2493,7 +2501,7 @@ def _loop_schedule_form_html(loop, csrf_input, return_to=None):
         f"{freq_select}"
         f"<span class='weekday-checks weekly-controls'{weekly_style}>{checkboxes}</span>"
         f"<span class='monthly-controls'{monthly_style}>on day {day_select}</span>"
-        f"<span class='hourly-controls'{hourly_style}>every {interval_select} hour(s)</span>"
+        f"<span class='hourly-controls'{hourly_style}>{html.escape(_t('every'))} {interval_select}</span>"
         "<button type='submit' class='btn btn-neutral'>Save schedule</button>"
         "</form>"
     )
@@ -13946,6 +13954,8 @@ def _loop_schedule_summary(loop):
     except (TypeError, ValueError):
         time_value = "09:00"
     if frequency == "hourly":
+        if schedule.get("interval_minutes"):
+            return _t("Every {minutes} minutes", minutes=schedule["interval_minutes"])
         hours = str(schedule.get("interval_hours") or 4)
         if hours == "1":
             return _t("Every hour")
@@ -14825,7 +14835,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "hour": hour, "minute": minute,
                     }
                 elif frequency == "Hourly":
-                    schedule = {"frequency": "hourly", "interval_hours": int(form.get("interval_hours", [""])[0])}
+                    interval = form.get("interval_hours", [""])[0]
+                    if interval.endswith("m"):
+                        schedule = {"frequency": "hourly", "interval_minutes": int(interval[:-1])}
+                    else:
+                        schedule = {"frequency": "hourly", "interval_hours": int(interval)}
                 else:
                     schedule = {"frequency": "daily", "hour": hour, "minute": minute}
             except ValueError:

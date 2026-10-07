@@ -81,7 +81,13 @@ def is_due(loop, state, now=None):
         last_attempted_at = state.get(loop["name"], {}).get("last_attempted_at")
         if last_attempted_at is None:
             return True
-        return now - datetime.fromisoformat(last_attempted_at) >= timedelta(hours=schedule["interval_hours"])
+        elapsed = now - datetime.fromisoformat(last_attempted_at)
+        if schedule.get("interval_minutes"):
+            # A minute interval is as long as the scheduler's own 15-minute
+            # poll, so allow a minute of slack: a poll that fires a few
+            # seconds early must not skip a whole slot.
+            return elapsed >= timedelta(minutes=schedule["interval_minutes"]) - timedelta(minutes=1)
+        return elapsed >= timedelta(hours=schedule["interval_hours"])
 
     if frequency == "weekly":
         weekdays = schedule["weekdays"]

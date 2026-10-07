@@ -272,3 +272,17 @@ def test_main_runs_ledger_backfill_before_polling(monkeypatch):
     monkeypatch.setattr(sched, "run_due_loops", lambda: calls.append("poll"))
     sched.main()
     assert calls == ["backfill", "poll"]
+
+
+def test_is_due_for_a_minute_interval():
+    loop = {"name": "x", "schedule": {"frequency": "hourly", "interval_minutes": 15}}
+    state = {"x": {"last_attempted_at": "2026-09-14T10:00:00"}}
+    assert sched.is_due(loop, state, now=datetime(2026, 9, 14, 10, 10)) is False
+    assert sched.is_due(loop, state, now=datetime(2026, 9, 14, 10, 15)) is True
+
+
+def test_minute_interval_tolerates_a_poll_firing_a_few_seconds_early():
+    # launchd polls every 900 s; one poll a few seconds early must not skip a slot.
+    loop = {"name": "x", "schedule": {"frequency": "hourly", "interval_minutes": 15}}
+    state = {"x": {"last_attempted_at": "2026-09-14T10:00:05"}}
+    assert sched.is_due(loop, state, now=datetime(2026, 9, 14, 10, 15, 1)) is True

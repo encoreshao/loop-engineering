@@ -14060,3 +14060,28 @@ def test_loop_runs_hides_incomplete_card_when_none(tmp_path, monkeypatch):
     monkeypatch.setattr(ds, "LOOP_RUNS_DIR", tmp_path)
     monkeypatch.setattr(ds.ledger, "iter_runs", lambda **kw: [])
     assert "Incomplete runs" not in ds._loop_runs_body()
+
+
+def test_loop_schedule_summary_reads_minute_intervals():
+    assert ds._loop_schedule_summary({"schedule": {"frequency": "hourly", "interval_minutes": 15}}) == "Every 15 minutes"
+
+
+def test_loop_schedule_form_offers_and_preselects_minute_intervals():
+    loop = {"name": "calendar-prep-loop", "schedule": {"frequency": "hourly", "interval_minutes": 30}}
+    form = ds._loop_schedule_form_html(loop, "")
+    assert "<option value='15m'>" in form and "<option value='30m' selected>" in form
+    assert "<option value='4'>" in form
+
+
+def test_do_post_loop_schedule_saves_a_minute_interval(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        ds.loops_config, "set_schedule",
+        lambda name, schedule, **k: captured.setdefault("args", (name, schedule)) or (True, "Updated"),
+    )
+    with _running_server() as port:
+        status, _headers, _body = _post(
+            port, "/daemons/loops/topic-loop/schedule",
+            [("csrf_token", ds._CSRF_TOKEN), ("time", "09:00"), ("frequency", "Hourly"), ("interval_hours", "15m")])
+        assert status == 303
+    assert captured["args"] == ("topic-loop", {"frequency": "hourly", "interval_minutes": 15})

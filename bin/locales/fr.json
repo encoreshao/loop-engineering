@@ -883,5 +883,9 @@
   "incomplete": "incomplet",
   "started {when}": "démarré {when}",
   "Incomplete runs": "Exécutions incomplètes",
-  "Started but never recorded a result in the last {days} days: crashed, killed, or still running.": "Démarrées au cours des {days} derniers jours sans jamais enregistrer de résultat : plantées, interrompues ou encore en cours."
+  "Started but never recorded a result in the last {days} days: crashed, killed, or still running.": "Démarrées au cours des {days} derniers jours sans jamais enregistrer de résultat : plantées, interrompues ou encore en cours.",
+  "{n} minutes": "{n} minutes",
+  "{n} hour(s)": "{n} heure(s)",
+  "every": "toutes les",
+  "Every {minutes} minutes": "Toutes les {minutes} minutes"
 }
