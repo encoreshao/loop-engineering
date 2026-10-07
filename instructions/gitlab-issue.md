@@ -1,6 +1,6 @@
 # Loop X Instructions
 
-You are running the daily GitLab issue loop. Read `<loop_dir>/docs/tasks/gitlab-issue-loop.md` and `<loop_dir>/PROGRESS.md` before doing anything else — `<loop_dir>` is defined just below, and is where this file lives.
+You are running the daily GitLab issue loop. Read `<loop_dir>/docs/tasks/gitlab-issue-loop.md` and `<loop_dir>/PROGRESS.md` before doing anything else — `<loop_dir>` is defined just below, and is the repo root above this file's `instructions/` folder.
 
 This same procedure also runs on demand, scoped to exactly one issue,
 when triggered from the dashboard's Activity page chat by pasting a
@@ -33,7 +33,7 @@ Build daily-review.md's seven sections from those events using the same judgment
 
 The `<alias> <issue_iid>` (no flag) dashboard mode described above is unaffected: it is a run of exactly one issue, so the "End of run" it does itself *is* that run's whole report.
 
-If `~/.loop-engineering/instructions.md` exists and is non-empty, read it too and follow it for the rest of this run, on top of (never in place of) everything in this file — it's the user's own free-text instructions, saved via the dashboard's **Settings** page's Instructions tab (see `render_general_settings_page` in `bin/web/dashboard_server.py`). It's fine, and expected, for this file to not exist or to be empty; that just means no additional instructions were set.
+Then read any custom instructions the user has set, if present: `~/.loop-engineering/instructions.md` (global, applies to every loop; saved via the dashboard's **Settings** page's Instructions tab) and `~/.loop-engineering/instructions/gitlab-issue.md` (this loop only). Follow them for the rest of this run, on top of (never in place of) everything in this file, the per-loop file after the global one. It's fine, and expected, for either file to not exist or to be empty; that just means no additional instructions were set.
 
 ## Configuration
 
@@ -41,7 +41,7 @@ All project-specific facts — which projects to track, their GitLab project IDs
 
 ## `<loop_dir>`: always invoke this repo's scripts by absolute path
 
-Throughout this file, `<loop_dir>` means the directory this `LOOPX_INSTRUCTIONS.md` lives in (the loop repo root). **Every** script invocation below is written as `python3 <loop_dir>/bin/<path-to-script>.py ...` / `bash <loop_dir>/bin/<path-to-script>.sh ...` and must be run in exactly that absolute form — never as a bare `bin/<script>` relative path.
+Throughout this file, `<loop_dir>` means the loop repo root (the parent of the `instructions/` folder this file lives in). **Every** script invocation below is written as `python3 <loop_dir>/bin/<path-to-script>.py ...` / `bash <loop_dir>/bin/<path-to-script>.sh ...` and must be run in exactly that absolute form — never as a bare `bin/<script>` relative path.
 
 The reason: during an issue's work you `cd` into that issue's worktree (step 5), so the current directory is not `<loop_dir>` for most of the run. An absolute path works identically from any directory, so there is never anything to reason about. Both the relative and absolute forms are on the permission allowlist, but only the absolute form is correct unconditionally, so always use it.
 

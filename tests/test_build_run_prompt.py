@@ -20,7 +20,7 @@ def test_no_args_returns_the_scheduled_run_prompt():
     result = run_script()
     assert result.returncode == 0
     prompt = result.stdout.strip()
-    assert "Follow LOOPX_INSTRUCTIONS.md" in prompt
+    assert "Follow instructions/gitlab-issue.md" in prompt
     assert "scheduled headless run" in prompt
     assert "no user available to answer questions" in prompt
     # This is the all-assigned-issues prompt, so it must not mention a
@@ -32,7 +32,7 @@ def test_two_args_returns_the_single_issue_prompt():
     result = run_script("harbor", "482")
     assert result.returncode == 0
     prompt = result.stdout.strip()
-    assert "Follow LOOPX_INSTRUCTIONS.md" in prompt
+    assert "Follow instructions/gitlab-issue.md" in prompt
     assert "skip Step 1" in prompt
     assert "project alias 'harbor'" in prompt
     assert "issue IID 482" in prompt
@@ -45,7 +45,7 @@ def test_batch_issue_mode_skips_step_1_and_forbids_end_of_run():
     result = run_script("--batch-issue", "harbor", "482")
     assert result.returncode == 0
     prompt = result.stdout.strip()
-    assert "Follow LOOPX_INSTRUCTIONS.md" in prompt
+    assert "Follow instructions/gitlab-issue.md" in prompt
     assert "skip Step 1" in prompt
     assert "project alias 'harbor'" in prompt
     assert "issue IID 482" in prompt
@@ -63,7 +63,7 @@ def test_batch_end_of_run_mode_reconstructs_from_the_event_log():
     result = run_script("--batch-end-of-run")
     assert result.returncode == 0
     prompt = result.stdout.strip()
-    assert "Follow LOOPX_INSTRUCTIONS.md" in prompt
+    assert "Follow instructions/gitlab-issue.md" in prompt
     assert "skip Step 1" in prompt
     assert "Step 2" in prompt
     assert "End of run" in prompt
@@ -134,14 +134,14 @@ def test_run_loop_now_sh_records_its_own_pid_for_the_stop_action():
 
 def test_gitlab_loop_runner_build_prompt_forwards_args_to_build_run_prompt():
     prompt = glr.build_prompt("harbor", "482", repo_root=REPO_ROOT)
-    assert "Follow LOOPX_INSTRUCTIONS.md" in prompt
+    assert "Follow instructions/gitlab-issue.md" in prompt
     assert "project alias 'harbor'" in prompt
     assert "issue IID 482" in prompt
     assert "on-demand single-issue run" in prompt
 
 
 def test_instructions_defer_the_mr_step_to_the_gate_override():
-    text = (REPO_ROOT / "LOOPX_INSTRUCTIONS.md").read_text()
+    text = (REPO_ROOT / "instructions" / "gitlab-issue.md").read_text()
     assert "Harness gate is ON" in text
     assert "Harness gate is ON" in glr.GATE_OVERRIDE
 
@@ -164,7 +164,7 @@ def test_issue_file_mode_injects_the_issue_text_instead_of_fetching_it(tmp_path)
     result = run_script("--issue-file", "golden", "1", str(path))
     assert result.returncode == 0, result.stderr
     prompt = result.stdout
-    assert "Follow LOOPX_INSTRUCTIONS.md" in prompt
+    assert "Follow instructions/gitlab-issue.md" in prompt
     assert "skip Step 1" in prompt
     assert "project alias 'golden'" in prompt
     assert "issue IID 1" in prompt
@@ -175,7 +175,7 @@ def test_issue_file_mode_injects_the_issue_text_instead_of_fetching_it(tmp_path)
         assert tool in prompt, tool
     assert "post no GitLab comments" in prompt
     # A single issue, like --batch-issue: no End of run.
-    assert "do NOT do LOOPX_INSTRUCTIONS.md's 'End of run'" in prompt
+    assert "do NOT do instructions/gitlab-issue.md's 'End of run'" in prompt
 
 
 def test_issue_file_mode_keeps_shell_metacharacters_in_the_issue_literal(tmp_path):

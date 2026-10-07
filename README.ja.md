@@ -45,7 +45,7 @@ Loop X Engineering の使命は、Issue のトリアージに奪われる時間�
 スケジュールされた各実行（`run-loop-now.sh gitlab-loop`）では次のことを行います。
 
 1. 設定内のすべてのプロジェクトエイリアスを対象に、設定したユーザー名にアサインされているオープンな GitLab Issue をすべて一覧化します。
-2. [`LOOPX_INSTRUCTIONS.md`](https://github.com/encoreshao/loop-engineering/blob/main/LOOPX_INSTRUCTIONS.md) の段階的な判断手順に従い、それらを**一度に 1 件ずつ、決して並列にせず**処理します。
+2. [`instructions/gitlab-issue.md`](https://github.com/encoreshao/loop-engineering/blob/main/instructions/gitlab-issue.md) の段階的な判断手順に従い、それらを**一度に 1 件ずつ、決して並列にせず**処理します。
 3. 各 Issue について、次のいずれか 1 つだけを行います。
   - **修正する** — 隔離された git worktree の `loop/issue-<iid>` ブランチ上で作業し、プロジェクト自身の lint/test コマンドが通った場合にのみマージリクエストを作成します。
   - **回答する** — コード変更が不要な依頼（質問、状況確認）には GitLab コメントを投稿します。
@@ -349,7 +349,7 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 - **マージリクエストを決してマージしません。** ループの仕事は「MR を作成し、検証が通っている」状態で終わります。マージは常に人間が手動で行うステップです。
 - すべてのコード変更は、専用の git worktree の `loop/issue-<iid>` ブランチ上で行われ、ターゲットブランチ上で直接行われることはありません。
 - MR が作成されるのは、プロジェクト自身に設定された `test_cmd`/`lint_cmd` が通り、かつ diff が Issue に関連するファイルだけに触れている場合に限られます。
-- 任意のシェル実行、依存関係のアップグレード、`.env`/認証情報/SSH キーの読み取りは行いません — 使えるのは `LOOPX_INSTRUCTIONS.md` の許可コマンドリストだけです。
+- 任意のシェル実行、依存関係のアップグレード、`.env`/認証情報/SSH キーの読み取りは行いません — 使えるのは `instructions/gitlab-issue.md` の許可コマンドリストだけです。
 - Issue は一度に 1 件ずつ順番に処理され、決して並列には処理されません。
 - 同じ Issue で検証が失敗した場合、その実行内で再試行されることはなく、代わりに GitLab コメントでエスカレーションされます。（`verification.mode: gate` では、ループ自身がプロジェクトのチェックを再実行し、失敗出力をフィードバックとして上限付きで再試行します。テストや lint が失敗する MR は決して作成されず、`loop:needs-human` ラベルでエスカレーションされます。）
 
@@ -383,8 +383,8 @@ python3 -m pytest tests/
 | [`TASK.md`](https://github.com/encoreshao/loop-engineering/blob/main/TASK.md)                                                   | このリポジトリが実行するすべてのスケジュールタスクの索引。それぞれ `docs/tasks/` 配下の仕様を指しています |
 | [`docs/tasks/gitlab-issue-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/gitlab-issue-loop.md)   | GitLab Issue ループの人間向け仕様：目的、範囲、安全上の境界                                            |
 | [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md) | トピックモニターループの人間向け仕様：目的、範囲、安全上の境界                                         |
-| [`LOOPX_INSTRUCTIONS.md`](https://github.com/encoreshao/loop-engineering/blob/main/LOOPX_INSTRUCTIONS.md)                         | GitLab Issue ループ自身が毎回の実行で従う段階的な手順                                                  |
-| [`TOPIC_MONITOR_INSTRUCTIONS.md`](https://github.com/encoreshao/loop-engineering/blob/main/TOPIC_MONITOR_INSTRUCTIONS.md)       | トピックモニターループ自身が毎回の実行で従う段階的な手順                                               |
+| [`instructions/gitlab-issue.md`](https://github.com/encoreshao/loop-engineering/blob/main/instructions/gitlab-issue.md)                         | GitLab Issue ループ自身が毎回の実行で従う段階的な手順                                                  |
+| [`instructions/topic-monitor.md`](https://github.com/encoreshao/loop-engineering/blob/main/instructions/topic-monitor.md)       | トピックモニターループ自身が毎回の実行で従う段階的な手順                                               |
 | [`PROGRESS.md`](https://github.com/encoreshao/loop-engineering/blob/main/PROGRESS.md)                                           | ループが毎回の実行で読み込み・更新するライブ状態 — 前回の実行の概要、未解決のエスカレーション、下された判断 |
 | [`docs/troubleshooting/crash-looping-launchd-agent.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/troubleshooting/crash-looping-launchd-agent.md) | クラッシュループに陥ってログを溢れさせている `com.hermes.loop-engineering*` launchd エージェントの診断と修正 |
 

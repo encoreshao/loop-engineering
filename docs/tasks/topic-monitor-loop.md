@@ -45,5 +45,5 @@ And, across the whole run:
 - Writes are confined to `outputs/topic-monitor/` — no other path in this repo, or on the machine, is ever written to.
 - Topics are processed one at a time, sequentially — never multiple research passes in parallel in the same run.
 - A quiet result (nothing notable since the last run) still produces a briefing and a Slack message saying so — never silently skipped.
-- Only the command allow-list in `TOPIC_MONITOR_INSTRUCTIONS.md` may run — no arbitrary shell, no reading `.env`/credentials/SSH keys.
+- Only the command allow-list in `instructions/topic-monitor.md` may run — no arbitrary shell, no reading `.env`/credentials/SSH keys.
 - The loop only touches: the topics listed in `~/.loop-engineering/topics.json`, and its own state under `outputs/topic-monitor/`.

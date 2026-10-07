@@ -37,12 +37,12 @@ from loopkit import raise_on_sigterm as _raise_on_sigterm
 from loop_definition import LoopDefinition
 from loop_runtime import LoopRuntime
 from loop_serialize import write_result
+import instructions as instructions_mod
 from loop_verifiers import build_verifiers
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_DIR = REPO_ROOT / "outputs" / "inbox-triage"
 DEFAULT_DEFINITION_PATH = REPO_ROOT / "loops" / "inbox-triage" / "loop.yaml"
-INSTRUCTIONS_PATH = REPO_ROOT / "INBOX_TRIAGE_INSTRUCTIONS.md"
 MESSAGE_CAP = 50
 
 
@@ -159,7 +159,7 @@ def triage_inbox(inbox, config, now, provider_factory=None, token_fn=None, invok
     if ai_cli_config.get_selected_cli() != "claude":
         return _outcome(inbox, "failed", CODEX_REFUSAL)
     if instructions is None:
-        instructions = INSTRUCTIONS_PATH.read_text()
+        instructions = instructions_mod.compose("inbox-triage", repo_root=REPO_ROOT)
     categories = inbox_config.categories_for(inbox, config)
     labels = {c["key"]: c["label"] for c in categories}
 

@@ -6,7 +6,7 @@ state; this is the structured source a future metrics module reads from
 instead of parsing that Markdown. Events land in outputs/events/<UTC
 date>.jsonl, one JSON object per line, written with the CLI below by
 run-loop.sh (for run.* events) and by the agent following
-LOOPX_INSTRUCTIONS.md (for issue.*/verification.* events)."""
+instructions/gitlab-issue.md (for issue.*/verification.* events)."""
 import json
 import os
 import sys

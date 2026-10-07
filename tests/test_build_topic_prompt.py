@@ -7,7 +7,7 @@ SCRIPT = REPO_ROOT / "bin" / "scripts" / "build_topic_prompt.sh"
 
 def test_zero_args_produces_the_legacy_full_batch_prompt():
     result = subprocess.run(["bash", str(SCRIPT)], capture_output=True, text=True, check=True)
-    assert "TOPIC_MONITOR_INSTRUCTIONS.md" in result.stdout
+    assert "instructions/topic-monitor.md" in result.stdout
     assert "scheduled headless run" in result.stdout
 
 
@@ -19,7 +19,7 @@ def test_one_arg_produces_a_scoped_single_topic_prompt():
 
 
 def test_one_arg_prompt_scopes_the_verification_checklist_to_this_topic():
-    """TOPIC_MONITOR_INSTRUCTIONS.md's "Verification checklist" has two
+    """instructions/topic-monitor.md's "Verification checklist" has two
     whole-run bullets ("every topic has a briefing", "every topic's status
     is idle or failed") that a single-topic session structurally cannot
     satisfy. The instructions file now scopes them by mode, and the prompt

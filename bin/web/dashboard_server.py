@@ -156,7 +156,7 @@ _REQUIRED_SKILLS = (
             "bin/project_memory.py",
             "bin/track_new_comments.py",
             "bin/list_assigned_issues.py",
-            "LOOPX_INSTRUCTIONS.md",
+            "instructions/gitlab-issue.md",
         ),
     },
 )
@@ -1262,9 +1262,9 @@ def _markdown_section_body(text, heading):
 def extract_history_overview(content, max_length=240):
     """The "at a glance" summary for one run-history entry: the `##
     Summary` section's body if present (the GitLab loop's daily-review.md
-    always has one - see LOOPX_INSTRUCTIONS.md's End of run section), else
+    always has one - see instructions/gitlab-issue.md's End of run section), else
     the leading paragraph before the first heading (what a topic monitor
-    briefing opens with instead - see TOPIC_MONITOR_INSTRUCTIONS.md's
+    briefing opens with instead - see instructions/topic-monitor.md's
     "write the briefing" step). One rule covers both loops' actual file
     shapes without hardcoding either one's structure by name. Truncated to
     `max_length` at a word boundary with a trailing ellipsis, since this
@@ -1308,7 +1308,7 @@ def _count_bullet_items(body):
 def _history_section_count(content, heading):
     """0 if `heading`'s section in one GitLab-loop history entry is missing
     or "None." (the loop's own convention for an empty section, see
-    LOOPX_INSTRUCTIONS.md), else its number of bullet items (or 1 if it has
+    instructions/gitlab-issue.md), else its number of bullet items (or 1 if it has
     content but no bullets). Shared by gitlab_history_tags (per-entry tags)
     and _gitlab_loop_stats (Dashboard-page totals) so both agree on what
     counts as "something happened" that day."""
@@ -1322,7 +1322,7 @@ def gitlab_history_tags(content):
     """Highlight tags for one GitLab-loop history entry, derived from
     whichever of its "MRs opened"/"Escalations"/"Answered directly"
     sections are actually non-empty that day - "None." (the loop's own
-    convention for an empty section, see LOOPX_INSTRUCTIONS.md) means
+    convention for an empty section, see instructions/gitlab-issue.md) means
     nothing to tag. A day with none of the three becomes a single "Quiet
     day" tag, rather than no tags at all, so a quiet day still reads as
     something rather than a blank row."""
@@ -1345,7 +1345,7 @@ def _gitlab_loop_stats(history_dir=None):
     "outcome": "escalation" | "mr" | "quiet" | None} - None means no run
     was logged that day. A day with both an escalation and an MR is
     labelled "escalation", since that's the one that needs attention.
-    Filenames encode their own date (see LOOPX_INSTRUCTIONS.md), so the
+    Filenames encode their own date (see instructions/gitlab-issue.md), so the
     date comes straight from the name rather than file mtime.
 
     "escalations" is the one exception: it's the same all-time
@@ -1400,7 +1400,7 @@ def topic_history_tags(name, content):
     (parsed from the "<date>-<topic-name>.md" filename convention every
     briefing is saved under - see docs/tasks/topic-monitor-loop.md), plus
     "Quiet" when the briefing explicitly found nothing notable (the exact
-    phrasing TOPIC_MONITOR_INSTRUCTIONS.md's failure/quiet-day step asks
+    phrasing instructions/topic-monitor.md's failure/quiet-day step asks
     the loop to write)."""
     m = re.match(r"^\d{4}-\d{2}-\d{2}-(.+)\.md$", name)
     tags = [m.group(1)] if m else []
@@ -6884,7 +6884,7 @@ _STEP_LABELS = {
     "implementing": "Implementing a fix",
     "verifying": "Running verification",
     "opening_mr": "Opening the merge request",
-    # The topic monitor loop's only step (TOPIC_MONITOR_INSTRUCTIONS.md).
+    # The topic monitor loop's only step (instructions/topic-monitor.md).
     "researching": "Researching",
 }
 
@@ -8964,7 +8964,7 @@ def _overview_body(flash=None, flash_ok=True, session_id=None):
     of its next issue (see pop_unseen_user_messages, called by the
     `read-messages` CLI subcommand) and may reply here. This is NOT
     real-time chat with the loop itself: the loop is still a scheduled,
-    one-shot process - see LOOPX_INSTRUCTIONS.md for exactly when it
+    one-shot process - see instructions/gitlab-issue.md for exactly when it
     checks. A separate live chat assistant (/activity/chat,
     /activity/chat-stream) also replies inline in the same thread, right
     away, independent of the loop itself.
@@ -10634,10 +10634,12 @@ def _general_settings_body(flash=None, flash_ok=True, active_tab="notifications"
     ai_cli_name = _AI_CLI_DISPLAY_NAMES[current_cli]
     instructions_subtitle = _t(
         "Include specific instructions in {cli}'s system prompt whenever the loop runs. "
-        "Saved to {path} - read at the start of every run, on top of everything already in {spec}.",
+        "Saved to {path} - read at the start of every run, on top of everything already in {spec}. "
+        "For one loop only, add a file under {per_loop} (gitlab-issue.md, topic-monitor.md or inbox-triage.md).",
         cli=html.escape(ai_cli_name),
         path="<code>~/.loop-engineering/instructions.md</code>",
-        spec="<code>LOOPX_INSTRUCTIONS.md</code>",
+        spec="<code>instructions/</code>",
+        per_loop="<code>~/.loop-engineering/instructions/</code>",
     )
     instructions_panel = f"""
 <section class="card">
@@ -11397,7 +11399,7 @@ def _skills_body(flash=None, flash_ok=True):
     right now (SKILLS_ROOT, checked live via get_skills_status), and which
     files in this repo call it - so a new team member setting up this loop
     can see at a glance what else they need before running it, without
-    reading through LOOPX_INSTRUCTIONS.md line by line.
+    reading through instructions/gitlab-issue.md line by line.
 
     "Used by"/"Path" aren't columns at all - they're not worth a header
     the user sees on every visit just to stay empty. Each skill renders as

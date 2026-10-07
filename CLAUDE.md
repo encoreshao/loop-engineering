@@ -4,7 +4,7 @@ Read [`README.md`](README.md) for what this project is. [`TASK.md`](TASK.md)
 indexes every scheduled task this repo runs; read the task's own spec under
 `docs/tasks/` (currently just
 [`docs/tasks/gitlab-issue-loop.md`](docs/tasks/gitlab-issue-loop.md)) and
-[`LOOPX_INSTRUCTIONS.md`](LOOPX_INSTRUCTIONS.md) before touching the loop's
+[`instructions/gitlab-issue.md`](instructions/gitlab-issue.md) before touching the loop's
 own decision logic — those are the loop's actual spec, not this file. This
 file is operational conventions learned the hard way while building the
 dashboard and tooling around it; follow them without being asked.
@@ -37,7 +37,7 @@ the same change: any `LOOP_DIR`/`sys.path` self-location math inside the
 script itself (it's relative-path-depth-sensitive — see
 `bin/web/dashboard_server.py`'s `LOOP_DIR` and its explicit `sys.path`
 insert for `loop_config`/`project_memory`, and `bin/scripts/setup.sh`'s
-`LOOP_DIR`), every hardcoded path to it in `LOOPX_INSTRUCTIONS.md`,
+`LOOP_DIR`), every hardcoded path to it in `instructions/gitlab-issue.md`,
 `run-loop-now.sh`, `bin/gitlab_loop_runner.py` (including its `_allowed_tools()`
 patterns — the `bin/*.py`/`bin/web/*.py`/`bin/loop_plugins/*.py` globs need one
 pattern per directory since `*` doesn't cross a `/`, but agent-invoked shell
@@ -198,8 +198,8 @@ than mocking the function under test.
 
 ## Agent instruction/tool changes need a golden eval before/after
 
-Any change to `LOOPX_INSTRUCTIONS.md`, `TOPIC_MONITOR_INSTRUCTIONS.md`,
-`INBOX_TRIAGE_INSTRUCTIONS.md`, `loops/*/prompt.md`,
+Any change to `instructions/gitlab-issue.md`, `instructions/topic-monitor.md`,
+`instructions/inbox-triage.md`, `loops/*/prompt.md`,
 `bin/scripts/build_run_prompt.sh`, or any `_allowed_tools()` must paste a
 before/after `loop eval --golden` summary in the PR (the PR template asks
 for it). The unit suite can't tell whether the real agent still fixes,

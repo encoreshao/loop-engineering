@@ -42,7 +42,7 @@ Loop X Engineering 的使命是把被 issue 分诊占用的时间还给你：它
 每次定时运行（`run-loop-now.sh gitlab-loop`）：
 
 1. 列出配置中每个项目别名下、分配给你所配置用户名的所有未关闭 GitLab issue。
-2. **逐个处理，绝不并行**，遵循 [`LOOPX_INSTRUCTIONS.md`](https://github.com/encoreshao/loop-engineering/blob/main/LOOPX_INSTRUCTIONS.md) 中的分步决策流程。
+2. **逐个处理，绝不并行**，遵循 [`instructions/gitlab-issue.md`](https://github.com/encoreshao/loop-engineering/blob/main/instructions/gitlab-issue.md) 中的分步决策流程。
 3. 对每个 issue 只执行以下其中一项：
   - **修复**——在隔离的 git worktree 中、在 `loop/issue-<iid>` 分支上进行，只有在项目自身的 lint/test 命令通过后才会创建 merge request。
   - **回答**——当请求无需改代码时（提问、状态查询），发布一条 GitLab 评论。
@@ -346,7 +346,7 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 - **从不合并 merge request。** 循环的工作止于“MR 已创建、验证通过”——合并始终是人工手动步骤。
 - 每次代码变更都在独立的 git worktree 中、在 `loop/issue-<iid>` 分支上进行，绝不直接在目标分支上修改。
 - 只有当项目自身配置的 `test_cmd`/`lint_cmd` 通过，且 diff 只涉及与该 issue 相关的文件时，才会创建 MR。
-- 不允许任意 shell 命令、不升级依赖、不读取 `.env`/凭据/SSH 密钥——只允许 `LOOPX_INSTRUCTIONS.md` 中的命令白名单。
+- 不允许任意 shell 命令、不升级依赖、不读取 `.env`/凭据/SSH 密钥——只允许 `instructions/gitlab-issue.md` 中的命令白名单。
 - issue 逐个按顺序处理，绝不并行。
 - 同一 issue 的验证失败在一次运行内绝不重试——而是通过 GitLab 评论升级处理。（启用 `verification.mode: gate` 后，循环会自行重新运行项目的检查，并允许带着失败输出作为反馈进行一次有限重试；测试/lint 失败的 MR 绝不会被创建，而是以 `loop:needs-human` 标签升级处理。）
 
@@ -380,8 +380,8 @@ python3 -m pytest tests/
 | [`TASK.md`](https://github.com/encoreshao/loop-engineering/blob/main/TASK.md)                                                   | 本仓库运行的所有定时任务的索引，每项都指向 `docs/tasks/` 下各自的规格说明        |
 | [`docs/tasks/gitlab-issue-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/gitlab-issue-loop.md)   | GitLab issue 循环面向人的规格说明：目标、范围、安全边界                              |
 | [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md) | 主题监控循环面向人的规格说明：目标、范围、安全边界                             |
-| [`LOOPX_INSTRUCTIONS.md`](https://github.com/encoreshao/loop-engineering/blob/main/LOOPX_INSTRUCTIONS.md)                         | GitLab issue 循环每次运行时自身遵循的分步流程                               |
-| [`TOPIC_MONITOR_INSTRUCTIONS.md`](https://github.com/encoreshao/loop-engineering/blob/main/TOPIC_MONITOR_INSTRUCTIONS.md)       | 主题监控循环每次运行时自身遵循的分步流程                              |
+| [`instructions/gitlab-issue.md`](https://github.com/encoreshao/loop-engineering/blob/main/instructions/gitlab-issue.md)                         | GitLab issue 循环每次运行时自身遵循的分步流程                               |
+| [`instructions/topic-monitor.md`](https://github.com/encoreshao/loop-engineering/blob/main/instructions/topic-monitor.md)       | 主题监控循环每次运行时自身遵循的分步流程                              |
 | [`PROGRESS.md`](https://github.com/encoreshao/loop-engineering/blob/main/PROGRESS.md)                                           | 循环每次运行都会读取和更新的实时状态——上次运行摘要、未解决的升级事项、已做出的决策 |
 | [`docs/troubleshooting/crash-looping-launchd-agent.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/troubleshooting/crash-looping-launchd-agent.md) | 诊断并修复陷入崩溃循环、日志被刷屏的 `com.hermes.loop-engineering*` launchd 代理 |
 

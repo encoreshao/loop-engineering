@@ -59,7 +59,7 @@ Check whether the install is actually there:
 
 ```bash
 ls ~/.loop-engineering
-# Expected: bin/, launchd/, config/, LOOPX_INSTRUCTIONS.md, outputs/, ...
+# Expected: bin/, launchd/, config/, instructions/gitlab-issue.md, outputs/, ...
 # If you only see outputs/, the clone step never completed.
 ```
 

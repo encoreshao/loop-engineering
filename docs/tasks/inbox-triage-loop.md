@@ -16,7 +16,7 @@ report on a run with nothing to do.
 This is a third, independent loop from the [daily GitLab issue
 loop](gitlab-issue-loop.md) and the [topic monitor loop](topic-monitor-loop.md)
 — its own entry script (`bin/inbox_triage_runner.py`), instructions doc
-(`INBOX_TRIAGE_INSTRUCTIONS.md`), and config files (`inboxes.json`,
+(`instructions/inbox-triage.md`), and config files (`inboxes.json`,
 `mail_oauth.json`). It shares nothing with either other loop's files except
 the one scheduler that runs all three, `bin/loop_scheduler.py`.
 

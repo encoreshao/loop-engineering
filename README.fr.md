@@ -46,7 +46,7 @@ ne touche qu'aux projets que vous lui avez explicitement indiqués.
 Chaque exécution planifiée (`run-loop-now.sh gitlab-loop`) :
 
 1. Liste tous les tickets GitLab ouverts assignés au nom d'utilisateur configuré, sur chaque alias de projet de votre configuration.
-2. Les traite **un par un, jamais en parallèle**, en suivant la procédure de décision pas à pas de [`LOOPX_INSTRUCTIONS.md`](https://github.com/encoreshao/loop-engineering/blob/main/LOOPX_INSTRUCTIONS.md).
+2. Les traite **un par un, jamais en parallèle**, en suivant la procédure de décision pas à pas de [`instructions/gitlab-issue.md`](https://github.com/encoreshao/loop-engineering/blob/main/instructions/gitlab-issue.md).
 3. Pour chaque ticket, fait exactement l'une des actions suivantes :
   - **Le corriger** — dans un git worktree isolé, sur une branche `loop/issue-<iid>`, en n'ouvrant une merge request qu'une fois les commandes de lint/test du projet passées.
   - **Y répondre** — publier un commentaire GitLab quand la demande ne nécessite aucune modification de code (une question, un point d'étape).
@@ -350,7 +350,7 @@ Fixes, et ne se relâchent pas avec le temps ni avec les succès répétés (voi
 - **Ne fusionne jamais une merge request.** Le travail de la boucle s'arrête à « MR ouverte, vérification réussie » — la fusion reste toujours une étape humaine manuelle.
 - Chaque modification de code se fait dans son propre git worktree, sur une branche `loop/issue-<iid>`, jamais directement sur la branche cible.
 - Une MR n'est ouverte que si les `test_cmd`/`lint_cmd` configurés du projet passent, et le diff ne touche que des fichiers pertinents pour le ticket.
-- Pas de shell arbitraire, pas de mise à jour de dépendances, pas de lecture de `.env`/identifiants/clés SSH — uniquement la liste de commandes autorisées de `LOOPX_INSTRUCTIONS.md`.
+- Pas de shell arbitraire, pas de mise à jour de dépendances, pas de lecture de `.env`/identifiants/clés SSH — uniquement la liste de commandes autorisées de `instructions/gitlab-issue.md`.
 - Les tickets sont traités un par un, séquentiellement, jamais en parallèle.
 - Un échec de vérification sur un même ticket n'est jamais retenté au cours d'une exécution — il est escaladé via un commentaire GitLab. (Avec `verification.mode: gate`, la boucle relance elle-même les vérifications du projet et autorise une nouvelle tentative bornée avec la sortie en échec comme retour ; elle n'ouvre jamais une MR dont les tests/lint échouent et escalade avec le label `loop:needs-human`.)
 
@@ -384,8 +384,8 @@ Chaque script sous `bin/` (Python ou shell, quel que soit son dossier) a un `tes
 | [`TASK.md`](https://github.com/encoreshao/loop-engineering/blob/main/TASK.md)                                                   | Index de chaque tâche planifiée exécutée par ce dépôt, chacune pointant vers sa propre spécification sous `docs/tasks/` |
 | [`docs/tasks/gitlab-issue-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/gitlab-issue-loop.md)   | La spécification destinée aux humains de la boucle de tickets GitLab : objectif, périmètre, garde-fous de sécurité |
 | [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md) | La spécification destinée aux humains de la boucle de surveillance de sujets : objectif, périmètre, garde-fous de sécurité |
-| [`LOOPX_INSTRUCTIONS.md`](https://github.com/encoreshao/loop-engineering/blob/main/LOOPX_INSTRUCTIONS.md)                         | La procédure pas à pas que suit la boucle de tickets GitLab à chaque exécution                         |
-| [`TOPIC_MONITOR_INSTRUCTIONS.md`](https://github.com/encoreshao/loop-engineering/blob/main/TOPIC_MONITOR_INSTRUCTIONS.md)       | La procédure pas à pas que suit la boucle de surveillance de sujets à chaque exécution                 |
+| [`instructions/gitlab-issue.md`](https://github.com/encoreshao/loop-engineering/blob/main/instructions/gitlab-issue.md)                         | La procédure pas à pas que suit la boucle de tickets GitLab à chaque exécution                         |
+| [`instructions/topic-monitor.md`](https://github.com/encoreshao/loop-engineering/blob/main/instructions/topic-monitor.md)       | La procédure pas à pas que suit la boucle de surveillance de sujets à chaque exécution                 |
 | [`PROGRESS.md`](https://github.com/encoreshao/loop-engineering/blob/main/PROGRESS.md)                                           | L'état en direct que la boucle lit et met à jour à chaque exécution — résumé de la dernière exécution, escalades ouvertes, décisions prises |
 | [`docs/troubleshooting/crash-looping-launchd-agent.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/troubleshooting/crash-looping-launchd-agent.md) | Diagnostiquer et corriger un agent launchd `com.hermes.loop-engineering*` bloqué dans une boucle de plantages qui inonde son log |
 
