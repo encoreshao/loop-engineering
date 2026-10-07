@@ -121,11 +121,38 @@ class GoogleCalendarConnector(Connector):
                 continue
             start, end = item.get("start") or {}, item.get("end") or {}
             attendees = item.get("attendees")
+            people = [_attendee(a) for a in (attendees if isinstance(attendees, list) else []) if isinstance(a, dict)]
+            organizer = item.get("organizer")
             events.append({
                 "summary": str(item.get("summary") or ""),
                 "start": str(start.get("dateTime") or start.get("date") or ""),
                 "end": str(end.get("dateTime") or end.get("date") or ""),
                 "html_link": str(item.get("htmlLink") or ""),
                 "attendees_count": len(attendees) if isinstance(attendees, list) else 0,
+                "id": str(item.get("id") or ""),
+                "recurring_event_id": str(item.get("recurringEventId") or ""),
+                "description": str(item.get("description") or ""),
+                "location": str(item.get("location") or ""),
+                "join_url": _join_url(item),
+                "organizer": str(organizer.get("email") or "") if isinstance(organizer, dict) else "",
+                "attendees": people,
+                "self_response": next((a["response"] for a in people if a["self"]), None),
             })
         return events
+
+
+def _attendee(raw):
+    return {"name": str(raw.get("displayName") or ""), "email": str(raw.get("email") or ""),
+            "response": str(raw.get("responseStatus") or ""), "self": bool(raw.get("self"))}
+
+
+def _join_url(item):
+    """The Meet link, else the first video entry point (Zoom, Teams...)."""
+    if item.get("hangoutLink"):
+        return str(item["hangoutLink"])
+    conference = item.get("conferenceData")
+    points = conference.get("entryPoints") if isinstance(conference, dict) else None
+    for point in points if isinstance(points, list) else []:
+        if isinstance(point, dict) and point.get("entryPointType") == "video" and point.get("uri"):
+            return str(point["uri"])
+    return ""

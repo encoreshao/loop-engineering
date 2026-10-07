@@ -462,7 +462,8 @@ def test_calendar_list_events_shapes_items():
         {"start": {"date": "2026-10-07"}, "end": {"date": "2026-10-08"}},
     ]})
     events = _gcal(http=http).list_events("2026-10-06T00:00:00Z", "2026-10-08T00:00:00Z", max_results=5)
-    assert events == [
+    base_keys = ("summary", "start", "end", "html_link", "attendees_count")
+    assert [{k: e[k] for k in base_keys} for e in events] == [
         {"summary": "Standup", "start": "2026-10-06T09:00:00Z", "end": "2026-10-06T09:15:00Z",
          "html_link": "https://calendar.google.com/e1", "attendees_count": 2},
         {"summary": "", "start": "2026-10-07", "end": "2026-10-08", "html_link": "", "attendees_count": 0},
@@ -584,3 +585,29 @@ def test_test_message_shows_id_once_when_label_matches():
     c, http = make("slack", {}, secret="https://hooks.slack.com/services/T/B/X")
     c.test()
     assert http.calls[0]["json"]["text"].startswith('Loop X test message from connector "x". ')
+
+
+def test_calendar_list_events_returns_prep_details():
+    http = FakeHTTP(response={"items": [
+        {"id": "ev1", "recurringEventId": "series1", "summary": "Sync",
+         "start": {"dateTime": "2026-10-06T09:00:00Z"}, "end": {"dateTime": "2026-10-06T09:30:00Z"},
+         "description": "Agenda https://gitlab.example.com/g/p/-/issues/3", "location": "Room 1",
+         "conferenceData": {"entryPoints": [{"entryPointType": "phone", "uri": "tel:+1"},
+                                            {"entryPointType": "video", "uri": "https://zoom.us/j/1"}]},
+         "organizer": {"email": "boss@example.com"},
+         "attendees": [{"email": "me@example.com", "self": True, "responseStatus": "accepted"},
+                       {"email": "ann@example.com", "displayName": "Ann", "responseStatus": "tentative"}]},
+        {"id": "ev2", "summary": "Meet", "hangoutLink": "https://meet.google.com/abc",
+         "start": {"dateTime": "2026-10-06T10:00:00Z"}, "end": {"dateTime": "2026-10-06T10:30:00Z"},
+         "conferenceData": {"entryPoints": [{"entryPointType": "video", "uri": "https://zoom.us/j/2"}]}},
+    ]})
+    first, second = _gcal(http=http).list_events("a", "b")
+    assert first["id"] == "ev1" and first["recurring_event_id"] == "series1"
+    assert first["description"].startswith("Agenda") and first["location"] == "Room 1"
+    assert first["join_url"] == "https://zoom.us/j/1" and first["organizer"] == "boss@example.com"
+    assert first["attendees"] == [
+        {"name": "", "email": "me@example.com", "response": "accepted", "self": True},
+        {"name": "Ann", "email": "ann@example.com", "response": "tentative", "self": False}]
+    assert first["self_response"] == "accepted"
+    assert second["join_url"] == "https://meet.google.com/abc"
+    assert second["recurring_event_id"] == "" and second["attendees"] == [] and second["self_response"] is None
