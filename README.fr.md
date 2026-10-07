@@ -73,6 +73,7 @@ Sept boucles sont livrées dans `config/loops.json.template` ; chacune a sa page
 | MR Review | Pré-relit les merge requests dont vous êtes relecteur (désactivée par défaut) | Connecteur `merge_requests` (GitLab) | Toutes les 2 heures | Notes brouillon GitLab uniquement ; ne publie, n'approuve ni ne poste jamais de note normale |
 | Pipeline Doctor | Diagnostique les pipelines CI en échec sur les projets suivis et vos MR, et signale les échecs récurrents (désactivée par défaut) | Connecteur `pipelines` (GitLab) | Toutes les heures | Notifications uniquement |
 | RSS Watch | Classe les nouvelles entrées de flux selon vos centres d'intérêt et envoie un court digest (désactivée par défaut) | Connecteur `feed` (RSS) | Tous les jours 08:00 | Notifications uniquement |
+| Calendar Prep | Une note de préparation avant chaque réunion : ordre du jour, travail GitLab lié, e-mails récents avec les participants, suivis de la dernière fois (désactivée par défaut) | Connecteur `calendar` (Google Agenda) ; GitLab et boîte mail en option | Toutes les 15 minutes | Notifications uniquement |
 
 Les quatre dernières sont des plugins LoopKit (`bin/loopkit.py`, `bin/loop_plugins/`) : le modèle s'exécute en mode scellé (sans outils ni serveurs MCP), chaque élément est isolé pour qu'un échec n'arrête pas l'exécution, et les notifications passent par les connecteurs **Notify via** de la boucle. Voir [`docs/architecture.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/architecture.md#loopkit).
 

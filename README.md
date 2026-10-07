@@ -72,6 +72,7 @@ Seven loops ship in `config/loops.json.template`; each has its own page under **
 | MR Review | Pre-reviews merge requests where you are a reviewer (disabled by default) | `merge_requests` connector (GitLab) | Every 2 hours | GitLab draft notes only; never publishes, approves or posts a normal note |
 | Pipeline Doctor | Diagnoses failed CI pipelines on tracked projects and your open MRs, and flags recurring failures (disabled by default) | `pipelines` connector (GitLab) | Hourly | Notifications only |
 | RSS Watch | Ranks new feed entries against your interests and sends a short digest (disabled by default) | `feed` connector (RSS) | Daily 08:00 | Notifications only |
+| Calendar Prep | A prep brief before each meeting: agenda, linked GitLab work, recent mail with the attendees, follow-ups from last time (disabled by default) | `calendar` connector (Google Calendar); optional GitLab and mailbox | Every 15 minutes | Notifications only |
 
 The last four are LoopKit plugins (`bin/loopkit.py`, `bin/loop_plugins/`): they run the model sealed (no tools, no MCP servers), isolate each item so one failure never stops the run, and send through the loop's **Notify via** connectors. See [`docs/architecture.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/architecture.md#loopkit).
 

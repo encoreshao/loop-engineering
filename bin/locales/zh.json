@@ -887,5 +887,15 @@
   "{n} minutes": "{n} 分钟",
   "{n} hour(s)": "{n} 小时",
   "every": "每",
-  "Every {minutes} minutes": "每 {minutes} 分钟"
+  "Every {minutes} minutes": "每 {minutes} 分钟",
+  "Calendar Prep": "会议准备",
+  "A short prep brief before each meeting: agenda, linked GitLab work, recent mail with the attendees and follow-ups from last time.": "每次会议前发送一份简短的准备摘要：议程、关联的 GitLab 工作、与参会者的近期邮件以及上次的跟进事项。",
+  "Calendar account": "日历账户",
+  "Connector id of the calendar to watch; empty watches every calendar": "要监视的日历的连接器 ID；留空则监视所有日历",
+  "Minutes ahead": "提前分钟数",
+  "Brief meetings starting within this many minutes (15-120)": "为在此分钟数内开始的会议生成摘要（15-120）",
+  "Mail lookback (days)": "邮件回溯天数",
+  "Search recent mail with the attendees; 0 turns mail off": "搜索与参会者的近期邮件；0 表示关闭邮件",
+  "Include solo events": "包括单人日程",
+  "yes also briefs events with no other attendees": "填 yes 时也为没有其他参会者的日程生成摘要"
 }

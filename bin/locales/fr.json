@@ -887,5 +887,15 @@
   "{n} minutes": "{n} minutes",
   "{n} hour(s)": "{n} heure(s)",
   "every": "toutes les",
-  "Every {minutes} minutes": "Toutes les {minutes} minutes"
+  "Every {minutes} minutes": "Toutes les {minutes} minutes",
+  "Calendar Prep": "Préparation de réunion",
+  "A short prep brief before each meeting: agenda, linked GitLab work, recent mail with the attendees and follow-ups from last time.": "Une courte note de préparation avant chaque réunion : ordre du jour, travail GitLab lié, e-mails récents avec les participants et suivis de la dernière fois.",
+  "Calendar account": "Compte d'agenda",
+  "Connector id of the calendar to watch; empty watches every calendar": "Identifiant du connecteur de l'agenda à surveiller ; vide = tous les agendas",
+  "Minutes ahead": "Minutes à l'avance",
+  "Brief meetings starting within this many minutes (15-120)": "Préparer les réunions qui commencent dans ce nombre de minutes (15-120)",
+  "Mail lookback (days)": "Historique des e-mails (jours)",
+  "Search recent mail with the attendees; 0 turns mail off": "Rechercher les e-mails récents avec les participants ; 0 désactive les e-mails",
+  "Include solo events": "Inclure les événements solo",
+  "yes also briefs events with no other attendees": "yes prépare aussi les événements sans autre participant"
 }

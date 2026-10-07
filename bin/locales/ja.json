@@ -887,5 +887,15 @@
   "{n} minutes": "{n} 分",
   "{n} hour(s)": "{n} 時間",
   "every": "間隔",
-  "Every {minutes} minutes": "{minutes} 分ごと"
+  "Every {minutes} minutes": "{minutes} 分ごと",
+  "Calendar Prep": "会議準備",
+  "A short prep brief before each meeting: agenda, linked GitLab work, recent mail with the attendees and follow-ups from last time.": "各会議の前に短い準備メモを送ります：議題、リンクされた GitLab の作業、参加者との最近のメール、前回からのフォローアップ。",
+  "Calendar account": "カレンダーアカウント",
+  "Connector id of the calendar to watch; empty watches every calendar": "監視するカレンダーのコネクタ ID。空欄の場合はすべてのカレンダーを監視します",
+  "Minutes ahead": "何分前から",
+  "Brief meetings starting within this many minutes (15-120)": "この分数以内に始まる会議の準備メモを作成します（15〜120）",
+  "Mail lookback (days)": "メールの検索期間（日）",
+  "Search recent mail with the attendees; 0 turns mail off": "参加者との最近のメールを検索します。0 でメールをオフにします",
+  "Include solo events": "一人の予定も含める",
+  "yes also briefs events with no other attendees": "yes にすると他の参加者がいない予定も対象にします"
 }

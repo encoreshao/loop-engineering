@@ -47,6 +47,11 @@ and `output_keys` for the required answer JSON keys.
 
 ## Calendar Prep
 
+- **Shipped** (2026-10-07): `bin/loop_plugins/calendar_prep.py`, see
+  `docs/tasks/calendar-prep-loop.md`. It also needed `list_events` to return
+  descriptions, attendees and join links, a read-only `search_recent` on the
+  mail providers, and 15-minute schedules (`interval_minutes`). The notes
+  below are the original plan.
 - The Google Calendar connector now exists:
   `bin/connectors/google_calendar.py` (`GoogleCalendarConnector`, capability
   `CALENDAR`, `list_events(time_min_iso, time_max_iso, max_results=50)`).
