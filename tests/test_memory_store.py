@@ -307,3 +307,20 @@ def test_append_preserves_score_and_flag(tmp_path):
     memory_store.add_task_memory("web", 9, "b", root=tmp_path)
     mem = memory_store.get_task_memory("web", 9, root=tmp_path)
     assert mem["score"] == -2 and mem["flag"] == "needs_review"
+
+
+def test_set_score_is_atomic_when_the_final_rename_fails(tmp_path, monkeypatch):
+    res = memory_store.add_task_memory("web", 10, "a lesson", root=tmp_path)
+    path = Path(res["path"])
+    before = path.read_text()
+
+    def boom(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(memory_store.os, "replace", boom)
+    try:
+        memory_store.set_score(res["lesson_id"], -2, flag="needs_review", alias="web", root=tmp_path)
+    except OSError:
+        pass
+    assert path.read_text() == before
+    assert sorted(p.name for p in path.parent.iterdir()) == sorted(["MEMORY.md", path.name])

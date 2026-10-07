@@ -227,11 +227,17 @@ def set_score(lesson_id, score, flag="", alias=None, root=None):
             parsed = _parse_task_memory(path.read_text())
             if parsed is None or parsed["lesson_id"] != lesson_id:
                 continue
-            path.write_text(_render_task_memory(
+            # Write-then-rename: a reader (or a crash) never sees half a file.
+            tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.tmp")
+            tmp.write_text(_render_task_memory(
                 parsed["name"], parsed["description"], parsed["issue_iid"], parsed["tags"],
                 parsed["modified"], parsed["body"], parsed["lesson_id"], parsed["created_at"],
                 parsed["category"], int(score), flag or "",
             ))
+            try:
+                os.replace(tmp, path)
+            finally:
+                tmp.unlink(missing_ok=True)
             return True
     return False
 
