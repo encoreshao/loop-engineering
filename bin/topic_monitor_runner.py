@@ -360,7 +360,7 @@ def _run_one_topic(run_id, name, definition, results_dir, repo_root, events_dir=
     # non-completed case can't be left to the agent.
     if result.final_state != LoopState.COMPLETED:
         _mark_topic_failed(name, status_path=status_path)
-    write_result(result, results_dir=results_dir)
+    write_result(result, results_dir=results_dir, events_dir=events_dir)
     return result
 
 

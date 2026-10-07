@@ -14,6 +14,16 @@ from pathlib import Path
 
 DEFAULT_RESULTS_DIR = Path(__file__).resolve().parent.parent / "outputs" / "loop-runs"
 
+# Plain (non-dataclass-field) attributes a live LoopResult may carry, so
+# result.json's shape is unchanged. AGENT_COST_ATTR: a runner's raw,
+# un-coerced cost sum (None = no call reported a cost; see
+# gitlab_loop_runner). COST_REPORTED_ATTR: LoopRuntime's "did any agent call
+# report a cost" flag. Neither survives a JSON round-trip, so backfilled
+# legacy results fall back to the budget's (possibly coerced) figure.
+AGENT_COST_ATTR = "agent_cost_usd"
+COST_REPORTED_ATTR = "cost_reported"
+_UNSET = object()
+
 
 def _jsonify(value):
     if isinstance(value, Enum):
@@ -73,6 +83,9 @@ def result_summary(loop_result):
     duration_ms comes from the last iteration's budget runtime, and
     started_at is derived as finished_at - duration."""
     data = to_json_dict(loop_result)
+    raw_cost = getattr(loop_result, AGENT_COST_ATTR, _UNSET)
+    cost_unknown = (raw_cost is None) or (
+        raw_cost is _UNSET and getattr(loop_result, COST_REPORTED_ATTR, True) is False)
     iterations = []
     for it in data["iterations"]:
         budget = it.get("budget") or {}
@@ -81,11 +94,16 @@ def result_summary(loop_result):
             "n": it.get("iteration"),
             "state": it.get("state"),
             "verifiers_passed": all(effective_passed(v) for v in verification),
-            "cost_usd": (budget.get("cost") or {}).get("used_usd") or 0,
+            "cost_usd": None if cost_unknown else (budget.get("cost") or {}).get("used_usd") or 0,
         })
     last_budget = data["iterations"][-1].get("budget") or {} if data["iterations"] else {}
     duration_ms = int(round(((last_budget.get("runtime") or {}).get("used_seconds") or 0) * 1000))
-    total_cost = (last_budget.get("cost") or {}).get("used_usd") or 0
+    if cost_unknown:
+        total_cost = None
+    elif raw_cost is not _UNSET:
+        total_cost = raw_cost
+    else:
+        total_cost = (last_budget.get("cost") or {}).get("used_usd") or 0
     finished = datetime.now(timezone.utc)
     started = finished - timedelta(milliseconds=duration_ms)
     fmt = lambda d: d.isoformat(timespec="milliseconds").replace("+00:00", "Z")

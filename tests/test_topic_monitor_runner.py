@@ -452,3 +452,17 @@ def test_cli_command_claude_budget_and_codex_never():
     assert cmd[cmd.index("--max-budget-usd") + 1] == "1.00"
     assert "--max-budget-usd" not in tmr._cli_command("claude", "p", Path("/loop"))
     assert "--max-budget-usd" not in tmr._cli_command("codex", "p", Path("/loop"), max_budget_usd=1.0)
+
+
+def test_topic_run_loop_result_has_unknown_cost_in_callers_events_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(tmr, "invoke_topic_agent", lambda name, **kw: {"changed": True, "cost_usd": None})
+    events_dir = tmp_path / "events"
+    tmr.run_all_topics(
+        "run_20260907_100000", results_dir=tmp_path / "loop-runs",
+        definition_path=REPO_ROOT / "loops" / "topic-monitor" / "loop.yaml",
+        names=["ai-news"], events_dir=events_dir,
+    )
+    rows = [json.loads(line) for f in events_dir.glob("*.jsonl") for line in f.read_text().splitlines()]
+    results = [r for r in rows if r["event_type"] == "loop.result"]
+    assert len(results) == 1
+    assert results[0]["data"]["total_cost_usd"] is None

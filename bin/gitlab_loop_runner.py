@@ -40,6 +40,7 @@ import slack_notify
 from list_assigned_issues import list_assigned_issues
 from loop_definition import LoopDefinition
 from loop_runtime import LoopRuntime
+import loop_serialize
 from loop_serialize import write_result
 from loop_state import LoopState
 from loop_verifiers import build_verifiers
@@ -56,7 +57,7 @@ _STDERR_EXCERPT_CHARS = 800
 # its LoopResult, and the sentinel that means "this LoopResult never went
 # through `_run_one_issue`". See `aggregate_cost_usd` for why the budget
 # figure alone is not enough.
-_AGENT_COST_ATTR = "agent_cost_usd"
+_AGENT_COST_ATTR = loop_serialize.AGENT_COST_ATTR
 _UNSET = object()
 
 # Where `_run_one_issue` stashes the gate-mode finalize outcome (same plain-
@@ -876,12 +877,12 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
 
     runtime = LoopRuntime(agent_fn=agent_fn, verifiers=verifiers, events_dir=events_dir, on_iteration=on_iteration)
     result = runtime.start(definition, run_id=issue_run_id)
-    # LoopRuntime coerces a None cost_usd to 0 on its way into the budget
-    # (`total_cost_usd += agent_result.get("cost_usd") or 0`), so the
-    # LoopResult alone can no longer tell "this issue really cost $0" from
-    # "we never got a cost figure at all" (the Codex path, or a failed
-    # Claude cost extraction). Record the raw, un-coerced value so
-    # `aggregate_cost_usd` can keep them apart. A plain attribute rather
+    # LoopRuntime counts a None cost_usd as 0 in the budget, so the budget
+    # figures alone can't tell "this issue really cost $0" from "we never got
+    # a cost figure at all" (the Codex path, or a failed Claude cost
+    # extraction). Record the raw, un-coerced value so `aggregate_cost_usd`
+    # and the loop.result ledger event (loop_serialize.result_summary) can
+    # keep them apart. A plain attribute rather
     # than a LoopResult field on purpose: dataclasses.asdict() ignores it,
     # so outputs/loop-runs/<run>/result.json's shape is unchanged.
     setattr(result, _AGENT_COST_ATTR, _sum_or_none(raw_costs))
@@ -903,7 +904,7 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
             result.final_state = LoopState.ESCALATED
             result.stop_reason = f"gate:{outcome.split(':', 1)[1]}"
 
-    write_result(result, results_dir=results_dir)
+    write_result(result, results_dir=results_dir, events_dir=events_dir)
     return result
 
 

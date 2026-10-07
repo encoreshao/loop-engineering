@@ -231,7 +231,8 @@ def _run_item(plugin, item, ctx, run_id, events_dir, results_dir, repo_root):
             # Crashed model calls are surfaced as verification failures so LoopRuntime
             # retries them (metrics show verification.failed; final state ESCALATED).
             holder["error"] = f"model call failed: {type(exc).__name__}: {exc}"
-            return {"cost_usd": 0}
+            # Unknown spend is None, never a claimed $0.
+            return {"cost_usd": getattr(exc, "cost_usd", None)}
         holder["text"] = res["text"]
         return {"cost_usd": res.get("cost_usd")}
 
@@ -239,7 +240,7 @@ def _run_item(plugin, item, ctx, run_id, events_dir, results_dir, repo_root):
     verifiers += build_verifiers(ctx.definition.verifiers, cwd=repo_root)
     result = LoopRuntime(agent_fn, verifiers, events_dir=events_dir).start(
         ctx.definition, run_id=f"{run_id}_{_slug(item.key)}", loop_id=plugin.loop_name)
-    write_result(result, results_dir)
+    write_result(result, results_dir, events_dir=events_dir)
     if result.final_state == LoopState.COMPLETED:
         try:
             outcome = plugin.after_item(item, parse_answer(holder["text"], plugin.output_keys), ctx)

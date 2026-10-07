@@ -15,6 +15,7 @@ from loop_budget import BudgetController, BudgetStatus
 from loop_policy import PolicyEngine, PolicyViolationError
 from loop_progress import ProgressDetector
 from loop_result import IterationResult, LoopResult
+from loop_serialize import COST_REPORTED_ATTR
 from loop_state import LoopState, transition
 
 
@@ -73,6 +74,10 @@ class LoopRuntime:
         iterations = []
         completed_iterations = 0
         total_cost_usd = 0.0
+        # The budget needs a number, so an unreported cost counts as 0 there;
+        # this flag remembers whether ANY call reported one, so the ledger can
+        # say "unknown" (None) instead of "$0" for Codex/topic runs.
+        cost_reported = False
         loop_start = time.monotonic()
         iteration_number = 1
         final_state = None
@@ -110,12 +115,18 @@ class LoopRuntime:
             agent_failed = False
             try:
                 agent_result = self.agent_fn(context)
-            except Exception:
+            except Exception as exc:
                 agent_failed = True
                 agent_result = None
+                # A failed call (e.g. an error_max_budget_usd stop) may still
+                # have spent money; runners attach it as exc.cost_usd.
+                call_cost = getattr(exc, "cost_usd", None)
+            else:
+                call_cost = agent_result.get("cost_usd") if isinstance(agent_result, dict) else None
 
-            if isinstance(agent_result, dict):
-                total_cost_usd += agent_result.get("cost_usd") or 0
+            if call_cost is not None:
+                cost_reported = True
+                total_cost_usd += call_cost
 
             state = transition(state, LoopState.VERIFYING)
             all_verifiers_passed = True
@@ -228,7 +239,7 @@ class LoopRuntime:
         }[final_state]
         self._emit(terminal_event, run_id, data={"final_state": final_state.value, "stop_reason": stop_reason})
 
-        return LoopResult(
+        result = LoopResult(
             loop_id=loop_id,
             run_id=run_id,
             definition_name=definition.name,
@@ -236,3 +247,7 @@ class LoopRuntime:
             iterations=iterations,
             stop_reason=stop_reason,
         )
+        # Plain attribute, not a field: asdict() ignores it, so result.json
+        # keeps its shape; loop_serialize.result_summary reads it.
+        setattr(result, COST_REPORTED_ATTR, cost_reported)
+        return result

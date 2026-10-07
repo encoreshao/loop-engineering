@@ -305,3 +305,17 @@ def test_result_summary_unverified_when_verifier_fails():
     s = result_summary(_sample_result(verified=False))
     assert s["verified_success"] is False
     assert s["iterations"][0]["verifiers_passed"] is False
+
+
+def test_result_summary_prefers_runner_raw_cost():
+    from loop_serialize import AGENT_COST_ATTR, result_summary
+    result = _sample_result(cost_usd=0.0)
+    setattr(result, AGENT_COST_ATTR, None)  # Codex path: nobody reported a cost
+    assert result_summary(result)["total_cost_usd"] is None
+    setattr(result, AGENT_COST_ATTR, 1.25)
+    assert result_summary(result)["total_cost_usd"] == 1.25
+
+
+def test_result_summary_hand_built_result_keeps_budget_cost():
+    from loop_serialize import result_summary
+    assert result_summary(_sample_result(cost_usd=0.75))["total_cost_usd"] == 0.75

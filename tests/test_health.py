@@ -133,3 +133,21 @@ def test_no_runs_or_outcomes_keeps_three_missing():
     h = health.compute_health_score(METRICS, COST)
     assert h["is_partial"] is True
     assert {"cost_efficiency", "retry_rate", "learning_effectiveness"} <= set(h["missing_components"])
+
+
+def test_cost_efficiency_ignores_non_gitlab_loops():
+    # Topic runs have no verifiers -> verified_success with $0; they must not
+    # turn into a "free" healthy cost score.
+    runs = [rec(definition="topic-monitor-loop", cost=0.0, verified=True),
+            rec(definition="topic-monitor-loop", cost=0.0, verified=True)]
+    h = health.compute_health_score(METRICS, COST, runs=runs, memory_outcomes=[])
+    assert h["components"]["cost_efficiency"] is None
+    runs.append(rec(cost=2.0, verified=True))
+    h = health.compute_health_score(METRICS, COST, runs=runs, memory_outcomes=[])
+    assert h["details"]["cost_efficiency"]["value"] == 2.0
+
+
+def test_cost_efficiency_ignores_runs_without_loop_result():
+    h = health.compute_health_score(METRICS, COST, runs=[rec(cost=0.1, verified=True, has_result=False)],
+                                    memory_outcomes=[])
+    assert h["components"]["cost_efficiency"] is None

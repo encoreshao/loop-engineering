@@ -361,7 +361,8 @@ def _run_one_inbox(inbox, config, now, run_id, definition, triage, results_dir, 
     try:
         runtime = LoopRuntime(agent_fn=agent_fn, verifiers=build_verifiers(definition.verifiers, cwd=None),
                               events_dir=events_dir)
-        write_result(runtime.start(definition, run_id=f"{run_id}_{inbox['name']}"), results_dir=results_dir)
+        write_result(runtime.start(definition, run_id=f"{run_id}_{inbox['name']}"), results_dir=results_dir,
+                     events_dir=events_dir)
     except Exception as exc:  # noqa: BLE001 - e.g. PolicyViolationError; a triage result, if any, is kept
         print(f"inbox_triage_runner: loop runtime for {inbox['name']} failed: {type(exc).__name__}", file=sys.stderr)
         if "outcome" not in captured:

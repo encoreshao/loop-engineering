@@ -1920,3 +1920,40 @@ def test_offline_allowlist_names_only_the_scripts_the_offline_prompt_uses(tmp_pa
 def test_offline_cli_command_uses_the_offline_allowlist(tmp_path):
     cmd = glr._cli_command("claude", "p", tmp_path, "/wt", gate=True, offline=True)
     assert cmd[cmd.index("--allowedTools") + 1] == glr._allowed_tools(tmp_path, gate=True, offline=True)
+
+
+def _loop_results(events_dir):
+    return [e for e in _read_events(events_dir) if e["event_type"] == "loop.result"]
+
+
+def test_codex_run_loop_result_cost_is_none_in_callers_events_dir(monkeypatch, tmp_path):
+    monkeypatch.setattr(glr, "build_verifiers", lambda *a, **k: [])
+    events_dir = tmp_path / "ev"
+    glr._run_one_issue("run", "web", 7, definition(tmp_path), tmp_path / "runs", tmp_path,
+                       agent_invoker=lambda *a, **k: {"changed": True, "cost_usd": None},
+                       events_dir=events_dir)
+    [row] = _loop_results(events_dir)
+    assert row["data"]["total_cost_usd"] is None
+
+
+def test_failed_budget_stop_cost_lands_in_loop_result(monkeypatch, tmp_path):
+    events_dir = tmp_path / "ev"
+    def invoker(*a, **k):
+        exc = RuntimeError("error_max_budget_usd")
+        exc.cost_usd = 3.0
+        raise exc
+    monkeypatch.setattr(glr, "build_verifiers", lambda *a, **k: [])
+    glr._run_one_issue("run", "web", 7, definition(tmp_path), tmp_path / "runs", tmp_path,
+                       agent_invoker=invoker, events_dir=events_dir)
+    [row] = _loop_results(events_dir)
+    assert row["data"]["total_cost_usd"] == 3.0
+
+
+def test_known_issue_cost_unchanged_in_loop_result(monkeypatch, tmp_path):
+    events_dir = tmp_path / "ev"
+    monkeypatch.setattr(glr, "build_verifiers", lambda *a, **k: [])
+    glr._run_one_issue("run", "web", 7, definition(tmp_path), tmp_path / "runs", tmp_path,
+                       agent_invoker=lambda *a, **k: {"changed": True, "cost_usd": 0.4},
+                       events_dir=events_dir)
+    [row] = _loop_results(events_dir)
+    assert row["data"]["total_cost_usd"] == 0.4

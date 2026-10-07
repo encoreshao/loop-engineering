@@ -40,14 +40,15 @@ def _escalation_rate(issue_metrics):
     return 1 - (issue_metrics["issues_escalated"] / processed)
 
 
+def _gitlab_issue_runs(runs):
+    """GitLab-issue runs backed by a loop.result event."""
+    return [r for r in runs if r.has_result and _GITLAB_ISSUE_LOOP in (r.definition, r.loop_name)]
+
+
 def _retry_rate(runs):
     """(score, rate) over completed GitLab-issue runs backed by a
     loop.result event; (None, None) when there are none."""
-    done = [
-        r for r in runs
-        if r.has_result and r.final_state == "completed"
-        and _GITLAB_ISSUE_LOOP in (r.definition, r.loop_name)
-    ]
+    done = [r for r in _gitlab_issue_runs(runs) if r.final_state == "completed"]
     if not done:
         return None, None
     rate = sum(1 for r in done if len(r.iterations) > 1) / len(done)
@@ -55,8 +56,14 @@ def _retry_rate(runs):
 
 
 def _cost_efficiency(runs):
-    """(score, usd_per_verified_issue); only runs with a known cost count."""
-    known = [r for r in runs if r.total_cost_usd is not None]
+    """(score, usd_per_verified_issue) over GitLab-issue runs with a known
+    cost. Other loops are excluded: a topic/inbox run has no verifiers, so it
+    is "verified" at ~$0 and would make the score meaningless. Unknown-cost
+    (Codex) runs leave both numerator and denominator. The numerator is
+    `verified_success`, which already requires final_state "completed" and
+    every verifier's effective (observe-mode-unmasked) result passing; a gate
+    escalation is recorded as final_state "escalated" and so never counts."""
+    known = [r for r in _gitlab_issue_runs(runs) if r.total_cost_usd is not None]
     verified = sum(1 for r in known if r.verified_success)
     if not verified:
         return None, None
@@ -78,21 +85,21 @@ def _learning_effectiveness(outcomes):
 
 
 def compute_health_score(metrics_report, cost_report, runs=None, memory_outcomes=None):
-    """{"score", "is_partial", "components": {"resolution", "autonomy",
-    "verification", "escalation"}, "missing_components", "missing_reason"}.
+    """{"score", "is_partial", "components": {the 7 component names},
+    "details", "missing_components", "missing_reason"}.
     `metrics_report`/`cost_report` are exactly what
     metrics.build_report()/cost.build_cost_report() already return - no
     disk access here. `cost_report` is accepted but not read yet -
     unused (cost efficiency derives from `runs`' per-run cost). `runs` is
     a list of ledger.RunRecord and `memory_outcomes` is
     learning.memory_outcomes(events); None means "no data" for the
-    components derived from them. Each of the 4 known components is normalized to 0-100 (a rate already in
-    [0,1] is simply *100); a None input (e.g. resolution_rate with zero
-    processed issues) makes that component None too, excluding it from
-    both the weighted average and its own weight - the remaining
-    available components renormalize their weights to sum to 100 among
-    themselves. `score` is None only if ALL 4 known components are
-    None."""
+    components derived from them. Each of the 7 components is
+    normalized to 0-100 (a rate already in [0,1] is simply *100); a None
+    input (e.g. resolution_rate with zero processed issues) makes that
+    component None too, excluding it from both the weighted average and its
+    own weight - the remaining available components renormalize their
+    weights to sum to 100 among themselves. `score` is None only if ALL 7
+    components are None."""
     qa = metrics_report["quality_and_autonomy"]
     verification = metrics_report["verification"]
     issue = metrics_report["issue"]

@@ -137,11 +137,11 @@ def test_crash_in_item_two_keeps_item_one_seen_and_continues(env, monkeypatch):
     kw, _ = env
     real = loopkit.write_result
     calls = []
-    def flaky(result, results_dir=None):
+    def flaky(result, results_dir=None, events_dir=None):
         calls.append(1)
         if len(calls) == 2:
             raise OSError("disk full")
-        return real(result, results_dir)
+        return real(result, results_dir, events_dir=events_dir)
     monkeypatch.setattr(loopkit, "write_result", flaky)
     p = Demo([WorkItem("a", "A"), WorkItem("b", "B"), WorkItem("c", "C")], ['{"verdict": "ok"}'] * 3)
     out = loopkit.run_plugin(p, "run_1", **kw)
@@ -250,3 +250,12 @@ def test_no_history_file_when_no_outcomes_but_last_run_written(env, tmp_path):
     loopkit.run_plugin(Demo([], []), "run_1", **kw)
     assert not list((tmp_path / "history").glob("*.md")) if (tmp_path / "history").exists() else True
     assert (tmp_path / "outputs" / "loops" / "demo-loop" / "last-run.json").exists()
+
+
+def test_loop_result_goes_to_callers_events_dir(env):
+    import json as _json
+    kw, _ = env
+    p = Demo([WorkItem("a", "A")], ['{"verdict": "ok"}'])
+    loopkit.run_plugin(p, "run_1", **kw)
+    rows = [_json.loads(line) for f in (kw["events_dir"]).glob("*.jsonl") for line in f.read_text().splitlines()]
+    assert [r["event_type"] for r in rows].count("loop.result") == 1

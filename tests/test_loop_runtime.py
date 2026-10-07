@@ -245,3 +245,46 @@ def test_on_iteration_exception_is_swallowed():
     result = runtime.start(definition, run_id="run_test_boom")
 
     assert result.final_state == LoopState.COMPLETED
+
+
+class _FakeEvents:
+    def emit(self, *a, **kw):
+        pass
+
+
+class _CostError(RuntimeError):
+    def __init__(self, cost_usd):
+        super().__init__("budget stop")
+        self.cost_usd = cost_usd
+
+
+def _summary_of(result):
+    from loop_serialize import result_summary
+    return result_summary(result)
+
+
+def test_unreported_cost_is_none_not_zero_in_loop_result():
+    # A topic-monitor/Codex agent_fn returns no cost figure at all.
+    runtime = LoopRuntime(agent_fn=lambda ctx: {"changed": True}, verifiers=[], events_module=_FakeEvents())
+    result = runtime.start(_definition(), run_id="run_nocost")
+    summary = _summary_of(result)
+    assert summary["total_cost_usd"] is None
+    assert summary["iterations"][0]["cost_usd"] is None
+
+
+def test_failed_call_cost_is_counted():
+    def agent_fn(ctx):
+        raise _CostError(3.0)
+    runtime = LoopRuntime(agent_fn=agent_fn, verifiers=[], events_module=_FakeEvents())
+    result = runtime.start(_definition(), run_id="run_failcost")
+    assert result.final_state == LoopState.FAILED
+    assert result.iterations[-1].budget["cost"]["used_usd"] == 3.0
+    assert _summary_of(result)["total_cost_usd"] == 3.0
+
+
+def test_known_cost_unchanged():
+    runtime = LoopRuntime(agent_fn=lambda ctx: {"cost_usd": 0.5}, verifiers=[], events_module=_FakeEvents())
+    result = runtime.start(_definition(), run_id="run_known")
+    summary = _summary_of(result)
+    assert summary["total_cost_usd"] == 0.5
+    assert summary["iterations"][0]["cost_usd"] == 0.5
