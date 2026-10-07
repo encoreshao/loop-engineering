@@ -193,6 +193,25 @@ test needs to fake something async or a background process
 (`subprocess.Popen`, `launchctl`), monkeypatch that call directly rather
 than mocking the function under test.
 
+## Agent instruction/tool changes need a golden eval before/after
+
+Any change to `LOOPX_INSTRUCTIONS.md`, `TOPIC_MONITOR_INSTRUCTIONS.md`,
+`INBOX_TRIAGE_INSTRUCTIONS.md`, `loops/*/prompt.md`,
+`bin/scripts/build_run_prompt.sh`, or any `_allowed_tools()` must paste a
+before/after `loop eval --golden` summary in the PR (the PR template asks
+for it). The unit suite can't tell whether the real agent still fixes,
+answers and escalates correctly; the golden suite
+(`python3 bin/loop_cli.py eval --golden [--budget-usd N] [--case NAME]`,
+cases under `evals/golden/<name>/case.yaml`) runs the real agent in gate
+mode, offline, on synthetic fixture repos. It costs real money (default
+budget $10, it stops launching cases once spent), so it is never part of
+`pytest` - run it by hand, once on the base commit and once on your change.
+Each run writes `outputs/evals/golden-last.json`. It runs every case under
+a throwaway `LOOP_ENGINEERING_HOME`/`LOOP_EVENTS_DIR` and hard-denies the
+GitLab, Slack and dashboard tools, so it never touches the real install.
+Fixtures stay synthetic: never put real issue text or project names in a
+case.
+
 ## Dependency injection, resolved at call time — not def time
 
 Module-level constants (`STATUS_PATH`, `LAUNCHD_DIR`, `SKILLS_ROOT`, etc.)

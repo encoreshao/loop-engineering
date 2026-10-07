@@ -150,3 +150,50 @@ def test_batch_end_of_run_mode_knows_every_gate_escalation_reason():
     prompt = run_script("--batch-end-of-run").stdout
     for reason in ("handoff_invalid", "mr_open_failed", "project_config_error", "run_incomplete"):
         assert reason in prompt, reason
+
+
+def _issue_file(tmp_path, title="Pagination shows 11 items", body="Page size is 10 but\npages show 11 rows."):
+    import json
+    path = tmp_path / "issue.json"
+    path.write_text(json.dumps({"title": title, "body": body}))
+    return path
+
+
+def test_issue_file_mode_injects_the_issue_text_instead_of_fetching_it(tmp_path):
+    path = _issue_file(tmp_path)
+    result = run_script("--issue-file", "golden", "1", str(path))
+    assert result.returncode == 0, result.stderr
+    prompt = result.stdout
+    assert "Follow LOOPX_INSTRUCTIONS.md" in prompt
+    assert "skip Step 1" in prompt
+    assert "project alias 'golden'" in prompt
+    assert "issue IID 1" in prompt
+    assert "Pagination shows 11 items" in prompt
+    assert "Page size is 10 but\npages show 11 rows." in prompt
+    # Offline: nothing may reach GitLab, Slack or the live dashboard.
+    for tool in ("gitlab_api.py", "track_new_comments.py", "slack_notify.py", "dashboard_server.py"):
+        assert tool in prompt, tool
+    assert "post no GitLab comments" in prompt
+    # A single issue, like --batch-issue: no End of run.
+    assert "do NOT do LOOPX_INSTRUCTIONS.md's 'End of run'" in prompt
+
+
+def test_issue_file_mode_keeps_shell_metacharacters_in_the_issue_literal(tmp_path):
+    path = _issue_file(tmp_path, title="Use `git status` and $HOME", body="it's \"quoted\" $(whoami)")
+    prompt = run_script("--issue-file", "golden", "1", str(path)).stdout
+    assert "Use `git status` and $HOME" in prompt
+    assert "it's \"quoted\" $(whoami)" in prompt
+
+
+def test_issue_file_mode_rejects_a_missing_or_malformed_file(tmp_path):
+    assert run_script("--issue-file", "golden", "1", str(tmp_path / "nope.json")).returncode == 1
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    assert run_script("--issue-file", "golden", "1", str(bad)).returncode == 1
+    assert run_script("--issue-file", "golden", "1").returncode == 1
+
+
+def test_gitlab_loop_runner_builds_the_issue_file_prompt(tmp_path):
+    path = _issue_file(tmp_path)
+    prompt = glr.build_issue_file_prompt("golden", 1, path, repo_root=REPO_ROOT)
+    assert "Pagination shows 11 items" in prompt and "project alias 'golden'" in prompt

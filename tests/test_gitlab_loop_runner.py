@@ -1811,3 +1811,34 @@ def test_non_budget_failure_without_envelope_records_unknown(tmp_path, monkeypat
 def test_non_budget_envelope_without_cost_records_unknown(tmp_path, monkeypatch):
     _stub_cli(tmp_path, monkeypatch, "print(json.dumps({'is_error': True, 'subtype': 'error_during_execution'}))", 0)
     assert _invoke_failing(tmp_path).cost_usd is None
+
+
+def test_offline_mode_hard_denies_gitlab_slack_and_dashboard_tools(tmp_path):
+    cmd = glr._cli_command("claude", "p", tmp_path, "/wt", gate=True, offline=True)
+    disallowed = cmd[cmd.index("--disallowedTools") + 1]
+    for tool in ("gitlab_api.py", "track_new_comments.py", "slack_notify.py", "dashboard_server.py"):
+        assert f"Bash(python3 *{tool}*)" in disallowed, tool
+    assert "open_merge_request.sh" in disallowed and "Bash(git merge*)" in disallowed
+    online = glr._cli_command("claude", "p", tmp_path, "/wt", gate=True)
+    assert "slack_notify.py" not in online[online.index("--disallowedTools") + 1]
+
+
+def test_invoke_issue_file_agent_is_gated_offline_and_capped(monkeypatch, tmp_path):
+    seen_args = []
+    monkeypatch.setattr(glr, "_run_build_run_prompt", lambda args, repo_root: seen_args.append(args) or "ISSUE PROMPT")
+    captured = {}
+    monkeypatch.setattr(glr, "_invoke_cli_with_prompt",
+                        lambda prompt, **kw: captured.update(prompt=prompt, **kw) or {"cost_usd": 0.4})
+    issue_file = tmp_path / "issue.json"
+    out = glr.invoke_issue_file_agent("golden", 1, issue_file, repo_root=tmp_path, run_id="golden-x",
+                                      feedback="FEEDBACK", max_budget_usd=1.5,
+                                      unified_log_path=tmp_path / "u.log")
+    assert out == {"cost_usd": 0.4}
+    assert seen_args == [["--issue-file", "golden", "1", str(issue_file)]]
+    assert captured["prompt"].startswith("ISSUE PROMPT")
+    assert "Harness gate is ON" in captured["prompt"]
+    assert captured["prompt"].index("FEEDBACK") < captured["prompt"].index("Harness gate is ON")
+    assert captured["gate"] is True and captured["offline"] is True
+    assert captured["max_budget_usd"] == 1.5
+    assert captured["unified_log_path"] == tmp_path / "u.log"
+    assert captured["env"]["LOOP_HANDOFF_PATH"].endswith("outputs/handoffs/golden-x/golden-1.json")

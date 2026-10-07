@@ -729,3 +729,63 @@ def test_run_subprocess_writes_events_to_override_dir_not_repo(tmp_path, monkeyp
     assert any(override.glob("*.jsonl"))
     after = {p: p.stat().st_size for p in repo_events.glob("*.jsonl")} if repo_events.exists() else {}
     assert after == before
+
+
+# --- eval --golden (in-process: run_suite's real path is stubbed out) -------
+
+def _golden(monkeypatch, tmp_path, outcomes):
+    sys.path.insert(0, str(REPO_ROOT / "bin"))
+    import golden_eval
+    import loop_cli
+
+    seen = {}
+
+    def fake_suite(cases, budget_usd=10.0, run_case=None):
+        seen["names"] = [c["name"] for c in cases]
+        seen["budget"] = budget_usd
+        seen["run_case"] = run_case
+        return outcomes
+
+    monkeypatch.setattr(golden_eval, "run_suite", fake_suite)
+    monkeypatch.setattr(golden_eval, "DEFAULT_LAST_RUN_PATH", tmp_path / "golden-last.json")
+    return loop_cli, seen
+
+
+def test_eval_golden_runs_every_case_with_the_default_budget_and_writes_last_run(monkeypatch, tmp_path, capsys):
+    import json
+    outcomes = {"results": [{"name": "fix-off-by-one", "passed": True, "reasons": [], "cost_usd": 0.5}],
+                "not_run": [], "spent_usd": 0.5}
+    loop_cli, seen = _golden(monkeypatch, tmp_path, outcomes)
+    rc = loop_cli.main(["eval", "--golden"])
+    assert seen["budget"] == 10.0 and seen["run_case"] is None
+    assert len(seen["names"]) == 6
+    data = json.loads((tmp_path / "golden-last.json").read_text())
+    assert data["budget_usd"] == 10.0 and data["results"] == outcomes["results"]
+    out = capsys.readouterr().out
+    assert "PASS  fix-off-by-one" in out and "$0.50" in out
+    # Not every shipped case "ran" in this stubbed outcome, but all reported
+    # ones passed and none were skipped, so the exit code is 0.
+    assert rc == 0
+
+
+def test_eval_golden_filters_by_case_and_honors_budget(monkeypatch, tmp_path, capsys):
+    outcomes = {"results": [{"name": "already-fixed", "passed": False, "reasons": ["expected action answer, got fix"],
+                             "cost_usd": 1.0}], "not_run": ["answer-question"], "spent_usd": 1.0}
+    loop_cli, seen = _golden(monkeypatch, tmp_path, outcomes)
+    rc = loop_cli.main(["eval", "--golden", "--budget-usd", "2.5",
+                             "--case", "already-fixed", "--case", "answer-question"])
+    assert seen["budget"] == 2.5
+    assert sorted(seen["names"]) == ["already-fixed", "answer-question"]
+    out = capsys.readouterr().out
+    assert "FAIL  already-fixed" in out and "expected action answer, got fix" in out
+    assert "NOT RUN  answer-question" in out
+    assert rc == 1
+
+
+def test_eval_golden_rejects_bad_arguments(monkeypatch, tmp_path):
+    loop_cli, seen = _golden(monkeypatch, tmp_path, {"results": [], "not_run": [], "spent_usd": 0})
+    assert loop_cli.main(["eval", "--golden", "--case", "no-such-case"]) == 2
+    assert loop_cli.main(["eval", "--golden", "--budget-usd", "0"]) == 2
+    assert loop_cli.main(["eval", "--golden", "--budget-usd", "lots"]) == 2
+    assert "names" not in seen
+    assert not (tmp_path / "golden-last.json").exists()

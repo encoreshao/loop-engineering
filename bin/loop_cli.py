@@ -392,7 +392,49 @@ def _cmd_doctor(argv):
     return 0
 
 
+def _cmd_eval_golden(argv):
+    """`eval --golden [--budget-usd N] [--case NAME]...` - the paid suite:
+    the real agent on synthetic fixture repos (bin/golden_eval.py)."""
+    import golden_eval
+
+    raw_budget = _parse_flag(argv, "--budget-usd", "10")
+    try:
+        budget = float(raw_budget)
+    except ValueError:
+        budget = 0.0
+    if budget <= 0:
+        print(f"eval --golden: --budget-usd must be a positive number, got {raw_budget!r}", file=sys.stderr)
+        return 2
+    names = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "--case"]
+    try:
+        cases = golden_eval.load_cases(names=names or None)
+    except ValueError as exc:
+        print(f"eval --golden: {exc}", file=sys.stderr)
+        return 2
+    if not cases:
+        print("eval --golden: no golden cases found", file=sys.stderr)
+        return 2
+
+    summary = golden_eval.run_suite(cases, budget_usd=budget)
+    path = golden_eval.write_last_run(summary, budget_usd=budget)
+    for result in summary["results"]:
+        cost = result.get("cost_usd")
+        cost_text = f"${cost:.2f}" if cost is not None else "cost unknown"
+        print(f"{'PASS' if result['passed'] else 'FAIL'}  {result['name']}  ({cost_text})")
+        for reason in result["reasons"]:
+            print(f"      {reason}")
+    for name in summary["not_run"]:
+        print(f"NOT RUN  {name}  (budget spent)")
+    passed = sum(1 for r in summary["results"] if r["passed"])
+    print()
+    print(f"{passed}/{len(cases)} golden cases passed, ${summary['spent_usd']:.2f} of ${budget:.2f} spent")
+    print(f"Summary written to {path}")
+    return golden_eval.exit_code(summary)
+
+
 def _cmd_eval(argv):
+    if "--golden" in argv:
+        return _cmd_eval_golden([a for a in argv if a != "--golden"])
     cases_dir = Path(argv[0]) if argv else DEFAULT_EVAL_CASES_DIR
     if not cases_dir.is_dir():
         print(f"eval: no such directory {cases_dir}", file=sys.stderr)
@@ -443,8 +485,8 @@ _COMMANDS = {
 }
 
 
-def main():
-    argv = sys.argv[1:]
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0] not in _COMMANDS:
         print(f"Usage: loop_cli.py <{'|'.join(_COMMANDS)}> ...", file=sys.stderr)
         return 2

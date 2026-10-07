@@ -154,6 +154,13 @@ _DISALLOWED_TOOLS = (
 
 _GATE_DISALLOWED_TOOLS = "Bash(bash *open_merge_request.sh*) Bash(git push origin loop/issue-*)"
 
+# Offline (golden eval) runs work on a synthetic fixture: nothing may reach
+# GitLab, Slack or the live dashboard, whatever the prompt says.
+_OFFLINE_DISALLOWED_TOOLS = (
+    "Bash(python3 *gitlab_api.py*) Bash(python3 *gitlab_cache.py*) Bash(python3 *track_new_comments.py*) "
+    "Bash(python3 *slack_notify.py*) Bash(python3 *dashboard_server.py*)"
+)
+
 GATE_OVERRIDE = """## Harness gate is ON for this run \u2014 this overrides steps 9 and 10
 
 Do NOT run open_merge_request.sh and do NOT push: skip step 9. The loop re-runs the project's checks itself and opens the merge request only if they pass.
@@ -213,13 +220,19 @@ def build_batch_issue_prompt(alias, issue_iid, repo_root=None):
     return _run_build_run_prompt(["--batch-issue", alias, str(issue_iid)], repo_root)
 
 
+def build_issue_file_prompt(alias, issue_iid, issue_file, repo_root=None):
+    """The golden eval suite's offline single-issue prompt: the issue's
+    title/body come from `issue_file` instead of GitLab."""
+    return _run_build_run_prompt(["--issue-file", alias, str(issue_iid), str(issue_file)], repo_root)
+
+
 def build_batch_end_of_run_prompt(repo_root=None):
     """The scheduled batch's wrap-up: "End of run" only, reconstructed
     from this run's own events."""
     return _run_build_run_prompt(["--batch-end-of-run"], repo_root)
 
 
-def _cli_command(ai_cli, prompt, repo_root, worktree_root, gate=False, max_budget_usd=None):
+def _cli_command(ai_cli, prompt, repo_root, worktree_root, gate=False, max_budget_usd=None, offline=False):
     if ai_cli == "codex":
         # `codex exec` (unlike top-level `codex`) has no --ask-for-approval
         # and no --add-dir at all - both are rejected outright with
@@ -248,7 +261,11 @@ def _cli_command(ai_cli, prompt, repo_root, worktree_root, gate=False, max_budge
         "--add-dir", str(repo_root), "--add-dir", str(worktree_root),
         "--permission-mode", "acceptEdits",
         "--allowedTools", _allowed_tools(repo_root, gate=gate),
-        "--disallowedTools", f"{_DISALLOWED_TOOLS} {_GATE_DISALLOWED_TOOLS}" if gate else _DISALLOWED_TOOLS,
+        "--disallowedTools", " ".join(
+            [_DISALLOWED_TOOLS]
+            + ([_GATE_DISALLOWED_TOOLS] if gate else [])
+            + ([_OFFLINE_DISALLOWED_TOOLS] if offline else [])
+        ),
         *cost_module.budget_args(max_budget_usd),
         "--output-format", "json",
         prompt,
@@ -360,12 +377,13 @@ def _parse_envelope(stdout):
 
 def _invoke_cli_with_prompt(prompt, repo_root=None, timeout_seconds=900, unified_log_path=None,
                             alias=None, issue_iid=None, events_dir=None, env=None, gate=False,
-                            max_budget_usd=None):
+                            max_budget_usd=None, offline=False):
     """The one subprocess boundary: everything `invoke_issue_agent` used to
     do after building its prompt. `alias`/`issue_iid`/`events_dir` are used
     only to label the `issue.agent_failed` event on the failure path. `env`
     entries are added to the subprocess environment (gate mode's
-    LOOP_HANDOFF_PATH); `gate` selects the gate-mode tool lists.
+    LOOP_HANDOFF_PATH); `gate` selects the gate-mode tool lists and
+    `offline` adds the golden-eval denials (no GitLab/Slack/dashboard).
 
     Raises subprocess.CalledProcessError/TimeoutExpired on failure -
     LoopRuntime.start() catches agent_fn exceptions and turns them into a
@@ -377,7 +395,8 @@ def _invoke_cli_with_prompt(prompt, repo_root=None, timeout_seconds=900, unified
     repo_root = Path(repo_root)
     worktree_root = loop_config.get_worktree_root()
     ai_cli = ai_cli_config.get_selected_cli()
-    cmd = _cli_command(ai_cli, prompt, repo_root, worktree_root, gate=gate, max_budget_usd=max_budget_usd)
+    cmd = _cli_command(ai_cli, prompt, repo_root, worktree_root, gate=gate, max_budget_usd=max_budget_usd,
+                       offline=offline)
     run_kwargs = {"env": {**os.environ, **env}} if env else {}
 
     def report_failure(reason, detail, event_reason=None):
@@ -482,6 +501,23 @@ def invoke_batch_issue_agent(alias, issue_iid, repo_root=None, timeout_seconds=9
         prompt, repo_root=repo_root, timeout_seconds=timeout_seconds,
         unified_log_path=unified_log_path, alias=alias, issue_iid=issue_iid, env=env, gate=gate,
         max_budget_usd=max_budget_usd,
+    )
+
+
+def invoke_issue_file_agent(alias, issue_iid, issue_file, repo_root=None, timeout_seconds=900,
+                            unified_log_path=None, feedback=None, run_id=None, max_budget_usd=None):
+    """The golden eval suite's invocation: always gate mode (handoff file,
+    no MR) and offline (GitLab/Slack/dashboard tools hard-denied), with the
+    issue text read from `issue_file`."""
+    if repo_root is None:
+        repo_root = REPO_ROOT
+    repo_root = Path(repo_root)
+    prompt = _with_feedback(build_issue_file_prompt(alias, issue_iid, issue_file, repo_root=repo_root), feedback)
+    prompt, env = _gate_prompt_and_env(prompt, alias, issue_iid, repo_root, run_id)
+    return _invoke_cli_with_prompt(
+        prompt, repo_root=repo_root, timeout_seconds=timeout_seconds,
+        unified_log_path=unified_log_path, alias=alias, issue_iid=issue_iid, env=env, gate=True,
+        max_budget_usd=max_budget_usd, offline=True,
     )
 
 
