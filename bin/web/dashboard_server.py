@@ -13416,11 +13416,14 @@ def _only(kwargs, *keys):
 
 
 def _read_eval_json(name, base_dir=None):
-    """outputs/evals/<name> under the checkout, or None when absent/corrupt."""
-    if base_dir is None:
-        base_dir = LOOP_DIR
+    """outputs/evals/<name> under the checkout ($LOOP_EVALS_DIR/<name> when
+    set, like the writers), or None when absent/corrupt."""
+    if base_dir is None and os.environ.get("LOOP_EVALS_DIR"):
+        evals_dir = Path(os.environ["LOOP_EVALS_DIR"])
+    else:
+        evals_dir = Path(LOOP_DIR if base_dir is None else base_dir) / "outputs" / "evals"
     try:
-        data = json.loads((Path(base_dir) / "outputs" / "evals" / name).read_text())
+        data = json.loads((evals_dir / name).read_text())
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None

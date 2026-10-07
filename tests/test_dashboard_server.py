@@ -13972,6 +13972,7 @@ def test_harness_evals_view_reads_last_runs(tmp_path, monkeypatch):
                     {"name": "golden-delta", "passed": False, "reasons": ["verifier failed"], "cost_usd": None}],
         "not_run": ["golden-eps"]}))
     monkeypatch.setattr(ds, "LOOP_DIR", tmp_path)
+    monkeypatch.delenv("LOOP_EVALS_DIR", raising=False)
     out = ds._evals_body()
     for name in ("scripted-alpha", "scripted-beta", "golden-gamma", "golden-delta", "golden-eps"):
         assert name in out
@@ -13982,6 +13983,7 @@ def test_harness_evals_view_reads_last_runs(tmp_path, monkeypatch):
 
 def test_harness_evals_view_empty(tmp_path, monkeypatch):
     monkeypatch.setattr(ds, "LOOP_DIR", tmp_path)
+    monkeypatch.delenv("LOOP_EVALS_DIR", raising=False)
     assert "loop eval" in ds._evals_body()
 
 
@@ -14013,3 +14015,14 @@ def test_analytics_health_ledger_window_uses_calendar_days(monkeypatch):
     assert seen.get("since_date") == (until - timedelta(days=6)).isoformat()
     assert seen.get("until_date") == until.isoformat()
     assert seen.get("days") is None
+
+
+def test_harness_evals_view_honors_loop_evals_dir(tmp_path, monkeypatch):
+    import json
+    evals = tmp_path / "scratch-evals"
+    evals.mkdir()
+    (evals / "golden-last.json").write_text(json.dumps({
+        "finished_at": "2026-10-07T10:00:00+00:00", "results": [{"name": "golden-from-env", "passed": True}]}))
+    monkeypatch.setattr(ds, "LOOP_DIR", tmp_path / "checkout")
+    monkeypatch.setenv("LOOP_EVALS_DIR", str(evals))
+    assert "golden-from-env" in ds._evals_body()
