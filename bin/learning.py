@@ -172,11 +172,12 @@ def compute_reuse_metrics(events, project=None):
     }
 
 
-def build_learning_report(events_dir=None, since_date=None, until_date=None, project=None):
+def build_learning_report(events_dir=None, since_date=None, until_date=None, project=None, all_events=None):
     """{"reuse": compute_reuse_metrics(...), "lessons":
     compute_lesson_effectiveness(...), "scope": {"since_date",
     "until_date", "project"}}."""
-    all_events = list(events.iter_events(events_dir=events_dir, since_date=since_date, until_date=until_date))
+    if all_events is None:
+        all_events = list(events.iter_events(events_dir=events_dir, since_date=since_date, until_date=until_date))
     return {
         "reuse": compute_reuse_metrics(all_events, project=project),
         "lessons": compute_lesson_effectiveness(all_events, project=project),

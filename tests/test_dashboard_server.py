@@ -10072,9 +10072,9 @@ def test_render_analytics_page_invalid_days_value_defaults_to_seven(monkeypatch,
     captured = {}
     real_build_report = ds.metrics.build_report
 
-    def spy_build_report(events_dir=None, since_date=None, until_date=None):
+    def spy_build_report(events_dir=None, since_date=None, until_date=None, **kw):
         captured.setdefault("since_date", since_date)  # only the page's own main-report call, not the Trend section's per-bucket calls
-        return real_build_report(events_dir=events_dir, since_date=since_date, until_date=until_date)
+        return real_build_report(events_dir=events_dir, since_date=since_date, until_date=until_date, **kw)
 
     monkeypatch.setattr(ds.metrics, "build_report", spy_build_report)
 
@@ -10090,11 +10090,11 @@ def test_render_analytics_page_days_30_changes_query_window(monkeypatch, tmp_pat
     captured = {}
     real_build_report = ds.metrics.build_report
 
-    def spy_build_report(events_dir=None, since_date=None, until_date=None):
+    def spy_build_report(events_dir=None, since_date=None, until_date=None, **kw):
         # only the page's own main-report call, not the Trend section's per-bucket calls
         captured.setdefault("since_date", since_date)
         captured.setdefault("until_date", until_date)
-        return real_build_report(events_dir=events_dir, since_date=since_date, until_date=until_date)
+        return real_build_report(events_dir=events_dir, since_date=since_date, until_date=until_date, **kw)
 
     monkeypatch.setattr(ds.metrics, "build_report", spy_build_report)
 
@@ -14026,3 +14026,16 @@ def test_harness_evals_view_honors_loop_evals_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(ds, "LOOP_DIR", tmp_path / "checkout")
     monkeypatch.setenv("LOOP_EVALS_DIR", str(evals))
     assert "golden-from-env" in ds._evals_body()
+
+
+def test_analytics_reads_the_events_dir_twice_not_once_per_report(monkeypatch):
+    # One windowed read shared by metrics/cost/learning/health, one for the
+    # ledger (which must also see the non-date-named backfill file).
+    calls = []
+    real = ds.events_store.iter_events
+    def counting(**kw):
+        calls.append(kw)
+        return real(**kw)
+    monkeypatch.setattr(ds.events_store, "iter_events", counting)
+    ds._analytics_body(days=7)
+    assert len(calls) == 2, calls

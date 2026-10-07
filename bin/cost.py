@@ -205,12 +205,13 @@ def compute_cost_metrics(events):
     }
 
 
-def build_cost_report(events_dir=None, since_date=None, until_date=None):
+def build_cost_report(events_dir=None, since_date=None, until_date=None, all_events=None):
     """Reads events.iter_events(events_dir, since_date, until_date) once,
     returns {"cost": compute_cost_metrics(...), "scope": {"since_date",
     "until_date"}}. No project parameter - see the spec's "Constraint"
     section for why cost has no project dimension."""
-    all_events = list(events.iter_events(events_dir=events_dir, since_date=since_date, until_date=until_date))
+    if all_events is None:
+        all_events = list(events.iter_events(events_dir=events_dir, since_date=since_date, until_date=until_date))
     return {
         "cost": compute_cost_metrics(all_events),
         "scope": {"since_date": since_date, "until_date": until_date},

@@ -264,3 +264,11 @@ def test_apply_outcomes_treats_loop_failed_by_run_id_as_failure(tmp_path):
            {"event_type": "loop.failed", "run_id": "r_web_1", "project": "web", "timestamp": "2026-09-04T10:05:00.000Z"}]
     _apply(tmp_path, evs)
     assert memory_store.get_task_memory("web", 7, root=tmp_path)["score"] == -1
+
+
+def test_build_learning_report_uses_preloaded_events_without_reading(tmp_path, monkeypatch):
+    def no_read(**kw):
+        raise AssertionError("events dir read despite all_events")
+    monkeypatch.setattr(learning.events, "iter_events", no_read)
+    report = learning.build_learning_report(events_dir=tmp_path, all_events=[])
+    assert report["scope"]["since_date"] is None

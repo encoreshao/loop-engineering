@@ -309,3 +309,11 @@ def test_iter_events_skips_malformed_line(tmp_path):
 
 def test_iter_events_empty_dir_yields_nothing(tmp_path):
     assert list(events.iter_events(events_dir=tmp_path / "does-not-exist")) == []
+
+
+def test_filter_by_date_matches_the_date_named_file_window():
+    evs = [{"timestamp": "2026-10-05T23:59:59.999Z"}, {"timestamp": "2026-10-06T00:00:00.000Z"},
+           {"timestamp": "2026-10-07T12:00:00.000Z"}, {"timestamp": "2026-10-08T00:00:00.000Z"}, {}]
+    got = events.filter_by_date(evs, since_date="2026-10-06", until_date="2026-10-07")
+    assert [e["timestamp"][:10] for e in got] == ["2026-10-06", "2026-10-07"]
+    assert events.filter_by_date(evs) == evs

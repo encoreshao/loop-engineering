@@ -715,3 +715,25 @@ def test_compute_first_pass_verification_metrics_missing_timestamp_ignored():
 def test_retry_rate_reason_no_longer_claims_retries_do_not_exist():
     assert "no retry behavior exists yet" not in metrics.RETRY_RATE_UNAVAILABLE_REASON
     assert "Gates" in metrics.RETRY_RATE_UNAVAILABLE_REASON
+
+
+def test_build_report_uses_preloaded_events_without_reading(tmp_path, monkeypatch):
+    def no_read(**kw):
+        raise AssertionError("events dir read despite all_events")
+    monkeypatch.setattr(metrics.events, "iter_events", no_read)
+    report = metrics.build_report(events_dir=tmp_path, all_events=[])
+    assert report["scope"]["since_date"] is None
+
+
+def test_bucketed_reports_splits_preloaded_events_by_utc_day(monkeypatch):
+    def no_read(**kw):
+        raise AssertionError("events dir read despite all_events")
+    monkeypatch.setattr(metrics.events, "iter_events", no_read)
+    today = datetime.now(timezone.utc).date()
+    yesterday = today - timedelta(days=1)
+    evs = [{"event_type": "issue.started", "run_id": "r", "issue_run_id": f"i{n}", "timestamp": f"{d}T10:00:00.000Z",
+            "project": "p", "issue_iid": n, "data": {}}
+           for n, d in ((1, yesterday), (2, today), (3, today))]
+    reports = metrics.bucketed_reports(days=2, bucket_days=1, all_events=evs)
+    assert [r["scope"]["since_date"] for r in reports] == [yesterday.isoformat(), today.isoformat()]
+    assert [r["issue"]["issues_processed"] for r in reports] == [1, 2]

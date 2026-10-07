@@ -309,14 +309,15 @@ def compute_quality_and_autonomy_metrics(issue_metrics, verification_metrics):
     }
 
 
-def build_report(events_dir=None, since_date=None, until_date=None, project=None):
+def build_report(events_dir=None, since_date=None, until_date=None, project=None, all_events=None):
     """Reads events.iter_events(events_dir, since_date, until_date) once,
     then assembles {"run", "issue", "verification", "quality_and_autonomy",
     "classification", "failure_taxonomy"}. When project is given, "run"
     becomes {"not_applicable_reason": ...} instead of a filtered (and
     therefore meaningless) run tally - a run spans every project touched
     that run."""
-    all_events = list(events.iter_events(events_dir=events_dir, since_date=since_date, until_date=until_date))
+    if all_events is None:
+        all_events = list(events.iter_events(events_dir=events_dir, since_date=since_date, until_date=until_date))
 
     issue_metrics = compute_issue_metrics(all_events, project=project)
     verification_metrics = compute_verification_metrics(all_events, project=project)
@@ -341,7 +342,7 @@ def build_report(events_dir=None, since_date=None, until_date=None, project=None
     }
 
 
-def bucketed_reports(events_dir=None, days=7, bucket_days=1):
+def bucketed_reports(events_dir=None, days=7, bucket_days=1, all_events=None):
     """Return a list of build_report()-shaped dicts, oldest first, one
     per sequential UTC-day bucket covering the last `days` days, each
     spanning `bucket_days` calendar days. Buckets are constructed
@@ -349,7 +350,8 @@ def bucketed_reports(events_dir=None, days=7, bucket_days=1):
     a remainder when `days` doesn't divide evenly by `bucket_days` lands
     on the OLDEST bucket, not the newest - after reversing to oldest-first
     order for the return value, that shorter bucket is therefore first in
-    the list, not last."""
+    the list, not last. `all_events` (already covering the whole window)
+    is sliced per bucket in memory instead of re-reading the events dir."""
     today = datetime.now(timezone.utc).date()
     buckets = []
     bucket_until = today
@@ -363,7 +365,11 @@ def bucketed_reports(events_dir=None, days=7, bucket_days=1):
     buckets.reverse()
 
     return [
-        build_report(events_dir=events_dir, since_date=since.isoformat(), until_date=until.isoformat())
+        build_report(
+            events_dir=events_dir, since_date=since.isoformat(), until_date=until.isoformat(),
+            all_events=None if all_events is None else events.filter_by_date(
+                all_events, since_date=since.isoformat(), until_date=until.isoformat()),
+        )
         for since, until in buckets
     ]
 

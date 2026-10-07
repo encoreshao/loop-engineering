@@ -458,3 +458,11 @@ def test_cli_report_bad_days_value_fails_clearly(tmp_path):
 
     assert result.returncode == 1
     assert "days" in result.stderr.lower()
+
+
+def test_build_cost_report_uses_preloaded_events_without_reading(tmp_path, monkeypatch):
+    def no_read(**kw):
+        raise AssertionError("events dir read despite all_events")
+    monkeypatch.setattr(cost.events, "iter_events", no_read)
+    report = cost.build_cost_report(events_dir=tmp_path, all_events=[])
+    assert report["scope"]["since_date"] is None

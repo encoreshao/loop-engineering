@@ -12330,11 +12330,17 @@ def _trend_bucket_label(scope):
     )
 
 
-def _trend_section_html(days):
+def _trend_section_html(days, window_events=None):
+    """`window_events` - the last `days` UTC days of events, already read -
+    is sliced per bucket in memory; None reads the events dir per bucket."""
     bucket_days = 1 if days <= 7 else 7
-    metrics_reports = metrics.bucketed_reports(days=days, bucket_days=bucket_days)
+    metrics_reports = metrics.bucketed_reports(days=days, bucket_days=bucket_days, all_events=window_events)
     cost_reports = [
-        cost.build_cost_report(since_date=r["scope"]["since_date"], until_date=r["scope"]["until_date"])
+        cost.build_cost_report(
+            since_date=r["scope"]["since_date"], until_date=r["scope"]["until_date"],
+            all_events=None if window_events is None else events_store.filter_by_date(
+                window_events, since_date=r["scope"]["since_date"], until_date=r["scope"]["until_date"]),
+        )
         for r in metrics_reports
     ]
 
@@ -12403,10 +12409,14 @@ def _analytics_body(days=7):
     since = until - timedelta(days=days - 1)
     since_date, until_date = since.isoformat(), until.isoformat()
 
-    metrics_report = metrics.build_report(since_date=since_date, until_date=until_date)
-    cost_report = cost.build_cost_report(since_date=since_date, until_date=until_date)
-    learning_report = learning.build_learning_report(since_date=since_date, until_date=until_date)
+    # One read of the window, shared by every report and the Trend buckets;
+    # the ledger reads on its own because it must also see the
+    # non-date-named backfill file, which an until_date scan skips.
     window_events = list(events_store.iter_events(since_date=since_date, until_date=until_date))
+    metrics_report = metrics.build_report(since_date=since_date, until_date=until_date, all_events=window_events)
+    cost_report = cost.build_cost_report(since_date=since_date, until_date=until_date, all_events=window_events)
+    learning_report = learning.build_learning_report(
+        since_date=since_date, until_date=until_date, all_events=window_events)
     health_report = health.compute_health_score(
         metrics_report, cost_report,
         runs=list(ledger.iter_runs(since_date=since_date, until_date=until_date)),
@@ -12433,7 +12443,7 @@ def _analytics_body(days=7):
 {_risk_classification_section_html(metrics_report)}
 {_failure_breakdown_section_html(metrics_report)}
 {_learning_section_html(learning_report)}
-{_trend_section_html(days)}
+{_trend_section_html(days, window_events)}
 </div>
 """
     return body

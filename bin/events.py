@@ -160,6 +160,22 @@ def iter_events(events_dir=None, since_date=None, until_date=None):
         yield from _read_events_file(path)
 
 
+def filter_by_date(events, since_date=None, until_date=None):
+    """The events whose UTC timestamp date is within [since_date,
+    until_date] - the same window iter_events() selects by file name, since
+    emit() files each event under its own timestamp's UTC date. Lets a
+    caller read a range once and slice it per day in memory."""
+    if since_date is None and until_date is None:
+        return list(events)
+    out = []
+    for event in events:
+        day = str(event.get("timestamp") or "")[:10]
+        if not day or (since_date is not None and day < since_date) or (until_date is not None and day > until_date):
+            continue
+        out.append(event)
+    return out
+
+
 def _cmd_list(argv):
     date_stamp = _parse_flag(argv, "--date")
     run_id_filter = _parse_flag(argv, "--run-id")
