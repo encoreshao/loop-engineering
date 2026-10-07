@@ -906,5 +906,8 @@
   "Stale after (days)": "停滞とみなす日数",
   "Your issues and merge requests idle this many days are listed (1-365)": "この日数以上動きのないイシューとマージリクエストを一覧にします（1〜365）",
   "Review stale after (days)": "レビュー停滞の日数",
-  "Merge requests waiting on your review this many days are listed (1-365)": "この日数以上あなたのレビューを待っているマージリクエストを一覧にします（1〜365）"
+  "Merge requests waiting on your review this many days are listed (1-365)": "この日数以上あなたのレビューを待っているマージリクエストを一覧にします（1〜365）",
+  "${usd} per verified issue": "検証済みイシューあたり ${usd}",
+  "{pct}% of runs retried": "実行の {pct}% が再試行",
+  "{points} pts with memory": "メモリ使用時 {points} pt"
 }

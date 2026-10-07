@@ -448,7 +448,7 @@
   "Resolution": "Résolution",
   "Resolution rate": "Taux de résolution",
   "Resume": "Reprendre",
-  "Retry rate": "Taux de relance",
+  "Retry rate": "Taux de nouvelles tentatives",
   "Reuse rate": "Taux de réutilisation",
   "Reused {times}× · {successful} successful, {failed} failed (effectiveness: {effectiveness})": "Réutilisé {times}× · {successful} réussies, {failed} échouées (efficacité : {effectiveness})",
   "Risk & Classification": "Risque et classification",
@@ -906,5 +906,8 @@
   "Stale after (days)": "En sommeil après (jours)",
   "Your issues and merge requests idle this many days are listed (1-365)": "Vos tickets et merge requests inactifs depuis ce nombre de jours sont listés (1-365)",
   "Review stale after (days)": "Revue en attente après (jours)",
-  "Merge requests waiting on your review this many days are listed (1-365)": "Les merge requests qui attendent votre revue depuis ce nombre de jours sont listées (1-365)"
+  "Merge requests waiting on your review this many days are listed (1-365)": "Les merge requests qui attendent votre revue depuis ce nombre de jours sont listées (1-365)",
+  "${usd} per verified issue": "${usd} par ticket vérifié",
+  "{pct}% of runs retried": "{pct} % des exécutions avec nouvelle tentative",
+  "{points} pts with memory": "{points} pts avec la mémoire"
 }

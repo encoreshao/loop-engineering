@@ -906,5 +906,8 @@
   "Stale after (days)": "停滞天数",
   "Your issues and merge requests idle this many days are listed (1-365)": "列出闲置达到此天数的议题和合并请求（1-365）",
   "Review stale after (days)": "审查停滞天数",
-  "Merge requests waiting on your review this many days are listed (1-365)": "列出等待你审查达到此天数的合并请求（1-365）"
+  "Merge requests waiting on your review this many days are listed (1-365)": "列出等待你审查达到此天数的合并请求（1-365）",
+  "${usd} per verified issue": "每个已验证议题 ${usd}",
+  "{pct}% of runs retried": "{pct}% 的运行被重试",
+  "{points} pts with memory": "使用记忆时 {points} 分"
 }

@@ -4921,6 +4921,7 @@ html.collapsed .sidebar-top {{
 .dash-stat-icon {{ color: var(--md-primary); font-size: 17px; }}
 .dash-stat-value {{ font-size: 1.15rem; font-weight: 700; }}
 .dash-stat-label {{ font-size: 0.72rem; color: var(--md-on-surface-variant); }}
+.dash-stat-detail {{ font-size: 0.68rem; color: var(--md-on-surface-variant); opacity: 0.85; }}
 .analytics-days-selector {{ display: flex; gap: 0.5rem; margin: 0 0 1rem 0; }}
 .analytics-days-selector a {{ padding: 0.3rem 0.75rem; border-radius: 6px; background: var(--md-surface-container-low); color: var(--md-on-surface-variant); text-decoration: none; font-size: 0.85rem; }}
 .analytics-days-selector a.active {{ background: var(--md-primary); color: var(--md-on-primary); }}
@@ -12026,13 +12027,15 @@ def render_settings_page(flash=None, flash_ok=True):
     )
 
 
-def _stat_tile_html(icon, label, value, tooltip=None):
+def _stat_tile_html(icon, label, value, tooltip=None, detail=None):
     tooltip_attr = f" title=\"{html.escape(tooltip)}\"" if tooltip else ""
+    detail_html = f"<span class='dash-stat-detail'>{html.escape(detail)}</span>" if detail else ""
     return (
         f"<div class='dash-stat-tile'{tooltip_attr}>"
         f"<span class='material-symbols-outlined dash-stat-icon' aria-hidden='true'>{icon}</span>"
         f"<span class='dash-stat-value'>{value}</span>"
         f"<span class='dash-stat-label'>{html.escape(label)}</span>"
+        f"{detail_html}"
         "</div>"
     )
 
@@ -12059,6 +12062,20 @@ _AUTONOMY_PLACEHOLDER_TOOLTIP = "placeholder: currently identical to resolution 
 _FIRST_PASS_VERIFICATION_TOOLTIP = "currently identical to Verification — the loop has no retry behavior yet"
 
 
+def _health_detail(name, details):
+    """The real figure behind a 0-100 Health component, or None."""
+    value = (details.get(name) or {}).get("value")
+    if value is None:
+        return None
+    if name == "cost_efficiency":
+        return _t("${usd} per verified issue", usd=f"{value:.2f}")
+    if name == "retry_rate":
+        return _t("{pct}% of runs retried", pct=f"{value * 100:.0f}")
+    if name == "learning_effectiveness":
+        return _t("{points} pts with memory", points=f"{value * 100:+.0f}")
+    return None
+
+
 def _health_section_html(health_report, metrics_report):
     score = health_report["score"]
     score_text = f"{score:.0f}/100" if score is not None else _t("N/A")
@@ -12082,6 +12099,7 @@ def _health_section_html(health_report, metrics_report):
                 else i18n.t(_AUTONOMY_PLACEHOLDER_TOOLTIP) if name == "autonomy" and autonomy_is_placeholder
                 else None
             ),
+            detail=_health_detail(name, health_report.get("details") or {}),
         )
         for name, value in health_report["components"].items()
     )

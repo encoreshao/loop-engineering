@@ -14085,3 +14085,35 @@ def test_do_post_loop_schedule_saves_a_minute_interval(monkeypatch):
             [("csrf_token", ds._CSRF_TOKEN), ("time", "09:00"), ("frequency", "Hourly"), ("interval_hours", "15m")])
         assert status == 303
     assert captured["args"] == ("topic-loop", {"frequency": "hourly", "interval_minutes": 15})
+
+
+def _health_report(cost=None, retry=None, delta=None):
+    comps = {"resolution": 80, "autonomy": None, "verification": 90, "escalation": 70,
+             "cost_efficiency": 60 if cost is not None else None,
+             "retry_rate": 75 if retry is not None else None,
+             "learning_effectiveness": 58 if delta is not None else None}
+    return {"score": 72, "is_partial": True, "components": comps,
+            "details": {"cost_efficiency": {"value": cost}, "retry_rate": {"value": retry},
+                        "learning_effectiveness": {"value": delta}},
+            "missing_components": ["autonomy"], "missing_reason": "x"}
+
+
+_METRICS_STUB = {"quality_and_autonomy": {"autonomy_rate_is_placeholder": False}}
+
+
+def test_health_tiles_show_the_underlying_figures():
+    out = ds._health_section_html(_health_report(cost=1.234, retry=0.25, delta=0.08), _METRICS_STUB)
+    assert "$1.23 per verified issue" in out
+    assert "25% of runs retried" in out
+    assert "+8 pts with memory" in out
+    assert "dash-stat-detail" in out
+
+
+def test_health_tiles_without_figures_show_no_detail_line():
+    out = ds._health_section_html(_health_report(), _METRICS_STUB)
+    assert "dash-stat-detail" not in out and "per verified issue" not in out
+
+
+def test_health_learning_delta_can_be_negative():
+    out = ds._health_section_html(_health_report(delta=-0.12), _METRICS_STUB)
+    assert "-12 pts with memory" in out
