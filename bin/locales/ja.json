@@ -878,5 +878,10 @@
   "Thu": "木",
   "Fri": "金",
   "Sat": "土",
-  "Sun": "日"
+  "Sun": "日",
+  "Unknown loop": "不明なループ",
+  "incomplete": "未完了",
+  "started {when}": "開始 {when}",
+  "Incomplete runs": "未完了の実行",
+  "Started but never recorded a result in the last {days} days: crashed, killed, or still running.": "過去 {days} 日間に開始されたが結果が記録されていない実行です（クラッシュ、強制終了、または実行中）。"
 }

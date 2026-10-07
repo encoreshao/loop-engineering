@@ -14039,3 +14039,24 @@ def test_analytics_reads_the_events_dir_twice_not_once_per_report(monkeypatch):
     monkeypatch.setattr(ds.events_store, "iter_events", counting)
     ds._analytics_body(days=7)
     assert len(calls) == 2, calls
+
+
+def test_loop_runs_lists_incomplete_ledger_runs(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", tmp_path)
+    seen = {}
+    def fake_iter_runs(**kw):
+        seen.update(kw)
+        return [ds.ledger.RunRecord(run_id="run_crash<1>", loop_name="gitlab-issue-loop", final_state="incomplete",
+                                    started_at="2026-10-07T09:00:00.000Z", complete=False),
+                ds.ledger.RunRecord(run_id="run_ok", loop_name="gitlab-issue-loop", final_state="completed")]
+    monkeypatch.setattr(ds.ledger, "iter_runs", fake_iter_runs)
+    out = ds._loop_runs_body()
+    assert "Incomplete runs" in out and "run_crash&lt;1&gt;" in out and "2026-10-07T09:00:00.000Z" in out
+    assert "run_ok" not in out
+    assert seen.get("days") == 30
+
+
+def test_loop_runs_hides_incomplete_card_when_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "LOOP_RUNS_DIR", tmp_path)
+    monkeypatch.setattr(ds.ledger, "iter_runs", lambda **kw: [])
+    assert "Incomplete runs" not in ds._loop_runs_body()

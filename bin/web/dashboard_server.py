@@ -9160,6 +9160,34 @@ def _three_state_pill_class(status_value):
     return "pill-grey"
 
 
+_INCOMPLETE_RUNS_DAYS = 30
+
+
+def _incomplete_runs_html(days=None):
+    """Ledger runs that emitted loop.started but never a loop.result or a
+    terminal event in the last `days` days - crashed or killed before
+    writing a snapshot (or still running) - so they have no result.json
+    and no row in the list above. Empty string when there are none."""
+    if days is None:
+        days = _INCOMPLETE_RUNS_DAYS
+    runs = [r for r in ledger.iter_runs(days=days) if not r.complete]
+    if not runs:
+        return ""
+    rows = "".join(
+        "<div class='history-entry'><div class='history-entry-header'>"
+        f"<strong>{html.escape(r.loop_name or _t('Unknown loop'))}</strong>"
+        f"<div class='pill-row'><span class='pill pill-grey'>{html.escape(_t('incomplete'))}</span></div>"
+        "</div>"
+        f"<p class='history-entry-overview'>run_id: {html.escape(r.run_id)} &middot; "
+        f"{html.escape(_t('started {when}', when=r.started_at or '?'))}</p></div>"
+        for r in runs
+    )
+    note = _t("Started but never recorded a result in the last {days} days: crashed, killed, or still running.",
+              days=days)
+    return (f"<section class=\"card\"><div class=\"section-header\">{_SECTION_ICON_LOOP_RUNS}"
+            f"<h2>{html.escape(_t('Incomplete runs'))}</h2></div><p>{html.escape(note)}</p>{rows}</section>")
+
+
 def _loop_runs_body():
     """Loop Runs page: every persisted LoopRuntime run
     (outputs/loop-runs/<run_id>/result.json, written by `loop_cli.py
@@ -9177,7 +9205,7 @@ def _loop_runs_body():
 </div>
 <div class="grid"><section class="card">
 <p>{_t('No runs yet - run {command} to produce one.', command='<code>bin/loop_cli.py run &lt;loop.yaml&gt;</code>')}</p>
-</section></div>
+</section>{_incomplete_runs_html()}</div>
 """
         return body
 
@@ -9210,6 +9238,7 @@ def _loop_runs_body():
 <div class="section-header">{_SECTION_ICON_LOOP_RUNS}<h2>{html.escape(_t('Runs'))}</h2></div>
 {"".join(rows)}
 </section>
+{_incomplete_runs_html()}
 </div>
 """
     return body

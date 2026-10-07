@@ -878,5 +878,10 @@
   "Thu": "Jeu",
   "Fri": "Ven",
   "Sat": "Sam",
-  "Sun": "Dim"
+  "Sun": "Dim",
+  "Unknown loop": "Boucle inconnue",
+  "incomplete": "incomplet",
+  "started {when}": "démarré {when}",
+  "Incomplete runs": "Exécutions incomplètes",
+  "Started but never recorded a result in the last {days} days: crashed, killed, or still running.": "Démarrées au cours des {days} derniers jours sans jamais enregistrer de résultat : plantées, interrompues ou encore en cours."
 }
