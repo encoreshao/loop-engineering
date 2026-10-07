@@ -198,6 +198,15 @@ def raise_on_sigterm(signum, frame):
     raise SystemExit(128 + signum)
 
 
+_CRASH_SUMMARY_CAP = 300
+
+
+def _crash_summary(exc):
+    """'ExcType: message', sanitised and capped - an exception message can
+    be huge (a whole response body) and ends up in reports."""
+    return chat_text(f"{type(exc).__name__}: {exc}", _CRASH_SUMMARY_CAP)
+
+
 def _slug(key):
     base = re.sub(r"[^A-Za-z0-9._-]+", "-", key).strip("-")[:40] or "item"
     return f"{base}-{hashlib.sha1(key.encode()).hexdigest()[:8]}"
@@ -265,7 +274,7 @@ def _run_item(plugin, item, ctx, run_id, events_dir, results_dir, repo_root):
                 outcome.url = item.url
             return outcome
         except Exception as exc:  # noqa: BLE001 - one item's failure must not stop the run
-            return Outcome(item.key, "failed", f"{type(exc).__name__}: {exc}", url=item.url)
+            return Outcome(item.key, "failed", _crash_summary(exc), url=item.url)
     cause = holder.get("error") or next(
         (r.output for it in reversed(result.iterations) for r in it.verification_results if not r.passed), "")
     summary = f"loop ended {result.final_state.value}: {result.stop_reason}"
@@ -365,15 +374,23 @@ def run_plugin(plugin, run_id, now=None, *, repo_root=None, results_dir=None, ev
                 try:
                     outcome = _run_item(plugin, item, ctx, run_id, events_dir, results_dir, repo_root)
                 except Exception as exc:  # noqa: BLE001 - one item's crash must not stop the run
-                    outcome = Outcome(item.key, "failed", f"{type(exc).__name__}: {exc}", url=item.url)
+                    outcome = Outcome(item.key, "failed", _crash_summary(exc), url=item.url)
                 if outcome.status in ("done", "skipped"):
                     seen.add(item.key)
                     seen.save()  # persist now: a later crash/SIGTERM must not re-run acted-on items
                 outcomes.append(outcome)
                 log(f"item {_slug(item.key)}: {outcome.status}")
-        finally:
-            seen.save()
-            counts = _write_reports(plugin, run_id, now, outcomes, history_dir, loop_dir / "last-run.json")
+        except BaseException:
+            # Persist what we can, but never let a failure here replace the
+            # exception that is already propagating (SIGTERM, a crash).
+            try:
+                seen.save()
+                _write_reports(plugin, run_id, now, outcomes, history_dir, loop_dir / "last-run.json")
+            except Exception as exc:  # noqa: BLE001
+                log(f"could not write reports while failing: {type(exc).__name__}")
+            raise
+        seen.save()
+        counts = _write_reports(plugin, run_id, now, outcomes, history_dir, loop_dir / "last-run.json")
         sends = digest_sends = []
         text = plugin.digest(outcomes, ctx)
         if text:

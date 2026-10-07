@@ -308,3 +308,23 @@ def test_base_call_model_passes_the_call_budget(env, monkeypatch):
     assert seen["cap"] == 0.4
     loopkit.LoopPlugin().call_model("p", ctx)
     assert seen["cap"] == 1
+
+
+def test_a_report_write_failure_never_masks_the_original_exception(env, monkeypatch):
+    kw, _ = env
+    def after(item, answer):
+        raise SystemExit(143)
+    monkeypatch.setattr(loopkit, "_write_reports", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+    p = Demo([WorkItem("a", "A")], ['{"verdict": "ok"}'], after=after)
+    with pytest.raises(SystemExit):
+        loopkit.run_plugin(p, "run_1", **kw)
+
+
+def test_a_crashed_item_summary_is_length_capped(env, monkeypatch):
+    kw, _ = env
+    def after(item, answer):
+        raise RuntimeError("x" * 5000)
+    p = Demo([WorkItem("a", "A")], ['{"verdict": "ok"}'], after=after)
+    out = loopkit.run_plugin(p, "run_1", **kw)
+    assert out[0].status == "failed" and out[0].summary.startswith("RuntimeError: ")
+    assert len(out[0].summary) <= 300
