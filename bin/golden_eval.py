@@ -123,7 +123,7 @@ def changed_paths(repo, worktree):
     for cwd in (worktree, repo):
         if not Path(cwd).is_dir():
             continue
-        changed |= _lines(_git("diff", "--name-only", "initial", cwd=cwd))
+        changed |= _lines(_git("diff", "--name-only", "--no-renames", "initial", cwd=cwd))
         changed |= _lines(_git("ls-files", "--others", "--exclude-standard", cwd=cwd))
     return sorted(changed)
 
@@ -156,16 +156,17 @@ def run_suite(cases, budget_usd=10.0, run_case=None):
     """Run cases in order until the budget is spent; the rest are reported
     as not_run. `run_case(case)` returns {"passed", "reasons", "cost_usd"};
     by default it is the real, paid path, capped at what is left of the
-    budget. A case that raises counts as failed, never as a crash."""
+    budget. A case that raises counts as failed, never as a crash. A case
+    that reports no cost (None) is booked at what was left of the budget -
+    it may have spent all of it - so the suite total stays bounded."""
     results, not_run, spent = [], [], 0.0
     for case in cases:
         if spent >= budget_usd:
             not_run.append(case["name"])
             continue
+        remaining = budget_usd - spent
         runner = run_case
         if runner is None:
-            remaining = budget_usd - spent
-
             def runner(c, remaining=remaining):
                 return run_case_real(c, max_budget_usd=remaining)
         try:
@@ -174,7 +175,9 @@ def run_suite(cases, budget_usd=10.0, run_case=None):
             outcome = {"passed": False, "reasons": [f"case crashed: {type(exc).__name__}: {exc}"],
                        "cost_usd": getattr(exc, "cost_usd", None)}
         cost = outcome.get("cost_usd")
-        spent += cost or 0
+        if cost is None:
+            cost = round(remaining, 6)
+        spent += cost
         results.append({"name": case["name"], "passed": bool(outcome.get("passed")),
                         "reasons": list(outcome.get("reasons") or []), "cost_usd": cost})
     return {"results": results, "not_run": not_run, "spent_usd": round(spent, 6)}
@@ -296,7 +299,9 @@ def run_case_real(case, max_budget_usd=None, repo_root=None, agent_runner=None,
     checks are re-run, and a failure is fed back for one more attempt (up to
     `max_attempts`, the loop's own max_iterations). Each attempt is capped at
     what is left of `max_budget_usd`; the case's cost is the CLI's reported
-    spend summed over attempts."""
+    spend summed over attempts; an attempt whose cost is unknown (timeout,
+    crash, no envelope) is booked at the cap it was given. Never raises: a
+    crash mid-case fails the case with the spend booked so far."""
     import cost as cost_module
     import gitlab_loop_runner as glr
 
@@ -307,6 +312,7 @@ def run_case_real(case, max_budget_usd=None, repo_root=None, agent_runner=None,
     run_id = f"golden-{case['name']}-{uuid.uuid4().hex[:8]}"
     handoff_file = glr.handoff_path(run_id, ALIAS, ISSUE_IID, repo_root=repo_root)
     spent, reasons, handoff, checks = 0.0, [], None, None
+    in_flight_cap = None  # the cap of an agent call whose cost is not booked yet
     with tempfile.TemporaryDirectory(prefix="golden-eval-") as tmp:
         try:
             sandbox = prepare_sandbox(case, tmp)
@@ -317,8 +323,11 @@ def run_case_real(case, max_budget_usd=None, repo_root=None, agent_runner=None,
                     break
                 cap = cost_module.remaining_budget(max_budget_usd, spent)
                 handoff_file.unlink(missing_ok=True)
+                in_flight_cap = cap
                 outcome = agent_runner(sandbox, run_id, feedback, cap, repo_root, timeout_seconds)
-                spent += outcome.get("cost_usd") or 0
+                cost = outcome.get("cost_usd")
+                spent += cost if cost is not None else (cap or 0)
+                in_flight_cap = None
                 if outcome.get("error"):
                     reasons.append(f"agent call failed: {outcome['error']}")
                 handoff = glr.read_handoff(handoff_file, ISSUE_IID)
@@ -331,6 +340,9 @@ def run_case_real(case, max_budget_usd=None, repo_root=None, agent_runner=None,
                     break
                 feedback = glr.format_feedback(SimpleNamespace(verification_results=[verification]))
             passed, grade_reasons = grade(case, handoff, changed_paths(sandbox["repo"], sandbox["worktree"]), checks)
+        except Exception as exc:  # noqa: BLE001 - reported as a failed case, the suite goes on
+            spent += in_flight_cap or 0
+            passed, grade_reasons = False, [f"case crashed: {type(exc).__name__}: {exc}"]
         finally:
             shutil.rmtree(handoff_file.parent, ignore_errors=True)
     reasons = reasons + grade_reasons

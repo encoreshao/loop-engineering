@@ -118,17 +118,41 @@ _USAGE_TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_read_tokens", "ca
 _AGENT_SCRIPTS = ("new_worktree.sh", "open_merge_request.sh")
 
 
-def _allowed_tools(repo_root, gate=False):
+# Offline (golden eval) runs get these bin/ helpers by name instead of the
+# bin/ globs: the globs would also reach notify.py (which falls back to the
+# real Slack webhook), loopkit.py, the *_runner.py entry points and
+# list_assigned_issues.py. They are exactly the helpers the --issue-file
+# prompt leaves the agent; project_memory.py is read-only (`get`).
+_OFFLINE_BIN_SCRIPTS = ("loop_config.py", "events.py", "risk.py", "memory_store.py", "project_memory.py get")
+# The golden fixtures are Python repos: their test_cmd must be runnable.
+_OFFLINE_CHECK_COMMANDS = "Bash(python3 -m pytest*)"
+
+
+def _allowed_tools(repo_root, gate=False, offline=False):
     """`gate=True` is the harness-gate variant: the agent may neither push
     nor open the MR itself (the runner does both after external
     verification passes) but may write its handoff file. Scripts are listed
-    explicitly rather than by glob so open_merge_request.sh can be left out."""
+    explicitly rather than by glob so open_merge_request.sh can be left out.
+    `offline=True` (golden eval) swaps the bin/ globs and GitLab helpers for
+    `_OFFLINE_BIN_SCRIPTS` and allows the fixtures' pytest."""
     scripts = [s for s in _AGENT_SCRIPTS if not (gate and s == "open_merge_request.sh")]
     script_patterns = " ".join(
         f"Bash(bash {prefix}bin/scripts/{s}*)" for prefix in ("", f"{repo_root}/") for s in scripts
     )
     push = "" if gate else "Bash(git push origin loop/issue-*) "
     handoff = f" Write({repo_root}/outputs/handoffs/**)" if gate else ""
+    if offline:
+        helpers = " ".join(
+            f"Bash(python3 {prefix}bin/{s}*)" for prefix in ("", f"{repo_root}/") for s in _OFFLINE_BIN_SCRIPTS
+        )
+        return (
+            "Read Edit Write "
+            f"Bash(git status*) Bash(git diff*) Bash(git add*) Bash(git commit*) {push}"
+            "Bash(cd *) "
+            f"{_OFFLINE_CHECK_COMMANDS} "
+            f"{helpers} "
+            f"{script_patterns}{handoff}"
+        )
     return (
         "Read Edit Write "
         f"Bash(git status*) Bash(git diff*) Bash(git add*) Bash(git commit*) {push}"
@@ -260,7 +284,7 @@ def _cli_command(ai_cli, prompt, repo_root, worktree_root, gate=False, max_budge
         "claude", "-p",
         "--add-dir", str(repo_root), "--add-dir", str(worktree_root),
         "--permission-mode", "acceptEdits",
-        "--allowedTools", _allowed_tools(repo_root, gate=gate),
+        "--allowedTools", _allowed_tools(repo_root, gate=gate, offline=offline),
         "--disallowedTools", " ".join(
             [_DISALLOWED_TOOLS]
             + ([_GATE_DISALLOWED_TOOLS] if gate else [])

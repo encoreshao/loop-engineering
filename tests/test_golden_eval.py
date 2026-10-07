@@ -55,7 +55,8 @@ def test_suite_records_spend_and_a_crashing_case_as_failed():
         return {"passed": True, "reasons": [], "cost_usd": 0.25}
 
     out = ge.run_suite([{"name": "ok"}, {"name": "boom"}], budget_usd=5.0, run_case=run_case)
-    assert out["spent_usd"] == 0.25
+    # A crash reports no cost, so the rest of the budget is booked as spent.
+    assert out["spent_usd"] == 5.0
     boom = out["results"][1]
     assert boom["passed"] is False and "fixture broke" in boom["reasons"][0]
 
@@ -456,3 +457,90 @@ def test_real_path_end_to_end_through_the_agent_subprocess_with_a_fake_cli(tmp_p
     assert "Bash(python3 *slack_notify.py*)" in disallowed and "open_merge_request.sh" in disallowed
     assert seen["home"] != str(REAL_HOME) and not seen["events"].startswith(str(REAL_EVENTS))
     assert seen["run_id"].startswith("golden-fix-off-by-one-")
+
+
+def test_suite_books_the_remaining_budget_for_a_case_without_a_reported_cost():
+    calls = []
+
+    def run_case(case):
+        calls.append(case["name"])
+        return {"passed": True, "reasons": [], "cost_usd": None}
+
+    out = ge.run_suite([{"name": "a"}, {"name": "b"}], budget_usd=3.0, run_case=run_case)
+    assert calls == ["a"] and out["not_run"] == ["b"] and out["spent_usd"] == 3.0
+    assert out["results"][0]["cost_usd"] == 3.0
+
+
+def test_suite_keeps_a_crashing_cases_reported_spend():
+    def run_case(case):
+        exc = RuntimeError("mid-case")
+        exc.cost_usd = 0.7
+        raise exc
+
+    out = ge.run_suite([{"name": "a"}, {"name": "b"}], budget_usd=3.0, run_case=run_case)
+    assert out["spent_usd"] == 1.4 and [r["cost_usd"] for r in out["results"]] == [0.7, 0.7]
+
+
+def test_real_path_books_the_attempt_cap_when_the_cost_is_unknown(tmp_path):
+    case = ge.load_case(CASES_DIR / "answer-question" / "case.yaml")
+
+    def timed_out(sandbox, run_id, feedback, max_budget_usd, repo_root, timeout_seconds):
+        return {"cost_usd": None, "error": "agent subprocess timed out after 1020s"}
+
+    out = ge.run_case_real(case, max_budget_usd=2.0, repo_root=tmp_path, agent_runner=timed_out)
+    assert out["passed"] is False and out["cost_usd"] == 2.0
+
+
+def test_real_path_books_unknown_cost_per_attempt_against_the_remaining_cap(tmp_path):
+    case = ge.load_case(CASES_DIR / "failing-test-fix" / "case.yaml")
+
+    def naive(sandbox):
+        _edit(sandbox, "lib/pages.py", "total // size", "total // size + 1")
+        return _fix_handoff()
+
+    agent = FakeAgent(naive, cost=None)
+    out = ge.run_case_real(case, max_budget_usd=2.0, repo_root=tmp_path, agent_runner=agent)
+    # The first attempt's unknown cost consumed its whole cap, so no retry.
+    assert len(agent.calls) == 1 and out["cost_usd"] == 2.0 and out["passed"] is False
+    assert "budget exhausted before the case finished" in out["reasons"]
+
+
+def test_real_path_survives_a_crash_mid_case_with_its_spend(tmp_path, monkeypatch):
+    case = ge.load_case(CASES_DIR / "fix-off-by-one" / "case.yaml")
+
+    def fix(sandbox):
+        _edit(sandbox, "lib/paginate.py", "start + size + 1", "start + size")
+        return _fix_handoff()
+
+    def broken_checks(*a, **k):
+        raise OSError("checks exploded")
+
+    monkeypatch.setattr(ge, "_run_checks", broken_checks)
+    out = ge.run_case_real(case, max_budget_usd=2.0, repo_root=tmp_path, agent_runner=FakeAgent(fix, cost=0.4))
+    assert out["passed"] is False and out["cost_usd"] == 0.4
+    assert any("checks exploded" in r for r in out["reasons"])
+
+
+def test_real_path_books_the_cap_when_the_agent_runner_itself_raises(tmp_path):
+    case = ge.load_case(CASES_DIR / "answer-question" / "case.yaml")
+
+    def raising(*a, **k):
+        raise RuntimeError("runner blew up")
+
+    out = ge.run_case_real(case, max_budget_usd=1.5, repo_root=tmp_path, agent_runner=raising)
+    assert out["passed"] is False and out["cost_usd"] == 1.5
+    assert any("runner blew up" in r for r in out["reasons"])
+
+
+def test_changed_paths_reports_both_sides_of_a_rename(tmp_path):
+    """`git mv .gitlab-ci.yml lib/ci.yml` must not hide the deletion behind
+    an in-scope path."""
+    case = {"name": "f", "repo": {"files": {".gitlab-ci.yml": "test:\n  script: [pytest]\n", "lib/a.py": "x = 1\n"}}}
+    repo = ge.build_fixture(case, tmp_path)
+    worktree = ge.worktree_path(repo, tmp_path)
+    subprocess.run(["git", "-C", str(worktree), "mv", ".gitlab-ci.yml", "lib/ci.yml"], check=True)
+    subprocess.run(["git", "-C", str(worktree), "commit", "-qm", "move ci"], check=True)
+    changed = ge.changed_paths(repo, worktree)
+    assert ".gitlab-ci.yml" in changed and "lib/ci.yml" in changed
+    ok, reasons = ge.grade(FIX, {"action": "fix"}, changed, True)
+    assert not ok and any(".gitlab-ci.yml" in r for r in reasons)

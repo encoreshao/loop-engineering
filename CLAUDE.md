@@ -208,7 +208,8 @@ budget $10, it stops launching cases once spent), so it is never part of
 `pytest` - run it by hand, once on the base commit and once on your change.
 Each run writes `outputs/evals/golden-last.json`. It runs every case under
 a throwaway `LOOP_ENGINEERING_HOME`/`LOOP_EVENTS_DIR` and hard-denies the
-GitLab, Slack and dashboard tools, so it never touches the real install.
+GitLab, Slack and dashboard tools (offline mode also swaps the `bin/*.py`
+globs for an explicit helper allowlist), so it never touches the real install.
 Fixtures stay synthetic: never put real issue text or project names in a
 case.
 

@@ -1842,3 +1842,30 @@ def test_invoke_issue_file_agent_is_gated_offline_and_capped(monkeypatch, tmp_pa
     assert captured["max_budget_usd"] == 1.5
     assert captured["unified_log_path"] == tmp_path / "u.log"
     assert captured["env"]["LOOP_HANDOFF_PATH"].endswith("outputs/handoffs/golden-x/golden-1.json")
+
+
+def test_offline_allowlist_names_only_the_scripts_the_offline_prompt_uses(tmp_path):
+    allowed = glr._allowed_tools(tmp_path, gate=True, offline=True)
+    # No directory globs: notify.py, loopkit.py, *_runner.py and
+    # list_assigned_issues.py would all be reachable through bin/*.py.
+    for glob in ("bin/*.py", "bin/web/*.py", "bin/loop_plugins/*.py", "gitlab_api.py", "gitlab_cache.py"):
+        assert glob not in allowed, glob
+    for script in ("loop_config.py", "events.py", "risk.py", "memory_store.py"):
+        assert f"Bash(python3 bin/{script}*)" in allowed, script
+        assert f"Bash(python3 {tmp_path}/bin/{script}*)" in allowed, script
+    assert f"Bash(python3 {tmp_path}/bin/project_memory.py get*)" in allowed
+    for forbidden in ("notify.py", "loopkit.py", "gitlab_loop_runner.py", "list_assigned_issues.py",
+                      "slack_notify.py", "dashboard_server.py", "track_new_comments.py", "open_merge_request.sh"):
+        assert forbidden not in allowed, forbidden
+    # The fixtures' own checks, the worktree script and the handoff write stay.
+    assert "Bash(python3 -m pytest*)" in allowed
+    assert f"Bash(bash {tmp_path}/bin/scripts/new_worktree.sh*)" in allowed
+    assert f"Write({tmp_path}/outputs/handoffs/**)" in allowed
+    # The online allowlist is unchanged.
+    assert glr._allowed_tools(tmp_path, gate=True) == glr._allowed_tools(tmp_path, gate=True, offline=False)
+    assert "Bash(python3 bin/*.py*)" in glr._allowed_tools(tmp_path, gate=True)
+
+
+def test_offline_cli_command_uses_the_offline_allowlist(tmp_path):
+    cmd = glr._cli_command("claude", "p", tmp_path, "/wt", gate=True, offline=True)
+    assert cmd[cmd.index("--allowedTools") + 1] == glr._allowed_tools(tmp_path, gate=True, offline=True)
