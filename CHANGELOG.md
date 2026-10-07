@@ -33,6 +33,10 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Fixed
 
+- MR Review no longer downloads the diff of an MR whose current commit it
+  already reviewed, finds its old draft notes beyond the first 100, and
+  anchors notes on unchanged context lines and renamed files (they used to
+  fall back to general notes).
 - Daily Digest's "yesterday" and "today's meetings" windows no longer drift by
   an hour on a daylight-saving change day.
 - A LoopKit loop that is interrupted (SIGTERM, crash) now always reports the

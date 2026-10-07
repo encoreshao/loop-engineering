@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import loopkit  # noqa: E402
 import mail_http  # noqa: E402
+import seen_store  # noqa: E402
 
 DIFF_CAP_BYTES = 150_000
 MAX_FINDINGS = 15
@@ -19,6 +20,8 @@ MAX_DESCRIPTION = 4096
 MAX_BODY = 2000
 MAX_SUMMARY = 600
 _MAX_DIFF_PAGES = 20
+_MAX_DRAFT_PAGES = 20
+_HUNK = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 _SEVERITIES = ("nit", "minor", "major", "blocker")
 _SIGNATURE = "\n\n_— Loop X pre-review_"
 _MENTION = re.compile(r"(?<![\w@])@")
@@ -74,12 +77,51 @@ def _post_draft(conn, mr, note, position=None):
 
 
 def _clear_old_drafts(conn, mr):
-    """Delete this loop's own earlier drafts (partial runs, older SHAs).
-    Drafts without the Loop X signature are never touched."""
-    rows = conn.api("GET", _drafts_path(mr) + "?per_page=100")
-    for row in rows if isinstance(rows, list) else []:
-        if isinstance(row, dict) and row.get("id") is not None and str(row.get("note") or "").rstrip().endswith(_SIGNATURE.strip()):
-            conn.api("DELETE", f"{_drafts_path(mr)}/{int(row['id'])}", max_attempts=1)
+    """Delete this loop's own earlier drafts (partial runs, older SHAs),
+    across every page of drafts. Drafts without the Loop X signature are
+    never touched. All pages are listed before deleting, so a deletion never
+    shifts a later page."""
+    ours = []
+    for page in range(1, _MAX_DRAFT_PAGES + 1):
+        rows = conn.api("GET", _drafts_path(mr) + f"?per_page=100&page={page}")
+        rows = rows if isinstance(rows, list) else []
+        for row in rows:
+            if isinstance(row, dict) and row.get("id") is not None and str(row.get("note") or "").rstrip().endswith(_SIGNATURE.strip()):
+                ours.append(int(row["id"]))
+        if len(rows) < 100:
+            break
+    for draft_id in ours:
+        conn.api("DELETE", f"{_drafts_path(mr)}/{draft_id}", max_attempts=1)
+
+
+def diff_line_map(diff_text):
+    """{path: {new_line: old_line}} for the unchanged context lines of each
+    file in build_diff_text's output. Added lines are absent (they have no
+    old line); GitLab needs old_line as well as new_line to anchor a note on
+    a context line."""
+    out, path, old, new = {}, None, 0, 0
+    for line in str(diff_text or "").splitlines():
+        if line.startswith("+++ b/"):
+            path = line[6:]
+            out.setdefault(path, {})
+            continue
+        if line.startswith("--- a/"):
+            continue
+        m = _HUNK.match(line)
+        if m:
+            old, new = int(m.group(1)), int(m.group(2))
+            continue
+        if path is None or not old and not new:
+            continue
+        if line.startswith("+"):
+            new += 1
+        elif line.startswith("-"):
+            old += 1
+        elif line.startswith(" "):  # GitLab sends an empty context line as " "
+            out[path][new] = old
+            old += 1
+            new += 1
+    return out
 
 
 def post_review(conn, mr, answer):
@@ -87,13 +129,19 @@ def post_review(conn, mr, answer):
     failure hit after at least one draft was posted). Raises DraftWriteDenied
     on 401/403, and the original error when nothing was posted."""
     refs = mr["diff_refs"]
+    context_lines = diff_line_map(mr.get("diff"))
+    old_paths = mr.get("old_paths") or {}
     drafts = fallback = 0
     try:
         _clear_old_drafts(conn, mr)
         for f in answer.get("findings") or []:
             note = f"**[{f['severity']}]** {_defuse(f['body'])}{_SIGNATURE}"
             position = {"position_type": "text", "base_sha": refs["base_sha"], "start_sha": refs["start_sha"],
-                        "head_sha": refs["head_sha"], "new_path": f["path"], "new_line": f["line"]}
+                        "head_sha": refs["head_sha"], "old_path": old_paths.get(f["path"], f["path"]),
+                        "new_path": f["path"], "new_line": f["line"]}
+            old_line = context_lines.get(f["path"], {}).get(f["line"])
+            if old_line is not None:
+                position["old_line"] = old_line
             try:
                 _post_draft(conn, mr, note, position)
             except mail_http.MailHTTPError as exc:
@@ -125,10 +173,17 @@ class MRReview(loopkit.LoopPlugin):
     output_keys = ("summary", "findings")
     max_items_per_run = 8
 
-    def __init__(self, accounts_fn=None, loader=None, poster=None):
+    def __init__(self, accounts_fn=None, loader=None, poster=None, seen=None):
         self._accounts_fn = accounts_fn
         self._loader = loader
         self._poster = poster
+        self._seen = seen
+
+    def _seen_store(self):
+        # Read-only here: LoopKit itself marks items seen after acting.
+        if self._seen is None:
+            self._seen = seen_store.SeenStore(self.loop_name)
+        return self._seen
 
     def _resolve(self):
         import connectors_config
@@ -151,6 +206,11 @@ class MRReview(loopkit.LoopPlugin):
                 ctx.log(f"mr-review: account {account.get('id')} failed: {_err(exc)}")
                 continue
             for row in rows or []:
+                # The list already carries the head SHA: skip a reviewed one
+                # before paying for its detail and diff requests.
+                if (row.get("sha") and not getattr(ctx, "force", False)
+                        and self._seen_store().has(item_key(account["id"], row.get("project_id"), row.get("iid"), row["sha"]))):
+                    continue
                 try:
                     item = self._item(conn, account["id"], me, row)
                 except Exception as exc:  # noqa: BLE001
@@ -187,7 +247,9 @@ class MRReview(loopkit.LoopPlugin):
                      "description": str(detail.get("description") or "")[:MAX_DESCRIPTION],
                      "web_url": url, "diff_refs": {k: refs[k] for k in ("base_sha", "start_sha", "head_sha")},
                      "diff": diff, "truncated": truncated,
-                     "changed_paths": sorted({str(c.get("new_path")) for c in changes if c.get("new_path")})})
+                     "changed_paths": sorted({str(c.get("new_path")) for c in changes if c.get("new_path")}),
+                     "old_paths": {str(c["new_path"]): str(c["old_path"]) for c in changes
+                                   if c.get("old_path") and c.get("new_path") and c["old_path"] != c["new_path"]}})
 
     def after_item(self, item, answer, ctx):
         _, loader, poster = self._resolve()

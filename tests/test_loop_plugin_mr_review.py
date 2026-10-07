@@ -50,7 +50,8 @@ def test_findings_only_posted_as_draft_notes():
     assert not any("bulk_publish" in p or "approve" in p or p.endswith("/notes") for p in paths)
     assert all(m in ("GET", "POST") for m, _, _ in conn.calls)
     first = [c for c in conn.calls if c[0] == "POST"][0][2]
-    assert first["position"] == {"position_type": "text", "base_sha": "b", "start_sha": "s", "head_sha": "h", "new_path": "app/a.rb", "new_line": 2}
+    assert first["position"] == {"position_type": "text", "base_sha": "b", "start_sha": "s", "head_sha": "h",
+                                 "old_path": "app/a.rb", "new_path": "app/a.rb", "new_line": 2}
     assert first["note"].startswith("**[blocker]** eval on params")
 
 
@@ -242,3 +243,75 @@ def test_foreign_draft_quoting_signature_midtext_not_deleted():
     mr.post_review(conn, MR, {"summary": "s", "findings": F3[:1]})
     deletes = [p for m, p, _ in conn.calls if m == "DELETE"]
     assert deletes == ["/projects/9/merge_requests/7/draft_notes/11"]
+
+
+
+class Seen:
+    def __init__(self, keys=()):
+        self.keys = set(keys)
+    def has(self, key):
+        return key in self.keys
+
+
+class SeenD(D):
+    def __init__(self):
+        self.paths = []
+    def api(self, method, path, **kw):
+        self.paths.append(path)
+        if path.startswith("/merge_requests?"):
+            return [{"project_id": 9, "iid": 7, "sha": "h", "author": {"id": 2}, "title": "T", "web_url": "u"}]
+        return super().api(method, path, **kw)
+
+
+def test_discover_skips_an_already_reviewed_sha_before_fetching_anything():
+    conn = SeenD()
+    plugin = mr.MRReview(accounts_fn=lambda cap: [{"id": "work", "type": "gitlab"}], loader=lambda i: conn,
+                         seen=Seen({"mr:work:9!7@h"}))
+    assert plugin.discover(C()) == []
+    assert not any("/diffs" in p or p.endswith("/merge_requests/7") for p in conn.paths)
+
+
+def test_discover_force_reviews_a_seen_sha_again():
+    class F(C):
+        force = True
+    plugin = mr.MRReview(accounts_fn=lambda cap: [{"id": "work", "type": "gitlab"}], loader=lambda i: SeenD(),
+                         seen=Seen({"mr:work:9!7@h"}))
+    assert [i.key for i in plugin.discover(F())] == ["mr:work:9!7@h"]
+
+
+def test_old_drafts_are_found_beyond_the_first_page():
+    sig = "x\n\n_\u2014 Loop X pre-review_"
+    pages = {1: [{"id": n, "note": "foreign"} for n in range(100)], 2: [{"id": 500, "note": sig}], 3: []}
+
+    class Paged(Conn):
+        def api(self, method, path, json_body=None, **kw):
+            self.calls.append((method, path, json_body))
+            if method == "GET":
+                return pages[int(path.split("&page=")[1])]
+            return {}
+    conn = Paged()
+    mr.post_review(conn, MR, {"summary": "", "findings": []})
+    assert [p for m, p, _ in conn.calls if m == "DELETE"] == ["/projects/9/merge_requests/7/draft_notes/500"]
+
+
+def test_positions_carry_old_line_for_context_lines_and_old_path_for_renames():
+    diff = "--- a/new.rb\n+++ b/new.rb\n@@ -1,2 +1,3 @@\n a\n+b\n c\n"
+    payload = dict(MR, diff=diff, old_paths={"new.rb": "old.rb"})
+    conn = Conn()
+    findings = [{"path": "new.rb", "line": 3, "severity": "major", "body": "context"},
+                {"path": "new.rb", "line": 2, "severity": "major", "body": "added"}]
+    mr.post_review(conn, payload, {"summary": "", "findings": findings})
+    context, added = (b["position"] for b in _posts(conn)[:2])
+    assert context["old_path"] == "old.rb" and context["new_path"] == "new.rb"
+    assert context["old_line"] == 2 and context["new_line"] == 3
+    assert "old_line" not in added and added["new_line"] == 2
+
+
+def test_discover_records_old_paths_of_renamed_files():
+    class R(D):
+        def api(self, method, path, **kw):
+            if "/diffs" in path:
+                return [{"old_path": "old.rb", "new_path": "new.rb", "diff": "@@ -1 +1 @@\n-a\n+b\n"}] if "page=1" in path else []
+            return super().api(method, path, **kw)
+    items = mr.MRReview(accounts_fn=lambda cap: [{"id": "work", "type": "gitlab"}], loader=lambda i: R()).discover(C())
+    assert items[0].payload["old_paths"] == {"new.rb": "old.rb"}
