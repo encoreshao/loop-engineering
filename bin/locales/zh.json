@@ -837,5 +837,7 @@
   "Verification mode": "验证模式",
   "observe": "观察",
   "gate": "门禁",
-  "Flip a loop to gate once this holds at {threshold}% or more over a week.": "当该比例在一周内保持在 {threshold}% 以上时，再将循环切换为门禁模式。"
+  "Flip a loop to gate once this holds at {threshold}% or more over a week.": "当该比例在一周内保持在 {threshold}% 以上时，再将循环切换为门禁模式。",
+  "Cost efficiency": "成本效率",
+  "Learning effectiveness": "学习成效"
 }

@@ -837,5 +837,7 @@
   "Verification mode": "検証モード",
   "observe": "観察",
   "gate": "ゲート",
-  "Flip a loop to gate once this holds at {threshold}% or more over a week.": "これが1週間 {threshold}% 以上で続いたら、ループをゲートモードに切り替えてください。"
+  "Flip a loop to gate once this holds at {threshold}% or more over a week.": "これが1週間 {threshold}% 以上で続いたら、ループをゲートモードに切り替えてください。",
+  "Cost efficiency": "コスト効率",
+  "Learning effectiveness": "学習効果"
 }

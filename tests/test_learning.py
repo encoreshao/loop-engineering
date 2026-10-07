@@ -196,3 +196,16 @@ def test_cli_report_days_flag_computes_date_range(tmp_path):
     today = datetime.now(timezone.utc).date()
     since = (today - timedelta(days=6)).isoformat()
     assert since in result.stdout
+
+
+def test_memory_outcomes_pairs_reuse_with_issue_outcome():
+    events_list = [
+        _memory_reused("l1", "a", "p"), _memory_reused("l2", "a", "p"), _issue_completed("a", "p"),
+        _memory_reused("l1", "b", "p"), _issue_escalated("b", "p"),
+        _issue_started("c", "p"), _issue_completed("c", "p"),
+        _issue_started("d", "p"), _issue_escalated("d", "p"),
+        _memory_reused("l1", "e", "p"),  # no terminal outcome yet
+        _issue_started("f", "p"),  # pending, not counted
+    ]
+    result = learning.memory_outcomes(events_list)
+    assert sorted(result) == [("fresh", False), ("fresh", True), ("reused", False), ("reused", True)]

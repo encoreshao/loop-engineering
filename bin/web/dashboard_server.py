@@ -11928,6 +11928,9 @@ def _na_stat_tile_html(icon, label, reason):
 
 _HEALTH_COMPONENT_LABELS = {
     "escalation": "Non-escalation",
+    "cost_efficiency": "Cost efficiency",
+    "retry_rate": "Retry rate",
+    "learning_effectiveness": "Learning effectiveness",
 }
 
 _ESCALATION_TOOLTIP = "1 - (escalated / processed) - higher is healthier"
@@ -12319,7 +12322,12 @@ def _analytics_body(days=7):
     metrics_report = metrics.build_report(since_date=since_date, until_date=until_date)
     cost_report = cost.build_cost_report(since_date=since_date, until_date=until_date)
     learning_report = learning.build_learning_report(since_date=since_date, until_date=until_date)
-    health_report = health.compute_health_score(metrics_report, cost_report)
+    window_events = list(events_store.iter_events(since_date=since_date, until_date=until_date))
+    health_report = health.compute_health_score(
+        metrics_report, cost_report,
+        runs=list(ledger.iter_runs(days=days)),
+        memory_outcomes=learning.memory_outcomes(window_events),
+    )
 
     days_selector_html = "".join(
         f"<a href='/insights?days={n}' class=\"{'active' if n == days else ''}\">{html.escape(_t('{n}d', n=n))}</a>"

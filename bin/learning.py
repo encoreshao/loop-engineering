@@ -40,6 +40,20 @@ def _issue_outcomes(events_list):
     return outcomes
 
 
+def memory_outcomes(events_list):
+    """[("reused"|"fresh", succeeded: bool)] - one entry per issue_run_id
+    that reached a terminal outcome (issue.completed = success,
+    issue.escalated/issue.failed = failure), tagged "reused" when it had
+    at least one memory.reused event. Issues still pending are omitted."""
+    events_list = list(events_list)
+    outcomes = _issue_outcomes(events_list)
+    reused = {e.get("issue_run_id") for e in events_list if e.get("event_type") == "memory.reused"}
+    return [
+        ("reused" if run_id in reused else "fresh", outcome == "success")
+        for run_id, outcome in outcomes.items()
+    ]
+
+
 def _lesson_categories(events_list, project=None):
     """{lesson_id: category} from every memory.created event's data -
     the category as it was at creation time. A lesson_id with no

@@ -448,7 +448,7 @@
   "Resolution": "Résolution",
   "Resolution rate": "Taux de résolution",
   "Resume": "Reprendre",
-  "Retry rate": "Taux de nouvelle tentative",
+  "Retry rate": "Taux de relance",
   "Reuse rate": "Taux de réutilisation",
   "Reused {times}× · {successful} successful, {failed} failed (effectiveness: {effectiveness})": "Réutilisé {times}× · {successful} réussies, {failed} échouées (efficacité : {effectiveness})",
   "Risk & Classification": "Risque et classification",
@@ -837,5 +837,7 @@
   "Verification mode": "Mode de vérification",
   "observe": "observation",
   "gate": "porte",
-  "Flip a loop to gate once this holds at {threshold}% or more over a week.": "Passez une boucle en mode porte une fois ce taux maintenu à {threshold} % ou plus pendant une semaine."
+  "Flip a loop to gate once this holds at {threshold}% or more over a week.": "Passez une boucle en mode porte une fois ce taux maintenu à {threshold} % ou plus pendant une semaine.",
+  "Cost efficiency": "Efficacité des coûts",
+  "Learning effectiveness": "Efficacité de l'apprentissage"
 }
