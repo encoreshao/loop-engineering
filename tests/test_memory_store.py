@@ -284,3 +284,26 @@ def test_add_task_memory_without_category_roundtrips_correctly(tmp_path):
     entry = memory_store.get_task_memory("harbor", 142, root=tmp_path)
     assert entry["category"] is None
     assert entry["lesson_id"] == result["lesson_id"]
+
+
+def test_parse_and_render_score_flag_roundtrip(tmp_path):
+    res = memory_store.add_task_memory("web", 7, "Use bundle exec rubocop .", root=tmp_path)
+    memory_store.set_score(res["lesson_id"], -2, flag="needs_review", alias="web", root=tmp_path)
+    mem = memory_store.get_task_memory("web", 7, root=tmp_path)
+    assert mem["score"] == -2 and mem["flag"] == "needs_review"
+
+
+def test_old_files_without_score_default_zero(tmp_path):
+    res = memory_store.add_task_memory("web", 8, "x", root=tmp_path)
+    text = Path(res["path"]).read_text().replace("  score: 0\n", "").replace("  flag: \n", "")
+    Path(res["path"]).write_text(text)
+    mem = memory_store.get_task_memory("web", 8, root=tmp_path)
+    assert mem["score"] == 0 and mem["flag"] == ""
+
+
+def test_append_preserves_score_and_flag(tmp_path):
+    res = memory_store.add_task_memory("web", 9, "a", root=tmp_path)
+    memory_store.set_score(res["lesson_id"], -2, flag="needs_review", root=tmp_path)
+    memory_store.add_task_memory("web", 9, "b", root=tmp_path)
+    mem = memory_store.get_task_memory("web", 9, root=tmp_path)
+    assert mem["score"] == -2 and mem["flag"] == "needs_review"

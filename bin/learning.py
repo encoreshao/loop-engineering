@@ -9,11 +9,14 @@ each reused issue's own terminal outcome event
 bin/metrics.py - this module re-derives the one issue-count it needs
 directly from the event list, keeping it dependency-free like
 bin/risk.py/bin/health.py."""
+import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import events
+import memory_store
 
 FAILURES_PREVENTED_REASON = (
     "no counterfactual data exists - cannot know whether a specific issue "
@@ -261,3 +264,86 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+SCORE_CAP = 3
+NEEDS_REVIEW_THRESHOLD = -2
+
+
+def default_applied_path():
+    """Per-checkout (like events): <repo_root>/outputs/learning/applied.json."""
+    return Path(__file__).resolve().parent.parent / "outputs" / "learning" / "applied.json"
+
+
+def _load_applied(path):
+    try:
+        data = json.loads(Path(path).read_text())
+        return set(data) if isinstance(data, list) else set()
+    except (OSError, ValueError):
+        return set()
+
+
+def apply_outcomes(events_list, root=None, applied_path=None):
+    """Down-weight (or up-weight) memory lessons by the outcome of the
+    issues that reused them. For every memory.reused event whose issue
+    reached a terminal outcome: success (issue.completed) adds 1 to the
+    lesson's score, capped at +SCORE_CAP; failure (issue.escalated /
+    issue.failed) subtracts 1. Each (issue_run_id, lesson_id) pair counts
+    once ever - processed pairs are persisted in applied.json, so re-reading
+    an overlapping event window is idempotent. A score <= NEEDS_REVIEW_THRESHOLD
+    sets flag needs_review. The flag is sticky: a later success never clears
+    it - only a human does. Lessons are never deleted. Returns the
+    lesson_ids newly flagged by this call."""
+    if applied_path is None:
+        applied_path = default_applied_path()
+    events_list = list(events_list)
+    outcomes = _issue_outcomes(events_list)
+    applied = _load_applied(applied_path)
+    scores = {}  # lesson_id -> (score, flag, alias)
+    newly_flagged = []
+    changed = False
+    for event in events_list:
+        if event.get("event_type") != "memory.reused":
+            continue
+        lesson_id = (event.get("data") or {}).get("lesson_id")
+        issue_run_id = event.get("issue_run_id")
+        outcome = outcomes.get(issue_run_id)
+        key = f"{issue_run_id}|{lesson_id}"
+        if not lesson_id or outcome is None or key in applied:
+            continue
+        alias = event.get("project")
+        if lesson_id not in scores:
+            current = _find_lesson(lesson_id, alias, root)
+            if current is None:
+                continue  # lesson gone; leave unapplied
+            scores[lesson_id] = current
+        score, flag, alias, was_flagged = scores[lesson_id]
+        score = min(SCORE_CAP, score + 1) if outcome == "success" else score - 1
+        if score <= NEEDS_REVIEW_THRESHOLD:
+            flag = "needs_review"
+        scores[lesson_id] = (score, flag, alias, was_flagged)
+        applied.add(key)
+        changed = True
+    for lesson_id, (score, flag, alias, was_flagged) in scores.items():
+        memory_store.set_score(lesson_id, score, flag=flag, alias=alias, root=root)
+        if flag == "needs_review" and not was_flagged:
+            newly_flagged.append(lesson_id)
+    if changed:
+        Path(applied_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(applied_path).write_text(json.dumps(sorted(applied)))
+    return newly_flagged
+
+
+def _find_lesson(lesson_id, alias, root):
+    """(score, flag, alias, already_flagged) for lesson_id, or None."""
+    aliases = [alias] if alias else _all_aliases(root)
+    for a in aliases:
+        for entry in memory_store.list_task_memories(a, root=root):
+            if entry.get("lesson_id") == lesson_id:
+                return entry["score"], entry["flag"], a, entry["flag"] == "needs_review"
+    return None
+
+
+def _all_aliases(root):
+    base = Path(root) if root is not None else memory_store.DEFAULT_MEMORY_ROOT
+    return sorted(d.name for d in base.iterdir() if d.is_dir()) if base.is_dir() else []

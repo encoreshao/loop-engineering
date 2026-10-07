@@ -839,5 +839,7 @@
   "gate": "porte",
   "Flip a loop to gate once this holds at {threshold}% or more over a week.": "Passez une boucle en mode porte une fois ce taux maintenu à {threshold} % ou plus pendant une semaine.",
   "Cost efficiency": "Efficacité des coûts",
-  "Learning effectiveness": "Efficacité de l'apprentissage"
+  "Learning effectiveness": "Efficacité de l'apprentissage",
+  "Needs review": "À examiner",
+  "Reuse of this lesson preceded repeated failures; check it is still correct.": "La réutilisation de cette leçon a précédé des échecs répétés ; vérifiez qu'elle est toujours correcte."
 }

@@ -26,6 +26,7 @@ import re
 import subprocess
 import sys
 import urllib.parse
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import ai_cli_config
@@ -33,6 +34,7 @@ import cost as cost_module
 import events as events_module
 import connectors_config
 import issue_tracking_config
+import learning
 import loop_config
 import slack_notify
 from list_assigned_issues import list_assigned_issues
@@ -955,6 +957,17 @@ def run_all_issues(run_id, results_dir=None, definition_path=None, repo_root=Non
             "*Daily GitLab loop:* the end-of-run wrap-up FAILED, so today's "
             f"digest/daily-review was NOT produced — {detail}",
             notification_key="gitlab_wrapup_failed",
+        )
+
+    # Down-weight lessons whose reuse preceded a failure. Best-effort and
+    # idempotent (applied.json), so a recent two-day event window is safe.
+    try:
+        since = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+        learning.apply_outcomes(list(events_module.iter_events(events_dir=events_dir, since_date=since)))
+    except Exception as exc:  # noqa: BLE001 - never let scoring sink the run
+        _append_unified_log(
+            f"memory down-weighting FAILED: {type(exc).__name__}: {exc}",
+            repo_root=repo_root, unified_log_path=unified_log_path,
         )
 
     return results

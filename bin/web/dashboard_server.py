@@ -10708,8 +10708,17 @@ def _memory_body():
         description_html = (
             f"<p class='history-entry-overview'>{html.escape(description)}</p>" if description else ""
         )
+        needs_review = entry.get("flag") == "needs_review"
+        review_badge = (
+            "<span class='pill pill-red' title='"
+            + html.escape(_t("Reuse of this lesson preceded repeated failures; check it is still correct."))
+            + "'><span class='material-symbols-outlined' aria-hidden='true'>warning</span>"
+            + html.escape(_t("Needs review")) + "</span>"
+        ) if needs_review else ""
+        data_attr = " data-needs-review='1'" if needs_review else ""
         return (
-            "<li class='learning-item'>"
+            f"<li class='learning-item'{data_attr}>"
+            f"{review_badge}"
             f"{description_html}"
             f"<div class='markdown'>{render_markdown(entry.get('body', ''))}</div>"
             f"{meta_html}"
@@ -10729,6 +10738,9 @@ def _memory_body():
             "</li>"
         )
 
+    needs_review_count = sum(
+        1 for data in memory.values() for e in data["tasks"] if e.get("flag") == "needs_review"
+    )
     memory_sections = []
     for alias, data in memory.items():
         tasks, legacy = data["tasks"], data["legacy"]
@@ -10756,10 +10768,21 @@ def _memory_body():
 <p class="subtitle">{html.escape(_t('Task memory recorded per project by the automated review loop.'))}</p>
 </div>
 
+<style>
+#memory-filter-needs-review:checked ~ .memory-list li.learning-item:not([data-needs-review]) {{ display: none; }}
+#memory-filter-needs-review {{ position: absolute; opacity: 0; pointer-events: none; }}
+#memory-filter-needs-review:checked + label.pill {{ outline: 2px solid var(--md-error, currentColor); }}
+#memory-filter-needs-review:focus-visible + label.pill {{ outline: 2px solid currentColor; }}
+label.memory-filter-chip {{ cursor: pointer; }}
+</style>
 <div class="grid">
 <section class="card">
 <div class="section-header">{_SECTION_ICON_MEMORY}<h2>{html.escape(_t('Project Memory'))}</h2></div>
+<input type="checkbox" id="memory-filter-needs-review">
+<label class="pill pill-red memory-filter-chip" for="memory-filter-needs-review">{html.escape(_t('Needs review'))} ({needs_review_count})</label>
+<div class="memory-list">
 {memory_html}
+</div>
 </section>
 </div>
 """

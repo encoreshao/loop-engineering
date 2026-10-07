@@ -209,3 +209,49 @@ def test_memory_outcomes_pairs_reuse_with_issue_outcome():
     ]
     result = learning.memory_outcomes(events_list)
     assert sorted(result) == [("fresh", False), ("fresh", True), ("reused", False), ("reused", True)]
+
+
+def _apply(tmp_path, events_list):
+    return learning.apply_outcomes(events_list, root=tmp_path, applied_path=tmp_path / "applied.json")
+
+
+def test_apply_outcomes_flags_after_two_failures(tmp_path):
+    import memory_store
+    lid = memory_store.add_task_memory("web", 7, "lesson", root=tmp_path)["lesson_id"]
+    evs = [_memory_reused(lid, "r1_web_1", "web"), _issue_escalated("r1_web_1", "web"),
+           _memory_reused(lid, "r2_web_2", "web"), _issue_escalated("r2_web_2", "web")]
+    assert _apply(tmp_path, evs) == [lid]
+    assert memory_store.get_task_memory("web", 7, root=tmp_path)["flag"] == "needs_review"
+
+
+def test_apply_outcomes_idempotent(tmp_path):
+    import memory_store
+    lid = memory_store.add_task_memory("web", 7, "lesson", root=tmp_path)["lesson_id"]
+    evs = [_memory_reused(lid, "r1_web_1", "web"), _issue_escalated("r1_web_1", "web")]
+    _apply(tmp_path, evs)
+    _apply(tmp_path, evs)
+    assert memory_store.get_task_memory("web", 7, root=tmp_path)["score"] == -1
+
+
+def test_apply_outcomes_success_increments_capped_and_flag_is_sticky(tmp_path):
+    import memory_store
+    lid = memory_store.add_task_memory("web", 7, "lesson", root=tmp_path)["lesson_id"]
+    evs = []
+    for i in range(5):
+        evs += [_memory_reused(lid, f"r_web_{i}", "web"), _issue_completed(f"r_web_{i}", "web")]
+    assert _apply(tmp_path, evs) == []
+    assert memory_store.get_task_memory("web", 7, root=tmp_path)["score"] == 3
+    memory_store.set_score(lid, -2, flag="needs_review", alias="web", root=tmp_path)
+    evs = [_memory_reused(lid, "r_web_9", "web"), _issue_completed("r_web_9", "web")]
+    assert _apply(tmp_path, evs) == []
+    mem = memory_store.get_task_memory("web", 7, root=tmp_path)
+    assert mem["score"] == -1 and mem["flag"] == "needs_review"
+
+
+def test_apply_outcomes_ignores_pending_and_missing_lessons(tmp_path):
+    import memory_store
+    lid = memory_store.add_task_memory("web", 7, "lesson", root=tmp_path)["lesson_id"]
+    evs = [_memory_reused(lid, "r_web_1", "web"),
+           _memory_reused("lesson_gone", "r_web_2", "web"), _issue_escalated("r_web_2", "web")]
+    assert _apply(tmp_path, evs) == []
+    assert memory_store.get_task_memory("web", 7, root=tmp_path)["score"] == 0

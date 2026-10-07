@@ -60,6 +60,13 @@ def _parse_scalar(value):
     return value
 
 
+def _parse_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _parse_task_memory(text):
     match = _FRONTMATTER_RE.match(text)
     if not match:
@@ -90,11 +97,13 @@ def _parse_task_memory(text):
         "category": metadata.get("category") or None,
         "created_at": metadata.get("created_at") or None,
         "modified": metadata.get("modified", ""),
+        "score": _parse_int(metadata.get("score"), 0),
+        "flag": metadata.get("flag") or "",
         "body": body.strip("\n"),
     }
 
 
-def _render_task_memory(name, description, issue_iid, tags, modified, body, lesson_id, created_at, category):
+def _render_task_memory(name, description, issue_iid, tags, modified, body, lesson_id, created_at, category, score=0, flag=""):
     tags_literal = "[" + ", ".join(tags) + "]" if tags else "[]"
     lesson_id_str = lesson_id if lesson_id is not None else ""
     created_at_str = created_at if created_at is not None else ""
@@ -111,6 +120,8 @@ def _render_task_memory(name, description, issue_iid, tags, modified, body, less
         f"  tags: {tags_literal}\n"
         f"  created_at: {created_at_str}\n"
         f"  modified: {modified}\n"
+        f"  score: {score}\n"
+        f"  flag: {flag}\n"
         "---\n"
     )
     return f"{header}\n{body}\n"
@@ -162,6 +173,7 @@ def add_task_memory(alias, issue_iid, lesson, tags=None, category=None, root=Non
     description = _summary(lesson)
     existing_path = _issue_file(alias, issue_iid, root)
     created = False
+    score, flag = 0, ""
     if existing_path is None:
         slug = _slugify(lesson)
         path = project_dir / f"{issue_iid}-{slug}.md"
@@ -186,9 +198,42 @@ def add_task_memory(alias, issue_iid, lesson, tags=None, category=None, root=Non
             lesson_id = parsed["lesson_id"]
             created_at = parsed["created_at"]
             category = parsed["category"]
-    path.write_text(_render_task_memory(name, description, issue_iid, tags, now, body, lesson_id, created_at, category))
+            score, flag = parsed["score"], parsed["flag"]
+    path.write_text(_render_task_memory(
+        name, description, issue_iid, tags, now, body, lesson_id, created_at, category, score, flag,
+    ))
     _rewrite_index_line(alias, path.name, description, issue_iid, root)
     return {"path": path, "lesson_id": lesson_id, "created": created}
+
+
+def set_score(lesson_id, score, flag="", alias=None, root=None):
+    """Set the score/flag of the lesson with this lesson_id (searched in
+    alias's directory, or every project directory when alias is None).
+    Rewrites only those two frontmatter fields; everything else, including
+    `modified`, is preserved. Returns True if the lesson was found."""
+    if root is None:
+        root = DEFAULT_MEMORY_ROOT
+    root = Path(root)
+    if alias is not None:
+        dirs = [_project_dir(alias, root)]
+    else:
+        dirs = sorted(d for d in root.iterdir() if d.is_dir()) if root.is_dir() else []
+    for project_dir in dirs:
+        if not project_dir.is_dir():
+            continue
+        for path in sorted(project_dir.glob("*.md")):
+            if path.name == "MEMORY.md":
+                continue
+            parsed = _parse_task_memory(path.read_text())
+            if parsed is None or parsed["lesson_id"] != lesson_id:
+                continue
+            path.write_text(_render_task_memory(
+                parsed["name"], parsed["description"], parsed["issue_iid"], parsed["tags"],
+                parsed["modified"], parsed["body"], parsed["lesson_id"], parsed["created_at"],
+                parsed["category"], int(score), flag or "",
+            ))
+            return True
+    return False
 
 
 def get_task_memory(alias, issue_iid, root=None):

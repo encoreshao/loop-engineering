@@ -13897,3 +13897,21 @@ def test_gates_view_sections_are_bare_page_level_siblings(tmp_path):
     tops = re.findall(r"^<(\w+)[^>]*>", body.strip(), flags=re.M)
     assert tops.count("section") == 3
     assert re.search(r"</section>\s*<section class=\"card\">", body)
+
+
+def test_render_memory_page_shows_needs_review_badge_and_filter(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(ds.learning.events, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+    monkeypatch.setattr(ds, "get_project_memory", lambda *a, **k: {
+        "myproj": {"legacy": [], "tasks": [
+            {"body": "Flagged lesson.", "issue_iid": 1, "tags": [], "score": -2, "flag": "needs_review"},
+            {"body": "Fine lesson.", "issue_iid": 2, "tags": [], "score": 0, "flag": ""},
+        ]},
+    })
+    monkeypatch.setattr(ds, "gitlab_issue_url_prefixes", lambda *a, **k: {})
+
+    output = ds.render_memory_page()
+
+    assert "memory-filter-needs-review" in output
+    assert output.count("data-needs-review='1'") == 1
+    assert "Needs review" in output

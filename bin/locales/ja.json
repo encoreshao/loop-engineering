@@ -839,5 +839,7 @@
   "gate": "ゲート",
   "Flip a loop to gate once this holds at {threshold}% or more over a week.": "これが1週間 {threshold}% 以上で続いたら、ループをゲートモードに切り替えてください。",
   "Cost efficiency": "コスト効率",
-  "Learning effectiveness": "学習効果"
+  "Learning effectiveness": "学習効果",
+  "Needs review": "要レビュー",
+  "Reuse of this lesson preceded repeated failures; check it is still correct.": "この教訓の再利用後に失敗が繰り返されました。内容が正しいか確認してください。"
 }
