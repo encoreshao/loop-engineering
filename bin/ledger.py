@@ -41,7 +41,12 @@ def _parse_ts(value):
         return None
 
 
-def iter_runs(days=None, loop=None, events_dir=None, events_iter=None):
+def iter_runs(days=None, loop=None, events_dir=None, events_iter=None, since_date=None, until_date=None):
+    """`days` is a rolling window (now - days). `since_date`/`until_date`
+    ('YYYY-MM-DD', inclusive, UTC - the same calendar-day window
+    metrics/cost/learning use) filter on each event's timestamp date; only
+    since_date is pushed down to the file scan, since the non-date-named
+    backfill file sorts after every date stem and must stay included."""
     if events_iter is None:
         import events
         def events_iter(**kw):
@@ -53,6 +58,8 @@ def iter_runs(days=None, loop=None, events_dir=None, events_iter=None):
         # One day of slack; the non-date-named backfill file sorts after
         # every date stem so it is always included.
         iter_kwargs["since_date"] = (cutoff - timedelta(days=1)).strftime("%Y-%m-%d")
+    if since_date is not None:
+        iter_kwargs["since_date"] = max(since_date, iter_kwargs.get("since_date", since_date))
 
     results, started, terminal = {}, {}, {}
     for event in events_iter(**iter_kwargs):
@@ -61,6 +68,13 @@ def iter_runs(days=None, loop=None, events_dir=None, events_iter=None):
         if cutoff is not None:
             parsed = _parse_ts(ts)
             if parsed is None or parsed < cutoff:
+                continue
+        if since_date is not None or until_date is not None:
+            parsed = _parse_ts(ts)
+            if parsed is None:
+                continue
+            day = parsed.astimezone(timezone.utc).strftime("%Y-%m-%d")
+            if (since_date is not None and day < since_date) or (until_date is not None and day > until_date):
                 continue
         if event.get("event_type") == "loop.result":
             if run_id not in results or ts >= results[run_id][0]:
@@ -111,9 +125,51 @@ def _fmt(dt):
 
 
 def _loop_result_run_ids(events_dir):
-    import events
-    return {e.get("run_id") for e in events.iter_events(events_dir=events_dir)
-            if e.get("event_type") == "loop.result"}
+    """run_ids that already have a loop.result anywhere in events_dir. Only
+    lines mentioning "loop.result" are JSON-parsed, so the per-startup
+    backfill stays cheap on a large events dir."""
+    run_ids = set()
+    events_dir = Path(events_dir)
+    if not events_dir.exists():
+        return run_ids
+    for path in sorted(events_dir.glob("*.jsonl")):
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    if "loop.result" not in line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(event, dict) and event.get("event_type") == "loop.result":
+                        run_ids.add(event.get("run_id"))
+        except OSError:
+            continue
+    return run_ids
+
+
+def _backfill_line(path, seen, events, loop_budget, loop_serialize):
+    """The JSONL line to append for one result.json, or None to skip it."""
+    data = loop_serialize.read_result(path)
+    if data.get("status", "finished") != "finished":
+        return None
+    run_id = data.get("run_id")
+    if not run_id or run_id in seen:
+        return None
+    summary = loop_serialize.result_summary(data)
+    started = loop_budget.run_timestamp(run_id)
+    if started is not None:
+        finished = started + timedelta(milliseconds=summary["duration_ms"])
+    else:
+        finished = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+        started = finished - timedelta(milliseconds=summary["duration_ms"])
+    summary["started_at"], summary["finished_at"] = _fmt(started), _fmt(finished)
+    seen.add(run_id)
+    return json.dumps({
+        "schema_version": events.SCHEMA_VERSION, "event_id": f"evt_{uuid.uuid4().hex}",
+        "timestamp": _fmt(finished), "event_type": "loop.result", "run_id": run_id,
+        "issue_run_id": None, "project": None, "issue_iid": None, "data": summary}) + "\n"
 
 
 def backfill_from_results(results_dir=None, events_dir=None):
@@ -138,27 +194,12 @@ def backfill_from_results(results_dir=None, events_dir=None):
     lines = []
     for path in loop_serialize.list_results(results_dir=results_dir):
         try:
-            data = loop_serialize.read_result(path)
-        except (OSError, ValueError):
+            line = _backfill_line(path, seen, events, loop_budget, loop_serialize)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError):
+            # One corrupt result.json must not abort the whole backfill.
             continue
-        if data.get("status", "finished") != "finished":
-            continue
-        run_id = data.get("run_id")
-        if not run_id or run_id in seen:
-            continue
-        summary = loop_serialize.result_summary(data)
-        started = loop_budget.run_timestamp(run_id)
-        if started is not None:
-            finished = started + timedelta(milliseconds=summary["duration_ms"])
-        else:
-            finished = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
-            started = finished - timedelta(milliseconds=summary["duration_ms"])
-        summary["started_at"], summary["finished_at"] = _fmt(started), _fmt(finished)
-        seen.add(run_id)
-        lines.append(json.dumps({
-            "schema_version": events.SCHEMA_VERSION, "event_id": f"evt_{uuid.uuid4().hex}",
-            "timestamp": _fmt(finished), "event_type": "loop.result", "run_id": run_id,
-            "issue_run_id": None, "project": None, "issue_iid": None, "data": summary}) + "\n")
+        if line is not None:
+            lines.append(line)
     if not lines:
         return 0
     events_dir.mkdir(parents=True, exist_ok=True)
@@ -169,3 +210,20 @@ def backfill_from_results(results_dir=None, events_dir=None):
     finally:
         os.close(fd)
     return len(lines)
+
+
+def run_startup_backfill(results_dir=None, events_dir=None, backfill=None):
+    """Best-effort backfill run once per dashboard/scheduler process start,
+    so an upgrade by plain `git pull` (no install.sh --upgrade), or a run
+    finished by old code after an earlier backfill, still gets its
+    loop.result. Idempotent and cheap (skips run_ids that already have one).
+    Returns the number appended, or None on failure (logged to stderr,
+    never raised)."""
+    if backfill is None:
+        backfill = backfill_from_results
+    try:
+        return backfill(results_dir=results_dir, events_dir=events_dir)
+    except Exception as exc:  # noqa: BLE001 - startup must never fail on this
+        import sys
+        print(f"ledger: startup backfill failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return None

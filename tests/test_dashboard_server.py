@@ -13942,3 +13942,33 @@ def test_harness_evals_view_reads_last_runs(tmp_path, monkeypatch):
 def test_harness_evals_view_empty(tmp_path, monkeypatch):
     monkeypatch.setattr(ds, "LOOP_DIR", tmp_path)
     assert "loop eval" in ds._evals_body()
+
+
+def test_main_serving_runs_ledger_backfill_before_serving(monkeypatch):
+    calls = []
+
+    class FakeServer:
+        def __init__(self, addr, handler):
+            calls.append(("bind", addr[1]))
+
+        def serve_forever(self):
+            calls.append("serve")
+
+    monkeypatch.setattr(ds, "ThreadingHTTPServer", FakeServer)
+    monkeypatch.setattr(ds.ledger, "run_startup_backfill", lambda: calls.append("backfill"))
+    monkeypatch.setattr(sys, "argv", ["dashboard_server.py", "18999"])
+    ds.main()
+    assert calls == ["backfill", ("bind", 18999), "serve"]
+
+
+def test_analytics_health_ledger_window_uses_calendar_days(monkeypatch):
+    seen = {}
+    def fake_iter_runs(**kw):
+        seen.update(kw)
+        return []
+    monkeypatch.setattr(ds.ledger, "iter_runs", fake_iter_runs)
+    ds._analytics_body(days=7)
+    until = datetime.now(timezone.utc).date()
+    assert seen.get("since_date") == (until - timedelta(days=6)).isoformat()
+    assert seen.get("until_date") == until.isoformat()
+    assert seen.get("days") is None

@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "web"))
 
 import dashboard_server
+import ledger
 import loops_config
 
 LOOP_DIR = Path(__file__).resolve().parent.parent
@@ -159,6 +160,8 @@ def run_due_loops(loops=None, state_path=None, run_loop_now_path=None, now=None,
 
 
 def main():
+    # Best-effort, idempotent: catches runs that predate loop.result events.
+    ledger.run_startup_backfill()
     run_due_loops()
 
 

@@ -264,3 +264,11 @@ def test_run_due_loops_malformed_registry_returns_empty_list_without_raising(tmp
 
     assert attempted == []
     assert capsys.readouterr().err.strip() != ""
+
+
+def test_main_runs_ledger_backfill_before_polling(monkeypatch):
+    calls = []
+    monkeypatch.setattr(sched.ledger, "run_startup_backfill", lambda: calls.append("backfill"))
+    monkeypatch.setattr(sched, "run_due_loops", lambda: calls.append("poll"))
+    sched.main()
+    assert calls == ["backfill", "poll"]

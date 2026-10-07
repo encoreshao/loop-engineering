@@ -12348,7 +12348,7 @@ def _analytics_body(days=7):
     window_events = list(events_store.iter_events(since_date=since_date, until_date=until_date))
     health_report = health.compute_health_score(
         metrics_report, cost_report,
-        runs=list(ledger.iter_runs(days=days)),
+        runs=list(ledger.iter_runs(since_date=since_date, until_date=until_date)),
         memory_outcomes=learning.memory_outcomes(window_events),
     )
 
@@ -15137,6 +15137,9 @@ def main():
         return
 
     port = int(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_PORT
+    # Best-effort, idempotent: legacy result.json runs -> loop.result events,
+    # so a `git pull` upgrade (no install.sh --upgrade) still fills the ledger.
+    ledger.run_startup_backfill()
     server = ThreadingHTTPServer(("127.0.0.1", port), DashboardHandler)
     print(f"Dashboard serving at http://127.0.0.1:{port}/")
     server.serve_forever()

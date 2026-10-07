@@ -247,3 +247,42 @@ def test_events_dir_env_override_resolved_at_call_time(tmp_path, monkeypatch):
     monkeypatch.undo()  # drop conftest's monkeypatch of the constant
     monkeypatch.setenv("LOOP_EVENTS_DIR", str(tmp_path / "e"))
     assert events.default_events_dir() == tmp_path / "e"
+
+
+def test_backfill_skips_corrupt_result_files(tmp_path):
+    write_sample_result_json(tmp_path / "results", run_id="run_good")
+    for run_id, payload in (("run_keyerr", {"run_id": "run_keyerr"}),
+                            ("run_typeerr", {"run_id": "run_typeerr", "iterations": 5,
+                                             "final_state": "completed", "loop_id": "l",
+                                             "definition_name": "x", "stop_reason": "completed"}),
+                            ("run_list", ["not", "a", "dict"])):
+        d = tmp_path / "results" / run_id
+        d.mkdir(parents=True)
+        (d / "result.json").write_text(json.dumps(payload))
+    assert ledger.backfill_from_results(tmp_path / "results", tmp_path / "events") == 1
+    assert [r.run_id for r in ledger.iter_runs(events_dir=tmp_path / "events")] == ["run_good"]
+
+
+def test_startup_backfill_appends_and_is_best_effort(tmp_path, capsys):
+    write_sample_result_json(tmp_path / "results", run_id="run_a")
+    assert ledger.run_startup_backfill(results_dir=tmp_path / "results", events_dir=tmp_path / "events") == 1
+    assert ledger.run_startup_backfill(results_dir=tmp_path / "results", events_dir=tmp_path / "events") == 0
+
+    def boom(**kw):
+        raise RuntimeError("disk gone")
+    assert ledger.run_startup_backfill(backfill=boom) is None
+    assert "disk gone" in capsys.readouterr().err
+
+
+def test_since_until_date_window_matches_calendar_days():
+    events = [ev("loop.result", "d1", "2026-10-01T23:59:00.000Z", run_id="d1", definition="x", final_state="completed", iterations=[]),
+              ev("loop.result", "d2", "2026-10-02T00:00:01.000Z", run_id="d2", definition="x", final_state="completed", iterations=[]),
+              ev("loop.result", "d8", "2026-10-08T00:00:01.000Z", run_id="d8", definition="x", final_state="completed", iterations=[])]
+    seen = {}
+    def it(**kw):
+        seen.update(kw)
+        return events
+    runs = ledger.iter_runs(since_date="2026-10-02", until_date="2026-10-07", events_iter=it)
+    assert [r.run_id for r in runs] == ["d2"]
+    # since is pushed down; until is not (the backfill file sorts after dates).
+    assert seen["since_date"] == "2026-10-02" and "until_date" not in seen
