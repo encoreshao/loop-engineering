@@ -328,7 +328,7 @@ def _emit_best_effort(event_type, run_id=None, issue_run_id=None, project=None,
         return None
 
 
-def _notify_slack_best_effort(message, notification_key=None):
+def _notify_slack_best_effort(message, notification_key=None, bundle=None):
     """A scheduled run has nobody watching it. run-loop.sh's ERR trap used
     to be the one failure alert this system had, but per-issue failures are
     now contained by LoopRuntime and never reach that trap - so failures
@@ -336,19 +336,20 @@ def _notify_slack_best_effort(message, notification_key=None):
     given, looks up a saved Block Kit template bound to it (Settings ->
     Notifications) and sends its blocks alongside the plain-text message;
     with no bound template (the default on a fresh install), this sends
-    exactly what it always has. If Slack rejects a bound template's blocks
+    exactly what it always has. `bundle` routes to that Slack bundle's
+    webhook (None = the default webhook). If Slack rejects a bound template's blocks
     (e.g. malformed JSON from a hand-edited or buggy template), retries
     once with blocks=None so the plain-text alert still has a chance -
     losing the alert entirely would defeat the whole point of this
     function."""
     blocks = slack_notify.resolve_blocks(notification_key, message) if notification_key else None
     try:
-        slack_notify.post_message(message, blocks=blocks)
+        slack_notify.post_message(message, bundle=bundle, blocks=blocks)
         return True
     except Exception as exc:  # noqa: BLE001 - an alert failing must not cascade
         if blocks:
             try:
-                slack_notify.post_message(message)
+                slack_notify.post_message(message, bundle=bundle)
                 return True
             except Exception as retry_exc:  # noqa: BLE001 - same reasoning
                 print(f"gitlab_loop_runner: Slack notification failed even without blocks: {retry_exc}", file=sys.stderr)
@@ -670,12 +671,22 @@ def _run_open_merge_request(local_path, branch, target_branch, title, repo_root=
     return proc.returncode == 0, (proc.stdout + proc.stderr).strip()
 
 
+def _last_failed_iteration(result):
+    """The newest iteration whose verification failed, or None. A retry that
+    crashed or hit the budget has no verification results of its own, so the
+    failure worth reporting is the attempt before it."""
+    for iteration in reversed(getattr(result, "iterations", None) or []):
+        if iteration.verification_results:
+            return iteration if _iteration_failed_verification(iteration) else None
+    return None
+
+
 def _failure_text(result):
-    """Failing commands' per-command tails from the last iteration (falling
-    back to the verifier's own output), bounded."""
+    """Failing commands' per-command tails from the newest failed
+    verification (falling back to the verifier's own output), bounded."""
     parts = []
-    iterations = getattr(result, "iterations", None) or []
-    for r in (iterations[-1].verification_results if iterations else []):
+    iteration = _last_failed_iteration(result)
+    for r in (iteration.verification_results if iteration else []):
         if r.passed:
             continue
         commands = (r.evidence or {}).get("commands")
@@ -708,6 +719,8 @@ def _escalation_comment(issue_iid, reason, failure_text, stop_reason=None):
         how = "failed the same way on consecutive attempts" if stop_reason == "no_progress" else "failed"
         failed = f"The project's checks, re-run by the loop in my worktree, {how}:" + (
             fenced or "\n(The checks produced no output.)")
+        if stop_reason in _STOP_REASON_TEXT:
+            failed += "\n\nThe retry did not finish: " + _STOP_REASON_TEXT[stop_reason]
     return (
         f"**What I tried**\n{tried}\n\n"
         f"**What failed**\n{failed}\n\n"
@@ -716,8 +729,32 @@ def _escalation_comment(issue_iid, reason, failure_text, stop_reason=None):
     )
 
 
+def _project_slack_target(alias, project, gitlab_config_path=None):
+    """(bundle, issue_web_url) for this alias from ~/.gitlab/config.json - the
+    same `bundle` the agent's own slack_notify.py calls use. Either may be
+    None; a numeric project_id gives no URL. Never raises."""
+    if gitlab_config_path is None:
+        gitlab_config_path = Path.home() / ".gitlab" / "config.json"
+    try:
+        config = json.loads(Path(gitlab_config_path).read_text())
+        if not isinstance(config, dict):
+            config = {}
+    except (OSError, ValueError):
+        config = {}
+    entry = (config.get("projects") or {}).get(alias)
+    bundle = entry.get("bundle") if isinstance(entry, dict) else None
+    instance = (config.get("instances") or {}).get(project.get("instance"))
+    base = instance.get("url") if isinstance(instance, dict) else None
+    project_id = project.get("project_id")
+    url = None
+    if isinstance(base, str) and base.startswith(("http://", "https://")) \
+            and isinstance(project_id, str) and "/" in project_id:
+        url = f"{base.rstrip('/')}/{project_id}"
+    return (bundle if isinstance(bundle, str) and bundle else None), url
+
+
 def finalize_gated_issue(result, alias, issue_iid, run_id, repo_root, handoff=None, project=None,
-                         opener=None, gitlab=None, notifier=None, events_dir=None):
+                         opener=None, gitlab=None, notifier=None, events_dir=None, gitlab_config_path=None):
     """Gate mode's last step: open the MR (only after verification passed)
     or escalate. Returns "mr_opened" | "answered" | "waiting_for_review" |
     "escalated:<reason>". GitLab/Slack calls are best-effort and never
@@ -732,16 +769,24 @@ def finalize_gated_issue(result, alias, issue_iid, run_id, repo_root, handoff=No
         except OSError:
             pass
 
+    bundle, issue_label = None, f"#{issue_iid} ({alias})"
+
     def notify(reason=None, message=None):
-        message = message or f"Loop escalated {alias} #{issue_iid} ({reason}); see the issue for details."
+        message = message or f"Loop escalated {issue_label} ({reason}); see the issue for details."
         try:
-            (notifier or _notify_slack_best_effort)(message)
+            if notifier is not None:
+                notifier(message)
+            else:
+                _notify_slack_best_effort(message, bundle=bundle)
         except Exception as exc:  # noqa: BLE001
             log(f"notify failed: {type(exc).__name__}: {exc}")
 
     try:
         if project is None:
             project = loop_config.get_project(alias)
+        bundle, project_url = _project_slack_target(alias, project, gitlab_config_path)
+        if project_url:
+            issue_label = f"<{project_url}/-/issues/{issue_iid}|{issue_label}>"
         notes_path = f"/projects/{urllib.parse.quote(str(project['project_id']), safe='')}/issues/{issue_iid}"
         project["local_path"], project["instance"]
     except Exception as exc:  # noqa: BLE001 - the committed fix must not be stranded silently
@@ -779,7 +824,11 @@ def finalize_gated_issue(result, alias, issue_iid, run_id, repo_root, handoff=No
         return _AGENT_OUTCOMES[data["action"]]
     # The handoff is cleared before every attempt, so after a crash or a
     # budget stop a missing handoff means "never got that far", not a bad one.
+    # A retry that crashed or hit the budget still owes the human the
+    # earlier attempt's failed checks, not just "the run stopped".
     if result.final_state in (LoopState.FAILED, LoopState.STOPPED):
+        if _last_failed_iteration(result) is not None:
+            return escalate("verification_failed", _failure_text(result), stop_reason=result.stop_reason)
         return escalate("run_incomplete", stop_reason=result.stop_reason)
     if data is None:
         return escalate("handoff_invalid")
@@ -807,7 +856,7 @@ def finalize_gated_issue(result, alias, issue_iid, run_id, repo_root, handoff=No
     mr_url = found.group(0) if found else None
     emit("issue.completed", {"outcome": "mr_opened", "gated": True, "action": "fix", "mr_url": mr_url})
     # Step 10's "Finished" message, which the gate override tells the agent not to send.
-    notify(message=f"*Finished* {alias} #{issue_iid}: MR opened \u2192 {mr_url or data['branch']}")
+    notify(message=f"*Finished* {issue_label}: MR opened \u2192 " + (f"<{mr_url}|view MR>" if mr_url else data["branch"]))
     return "mr_opened"
 
 

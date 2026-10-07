@@ -1663,15 +1663,17 @@ def test_gate_clears_the_handoff_before_each_attempt(tmp_path, monkeypatch):
     result = glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="gate"), tmp_path / "r", tmp_path,
                                 agent_invoker=invoker, events_dir=tmp_path / "ev")
     assert seen == [False, False]
-    assert result.gate_outcome == "escalated:run_incomplete"
+    # Attempt 1's failed checks survive attempt 2's crash.
+    assert result.gate_outcome == "escalated:verification_failed"
     body = gl.calls[0][2]["body"]
-    assert "agent session failed or timed out" in body and "```" not in body
+    assert "agent session failed or timed out" in body and "```" in body
 
 
 def test_run_incomplete_and_verification_wording_follow_the_stop_reason(tmp_path):
     from loop_state import LoopState
     gl = FakeGitLabAPI()
     result = _loop_result(LoopState.STOPPED)
+    result.iterations[0].verification_results = []  # stopped before anything was verified
     result.stop_reason = "budget_exceeded"
     assert _finalize(tmp_path, result, gitlab=gl) == "escalated:run_incomplete"
     assert "budget" in gl.calls[0][2]["body"]
@@ -1690,6 +1692,7 @@ def test_run_incomplete_event_carries_the_stop_reason(tmp_path):
     import events as events_module
     from loop_state import LoopState
     result = _loop_result(LoopState.FAILED)
+    result.iterations[0].verification_results = []  # the agent crashed before verification
     result.stop_reason = "agent_failed"
     _finalize(tmp_path, result, handoff_text=None)
     esc = [e for e in events_module.iter_events(events_dir=tmp_path / "ev") if e["event_type"] == "issue.escalated"]
@@ -1711,6 +1714,98 @@ def test_mr_opened_sends_the_finished_slack_message(tmp_path):
     url = "https://gl.example.com/grp/web/-/merge_requests/12"
     _finalize(tmp_path, completed_result(), opener=lambda *a: (True, url), notifier=lambda m: notes.append(m))
     assert len(notes) == 1 and "Finished" in notes[0] and url in notes[0]
+
+
+def _two_attempt_result(final_state, stop_reason, output="1 example, 1 failure"):
+    """Attempt 1 failed verification; attempt 2 never got verified (a
+    budget stop before it ran, or the agent crashing)."""
+    import loop_result
+    from loop_state import LoopState
+    v = lv.VerificationResult("project_commands", False, 0, 1, output, {})
+    first = loop_result.IterationResult(1, LoopState.EVALUATING, [v], {}, True)
+    second = loop_result.IterationResult(2, final_state, [], {}, False)
+    return loop_result.LoopResult("l", "run_web_7", "d", final_state, [first, second], stop_reason)
+
+
+def test_budget_stop_after_failed_verification_escalates_with_the_failure(tmp_path):
+    import events as events_module
+    from loop_state import LoopState
+    gl = FakeGitLabAPI()
+    out = _finalize(tmp_path, _two_attempt_result(LoopState.STOPPED, "budget_exceeded"), gitlab=gl)
+    assert out == "escalated:verification_failed"
+    note = gl.calls[0][2]["body"]
+    assert "1 example, 1 failure" in note and "budget" in note
+    esc = [e for e in events_module.iter_events(events_dir=tmp_path / "ev") if e["event_type"] == "issue.escalated"]
+    assert esc[0]["data"] == {"reason": "verification_failed", "gated": True, "stop_reason": "budget_exceeded"}
+
+
+def test_crash_on_retry_keeps_the_first_attempts_failure(tmp_path):
+    from loop_state import LoopState
+    gl = FakeGitLabAPI()
+    out = _finalize(tmp_path, _two_attempt_result(LoopState.FAILED, "agent_failed"), handoff_text=None, gitlab=gl)
+    assert out == "escalated:verification_failed"
+    note = gl.calls[0][2]["body"]
+    assert "1 example, 1 failure" in note and "failed or timed out" in note
+
+
+def test_crash_with_no_failed_verification_is_still_run_incomplete(tmp_path):
+    from loop_state import LoopState
+    result = _loop_result(LoopState.FAILED)
+    result.iterations[0].verification_results = []
+    result.stop_reason = "agent_failed"
+    assert _finalize(tmp_path, result, handoff_text=None) == "escalated:run_incomplete"
+
+
+def _gitlab_config(tmp_path, bundle="team"):
+    path = tmp_path / "gitlab.json"
+    path.write_text(json.dumps({
+        "instances": {"gl": {"url": "https://gl.example.com/"}},
+        "projects": {"web": {"project_id": "grp/web", "instance": "gl", "bundle": bundle}},
+    }))
+    return path
+
+
+def _capture_slack(monkeypatch):
+    posts = []
+    monkeypatch.setattr(glr.slack_notify, "post_message",
+                        lambda text, bundle=None, blocks=None, **kw: posts.append((text, bundle)))
+    return posts
+
+
+def test_finished_message_goes_to_the_project_bundle_with_an_issue_link(tmp_path, monkeypatch):
+    posts = _capture_slack(monkeypatch)
+    mr = "https://gl.example.com/grp/web/-/merge_requests/12"
+    hp = tmp_path / "h.json"
+    hp.write_text(_FIX)
+    glr.finalize_gated_issue(
+        completed_result(), "web", 7, "run", tmp_path, handoff=hp, project=_PROJECT,
+        opener=lambda *a: (True, mr), gitlab=FakeGitLabAPI(), events_dir=tmp_path / "ev",
+        gitlab_config_path=_gitlab_config(tmp_path))
+    assert posts == [(f"*Finished* <https://gl.example.com/grp/web/-/issues/7|#7 (web)>: MR opened \u2192 <{mr}|view MR>",
+                      "team")]
+
+
+def test_escalation_alert_goes_to_the_project_bundle_with_an_issue_link(tmp_path, monkeypatch):
+    posts = _capture_slack(monkeypatch)
+    hp = tmp_path / "h.json"
+    hp.write_text(_FIX)
+    glr.finalize_gated_issue(
+        failed_result("boom"), "web", 7, "run", tmp_path, handoff=hp, project=_PROJECT,
+        gitlab=FakeGitLabAPI(), events_dir=tmp_path / "ev", gitlab_config_path=_gitlab_config(tmp_path))
+    assert len(posts) == 1 and posts[0][1] == "team"
+    assert "<https://gl.example.com/grp/web/-/issues/7|#7 (web)>" in posts[0][0]
+    assert "verification_failed" in posts[0][0]
+
+
+def test_finished_message_without_bundle_or_url_falls_back_to_default_webhook(tmp_path, monkeypatch):
+    posts = _capture_slack(monkeypatch)
+    hp = tmp_path / "h.json"
+    hp.write_text(_FIX)
+    glr.finalize_gated_issue(
+        completed_result(), "web", 7, "run", tmp_path, handoff=hp, project={**_PROJECT, "project_id": 42},
+        opener=lambda *a: (True, ""), gitlab=FakeGitLabAPI(), events_dir=tmp_path / "ev",
+        gitlab_config_path=tmp_path / "missing.json")
+    assert posts == [("*Finished* #7 (web): MR opened \u2192 loop/issue-7", None)]
 
 
 def test_gate_override_keeps_step_10_bookkeeping_and_names_every_action():
