@@ -326,6 +326,28 @@ def _exception_output(exc):
     return ""
 
 
+class AgentCallError(Exception):
+    """A CLI call that exited 0 but returned an error envelope. `cost_usd`
+    is what it spent, when the envelope said."""
+
+    def __init__(self, message, cost_usd=None):
+        super().__init__(message)
+        self.cost_usd = cost_usd
+
+
+def _parse_envelope(stdout):
+    """The Claude CLI's JSON result object, or None when absent/unparseable."""
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode("utf-8", "replace")
+    if not stdout:
+        return None
+    try:
+        parsed = json.loads(stdout)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
 def _invoke_cli_with_prompt(prompt, repo_root=None, timeout_seconds=900, unified_log_path=None,
                             alias=None, issue_iid=None, events_dir=None, env=None, gate=False,
                             max_budget_usd=None):
@@ -348,14 +370,7 @@ def _invoke_cli_with_prompt(prompt, repo_root=None, timeout_seconds=900, unified
     cmd = _cli_command(ai_cli, prompt, repo_root, worktree_root, gate=gate, max_budget_usd=max_budget_usd)
     run_kwargs = {"env": {**os.environ, **env}} if env else {}
 
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_seconds, check=True, **run_kwargs)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        detail = _exception_output(exc)
-        if isinstance(exc, subprocess.TimeoutExpired):
-            reason = f"timed out after {timeout_seconds}s"
-        else:
-            reason = f"exited {exc.returncode}"
+    def report_failure(reason, detail, event_reason=None):
         label = f" for {alias} #{issue_iid}" if alias is not None else ""
         _append_unified_log(
             f"{ai_cli} invocation{label} FAILED ({reason}):\n{detail}",
@@ -368,13 +383,33 @@ def _invoke_cli_with_prompt(prompt, repo_root=None, timeout_seconds=900, unified
         _emit_best_effort(
             "issue.agent_failed", run_id=run_id, issue_run_id=issue_run_id,
             project=alias, issue_iid=issue_iid,
-            data={"reason": reason, "cli": ai_cli, "stderr_excerpt": detail[-_STDERR_EXCERPT_CHARS:]},
+            data={"reason": event_reason or reason, "cli": ai_cli,
+                  "stderr_excerpt": detail[-_STDERR_EXCERPT_CHARS:]},
             events_dir=events_dir,
         )
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_seconds, check=True, **run_kwargs)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        detail = _exception_output(exc)
+        if isinstance(exc, subprocess.TimeoutExpired):
+            reason = f"timed out after {timeout_seconds}s"
+        else:
+            reason = f"exited {exc.returncode}"
+        envelope = _parse_envelope(getattr(exc, "stdout", None)) if ai_cli == "claude" else None
+        # What the failed call spent (the CLI's JSON error envelope still
+        # carries total_cost_usd), so the run's remaining budget stays honest.
+        exc.cost_usd = envelope.get("total_cost_usd") if envelope else None
+        budget = bool(envelope) and envelope.get("subtype") == "error_max_budget_usd"
+        report_failure(reason, detail, "budget_exceeded" if budget else None)
         raise
 
     if ai_cli == "claude":
-        parsed = json.loads(proc.stdout) if proc.stdout else None
+        parsed = _parse_envelope(proc.stdout)
+        if parsed is not None and parsed.get("is_error"):
+            budget = parsed.get("subtype") == "error_max_budget_usd"
+            report_failure("error envelope on exit 0", proc.stdout, "budget_exceeded" if budget else None)
+            raise AgentCallError("claude reported an error", cost_usd=parsed.get("total_cost_usd"))
         result_text = cost_module.extract_result_text(parsed) if parsed else "(no result text in CLI output)"
         usage = cost_module.extract_claude_usage(parsed) if parsed else None
         cost_usd = usage["cost_usd"] if usage else None
@@ -738,12 +773,19 @@ def _run_one_issue(run_id, alias, issue_iid, definition, results_dir, repo_root,
             issue["handoff_path"].unlink(missing_ok=True)
         previous = context.get("previous")
         feedback = format_feedback(previous) if previous and _iteration_failed_verification(previous) else None
-        agent_result = agent_invoker(
-            alias, issue_iid, repo_root=repo_root, timeout_seconds=timeout_seconds,
-            feedback=feedback, gate=gate, run_id=run_id,
-            max_budget_usd=cost_module.remaining_budget(
-                definition.stop_conditions.max_cost_usd, sum(c or 0 for c in raw_costs)),
-        )
+        cap = cost_module.remaining_budget(
+            definition.stop_conditions.max_cost_usd, sum(c or 0 for c in raw_costs))
+        try:
+            agent_result = agent_invoker(
+                alias, issue_iid, repo_root=repo_root, timeout_seconds=timeout_seconds,
+                feedback=feedback, gate=gate, run_id=run_id, max_budget_usd=cap,
+            )
+        except Exception as exc:
+            # A failed call still spent money: its own figure if the CLI
+            # reported one, else assume it used the whole cap it was given.
+            failed_cost = getattr(exc, "cost_usd", None)
+            raw_costs.append(failed_cost if failed_cost is not None else cap)
+            raise
         if isinstance(agent_result, dict):
             raw_costs.append(agent_result.get("cost_usd"))
             raw_usages.append(agent_result.get("usage"))

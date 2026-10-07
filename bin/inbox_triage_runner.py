@@ -96,7 +96,7 @@ def invoke_triage_agent(prompt, repo_root=None, timeout_seconds=None, unified_lo
         out = sealed.sealed_call(prompt, timeout_seconds, log=log,
                                  runner=lambda *a, **kw: subprocess.run(*a, **kw),
                                  cli_fn=lambda: ai_cli_config.get_selected_cli(),
-                                 command_fn=lambda: _cli_command())
+                                 command_fn=lambda max_budget_usd=None: _cli_command())
     except sealed.SealedCallFailed as exc:
         if isinstance(exc.__cause__, (subprocess.TimeoutExpired, subprocess.CalledProcessError)):
             raise exc.__cause__ from None

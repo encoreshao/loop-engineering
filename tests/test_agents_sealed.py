@@ -64,3 +64,16 @@ def test_sealed_call_passes_budget_to_command(monkeypatch):
     seen.clear()
     sealed.sealed_call("p", 5, runner=run, cli_fn=lambda: "claude")
     assert "--max-budget-usd" not in seen[0]
+
+
+def test_sealed_call_passes_budget_into_command_fn_once():
+    got = []
+    def command_fn(max_budget_usd=None):
+        got.append(max_budget_usd)
+        return sealed.sealed_command(max_budget_usd=max_budget_usd)
+    seen = []
+    def run(cmd, **kw):
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({"result": "x"}), stderr="")
+    sealed.sealed_call("p", 5, runner=run, cli_fn=lambda: "claude", command_fn=command_fn, max_budget_usd=0.5)
+    assert got == [0.5] and seen[0].count("--max-budget-usd") == 1

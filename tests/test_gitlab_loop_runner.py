@@ -1724,3 +1724,49 @@ def test_gitlab_second_iteration_gets_remaining_budget(monkeypatch, tmp_path):
 def test_remaining_budget_floor():
     assert glr.cost_module.remaining_budget(3, 2.99) == 0.05
     assert glr.cost_module.remaining_budget(None, 1) is None
+
+
+def _budget_envelope_setup(tmp_path, monkeypatch, exit_code):
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir()
+    script = bin_dir / "claude"
+    env = {"is_error": True, "subtype": "error_max_budget_usd", "total_cost_usd": 1.25}
+    script.write_text(f"#!/usr/bin/env python3\nimport sys, json\nprint(json.dumps({env!r}))\nsys.exit({exit_code})\n")
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    monkeypatch.setenv("LOOP_RUN_ID", "run_20260907_180000")
+    monkeypatch.setattr(glr.ai_cli_config, "get_selected_cli", lambda: "claude")
+    monkeypatch.setattr(glr.loop_config, "get_worktree_root", lambda: str(tmp_path))
+
+
+@pytest.mark.parametrize("exit_code,exc_type", [(1, subprocess.CalledProcessError), (0, glr.AgentCallError)])
+def test_budget_exceeded_envelope_is_a_failure_with_cost(tmp_path, monkeypatch, exit_code, exc_type):
+    _budget_envelope_setup(tmp_path, monkeypatch, exit_code)
+    events_dir = tmp_path / "events"
+    with pytest.raises(exc_type) as info:
+        glr._invoke_cli_with_prompt("p", repo_root=REPO_ROOT, unified_log_path=tmp_path / "u.log",
+                                    alias="harbor", issue_iid=1, events_dir=events_dir, max_budget_usd=1.0)
+    assert info.value.cost_usd == 1.25
+    failures = [e for e in _read_events(events_dir) if e["event_type"] == "issue.agent_failed"]
+    assert [f["data"]["reason"] for f in failures] == ["budget_exceeded"]
+
+
+def _failing_run(monkeypatch, tmp_path, cost):
+    def invoker(*a, **k):
+        exc = RuntimeError("boom")
+        if cost is not None:
+            exc.cost_usd = cost
+        raise exc
+    monkeypatch.setattr(glr, "build_verifiers", lambda *a, **k: [SequenceVerifier(iter([True]))])
+    return glr._run_one_issue("run", "web", 7, definition(tmp_path, mode="gate"), tmp_path, tmp_path,
+                              agent_invoker=invoker, events_dir=tmp_path)
+
+
+def test_failed_call_cost_is_recorded(monkeypatch, tmp_path):
+    result = _failing_run(monkeypatch, tmp_path, 2.0)
+    assert getattr(result, glr._AGENT_COST_ATTR) == 2.0
+
+
+def test_failed_call_without_cost_records_the_cap(monkeypatch, tmp_path):
+    result = _failing_run(monkeypatch, tmp_path, None)
+    assert getattr(result, glr._AGENT_COST_ATTR) == 3

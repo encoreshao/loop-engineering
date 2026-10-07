@@ -60,7 +60,7 @@ def sealed_call(prompt, timeout_seconds, log=None, runner=None, cli_fn=None, com
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="loop-sealed-") as scratch_dir:
         try:
-            proc = runner([*command_fn(), *cost_module.budget_args(max_budget_usd)], input=prompt, capture_output=True, text=True,
+            proc = runner(command_fn(max_budget_usd=max_budget_usd), input=prompt, capture_output=True, text=True,
                           timeout=timeout_seconds, check=True, cwd=scratch_dir)
         except subprocess.TimeoutExpired as exc:
             emit(f"FAILED (timed out after {timeout_seconds}s)")
