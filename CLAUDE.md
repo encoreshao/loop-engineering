@@ -212,7 +212,14 @@ budget $10, it stops launching cases once spent), so it is never part of
 Each run writes `outputs/evals/golden-last.json`. It runs every case under
 a throwaway `LOOP_ENGINEERING_HOME`/`LOOP_EVENTS_DIR` and hard-denies the
 GitLab, Slack and dashboard tools (offline mode also swaps the `bin/*.py`
-globs for an explicit helper allowlist), so it never touches the real install.
+globs for an explicit helper allowlist). That allowlist is **not a hard
+sandbox**: the fixtures' allowed `pytest` runs arbitrary code from the
+fixture repo; the real `HOME` is kept so `claude` can authenticate; gate-mode
+handoffs land in this checkout's real `outputs/handoffs/golden-*`; and the
+bare `Read Edit Write` allow is not path-scoped, so the agent can write into
+the repo (`repo_root`) as well as the fixture. Run it only on a machine and
+checkout you are willing to expose to the agent, and check `git status`
+afterwards.
 Fixtures stay synthetic: never put real issue text or project names in a
 case.
 

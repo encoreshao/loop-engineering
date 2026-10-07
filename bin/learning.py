@@ -10,7 +10,6 @@ bin/metrics.py - this module re-derives the one issue-count it needs
 directly from the event list, keeping it dependency-free like
 bin/risk.py/bin/health.py."""
 import json
-import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -262,10 +261,6 @@ def main():
     print(format_learning_report(report))
 
 
-if __name__ == "__main__":
-    main()
-
-
 SCORE_CAP = 3
 NEEDS_REVIEW_THRESHOLD = -2
 
@@ -352,3 +347,7 @@ def _find_lesson(lesson_id, alias, root):
 def _all_aliases(root):
     base = Path(root) if root is not None else memory_store.DEFAULT_MEMORY_ROOT
     return sorted(d.name for d in base.iterdir() if d.is_dir()) if base.is_dir() else []
+
+
+if __name__ == "__main__":
+    main()

@@ -35,29 +35,51 @@ Trigger → Goal → Context → Agent → Actions → Verification → Evaluati
 
 ## 2. Ledger
 
-There is one run history: the **ledger** (`bin/ledger.py`). `ledger.iter_runs`
-joins the append-only event log (`outputs/events/*.jsonl`, written by
-`bin/events.py`) with each `LoopRuntime`'s persisted result
+The run history is the **ledger** (`bin/ledger.py`). `ledger.iter_runs`
+reads only the append-only event log (`outputs/events/*.jsonl`, written by
+`bin/events.py`) and builds one `RunRecord` per run from its `loop.result`
+event (last one wins). It does not open `result.json`; that per-run file
 (`outputs/loop-runs/<run_id>/result.json`, written by `bin/loop_serialize.py`)
-into one `RunRecord` per run, so a dashboard number no longer depends on which
-of two stores a reader happened to open.
+reaches the ledger only through the `loop.result` event `write_result` emits,
+or through backfill. A run with a legacy terminal event (`loop.completed`/
+`loop.failed`/`loop.stopped`) but no `loop.result` is a complete record with
+`has_result` False; a run with only `loop.started` is reported as incomplete.
+`iter_runs(days=N)` is a rolling window on event timestamps;
+`iter_runs(since_date=..., until_date=...)` is the calendar-day window
+(UTC dates, inclusive) the Analytics page uses for the Health score, matching
+metrics/cost/learning.
 
 - **The `loop.result` event** — `loop_serialize.write_result` emits it when a
-  run's status is `finished`. Its payload is small (at most 8 KB: ids, states,
-  counts, cost, duration, per-iteration `{state, passed, cost_usd}`; no
-  verifier output, no prompts), so the event log alone is enough to rebuild a
-  run's outcome. `RunRecord.has_result` is True only for records built from a
-  `loop.result` event (not for runs reconstructed from other events); retry
-  rate counts only those runs.
+  run's status is `finished`, into the caller's `events_dir`. Its payload is
+  small (at most 8 KB: ids, states, counts, cost, duration, per-iteration
+  `{state, passed, cost_usd}`; no verifier output, no prompts), so the event
+  log alone is enough to rebuild a run's outcome. `RunRecord.has_result` is
+  True only for records built from a `loop.result` event; retry rate and cost
+  efficiency count only those runs.
+- **Cost** — `total_cost_usd` is the sum of what agent calls reported,
+  including a failed call's spend (e.g. a `--max-budget-usd` stop, carried as
+  `exc.cost_usd`). It is `None` (unknown), never `0`, when no call reported a
+  cost: every Codex run, and every topic-monitor run (that loop runs the CLI
+  with text output, so it never has a cost figure). Health's cost efficiency
+  leaves `None`-cost runs out of the numerator and the denominator and counts
+  only `gitlab-issue-loop` runs; the `summarize_*`/Budget rollups add `None`
+  as `0`, as before. Backfilled legacy runs cannot tell unknown from `$0`, so
+  they keep the budget's recorded figure.
 - **Backfill** — `loop ledger backfill [--results-dir DIR] [--events-dir DIR]`
-  appends a `loop.result` for each pre-existing `result.json` that has none.
-  It is idempotent (keyed by `run_id`) and never rewrites existing JSONL: it
-  writes only `outputs/events/backfill-loop-result.jsonl`.
-- **Readers** — `metrics.py`, `cost.py`, `health.py`, `learning.py`, `risk.py`
-  (Insights Analytics/Cost/Memory) and `loop_budget.py`/`loop_serialize`'s
-  `summarize_*` (Runs → Loop Runs, Insights → Budget, Harness → Audit) read
-  through the ledger. `LOOP_EVENTS_DIR` overrides the events directory
-  (`events.default_events_dir()`), e.g. for tests and golden sandboxes.
+  appends a `loop.result` for each pre-existing finished `result.json` that has
+  none. It is idempotent (keyed by `run_id`), skips a corrupt `result.json`
+  rather than aborting, and never rewrites existing JSONL: it writes only
+  `outputs/events/backfill-loop-result.jsonl`. It runs automatically,
+  best-effort, once per process start of the dashboard and of the scheduler
+  (`ledger.run_startup_backfill`), as well as from `install.sh --upgrade`.
+- **Readers** — `health.py` (its retry-rate and cost-efficiency components)
+  and `loop_budget.py`/`loop_serialize`'s `summarize_*` (Runs → Loop Runs,
+  Insights → Budget, Harness → Audit) read through the ledger. `metrics.py`,
+  `cost.py`, `learning.py` and `risk.py` (Insights Analytics/Cost/Memory, and
+  Health's other five components) read the event log directly with
+  `events.iter_events`, not through `iter_runs`. `LOOP_EVENTS_DIR` overrides
+  the events directory (`events.default_events_dir()`), e.g. for tests and
+  golden sandboxes.
 
 The GitLab issue loop still emits its own domain events
 (`issue.started`/`issue.completed`/`verification.*`/`memory.*`) into the same
@@ -71,9 +93,11 @@ case from `evals/golden/<case>/case.yaml` (generated repos and invented issue
 text only, never real issue content), runs the issue-loop path against it in a
 sandboxed `LOOP_ENGINEERING_HOME`/events dir, and checks the project's checks
 afterwards. It is paid, so it requires a budget: `--budget-usd N` (default 10);
-each agent call is capped by `--max-budget-usd` derived from the case's
-`stop_conditions.max_cost_usd`, and no new case starts once spend reaches the
-budget (unstarted cases are listed as `not_run`). `--case NAME` selects cases.
+each agent call is capped by `--max-budget-usd` set to what is left of the
+suite budget (minus what earlier attempts of the same case spent), not by the
+case's own `stop_conditions`; no new case starts once spend reaches the budget
+(unstarted cases are listed as `not_run`), and a case that reports no cost is
+booked at the remaining budget. `--case NAME` selects cases.
 Results go to `outputs/evals/golden-last.json`; the scripted run writes
 `outputs/evals/last.json`. Both show on **Harness → Evals**.
 

@@ -66,7 +66,12 @@ stop_conditions:
   # lint_cmd runs, each bounded by this same value, so the worst-case
   # per-issue ceiling is max_iterations x 3 x this value (6x with the
   # current 2 iterations); in observe mode only one iteration ever runs.
-  # The cost budget is only checked between iterations.
+  # max_cost_usd is also enforced inside each Claude call: every agent call
+  # gets --max-budget-usd = this value minus what earlier iterations of the
+  # same issue already spent (cost.remaining_budget), and a budget-stopped
+  # call's spend still counts. Codex calls have no per-call cap and report
+  # no cost (ledger total_cost_usd None), so for them the budget is only a
+  # between-iterations check on $0.
   max_cost_usd: 3
   no_progress_iterations: 2
 
