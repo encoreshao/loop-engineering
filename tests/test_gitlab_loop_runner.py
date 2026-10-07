@@ -80,6 +80,57 @@ def _no_real_ai_cli(sanitized_path):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_memory_root(monkeypatch, tmp_path):
+    """run_all_issues ends with learning.apply_outcomes, which writes memory
+    frontmatter under memory_store.DEFAULT_MEMORY_ROOT - point it at tmp."""
+    import memory_store
+    monkeypatch.setattr(memory_store, "DEFAULT_MEMORY_ROOT", tmp_path / "memory-root")
+
+
+def _stub_batch(monkeypatch):
+    monkeypatch.setattr(glr, "invoke_batch_issue_agent",
+                        lambda *a, **k: {"changed": True, "cost_usd": 0.0})
+    monkeypatch.setattr(glr, "invoke_batch_end_of_run_agent",
+                        lambda *a, **k: {"changed": True, "cost_usd": 0.0})
+    monkeypatch.setattr(glr, "list_assigned_issues", lambda aliases, username: {})
+
+
+def test_run_all_issues_applies_memory_outcomes_under_repo_root(tmp_path, monkeypatch):
+    _stub_batch(monkeypatch)
+    seen = {}
+    monkeypatch.setattr(glr.learning, "apply_outcomes",
+                        lambda evs, **kw: seen.update(kw) or [])
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    glr.run_all_issues(
+        "run_20260907_100000", results_dir=tmp_path / "r",
+        definition_path=REPO_ROOT / "loops" / "gitlab-issue" / "loop.yaml",
+        aliases=[], username="u", events_dir=tmp_path / "events",
+        repo_root=repo, unified_log_path=tmp_path / "u.log",
+    )
+    assert seen["applied_path"] == repo / "outputs" / "learning" / "applied.json"
+
+
+def test_run_all_issues_swallows_and_logs_apply_outcomes_failure(tmp_path, monkeypatch):
+    _stub_batch(monkeypatch)
+
+    def boom(evs, **kw):
+        raise RuntimeError("scoring broke")
+
+    monkeypatch.setattr(glr.learning, "apply_outcomes", boom)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    log = tmp_path / "u.log"
+    glr.run_all_issues(
+        "run_20260907_100000", results_dir=tmp_path / "r",
+        definition_path=REPO_ROOT / "loops" / "gitlab-issue" / "loop.yaml",
+        aliases=[], username="u", events_dir=tmp_path / "events",
+        repo_root=repo, unified_log_path=log,
+    )
+    assert "memory down-weighting FAILED: RuntimeError: scoring broke" in log.read_text()
+
+
+@pytest.fixture(autouse=True)
 def slack_calls(monkeypatch):
     """Safe default for `slack_notify.post_message`, which
     `bin/gitlab_loop_runner.py` now calls in-process: unstubbed it reads the

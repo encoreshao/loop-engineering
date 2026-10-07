@@ -963,7 +963,10 @@ def run_all_issues(run_id, results_dir=None, definition_path=None, repo_root=Non
     # idempotent (applied.json), so a recent two-day event window is safe.
     try:
         since = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
-        learning.apply_outcomes(list(events_module.iter_events(events_dir=events_dir, since_date=since)))
+        learning.apply_outcomes(
+            list(events_module.iter_events(events_dir=events_dir, since_date=since)),
+            applied_path=Path(repo_root) / "outputs" / "learning" / "applied.json",
+        )
     except Exception as exc:  # noqa: BLE001 - never let scoring sink the run
         _append_unified_log(
             f"memory down-weighting FAILED: {type(exc).__name__}: {exc}",

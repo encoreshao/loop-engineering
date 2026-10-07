@@ -255,3 +255,12 @@ def test_apply_outcomes_ignores_pending_and_missing_lessons(tmp_path):
            _memory_reused("lesson_gone", "r_web_2", "web"), _issue_escalated("r_web_2", "web")]
     assert _apply(tmp_path, evs) == []
     assert memory_store.get_task_memory("web", 7, root=tmp_path)["score"] == 0
+
+
+def test_apply_outcomes_treats_loop_failed_by_run_id_as_failure(tmp_path):
+    import memory_store
+    lid = memory_store.add_task_memory("web", 7, "lesson", root=tmp_path)["lesson_id"]
+    evs = [_memory_reused(lid, "r_web_1", "web"),
+           {"event_type": "loop.failed", "run_id": "r_web_1", "project": "web", "timestamp": "2026-09-04T10:05:00.000Z"}]
+    _apply(tmp_path, evs)
+    assert memory_store.get_task_memory("web", 7, root=tmp_path)["score"] == -1

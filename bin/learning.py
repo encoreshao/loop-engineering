@@ -298,6 +298,11 @@ def apply_outcomes(events_list, root=None, applied_path=None):
         applied_path = default_applied_path()
     events_list = list(events_list)
     outcomes = _issue_outcomes(events_list)
+    # loop.failed is emitted by the loop runtime keyed by run_id (== the
+    # issue run id) with no issue_run_id of its own.
+    for event in events_list:
+        if event.get("event_type") == "loop.failed" and not event.get("issue_run_id") and event.get("run_id"):
+            outcomes[event["run_id"]] = "failure"
     applied = _load_applied(applied_path)
     scores = {}  # lesson_id -> (score, flag, alias)
     newly_flagged = []
