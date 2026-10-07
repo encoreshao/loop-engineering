@@ -808,3 +808,30 @@ def test_scripted_eval_writes_last_json(monkeypatch, tmp_path, capsys):
         {"name": "good", "passed": True, "reasons": []},
         {"name": "bad", "passed": False, "reasons": ["boom"]},
     ]
+
+
+def test_subprocess_eval_writes_into_loop_evals_dir_not_the_repo(tmp_path, monkeypatch):
+    import os
+    monkeypatch.setenv("LOOP_EVALS_DIR", str(tmp_path))
+    repo_last = REPO_ROOT / "outputs" / "evals" / "last.json"
+    before = repo_last.stat().st_mtime_ns if repo_last.exists() else None
+    assert _run("eval").returncode == 0
+    assert (tmp_path / "last.json").exists()
+    after = repo_last.stat().st_mtime_ns if repo_last.exists() else None
+    assert after == before
+
+
+def test_eval_with_custom_cases_dir_does_not_record_last_json(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOOP_EVALS_DIR", str(tmp_path / "ev"))
+    import shutil
+    d = tmp_path / "cases"
+    shutil.copytree(REPO_ROOT / "evals" / "cases", d)
+    assert _run("eval", str(d)).returncode == 0
+    assert not (tmp_path / "ev" / "last.json").exists()
+
+
+def test_eval_golden_case_subset_does_not_record_golden_last(monkeypatch, tmp_path):
+    outcomes = {"results": [], "not_run": [], "spent_usd": 0}
+    loop_cli, seen = _golden(monkeypatch, tmp_path, outcomes)
+    loop_cli.main(["eval", "--golden", "--case", "already-fixed"])
+    assert not (tmp_path / "golden-last.json").exists()

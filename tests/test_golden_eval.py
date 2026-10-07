@@ -544,3 +544,9 @@ def test_changed_paths_reports_both_sides_of_a_rename(tmp_path):
     assert ".gitlab-ci.yml" in changed and "lib/ci.yml" in changed
     ok, reasons = ge.grade(FIX, {"action": "fix"}, changed, True)
     assert not ok and any(".gitlab-ci.yml" in r for r in reasons)
+
+
+def test_write_last_run_honors_loop_evals_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOOP_EVALS_DIR", str(tmp_path))
+    path = ge.write_last_run({"results": [], "not_run": [], "spent_usd": 0}, budget_usd=1.0)
+    assert path == tmp_path / "golden-last.json" and path.exists()

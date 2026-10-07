@@ -86,6 +86,9 @@ like `projects.json`. The one override is the `LOOP_EVENTS_DIR` env var
 (resolved at call time by `events.default_events_dir()`): set it to a scratch
 dir for any subprocess that emits events - `tests/conftest.py` does this for
 every test, so spawned `loop_cli.py run` processes never touch the real ledger.
+`LOOP_EVALS_DIR` does the same for `outputs/evals/` (`last.json`, `golden-last.json`),
+also set for every test by `tests/conftest.py`. Only a default-cases `loop eval`
+and a full (no `--case`) `loop eval --golden` record those files.
 `outputs/connectors/test-results.json` (the Connectors page's last Test
 result per account) is the same kind of per-checkout exception: it always
 lives under `<repo_root>/outputs/connectors/`, regardless of

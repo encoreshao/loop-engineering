@@ -26,6 +26,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CASES_DIR = REPO_ROOT / "evals" / "golden"
 NEW_WORKTREE_SCRIPT = REPO_ROOT / "bin" / "scripts" / "new_worktree.sh"
 DEFAULT_LAST_RUN_PATH = REPO_ROOT / "outputs" / "evals" / "golden-last.json"
+_REPO_LAST_RUN_PATH = DEFAULT_LAST_RUN_PATH
+EVALS_DIR_ENV = "LOOP_EVALS_DIR"
 
 ACTIONS = ("fix", "answer", "escalate")
 ISSUE_IID = 1
@@ -194,7 +196,15 @@ def exit_code(summary):
 # --- the real (paid) path ----------------------------------------------------
 
 def _resolve_last_run_path(path):
-    return Path(path) if path is not None else Path(DEFAULT_LAST_RUN_PATH)
+    """Resolved at call time: an explicit path, then a monkeypatched
+    DEFAULT_LAST_RUN_PATH, then $LOOP_EVALS_DIR/golden-last.json, then the
+    repo's outputs/evals/golden-last.json."""
+    if path is not None:
+        return Path(path)
+    if DEFAULT_LAST_RUN_PATH != _REPO_LAST_RUN_PATH:
+        return Path(DEFAULT_LAST_RUN_PATH)
+    env = os.environ.get(EVALS_DIR_ENV)
+    return Path(env) / "golden-last.json" if env else Path(DEFAULT_LAST_RUN_PATH)
 
 
 def write_last_run(summary, budget_usd, path=None):

@@ -46,8 +46,9 @@ of two stores a reader happened to open.
   run's status is `finished`. Its payload is small (at most 8 KB: ids, states,
   counts, cost, duration, per-iteration `{state, passed, cost_usd}`; no
   verifier output, no prompts), so the event log alone is enough to rebuild a
-  run's outcome. `RunRecord.has_result` says whether a full `result.json` is
-  also on disk.
+  run's outcome. `RunRecord.has_result` is True only for records built from a
+  `loop.result` event (not for runs reconstructed from other events); retry
+  rate counts only those runs.
 - **Backfill** — `loop ledger backfill [--results-dir DIR] [--events-dir DIR]`
   appends a `loop.result` for each pre-existing `result.json` that has none.
   It is idempotent (keyed by `run_id`) and never rewrites existing JSONL: it

@@ -89,3 +89,12 @@ def _no_real_events_dir(monkeypatch, tmp_path_factory):
     monkeypatch.setattr(events, "DEFAULT_EVENTS_DIR", scratch)
     monkeypatch.setenv("LOOP_EVENTS_DIR", str(scratch))  # inherited by subprocesses
     return scratch
+
+
+@pytest.fixture(autouse=True)
+def _no_real_evals_dir(monkeypatch, tmp_path_factory):
+    """`loop eval` writes outputs/evals/{last,golden-last}.json; point that at
+    a scratch dir (inherited by subprocesses) so no test touches the checkout's."""
+    scratch = tmp_path_factory.mktemp("evals")
+    monkeypatch.setenv("LOOP_EVALS_DIR", str(scratch))
+    return scratch

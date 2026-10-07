@@ -6,6 +6,7 @@ neither flag given, its agent_fn falls back to the original no-op
 (L0/observe, plan section 32). `replay` also re-invokes a real agent, using
 the prompt and definition path recorded by the original `run`."""
 import json
+import os
 import sys
 import time
 import uuid
@@ -26,6 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = REPO_ROOT / "templates"
 DEFAULT_EVAL_CASES_DIR = REPO_ROOT / "evals" / "cases"
 DEFAULT_EVAL_LAST_PATH = REPO_ROOT / "outputs" / "evals" / "last.json"
+_REPO_EVAL_LAST_PATH = DEFAULT_EVAL_LAST_PATH
 
 # Floor guardrail for the CLI's own run/replay invocations - same deny list
 # as bin/gitlab_loop_runner.py's _DISALLOWED_TOOLS. Defense in depth: even if
@@ -419,7 +421,8 @@ def _cmd_eval_golden(argv):
         return 2
 
     summary = golden_eval.run_suite(cases, budget_usd=budget)
-    path = golden_eval.write_last_run(summary, budget_usd=budget)
+    # A --case subset is not the canonical record; don't overwrite the full run.
+    path = golden_eval.write_last_run(summary, budget_usd=budget) if not names else None
     for result in summary["results"]:
         cost = result.get("cost_usd")
         cost_text = f"${cost:.2f}" if cost is not None else "cost unknown"
@@ -431,7 +434,7 @@ def _cmd_eval_golden(argv):
     passed = sum(1 for r in summary["results"] if r["passed"])
     print()
     print(f"{passed}/{len(cases)} golden cases passed, ${summary['spent_usd']:.2f} of ${budget:.2f} spent")
-    print(f"Summary written to {path}")
+    print(f"Summary written to {path}" if path else "Summary not recorded (--case subset)")
     return golden_eval.exit_code(summary)
 
 
@@ -439,7 +442,11 @@ def _write_eval_last(outcomes, path=None):
     """outputs/evals/last.json - the latest scripted `loop eval` run, per
     checkout (the Harness > Evals view reads it)."""
     if path is None:
-        path = DEFAULT_EVAL_LAST_PATH
+        env = os.environ.get("LOOP_EVALS_DIR")
+        if DEFAULT_EVAL_LAST_PATH == _REPO_EVAL_LAST_PATH and env:
+            path = Path(env) / "last.json"
+        else:
+            path = DEFAULT_EVAL_LAST_PATH
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {
@@ -472,7 +479,8 @@ def _cmd_eval(argv):
         if not outcome.passed:
             print(f"      {outcome.detail}")
 
-    _write_eval_last(outcomes)
+    if not argv:  # only a default-cases run is the canonical record
+        _write_eval_last(outcomes)
     passed_count = sum(1 for o in outcomes if o.passed)
     print()
     print(f"{passed_count}/{len(outcomes)} cases passed")
