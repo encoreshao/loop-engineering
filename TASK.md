@@ -20,6 +20,7 @@ loop(s) are due — there is no longer a separate `launchd/*.plist` per task.
 | RSS Watch loop | [`docs/tasks/rss-watch-loop.md`](docs/tasks/rss-watch-loop.md) | Daily 08:00 once enabled, from its `loops.json` entry (disabled by default) |
 | Calendar Prep loop | [`docs/tasks/calendar-prep-loop.md`](docs/tasks/calendar-prep-loop.md) | Every 15 minutes once enabled, from its `loops.json` entry (disabled by default) |
 | Release Notes loop | [`docs/tasks/release-notes-loop.md`](docs/tasks/release-notes-loop.md) | Hourly once enabled, from its `loops.json` entry (disabled by default) |
+| Stale Work Sweeper loop | [`docs/tasks/stale-sweeper-loop.md`](docs/tasks/stale-sweeper-loop.md) | Mondays 09:00 once enabled, from its `loops.json` entry (disabled by default) |
 
 Each task gets its own spec under `docs/tasks/`, its own instructions doc,
 and its own entry script — the topic monitor loop answered the "own

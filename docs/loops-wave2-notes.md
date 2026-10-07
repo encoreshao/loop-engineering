@@ -34,6 +34,11 @@ and `output_keys` for the required answer JSON keys.
 
 ## Stale Work Sweeper
 
+- **Shipped** (2026-10-07): `bin/loop_plugins/stale_sweeper.py`, see
+  `docs/tasks/stale-sweeper-loop.md`. `build_prompt` renders the list and
+  `call_model` returns it unchanged at $0 (LoopKit calls `call_model` without
+  the item, so the rendering lives in `build_prompt`). The notes below are
+  the original plan.
 - Proves `call_model` can be overridden to be deterministic, with no model
   call: `output_keys = ()` and `call_model` returns
   `{"text": rendered_list, "cost_usd": 0}`.

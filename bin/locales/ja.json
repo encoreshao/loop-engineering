@@ -900,5 +900,11 @@
   "yes also briefs events with no other attendees": "yes にすると他の参加者がいない予定も対象にします",
   "Release Notes": "リリースノート",
   "When a tracked project gets a new tag, writes release notes from the MRs merged since the previous tag and sends a short summary.": "追跡中のプロジェクトに新しいタグが付くと、前回のタグ以降にマージされた MR からリリースノートを作成し、短い概要を送信します。",
-  "Comma-separated project aliases to watch; empty watches every tracked project": "監視するプロジェクトのエイリアス（カンマ区切り）。空欄の場合は追跡中のすべてのプロジェクトを監視します"
+  "Comma-separated project aliases to watch; empty watches every tracked project": "監視するプロジェクトのエイリアス（カンマ区切り）。空欄の場合は追跡中のすべてのプロジェクトを監視します",
+  "Stale Work Sweeper": "停滞作業スイーパー",
+  "Every Monday, lists your GitLab issues and merge requests that have gone quiet and reviews waiting on you.": "毎週月曜日に、動きの止まった GitLab のイシューとマージリクエスト、あなたのレビュー待ちを一覧にします。",
+  "Stale after (days)": "停滞とみなす日数",
+  "Your issues and merge requests idle this many days are listed (1-365)": "この日数以上動きのないイシューとマージリクエストを一覧にします（1〜365）",
+  "Review stale after (days)": "レビュー停滞の日数",
+  "Merge requests waiting on your review this many days are listed (1-365)": "この日数以上あなたのレビューを待っているマージリクエストを一覧にします（1〜365）"
 }

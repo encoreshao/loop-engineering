@@ -75,6 +75,7 @@ Sept boucles sont livrées dans `config/loops.json.template` ; chacune a sa page
 | RSS Watch | Classe les nouvelles entrées de flux selon vos centres d'intérêt et envoie un court digest (désactivée par défaut) | Connecteur `feed` (RSS) | Tous les jours 08:00 | Notifications uniquement |
 | Calendar Prep | Une note de préparation avant chaque réunion : ordre du jour, travail GitLab lié, e-mails récents avec les participants, suivis de la dernière fois (désactivée par défaut) | Connecteur `calendar` (Google Agenda) ; GitLab et boîte mail en option | Toutes les 15 minutes | Notifications uniquement |
 | Release Notes | Quand un projet suivi reçoit un nouveau tag, rédige les notes de version à partir des MR fusionnées depuis le tag précédent (désactivée par défaut) | Connecteur `merge_requests` (GitLab) | Toutes les heures | Fichier Markdown local + notification |
+| Stale Work Sweeper | Chaque lundi, liste vos tickets et MR GitLab en sommeil et les revues qui vous attendent ; aucun appel au modèle (désactivée par défaut) | Connecteur `issues` (GitLab) | Le lundi 09:00 | Notifications uniquement |
 
 Les quatre dernières sont des plugins LoopKit (`bin/loopkit.py`, `bin/loop_plugins/`) : le modèle s'exécute en mode scellé (sans outils ni serveurs MCP), chaque élément est isolé pour qu'un échec n'arrête pas l'exécution, et les notifications passent par les connecteurs **Notify via** de la boucle. Voir [`docs/architecture.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/architecture.md#loopkit).
 

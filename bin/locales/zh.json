@@ -900,5 +900,11 @@
   "yes also briefs events with no other attendees": "填 yes 时也为没有其他参会者的日程生成摘要",
   "Release Notes": "发布说明",
   "When a tracked project gets a new tag, writes release notes from the MRs merged since the previous tag and sends a short summary.": "当跟踪的项目有新标签时，根据上一个标签以来合并的 MR 编写发布说明并发送简短摘要。",
-  "Comma-separated project aliases to watch; empty watches every tracked project": "要监视的项目别名（逗号分隔）；留空则监视所有跟踪的项目"
+  "Comma-separated project aliases to watch; empty watches every tracked project": "要监视的项目别名（逗号分隔）；留空则监视所有跟踪的项目",
+  "Stale Work Sweeper": "停滞工作清理",
+  "Every Monday, lists your GitLab issues and merge requests that have gone quiet and reviews waiting on you.": "每周一列出停滞的 GitLab 议题和合并请求，以及等待你审查的合并请求。",
+  "Stale after (days)": "停滞天数",
+  "Your issues and merge requests idle this many days are listed (1-365)": "列出闲置达到此天数的议题和合并请求（1-365）",
+  "Review stale after (days)": "审查停滞天数",
+  "Merge requests waiting on your review this many days are listed (1-365)": "列出等待你审查达到此天数的合并请求（1-365）"
 }

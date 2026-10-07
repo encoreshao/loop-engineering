@@ -74,6 +74,7 @@ Loop X Engineering の使命は、Issue のトリアージに奪われる時間�
 | RSS Watch | フィードの新着エントリを関心に合わせてランク付けし、短いダイジェストを送信（既定では無効） | `feed` コネクタ（RSS） | 毎日 08:00 | 通知のみ |
 | Calendar Prep | 各会議の前に準備メモを送信：議題、リンクされた GitLab の作業、参加者との最近のメール、前回からのフォローアップ（既定では無効） | `calendar` コネクタ（Google カレンダー）、任意で GitLab とメールボックス | 15 分ごと | 通知のみ |
 | Release Notes | 追跡中のプロジェクトに新しいタグが付くと、前回のタグ以降にマージされた MR からリリースノートを作成（既定では無効） | `merge_requests` コネクタ（GitLab） | 1 時間ごと | ローカルの Markdown ファイル + 通知 |
+| Stale Work Sweeper | 毎週月曜日、動きの止まった GitLab のイシューと MR、あなたのレビュー待ちを一覧にします。モデル呼び出しなし（既定では無効） | `issues` コネクタ（GitLab） | 毎週月曜 09:00 | 通知のみ |
 
 後ろの 4 つは LoopKit プラグイン（`bin/loopkit.py`、`bin/loop_plugins/`）です。モデルはツールも MCP サーバーも持たない密閉状態で実行され、項目ごとに分離されるため 1 件の失敗で実行全体が止まらず、通知はループの **Notify via** コネクタ経由で送られます。詳しくは [`docs/architecture.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/architecture.md#loopkit) を参照してください。
 

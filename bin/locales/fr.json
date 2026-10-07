@@ -900,5 +900,11 @@
   "yes also briefs events with no other attendees": "yes prépare aussi les événements sans autre participant",
   "Release Notes": "Notes de version",
   "When a tracked project gets a new tag, writes release notes from the MRs merged since the previous tag and sends a short summary.": "Quand un projet suivi reçoit un nouveau tag, rédige les notes de version à partir des MR fusionnées depuis le tag précédent et envoie un court résumé.",
-  "Comma-separated project aliases to watch; empty watches every tracked project": "Alias des projets à surveiller, séparés par des virgules ; vide = tous les projets suivis"
+  "Comma-separated project aliases to watch; empty watches every tracked project": "Alias des projets à surveiller, séparés par des virgules ; vide = tous les projets suivis",
+  "Stale Work Sweeper": "Balayeur de travail en sommeil",
+  "Every Monday, lists your GitLab issues and merge requests that have gone quiet and reviews waiting on you.": "Chaque lundi, liste vos tickets et merge requests GitLab en sommeil et les revues qui vous attendent.",
+  "Stale after (days)": "En sommeil après (jours)",
+  "Your issues and merge requests idle this many days are listed (1-365)": "Vos tickets et merge requests inactifs depuis ce nombre de jours sont listés (1-365)",
+  "Review stale after (days)": "Revue en attente après (jours)",
+  "Merge requests waiting on your review this many days are listed (1-365)": "Les merge requests qui attendent votre revue depuis ce nombre de jours sont listées (1-365)"
 }

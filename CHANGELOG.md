@@ -11,6 +11,12 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ## [Unreleased]
 
+### Added
+
+- **Stale Work Sweeper** loop (disabled by default): every Monday at 09:00 it
+  lists your GitLab issues and MRs idle 14+ days and reviews waiting on you
+  3+ days. It makes no model call.
+
 ## [0.1.0] - 2026-10-07
 
 The first tagged release. It records everything shipped up to this point;
