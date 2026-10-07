@@ -193,6 +193,10 @@ def backfill_from_results(results_dir=None, events_dir=None):
     seen = _loop_result_run_ids(events_dir)
     lines = []
     for path in loop_serialize.list_results(results_dir=results_dir):
+        # write_result names each run dir by its run_id: skip known runs
+        # without parsing their result.json on every startup.
+        if path.parent.name in seen:
+            continue
         try:
             line = _backfill_line(path, seen, events, loop_budget, loop_serialize)
         except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError):

@@ -286,3 +286,16 @@ def test_since_until_date_window_matches_calendar_days():
     assert [r.run_id for r in runs] == ["d2"]
     # since is pushed down; until is not (the backfill file sorts after dates).
     assert seen["since_date"] == "2026-10-02" and "until_date" not in seen
+
+
+def test_backfill_does_not_reread_results_that_already_have_a_loop_result(tmp_path, monkeypatch):
+    import loop_serialize
+    write_sample_result_json(tmp_path / "results", run_id="old_1")
+    ledger.backfill_from_results(tmp_path / "results", tmp_path / "events")
+    read = []
+    real_read = loop_serialize.read_result
+    monkeypatch.setattr(loop_serialize, "read_result", lambda p: read.append(p) or real_read(p))
+    write_sample_result_json(tmp_path / "results", run_id="old_2")
+    assert ledger.backfill_from_results(tmp_path / "results", tmp_path / "events") == 1
+    # The run dir is named by its run_id: a known one is skipped unread.
+    assert [p.parent.name for p in read] == ["old_2"]
