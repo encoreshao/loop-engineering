@@ -30,7 +30,7 @@
 ## Next Run Should
 - Read this file and `docs/tasks/gitlab-issue-loop.md` first.
 - List open issues assigned to the configured user across the configured projects (`python3 <loop_dir>/bin/list_assigned_issues.py`).
-- Process issues one at a time per `LOOPX_INSTRUCTIONS.md`.
+- Process issues one at a time per `instructions/gitlab-issue.md`.
 - Re-check whether #12/#13 have received a human reply yet before re-escalating.
 - Update this file before stopping.
 
