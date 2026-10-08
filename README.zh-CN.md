@@ -1,5 +1,9 @@
 [English](README.md) | [日本語](README.ja.md) | **简体中文** | [Français](README.fr.md)
 
+<p align="center">
+  <img src="assets/app-icon.svg" alt="Loop X logo" width="128" height="128">
+</p>
+
 # Loop X Engineering
 
 ![CI](https://github.com/encoreshao/loop-engineering/actions/workflows/ci.yml/badge.svg)
