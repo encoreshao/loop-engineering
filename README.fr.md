@@ -131,6 +131,16 @@ Une fois terminé, ouvrez la page **Settings → Skills** du tableau de bord pou
 
 
 
+### Application macOS
+
+```bash
+bin/scripts/build_macos_app.sh      # -> dist/Loop X.app
+open "dist/Loop X.app"
+bin/scripts/build_macos_app.sh --desktop-shortcut   # ~/Desktop
+```
+
+Une fenêtre native autour du tableau de bord (venv propre avec pywebview et PyYAML). Elle se connecte au démon du tableau de bord en cours d'exécution, ou le sert elle-même s'il n'y en a pas. L'app lance le `bin/desktop_app.py` de ce clone : laissez-le en place ; la configuration et l'état restent dans `~/.loop-engineering` et `outputs/`.
+
 ### Désinstallation
 
 ```bash

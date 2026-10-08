@@ -130,6 +130,16 @@ Once it's done, open the dashboard's **Settings → Skills** page to confirm eve
 
 
 
+### macOS app
+
+```bash
+bin/scripts/build_macos_app.sh      # -> dist/Loop X.app (own venv with pywebview + PyYAML)
+open "dist/Loop X.app"
+bin/scripts/build_macos_app.sh --desktop-shortcut   # also add an alias on ~/Desktop
+```
+
+A native window around the dashboard. It attaches to the running dashboard daemon, or serves the dashboard itself if none is running. The bundle launches this checkout's `bin/desktop_app.py`, so keep the checkout in place; config and run state stay in `~/.loop-engineering` and `outputs/`.
+
 ### Uninstalling
 
 ```bash

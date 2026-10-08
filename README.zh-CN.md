@@ -127,6 +127,16 @@ bin/scripts/setup.sh --skip-skills-install
 
 
 
+### macOS 应用
+
+```bash
+bin/scripts/build_macos_app.sh      # -> dist/Loop X.app
+open "dist/Loop X.app"
+bin/scripts/build_macos_app.sh --desktop-shortcut   # ~/Desktop
+```
+
+围绕仪表盘的原生窗口（使用带 pywebview 和 PyYAML 的独立 venv）。它会连接正在运行的仪表盘守护进程，若没有则自行提供仪表盘。应用启动的是此检出目录中的 `bin/desktop_app.py`，请勿移动该目录；配置和运行状态仍保存在 `~/.loop-engineering` 和 `outputs/`。
+
 ### 卸载
 
 ```bash

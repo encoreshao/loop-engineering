@@ -13,6 +13,10 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Added
 
+- `bin/scripts/build_macos_app.sh` builds `dist/Loop X.app`, a native macOS
+  window around the dashboard (pywebview). It attaches to the running
+  dashboard daemon, or serves the dashboard itself when none is running. `--desktop-shortcut` adds an alias to it on `~/Desktop`.
+
 - Custom instructions now apply to the topic monitor and inbox triage loops
   too, not just the GitLab issue loop. Besides the global
   `~/.loop-engineering/instructions.md`, you can add per-loop files at

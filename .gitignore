@@ -52,5 +52,8 @@ launchd/*.plist
 # checkouts (each with its own .git), never this repo's source.
 /worktrees/
 
+# macOS app bundle built by bin/scripts/build_macos_app.sh
+/dist/
+
 # macOS
 .DS_Store
