@@ -14068,7 +14068,7 @@ def test_loop_schedule_summary_reads_minute_intervals():
 
 
 def test_loop_schedule_form_offers_and_preselects_minute_intervals():
-    loop = {"name": "calendar-prep-loop", "schedule": {"frequency": "hourly", "interval_minutes": 30}}
+    loop = {"name": "meeting-prep-loop", "schedule": {"frequency": "hourly", "interval_minutes": 30}}
     form = ds._loop_schedule_form_html(loop, "")
     assert "<option value='15m'>" in form and "<option value='30m' selected>" in form
     assert "<option value='4'>" in form
@@ -14204,3 +14204,70 @@ def test_topbar_controls_scroll_instead_of_being_clipped_on_narrow_screens():
     source = Path(ds.__file__).read_text()
     narrow = source.split("@media (max-width: 720px) {{ /* narrow topbar */")[1].split("}}\n}}")[0]
     assert ".topbar .header-right" in narrow and "overflow-x: auto" in narrow and "min-width: 0" in narrow
+
+
+# --- Meeting Prep live page + day-grouped history ---------------------------
+
+def _meeting(key, title, start_min, length=30, join="https://meet.google.com/x", link="https://cal.test/e"):
+    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    start = now + timedelta(minutes=start_min)
+    return {"key": key, "title": title, "start": start.isoformat(),
+            "end": (start + timedelta(minutes=length)).isoformat(), "join_url": join, "html_link": link}
+
+
+def _write_today(d, meetings, date=None):
+    local_today = datetime.now().astimezone().date().isoformat()
+    (d / "today.json").write_text(json.dumps({
+        "date": date or local_today, "generated_at": datetime.now(timezone.utc).isoformat(),
+        "meetings": meetings}))
+
+
+def test_meeting_prep_live_lists_todays_meetings_by_state(monkeypatch, tmp_path):
+    d = _plugin_loop_sandbox(monkeypatch, tmp_path, name="meeting-prep-loop")
+    _write_today(d, [_meeting("a", "Standup <b>", -120), _meeting("b", "Design review", -10, 30),
+                     _meeting("c", "Retro", 90, join="", link="https://cal.test/retro")])
+    out = ds.render_loop_page("meeting-prep-loop")
+    assert out.count("meeting-row meeting-past") == 1
+    assert out.count("meeting-row meeting-ongoing") == 1
+    assert out.count("meeting-row meeting-upcoming") == 1
+    assert out.index("Standup") < out.index("Design review") < out.index("Retro")
+    assert "Standup &lt;b&gt;" in out
+    assert "href='https://meet.google.com/x'" in out          # the meeting link, not the calendar event
+    assert "href='https://cal.test/retro'" in out             # no join link: the calendar event
+
+
+def test_meeting_prep_live_ignores_a_stale_snapshot(monkeypatch, tmp_path):
+    d = _plugin_loop_sandbox(monkeypatch, tmp_path, name="meeting-prep-loop")
+    _write_today(d, [_meeting("a", "Yesterday sync", 10)], date="2020-01-01")
+    out = ds.render_loop_page("meeting-prep-loop")
+    assert "Yesterday sync" not in out and "<li class='meeting-row" not in out
+
+
+def test_other_loops_live_page_has_no_meetings_card(monkeypatch, tmp_path):
+    d = _plugin_loop_sandbox(monkeypatch, tmp_path)
+    _write_today(d, [_meeting("a", "Standup", 10)])
+    assert "Standup" not in ds.render_loop_page("rss-watch-loop")
+
+
+def test_live_outcome_row_prefers_label_over_item_key(monkeypatch, tmp_path):
+    d = _plugin_loop_sandbox(monkeypatch, tmp_path)
+    (d / "last-run.json").write_text(json.dumps({
+        "finished_at": "2026-10-06T08:00:00Z", "counts": {"done": 1},
+        "outcomes": [{"item_key": "cal:x:1", "label": "Kurrant sync", "status": "done", "summary": "ok",
+                      "url": "https://meet.google.com/x"}]}))
+    out = ds.render_loop_page("rss-watch-loop")
+    assert ">Kurrant sync</a>" in out and "cal:x:1" not in out
+
+
+def test_loop_history_is_grouped_by_day_with_run_summaries(monkeypatch, tmp_path):
+    d = _plugin_loop_sandbox(monkeypatch, tmp_path)
+    (d / "history" / "2026-10-05_080000.md").write_text("# r\n\n- [done] k1: Old one\n")
+    (d / "history" / "2026-10-06_080000.md").write_text(
+        "# r\n\n- [done] k1: First <i>x</i> (https://x.test/a)\n- [failed] k2: Broke\n")
+    (d / "history" / "2026-10-06_090000.md").write_text("# r\n\n- [skipped] k3: Nothing\n")
+    out = ds.render_loop_page("rss-watch-loop", view="history")
+    assert out.count("<details class='day-group'") == 2
+    assert out.index("2026-10-06") < out.index("2026-10-05")
+    assert out.index("2026-10-06_090000") < out.index("2026-10-06_080000")   # newest run first within a day
+    assert "First &lt;i&gt;x&lt;/i&gt;" in out and "Broke" in out
+    assert "/loops/rss-watch-loop/history/2026-10-06_080000.md" in out

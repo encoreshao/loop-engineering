@@ -69,7 +69,7 @@ Loop X Engineering 的使命是把被 issue 分诊占用的时间还给你：它
 | MR Review | 预先评审你担任评审人的合并请求（默认禁用） | `merge_requests` 连接器（GitLab） | 每 2 小时 | 仅 GitLab 草稿备注；从不发布、批准或发表普通备注 |
 | Pipeline Doctor | 诊断所跟踪项目和你名下 MR 中失败的 CI 流水线，并标出反复出现的失败（默认禁用） | `pipelines` 连接器（GitLab） | 每小时 | 仅通知 |
 | RSS Watch | 按你的兴趣为订阅源新条目排序并发送简短摘要（默认禁用） | `feed` 连接器（RSS） | 每天 08:00 | 仅通知 |
-| Calendar Prep | 每次会议前发送准备摘要：议程、关联的 GitLab 工作、与参会者的近期邮件、上次的跟进事项（默认禁用） | `calendar` 连接器（Google 日历），可选 GitLab 和邮箱 | 每 15 分钟 | 仅通知 |
+| Meeting Prep | 每次会议前发送准备摘要：议程、关联的 GitLab 工作、与参会者的近期邮件、上次的跟进事项（默认禁用） | `calendar` 连接器（Google 日历），可选 GitLab 和邮箱 | 每 15 分钟 | 仅通知 |
 | Release Notes | 跟踪的项目有新标签时，根据上一个标签以来合并的 MR 编写发布说明（默认禁用） | `merge_requests` 连接器（GitLab） | 每小时 | 本地 Markdown 文件 + 通知 |
 | Stale Work Sweeper | 每周一列出停滞的 GitLab 议题和 MR 以及等待你审查的 MR；不调用模型（默认禁用） | `issues` 连接器（GitLab） | 每周一 09:00 | 仅通知 |
 

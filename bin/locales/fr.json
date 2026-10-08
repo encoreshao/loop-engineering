@@ -888,7 +888,7 @@
   "{n} hour(s)": "{n} heure(s)",
   "every": "toutes les",
   "Every {minutes} minutes": "Toutes les {minutes} minutes",
-  "Calendar Prep": "Préparation de réunion",
+  "Meeting Prep": "Préparation de réunion",
   "A short prep brief before each meeting: agenda, linked GitLab work, recent mail with the attendees and follow-ups from last time.": "Une courte note de préparation avant chaque réunion : ordre du jour, travail GitLab lié, e-mails récents avec les participants et suivis de la dernière fois.",
   "Calendar account": "Compte d'agenda",
   "Connector id of the calendar to watch; empty watches every calendar": "Identifiant du connecteur de l'agenda à surveiller ; vide = tous les agendas",
@@ -909,5 +909,18 @@
   "Merge requests waiting on your review this many days are listed (1-365)": "Les merge requests qui attendent votre revue depuis ce nombre de jours sont listées (1-365)",
   "${usd} per verified issue": "${usd} par ticket vérifié",
   "{pct}% of runs retried": "{pct} % des exécutions avec nouvelle tentative",
-  "{points} pts with memory": "{points} pts avec la mémoire"
+  "{points} pts with memory": "{points} pts avec la mémoire",
+  "Today's meetings": "Réunions du jour",
+  "Past": "Terminée",
+  "Ongoing": "En cours",
+  "Upcoming": "À venir",
+  "in {duration}": "dans {duration}",
+  "ends in {duration}": "se termine dans {duration}",
+  "{minutes} min": "{minutes} min",
+  "{hours} h {minutes} min": "{hours} h {minutes} min",
+  "No meetings recorded for today yet.": "Aucune réunion enregistrée pour aujourd'hui pour l'instant.",
+  "Updated {when}": "Mis à jour {when}",
+  "(no title)": "(sans titre)",
+  "+{count} more": "+{count} de plus",
+  "{count} runs": "{count} exécutions"
 }

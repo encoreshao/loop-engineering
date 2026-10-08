@@ -1,6 +1,6 @@
-# Definition for the Calendar Prep loop (bin/loop_plugins/calendar_prep.py,
+# Definition for the Meeting Prep loop (bin/loop_plugins/calendar_prep.py,
 # run through LoopKit). Read-only: reads calendar, GitLab and mail, notifies only.
-name: calendar-prep-loop
+name: meeting-prep-loop
 version: 1
 
 trigger:

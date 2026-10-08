@@ -91,7 +91,7 @@ def plugin(tmp_path, events=None, calendars=None, gitlab=None, mail_rows=None, m
         return calendars[aid] if aid in calendars else gitlab
 
     p = cp.CalendarPrep(accounts_fn=accounts_fn, loader=loader, mail_fn=mail_fn, cli_fn=lambda: cli,
-                        series_path=tmp_path / "series.json")
+                        series_path=tmp_path / "series.json", today_path=tmp_path / "today.json")
     p.mail_calls = mail_calls
     return p
 
@@ -107,11 +107,45 @@ def test_discover_one_item_per_upcoming_meeting(tmp_path):
     assert ev["attendees"] == ["Ann"]
 
 
-def test_discover_asks_for_the_lead_window(tmp_path):
+def test_discover_fetches_the_whole_local_day_in_one_call(tmp_path):
     cal = Calendar([event()])
     plugin(tmp_path, calendars={"cal": cal}).discover(Ctx({"lead_minutes": "60"}))
+    assert len(cal.calls) == 1
     t_min, t_max = cal.calls[0]
-    assert t_min == NOW.isoformat() and t_max == (NOW + timedelta(minutes=60)).isoformat()
+    midnight = NOW.astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    assert t_min == midnight.isoformat()
+    assert t_max == (midnight + timedelta(days=1)).isoformat()
+
+
+def test_discover_still_only_briefs_the_lead_window(tmp_path):
+    events = [event("soon", start=50), event("later", start=61), event("earlier", start=-120)]
+    keys = [i.key.split(":")[2] for i in plugin(tmp_path, events=events).discover(Ctx({"lead_minutes": "60"}))]
+    assert keys == ["soon"]
+
+
+def _today(tmp_path):
+    return json.loads((tmp_path / "today.json").read_text())
+
+
+def test_discover_records_todays_meetings_for_the_live_page(tmp_path):
+    events = [event("past", start=-120), event("now", start=-10), event("soon", start=30),
+              dict(event("allday"), start="2026-10-07", end="2026-10-08"),
+              event("declined", self_response="declined")]
+    plugin(tmp_path, events=events).discover(Ctx())
+    data = _today(tmp_path)
+    assert data["generated_at"] == NOW.isoformat()
+    assert [m["key"].split(":")[2] for m in data["meetings"]] == ["past", "now", "soon"]
+    soon = data["meetings"][2]
+    assert soon["key"] == f"cal:cal:soon:{iso(30)}" and soon["title"] == "Sync"
+    assert soon["start"] == iso(30) and soon["end"] == iso(60)
+    assert soon["join_url"] == "https://meet.google.com/abc"
+    assert soon["html_link"] == "https://calendar.google.com/soon"
+
+
+def test_a_failing_calendar_keeps_the_previous_snapshot(tmp_path):
+    plugin(tmp_path, events=[event("keep")]).discover(Ctx())
+    plugin(tmp_path, calendars={"cal": Calendar([], fail=True)}).discover(Ctx())
+    assert [m["key"].split(":")[2] for m in _today(tmp_path)["meetings"]] == ["keep"]
 
 
 def test_discover_skips_all_day_started_declined_and_solo_events(tmp_path):
@@ -233,11 +267,23 @@ def test_digest_renders_the_brief(tmp_path):
     p, item = _item_with_links(tmp_path)
     out = p.after_item(item, ANSWER, Ctx())
     text = p.digest([out], Ctx())
-    assert text.startswith("Prep: Sync")
-    assert "in 30 min" in text and "https://meet.google.com/abc" in text
-    assert "Decide the login fix." in text and f"{GL}/g/p/-/merge_requests/7" in text
+    assert text.startswith("*Prep: Sync*")
+    assert "in 30 min" in text and "Join: https://meet.google.com/abc" in text
+    assert "> Decide the login fix." in text
+    assert "*Agenda*\n\u2022 Review MR" in text
+    assert "*Open items*\n\u2022 MR 7 waits on you (" + f"{GL}/g/p/-/merge_requests/7)" in text
+    assert "*Raise*\n\u2022 " in text and "*From last time*\n\u2022 Ann owes the test plan" in text
+    assert "; " not in text
     assert "<!channel>" not in text
     assert p.digest([loopkit.Outcome("k", "failed", "x")], Ctx()) is None
+
+
+def test_outcome_links_to_the_meeting_link_else_the_calendar_event(tmp_path):
+    p, item = _item_with_links(tmp_path)
+    assert p.after_item(item, ANSWER, Ctx()).url == "https://meet.google.com/abc"
+    p = plugin(tmp_path, events=[event(join_url="")])
+    item = p.discover(Ctx())[0]
+    assert p.after_item(item, ANSWER, Ctx()).url == "https://calendar.google.com/ev1"
 
 
 def test_settings_fields_declared():
@@ -248,7 +294,7 @@ def test_settings_fields_declared():
 
 def test_definition_and_prompt_load():
     definition = LoopDefinition.from_yaml(REPO_ROOT / "loops" / "calendar-prep" / "loop.yaml")
-    assert definition.name == "calendar-prep-loop"
+    assert definition.name == "meeting-prep-loop"
     prompt = (REPO_ROOT / "loops" / "calendar-prep" / "prompt.md").read_text()
     assert "{{item_json}}" in prompt and "untrusted" in prompt
 
@@ -256,7 +302,7 @@ def test_definition_and_prompt_load():
 def test_template_registers_the_loop_disabled_every_15_minutes():
     loops = json.loads((REPO_ROOT / "config" / "loops.json.template").read_text())
     loops = loops["loops"] if isinstance(loops, dict) else loops
-    entry = next(l for l in loops if l["name"] == "calendar-prep-loop")
+    entry = next(l for l in loops if l["name"] == "meeting-prep-loop")
     assert entry["entry_point"] == "bin.loop_plugins.calendar_prep" and entry["enabled"] is False
     assert entry["schedule"] == {"frequency": "hourly", "interval_minutes": 15}
     assert entry["requires"] == ["calendar"] and entry["routes_notifications"] is True

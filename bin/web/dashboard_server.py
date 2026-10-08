@@ -4095,7 +4095,7 @@ _MATERIAL_SYMBOLS_ICON_NAMES = (
     "account_balance_wallet,add,add_comment,arrow_forward,arrow_upward,auto_awesome,autorenew,bolt,calendar_month,cancel,check,check_circle,chevron_left,circle,"
     "close,code,content_copy,delete,description,dns,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,help,history,hub,"
     "lightbulb,login,loop,mail,merge,monitoring,newspaper,open_in_new,palette,payments,rss_feed,save,schedule,search,send,settings,smart_toy,space_dashboard,speed,task_alt,terminal,topic,"
-    "translate,tune,warning,webhook,widgets"
+    "translate,tune,videocam,warning,webhook,widgets"
 )
 
 
@@ -5634,6 +5634,41 @@ ul.plain li {{ font-size: 0.9rem; }}
 }}
 .learning-item .markdown {{ font-size: 0.9rem; }}
 .learning-item .markdown > :last-child {{ margin-bottom: 0; }}
+.meeting-list, .history-runs, .history-items {{ list-style: none; margin: 0; padding: 0; }}
+.meeting-row {{ display: grid; grid-template-columns: 7.5rem 1fr auto 6rem; gap: 0.75rem; align-items: center;
+  padding: 0.6rem 0.85rem; border-left: 4px solid transparent; border-radius: 8px; }}
+.meeting-row + .meeting-row {{ margin-top: 0.35rem; }}
+.meeting-time {{ font-variant-numeric: tabular-nums; font-weight: 500; }}
+.meeting-title a {{ display: inline-flex; align-items: center; gap: 0.35rem; }}
+.meeting-title .material-symbols-outlined {{ font-size: 18px; }}
+.meeting-when {{ font-size: 0.85rem; color: var(--md-on-surface-variant); }}
+.meeting-pill {{ justify-self: end; background: var(--md-surface-container-high); color: var(--md-on-surface-variant); }}
+.meeting-past {{ opacity: 0.55; }}
+.meeting-past .meeting-title {{ text-decoration: line-through; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }}
+.meeting-ongoing {{ background: var(--md-primary-container); color: var(--md-on-primary-container); border-left-color: var(--md-primary); }}
+.meeting-ongoing .meeting-when {{ color: inherit; }}
+.meeting-ongoing .meeting-pill {{ background: var(--md-primary); color: var(--md-on-primary); }}
+.meeting-upcoming {{ background: var(--md-surface-container-low); border-left-color: var(--md-outline-variant, currentColor); }}
+@media (max-width: 640px) {{
+  .meeting-row {{ grid-template-columns: 1fr auto; }}
+  .meeting-time {{ grid-column: 1 / -1; }}
+}}
+.day-group {{ border-top: 1px solid var(--md-outline-variant, rgba(128,128,128,0.3)); padding: 0.4rem 0; }}
+.day-group:first-of-type {{ border-top: 0; }}
+.day-group > summary {{ cursor: pointer; display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; align-items: baseline; padding: 0.4rem 0; }}
+.day-title {{ font-weight: 500; }}
+.day-summary {{ font-size: 0.85rem; color: var(--md-on-surface-variant); }}
+.history-run {{ padding: 0.55rem 0 0.55rem 0.9rem; border-left: 3px solid var(--md-surface-container-high); margin: 0.35rem 0 0.35rem 0.25rem; }}
+.history-run-head {{ display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }}
+.history-time {{ font-weight: 500; font-variant-numeric: tabular-nums; }}
+.history-file {{ font-weight: 400; font-size: 0.8rem; color: var(--md-on-surface-variant); }}
+.history-done {{ background: var(--md-primary-container); color: var(--md-on-primary-container); }}
+.history-failed {{ background: var(--md-error-container, #fdd); color: var(--md-on-error-container, #900); }}
+.history-skipped {{ background: var(--md-surface-container-high); color: var(--md-on-surface-variant); }}
+.history-items {{ margin-top: 0.3rem; font-size: 0.9rem; }}
+.history-item {{ padding: 0.1rem 0; }}
+.history-item-failed {{ color: var(--md-error, #b3261e); }}
+.history-more {{ color: var(--md-on-surface-variant); font-size: 0.85rem; }}
 .pill-row {{ display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.35rem; }}
 
 .gitlab-list {{ gap: 0.15rem; }}
@@ -13744,9 +13779,11 @@ def _generic_loop_live_body(name, flash=None, flash_ok=True):
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
     status = read_status(status_path_for_loop(name))
     last = _read_loop_last_run(name)
-    parts = [_flash_html(flash, flash_ok),
-             f"<section class='card'><div class='section-header'><h2>{html.escape(_t('Status'))}</h2>"
-             f"{_status_badge_markup(status)}</div>"]
+    parts = [_flash_html(flash, flash_ok)]
+    if name == MEETING_PREP_LOOP:
+        parts.append(_meetings_today_card(name))
+    parts.append(f"<section class='card'><div class='section-header'><h2>{html.escape(_t('Status'))}</h2>"
+                 f"{_status_badge_markup(status)}</div>")
     if last is None:
         parts.append(f"<p>{html.escape(_t('No runs recorded yet.'))}</p>")
     else:
@@ -13762,7 +13799,7 @@ def _generic_loop_live_body(name, flash=None, flash_ok=True):
             rows = []
             for o in outcomes:
                 url = str(o.get("url") or "")
-                key = html.escape(str(o.get("item_key", "")))
+                key = html.escape(str(o.get("label") or o.get("item_key", "")))
                 if url.startswith(("http://", "https://")):
                     key = f"<a href='{html.escape(url, quote=True)}' target='_blank' rel='noopener'>{key}</a>"
                 rows.append(f"<tr><td>{key}</td><td>{html.escape(str(o.get('status', '')))}</td>"
@@ -13777,15 +13814,166 @@ def _generic_loop_live_body(name, flash=None, flash_ok=True):
     return "".join(parts)
 
 
-def _generic_loop_history_body(name, flash=None, flash_ok=True):
+MEETING_PREP_LOOP = "meeting-prep-loop"
+
+
+def _aware(value):
+    """An ISO timestamp as an aware datetime; None when it is not one."""
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _duration_label(minutes):
+    minutes = max(0, int(minutes))
+    if minutes < 60:
+        return _t("{minutes} min", minutes=minutes)
+    return _t("{hours} h {minutes} min", hours=minutes // 60, minutes=minutes % 60)
+
+
+def _read_today_meetings(name):
+    """Meetings the loop recorded for today (local date), start order; [] when
+    the snapshot is missing, unreadable or from another day."""
+    try:
+        data = json.loads((_loop_output_dir(name) / "today.json").read_text())
+    except (OSError, ValueError):
+        return [], None
+    if not isinstance(data, dict) or data.get("date") != datetime.now().astimezone().date().isoformat():
+        return [], None
+    rows = [m for m in data.get("meetings") or [] if isinstance(m, dict) and _aware(m.get("start"))]
+    return sorted(rows, key=lambda m: _aware(m["start"])), _aware(data.get("generated_at"))
+
+
+def _meeting_state(meeting, now):
+    start, end = _aware(meeting["start"]), _aware(meeting.get("end")) or _aware(meeting["start"])
+    if now >= end:
+        return "past"
+    return "ongoing" if now >= start else "upcoming"
+
+
+def _meetings_today_card(name, now=None):
+    """The Meeting Prep Live page's agenda: every meeting today, styled by
+    whether it is over, under way or still to come; each title links to the
+    meeting's join link (the calendar event when it has none)."""
+    now = now or datetime.now(timezone.utc)
+    meetings, updated = _read_today_meetings(name)
+    heading = _t("Today's meetings")
+    head = f"<div class='section-header'><h2>{html.escape(heading)}</h2></div>"
+    if not meetings:
+        return (f"<section class='card'>{head}"
+                f"<p>{html.escape(_t('No meetings recorded for today yet.'))}</p></section>")
+    labels = {"past": _t("Past"), "ongoing": _t("Ongoing"), "upcoming": _t("Upcoming")}
+    rows = []
+    for m in meetings:
+        state = _meeting_state(m, now)
+        start, end = _aware(m["start"]), _aware(m.get("end"))
+        span = start.astimezone().strftime("%H:%M") + (
+            "\u2013" + end.astimezone().strftime("%H:%M") if end else "")
+        if state == "upcoming":
+            when = _t("in {duration}", duration=_duration_label(round((start - now).total_seconds() / 60)))
+        elif state == "ongoing" and end:
+            when = _t("ends in {duration}", duration=_duration_label(round((end - now).total_seconds() / 60)))
+        else:
+            when = ""
+        title = html.escape(str(m.get("title") or _t("(no title)")))
+        join = str(m.get("join_url") or "")
+        href = join or str(m.get("html_link") or "")
+        if href.startswith(("http://", "https://")):
+            icon = ("<span class='material-symbols-outlined' aria-hidden='true'>videocam</span>" if join else "")
+            title = (f"<a href='{html.escape(href, quote=True)}' target='_blank' rel='noopener'>{icon}{title}</a>")
+        rows.append(
+            f"<li class='meeting-row meeting-{state}'><span class='meeting-time'>{html.escape(span)}</span>"
+            f"<span class='meeting-title'>{title}</span>"
+            f"<span class='meeting-when'>{html.escape(when)}</span>"
+            f"<span class='pill meeting-pill'>{html.escape(labels[state])}</span></li>")
+    note = (f"<p class='section-subtitle'>{html.escape(_t('Updated {when}', when=_relative_time(updated.isoformat())))}</p>"
+            if updated else "")
+    return f"<section class='card'>{head}{note}<ul class='meeting-list'>{''.join(rows)}</ul></section>"
+
+
+_HISTORY_LINE_RE = re.compile(r"^- \[(done|skipped|failed)\] (.*)$")
+_HISTORY_URL_RE = re.compile(r"^(.*) \((https?://[^\s()]+)\)$")
+_HISTORY_ITEMS_SHOWN = 4
+
+
+def _loop_history_run(name, filename):
+    """One run's reviewable summary from its history file: when it ran (local
+    time), per-status counts and its first few item lines."""
+    try:
+        ran = datetime.strptime(filename[:-3], "%Y-%m-%d_%H%M%S").replace(tzinfo=timezone.utc).astimezone()
+    except ValueError:
+        return None
+    try:
+        text = (_loop_output_dir(name) / "history" / filename).read_text(errors="replace")[:20000]
+    except OSError:
+        text = ""
+    counts, items = {"done": 0, "skipped": 0, "failed": 0}, []
+    for line in text.splitlines():
+        m = _HISTORY_LINE_RE.match(line)
+        if m:
+            counts[m.group(1)] += 1
+            items.append((m.group(1), m.group(2)))
+    return {"file": filename, "ran": ran, "counts": counts, "items": items}
+
+
+def _history_day_heading(day, today):
+    if day == today:
+        prefix = _t("Today")
+    elif day == today - timedelta(days=1):
+        prefix = _t("Yesterday")
+    else:
+        prefix = day.strftime("%a")
+    return f"{prefix} \u00b7 {day.isoformat()}"
+
+
+def _history_run_html(name, run):
     quoted = urllib.parse.quote(name)
+    pills = "".join(
+        f"<span class='pill history-pill history-{key}'>{html.escape(_t(label))} {run['counts'][key]}</span>"
+        for key, label in (("done", "Done"), ("skipped", "Skipped"), ("failed", "Failed")) if run["counts"][key])
+    items = []
+    for status, text in run["items"][:_HISTORY_ITEMS_SHOWN]:
+        link = _HISTORY_URL_RE.match(text)
+        shown = html.escape(link.group(1) if link else text)
+        if link:
+            shown = f"<a href='{html.escape(link.group(2), quote=True)}' target='_blank' rel='noopener'>{shown}</a>"
+        items.append(f"<li class='history-item history-item-{status}'>{shown}</li>")
+    more = len(run["items"]) - _HISTORY_ITEMS_SHOWN
+    if more > 0:
+        items.append(f"<li class='history-more'>{html.escape(_t('+{count} more', count=more))}</li>")
+    body = f"<ul class='history-items'>{''.join(items)}</ul>" if items else ""
+    f = html.escape(run["file"])
+    return (f"<li class='history-run'><div class='history-run-head'>"
+            f"<a class='history-time' href='/loops/{quoted}/history/{f}'>{run['ran'].strftime('%H:%M')}"
+            f"<span class='history-file'> {f[:-3]}</span></a>{pills}</div>{body}</li>")
+
+
+def _generic_loop_history_body(name, flash=None, flash_ok=True):
     files = _loop_history_files(name)
-    if not files:
+    runs = [r for r in (_loop_history_run(name, f) for f in files) if r]
+    if not runs:
         inner = f"<p>{html.escape(_t('No history yet.'))}</p>"
     else:
-        inner = "<ul>" + "".join(
-            f"<li><a href='/loops/{quoted}/history/{html.escape(f)}'>{html.escape(f[:-3])}</a></li>"
-            for f in files) + "</ul>"
+        runs.sort(key=lambda r: r["ran"], reverse=True)
+        today = datetime.now().astimezone().date()
+        days = {}
+        for r in runs:
+            days.setdefault(r["ran"].date(), []).append(r)
+        groups = []
+        for i, (day, day_runs) in enumerate(days.items()):
+            totals = {k: sum(r["counts"][k] for r in day_runs) for k in ("done", "skipped", "failed")}
+            summary = " \u00b7 ".join(
+                [html.escape(_t("{count} runs", count=len(day_runs)))]
+                + [f"{html.escape(_t(label))} {totals[key]}"
+                   for key, label in (("done", "Done"), ("failed", "Failed")) if totals[key]])
+            groups.append(
+                f"<details class='day-group'{' open' if i == 0 else ''}>"
+                f"<summary><span class='day-title'>{html.escape(_history_day_heading(day, today))}</span>"
+                f"<span class='day-summary'>{summary}</span></summary>"
+                f"<ul class='history-runs'>{''.join(_history_run_html(name, r) for r in day_runs)}</ul></details>")
+        inner = "".join(groups)
     return (_flash_html(flash, flash_ok)
             + f"<section class='card'><div class='section-header'><h2>{html.escape(_t('History'))}</h2></div>"
             + inner + "</section>")

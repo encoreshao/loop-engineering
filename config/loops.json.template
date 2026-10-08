@@ -82,14 +82,14 @@
     "requires": ["feed"]
   },
   {
-    "name": "calendar-prep-loop",
-    "label": "Calendar Prep",
+    "name": "meeting-prep-loop",
+    "label": "Meeting Prep",
     "entry_point": "bin.loop_plugins.calendar_prep",
     "description": "A short prep brief before each meeting: agenda, linked GitLab work, recent mail with the attendees and follow-ups from last time.",
     "schedule": {"frequency": "hourly", "interval_minutes": 15},
     "enabled": false,
     "timeout_seconds": 900,
-    "log_suffix": "-calendar-prep-loop",
+    "log_suffix": "-meeting-prep-loop",
     "emit_run_events": false,
     "routes_notifications": true,
     "requires": ["calendar"]

@@ -55,10 +55,10 @@ and `output_keys` for the required answer JSON keys.
 - Do this **after** P4, so the gate and retry logic is shared rather than
   duplicated per provider.
 
-## Calendar Prep
+## Meeting Prep
 
 - **Shipped** (2026-10-07): `bin/loop_plugins/calendar_prep.py`, see
-  `docs/tasks/calendar-prep-loop.md`. It also needed `list_events` to return
+  `docs/tasks/meeting-prep-loop.md`. It also needed `list_events` to return
   descriptions, attendees and join links, a read-only `search_recent` on the
   mail providers, and 15-minute schedules (`interval_minutes`). The notes
   below are the original plan.

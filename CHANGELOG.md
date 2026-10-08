@@ -21,6 +21,14 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Changed
 
+- Calendar Prep is now **Meeting Prep**. Its Live page lists every meeting
+  today as past, ongoing or upcoming, with each title linking to the meeting
+  link, and its run table shows meeting titles instead of internal keys. Its
+  Slack brief is now formatted (bold title, time and join link, quoted summary,
+  bulleted Agenda / Open items / Raise / From last time). Existing installs
+  keep their saved "Calendar Prep" label until it is renamed in `loops.json`.
+- A loop's History tab is now grouped by day (newest first, today open) and
+  shows each run's done/skipped/failed counts and first items.
 - The dashboard now defaults to the Indigo accent theme (a saved choice still wins).
 - A loop's "Notify via" picker is now compact (capped height, label beside it) instead of stretching tall.
 - Inbox Setup (Add inbox, Gmail app, Outlook app) and Connectors > Accounts have

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Calendar Prep loop on LoopKit: shortly before each meeting, gathers the
+"""Meeting Prep loop on LoopKit: shortly before each meeting, gathers the
 invite (agenda, attendees, join link), the GitLab issues/MRs it links to,
 recent mail with the attendees and what the last brief for the same series
 said, has the model write a short prep brief and sends it through the
 loop's notifier. Read-only everywhere. Invite text, GitLab titles and mail
 snippets are untrusted: they are trimmed before the prompt, the model runs
 sealed, every output string is sanitised and a brief may only link to the
-GitLab URLs it was offered. See docs/tasks/calendar-prep-loop.md.
+GitLab URLs it was offered. See docs/tasks/meeting-prep-loop.md.
 Run by run-loop-now.sh with the run id as argv[1]."""
 import json
 import os
@@ -129,17 +129,19 @@ def _usernames(value):
 
 
 class CalendarPrep(loopkit.LoopPlugin):
-    loop_name = "calendar-prep-loop"
+    loop_name = "meeting-prep-loop"
     definition_dir = "calendar-prep"
     output_keys = ("summary", "agenda", "open_items", "talking_points", "follow_ups")
     settings_fields = SETTINGS_FIELDS
 
-    def __init__(self, accounts_fn=None, loader=None, mail_fn=None, cli_fn=None, series_path=None):
+    def __init__(self, accounts_fn=None, loader=None, mail_fn=None, cli_fn=None, series_path=None,
+                 today_path=None):
         self._accounts_fn = accounts_fn
         self._loader = loader
         self._mail_fn = mail_fn
         self._cli_fn = cli_fn
         self._series_path = series_path
+        self._today_path = today_path
 
     def _resolve(self):
         import connectors_config
@@ -150,6 +152,11 @@ class CalendarPrep(loopkit.LoopPlugin):
         if self._series_path is not None:
             return Path(self._series_path)
         return Path(ctx.repo_root) / "outputs" / "loops" / self.loop_name / "series.json"
+
+    def _today_file(self, ctx):
+        if self._today_path is not None:
+            return Path(self._today_path)
+        return Path(ctx.repo_root) / "outputs" / "loops" / self.loop_name / "today.json"
 
     def _cli(self):
         if self._cli_fn is not None:
@@ -167,6 +174,12 @@ class CalendarPrep(loopkit.LoopPlugin):
         include_solo = str(settings.get("include_solo") or "").strip().lower() == "yes"
         only = str(settings.get("calendar_account") or "").strip()
         window_end = ctx.now + timedelta(minutes=lead)
+        # One call covers the whole local day: it feeds both the briefs
+        # (only meetings inside the lead window) and the Live page's agenda.
+        day_start = ctx.now.astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(days=1)
+        fetch_end = max(day_end, window_end)
+        today, fetched = [], False
         series = _read_json(self._series_file(ctx))
         gitlabs = None
         items = []
@@ -175,17 +188,41 @@ class CalendarPrep(loopkit.LoopPlugin):
             if only and aid != only:
                 continue
             try:
-                events = loader(aid).list_events(ctx.now.isoformat(), window_end.isoformat())
+                events = loader(aid).list_events(day_start.isoformat(), fetch_end.isoformat())
             except Exception as exc:  # noqa: BLE001 - one calendar failing never stops the rest
                 ctx.log(f"calendar-prep: calendar {aid} failed: {_err(exc)}")
                 continue
+            fetched = True
             for ev in events or []:
+                today.append(self._today_row(aid, ev))
                 if not self._wanted(ev, ctx.now, window_end, include_solo):
                     continue
                 if gitlabs is None:
                     gitlabs = self._gitlab_connectors(accounts_fn, loader, ctx)
                 items.append(self._item(aid, ev, gitlabs, mail_days, series, ctx))
+        if fetched:
+            self._write_today(ctx, day_start, today)
         return items
+
+    @staticmethod
+    def _today_row(aid, ev):
+        """The Live page's view of one event, or None for all-day/declined."""
+        if _parse(ev.get("start")) is None or ev.get("self_response") == "declined":
+            return None
+        return {"key": f"cal:{aid}:{ev.get('id', '')}:{ev.get('start', '')}",
+                "title": loopkit.chat_text(ev.get("summary") or "", MAX_ENTRY),
+                "start": ev.get("start", ""), "end": ev.get("end", ""),
+                "join_url": loopkit.chat_url(ev.get("join_url") or ""),
+                "html_link": loopkit.chat_url(ev.get("html_link") or "")}
+
+    def _write_today(self, ctx, day_start, rows):
+        meetings = sorted((r for r in rows if r), key=lambda r: r["start"])
+        try:
+            _write_json_atomic(self._today_file(ctx), {
+                "date": day_start.date().isoformat(), "generated_at": ctx.now.isoformat(),
+                "meetings": meetings})
+        except OSError as exc:
+            ctx.log(f"calendar-prep: could not write today's meetings: {_err(exc)}")
 
     @staticmethod
     def _wanted(ev, now, window_end, include_solo):
@@ -312,39 +349,48 @@ class CalendarPrep(loopkit.LoopPlugin):
                                  "follow_ups": brief["follow_ups"]}
             _write_json_atomic(path, series)
         ev = item.payload["event"]
-        return loopkit.Outcome(item.key, "done", brief["summary"][:120] or "brief written", url=item.url,
-                               data={"event": {k: ev[k] for k in ("title", "start", "end", "join_url")},
+        return loopkit.Outcome(item.key, "done", brief["summary"][:120] or "brief written",
+                               url=ev["join_url"] or item.url,
+                               data={"label": ev["title"],
+                                     "event": {k: ev[k] for k in ("title", "start", "end", "join_url")},
                                      "brief": brief})
 
     def digest(self, outcomes, ctx):
         blocks = [self._render(o.data, ctx) for o in outcomes if o.status == "done" and o.data.get("brief")]
-        return "\n\n".join(blocks) if blocks else None
+        return "\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n".join(blocks) if blocks else None
 
     @staticmethod
     def _render(data, ctx):
+        """Slack mrkdwn that still reads fine as plain text elsewhere: bold
+        title, one line of time and join link, a quoted summary and bulleted
+        sections."""
         ev, brief = data["event"], data["brief"]
         start, end = _parse(ev.get("start")), _parse(ev.get("end"))
-        head = f"Prep: {loopkit.chat_text(ev.get('title') or '', MAX_ENTRY)}"
+        title = loopkit.chat_text(ev.get("title") or "", MAX_ENTRY).replace("*", "")
+        head = f"*Prep: {title}*"
+        when = []
         if start is not None:
             span = start.astimezone().strftime("%H:%M")
             if end is not None:
-                span += "-" + end.astimezone().strftime("%H:%M")
+                span += "\u2013" + end.astimezone().strftime("%H:%M")
             minutes = max(0, round((start - ctx.now).total_seconds() / 60))
-            head += f" - {span} (in {minutes} min)"
-        lines = [head]
+            when.append(f"\U0001F552 {span} (in {minutes} min)")
         if ev.get("join_url"):
-            lines.append(f"Join: {loopkit.chat_url(ev['join_url'])}")
+            when.append(f"\U0001F4F9 Join: {loopkit.chat_url(ev['join_url'])}")
+        lines = [head]
+        if when:
+            lines.append(" \u00b7 ".join(when))
         if brief["summary"]:
-            lines.append(brief["summary"])
-        if brief["agenda"]:
-            lines.append("Agenda: " + "; ".join(brief["agenda"]))
-        if brief["open_items"]:
-            lines.append("Open:")
-            lines += [f"- {loopkit.chat_link(o['text'], o['link'])}" for o in brief["open_items"]]
-        if brief["talking_points"]:
-            lines.append("Raise: " + "; ".join(brief["talking_points"]))
-        if brief["follow_ups"]:
-            lines.append("From last time: " + "; ".join(brief["follow_ups"]))
+            lines += ["", f"> {brief['summary']}"]
+
+        def section(name, entries):
+            if entries:
+                lines.extend(["", f"*{name}*"] + [f"\u2022 {e}" for e in entries])
+
+        section("Agenda", brief["agenda"])
+        section("Open items", [loopkit.chat_link(o["text"], o["link"]) for o in brief["open_items"]])
+        section("Raise", brief["talking_points"])
+        section("From last time", brief["follow_ups"])
         return "\n".join(lines)
 
 

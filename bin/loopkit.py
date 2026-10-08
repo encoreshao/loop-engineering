@@ -283,6 +283,15 @@ def _run_item(plugin, item, ctx, run_id, events_dir, results_dir, repo_root):
     return Outcome(item.key, "failed", summary, url=item.url)
 
 
+def _outcome_label(outcome, default=None):
+    """A human name for an outcome (a plugin sets data["label"], e.g. a
+    meeting title); the raw item key when it has none."""
+    label = outcome.data.get("label") if isinstance(outcome.data, dict) else None
+    if isinstance(label, str) and label.strip():
+        return chat_text(label, 120)
+    return outcome.item_key if default is None else default
+
+
 def _write_reports(plugin, run_id, now, outcomes, history_dir, last_run_path):
     counts = {s: sum(1 for o in outcomes if o.status == s) for s in ("done", "skipped", "failed")}
     history_dir = Path(history_dir)
@@ -290,14 +299,15 @@ def _write_reports(plugin, run_id, now, outcomes, history_dir, last_run_path):
         history_dir.mkdir(parents=True, exist_ok=True)
         lines = [f"# {plugin.loop_name} run {run_id}", ""]
         for o in outcomes:
-            lines.append(f"- [{o.status}] {o.item_key}: {o.summary}" + (f" ({o.url})" if o.url else ""))
+            lines.append(f"- [{o.status}] {_outcome_label(o)}: {o.summary}" + (f" ({o.url})" if o.url else ""))
         (history_dir / f"{now.strftime('%Y-%m-%d_%H%M%S')}.md").write_text("\n".join(lines) + "\n")
     last_run_path.parent.mkdir(parents=True, exist_ok=True)
     last_run_path.write_text(json.dumps({
         "run_id": run_id,
         "finished_at": datetime.now(timezone.utc).isoformat(),
         "counts": counts,
-        "outcomes": [{"item_key": o.item_key, "status": o.status, "summary": o.summary, "url": o.url}
+        "outcomes": [{"item_key": o.item_key, "label": _outcome_label(o, ""), "status": o.status,
+                      "summary": o.summary, "url": o.url}
                      for o in outcomes[:_LAST_RUN_OUTCOME_CAP]],
     }, indent=2) + "\n")
     return counts

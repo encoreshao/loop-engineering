@@ -888,7 +888,7 @@
   "{n} hour(s)": "{n} 時間",
   "every": "間隔",
   "Every {minutes} minutes": "{minutes} 分ごと",
-  "Calendar Prep": "会議準備",
+  "Meeting Prep": "会議準備",
   "A short prep brief before each meeting: agenda, linked GitLab work, recent mail with the attendees and follow-ups from last time.": "各会議の前に短い準備メモを送ります：議題、リンクされた GitLab の作業、参加者との最近のメール、前回からのフォローアップ。",
   "Calendar account": "カレンダーアカウント",
   "Connector id of the calendar to watch; empty watches every calendar": "監視するカレンダーのコネクタ ID。空欄の場合はすべてのカレンダーを監視します",
@@ -909,5 +909,18 @@
   "Merge requests waiting on your review this many days are listed (1-365)": "この日数以上あなたのレビューを待っているマージリクエストを一覧にします（1〜365）",
   "${usd} per verified issue": "検証済みイシューあたり ${usd}",
   "{pct}% of runs retried": "実行の {pct}% が再試行",
-  "{points} pts with memory": "メモリ使用時 {points} pt"
+  "{points} pts with memory": "メモリ使用時 {points} pt",
+  "Today's meetings": "今日の会議",
+  "Past": "終了",
+  "Ongoing": "進行中",
+  "Upcoming": "予定",
+  "in {duration}": "{duration}後",
+  "ends in {duration}": "あと{duration}で終了",
+  "{minutes} min": "{minutes}分",
+  "{hours} h {minutes} min": "{hours}時間{minutes}分",
+  "No meetings recorded for today yet.": "本日の会議はまだ記録されていません。",
+  "Updated {when}": "{when}に更新",
+  "(no title)": "（無題）",
+  "+{count} more": "他{count}件",
+  "{count} runs": "{count}回の実行"
 }

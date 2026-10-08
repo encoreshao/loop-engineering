@@ -392,7 +392,7 @@ capability in its `requires` exists, and the AI panel exposes a read-only
 
 `bin/loopkit.py` is a small plugin runner for "discover items, ask the model
 about each, act on the answer" loops. The seven plugin loops (Daily Digest, MR
-Review, Pipeline Doctor, RSS Watch, Calendar Prep, Release Notes, Stale Work
+Review, Pipeline Doctor, RSS Watch, Meeting Prep, Release Notes, Stale Work
 Sweeper) are modules under `bin/loop_plugins/`; each
 one's `loops.json` entry points its `entry_point` at that module, whose
 `__main__` block hands a `LoopPlugin` subclass instance to `loopkit.main`. Each plugin also has

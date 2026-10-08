@@ -118,6 +118,17 @@ def test_writes_history_and_last_run(env, tmp_path):
     assert "https://x/a" in next((tmp_path / "history").glob("*.md")).read_text()
 
 
+def test_outcome_label_names_the_item_in_reports(env, tmp_path):
+    kw, _ = env
+    p = Demo([WorkItem("cal:1", "A", url="https://x/a")], ['{"verdict": "ok"}'])
+    orig = p.after_item
+    p.after_item = lambda item, answer, ctx: (lambda o: (o.data.update(label="Team sync"), o)[1])(orig(item, answer, ctx))
+    loopkit.run_plugin(p, "run_1", **kw)
+    last = json.loads((tmp_path / "outputs" / "loops" / "demo-loop" / "last-run.json").read_text())
+    assert last["outcomes"][0]["label"] == "Team sync"
+    assert "Team sync" in next((tmp_path / "history").glob("*.md")).read_text()
+
+
 def test_max_items_per_run(env):
     kw, _ = env
     p = Demo([WorkItem(str(i), "") for i in range(5)], ['{"verdict": "ok"}'] * 5)

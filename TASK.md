@@ -18,7 +18,7 @@ loop(s) are due — there is no longer a separate `launchd/*.plist` per task.
 | MR Review loop | [`docs/tasks/mr-review-loop.md`](docs/tasks/mr-review-loop.md) | Every 2 hours once enabled, from its `loops.json` entry (disabled by default) |
 | Pipeline Doctor loop | [`docs/tasks/pipeline-doctor-loop.md`](docs/tasks/pipeline-doctor-loop.md) | Hourly once enabled, from its `loops.json` entry (disabled by default) |
 | RSS Watch loop | [`docs/tasks/rss-watch-loop.md`](docs/tasks/rss-watch-loop.md) | Daily 08:00 once enabled, from its `loops.json` entry (disabled by default) |
-| Calendar Prep loop | [`docs/tasks/calendar-prep-loop.md`](docs/tasks/calendar-prep-loop.md) | Every 15 minutes once enabled, from its `loops.json` entry (disabled by default) |
+| Meeting Prep loop | [`docs/tasks/meeting-prep-loop.md`](docs/tasks/meeting-prep-loop.md) | Every 15 minutes once enabled, from its `loops.json` entry (disabled by default) |
 | Release Notes loop | [`docs/tasks/release-notes-loop.md`](docs/tasks/release-notes-loop.md) | Hourly once enabled, from its `loops.json` entry (disabled by default) |
 | Stale Work Sweeper loop | [`docs/tasks/stale-sweeper-loop.md`](docs/tasks/stale-sweeper-loop.md) | Mondays 09:00 once enabled, from its `loops.json` entry (disabled by default) |
 

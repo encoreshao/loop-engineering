@@ -1,10 +1,10 @@
-# Calendar Prep Loop
+# Meeting Prep Loop
 
 ## Goal
 
 Shortly before each meeting, send a short prep brief: what the meeting is for,
 the agenda, what is still open, what to raise and what was left over from last
-time. Daily Digest lists the day's meetings each morning; Calendar Prep is the
+time. Daily Digest lists the day's meetings each morning; Meeting Prep is the
 per-meeting complement.
 
 ## How it runs
@@ -31,7 +31,7 @@ per-meeting complement.
     at most 10 rows of subject/sender/date/snippet - never bodies. Only when
     the selected AI CLI is Claude; `mail_days: 0` turns it off.
   - **Last time**: the previous brief's summary and follow-ups for the same
-    recurring series, from `outputs/loops/calendar-prep-loop/series.json`
+    recurring series, from `outputs/loops/meeting-prep-loop/series.json`
     (gitignored, written atomically after each brief).
 - Answer: `{summary, agenda, open_items: [{text, link}], talking_points,
   follow_ups}`. Every string is sanitised and capped (summary 400 characters,

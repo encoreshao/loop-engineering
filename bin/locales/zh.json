@@ -888,7 +888,7 @@
   "{n} hour(s)": "{n} 小时",
   "every": "每",
   "Every {minutes} minutes": "每 {minutes} 分钟",
-  "Calendar Prep": "会议准备",
+  "Meeting Prep": "会议准备",
   "A short prep brief before each meeting: agenda, linked GitLab work, recent mail with the attendees and follow-ups from last time.": "每次会议前发送一份简短的准备摘要：议程、关联的 GitLab 工作、与参会者的近期邮件以及上次的跟进事项。",
   "Calendar account": "日历账户",
   "Connector id of the calendar to watch; empty watches every calendar": "要监视的日历的连接器 ID；留空则监视所有日历",
@@ -909,5 +909,18 @@
   "Merge requests waiting on your review this many days are listed (1-365)": "列出等待你审查达到此天数的合并请求（1-365）",
   "${usd} per verified issue": "每个已验证议题 ${usd}",
   "{pct}% of runs retried": "{pct}% 的运行被重试",
-  "{points} pts with memory": "使用记忆时 {points} 分"
+  "{points} pts with memory": "使用记忆时 {points} 分",
+  "Today's meetings": "今天的会议",
+  "Past": "已结束",
+  "Ongoing": "进行中",
+  "Upcoming": "即将开始",
+  "in {duration}": "{duration}后",
+  "ends in {duration}": "{duration}后结束",
+  "{minutes} min": "{minutes} 分钟",
+  "{hours} h {minutes} min": "{hours} 小时 {minutes} 分钟",
+  "No meetings recorded for today yet.": "今天还没有记录任何会议。",
+  "Updated {when}": "更新于 {when}",
+  "(no title)": "（无标题）",
+  "+{count} more": "另有 {count} 项",
+  "{count} runs": "{count} 次运行"
 }
