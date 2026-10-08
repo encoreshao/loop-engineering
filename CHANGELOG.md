@@ -21,6 +21,8 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Changed
 
+- The dashboard now defaults to the Indigo accent theme (a saved choice still wins).
+- A loop's "Notify via" picker is now compact (capped height, label beside it) instead of stretching tall.
 - Inbox Setup (Add inbox, Gmail app, Outlook app) and Connectors > Accounts have
   a roomier layout: paired form fields, numbered setup steps, and account rows
   with status on the left and actions on the right.

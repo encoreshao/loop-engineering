@@ -6256,6 +6256,11 @@ svg.brand-logo[fill="currentColor"] {{ color: #181717; }}
   transition: border-color 150ms ease;
 }}
 .daemon-action-form input[type='time'] {{ flex: 0 0 auto; min-width: 0; }}
+/* A multi-select (e.g. "Notify via") never grows past ~5 rows however many
+   options it has, and its label sits beside it rather than at the bottom. */
+.daemon-action-form select[multiple] {{ flex: 0 1 auto; min-width: 200px; max-height: 7.5rem; overflow-y: auto; padding: 0.2rem; }}
+.daemon-action-form select[multiple] option {{ padding: 0.2rem 0.4rem; border-radius: 4px; }}
+.daemon-action-form label.notify-via {{ display: inline-flex; align-items: flex-start; gap: 0.5rem; font-size: 0.8rem; color: var(--md-on-surface-variant); }}
 .weekday-checks {{ display: flex; flex-wrap: wrap; gap: 0.35rem; }}
 .weekday-check {{ display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.78rem; }}
 .monthly-controls {{ display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: var(--md-on-surface-variant); }}
@@ -7885,7 +7890,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     document.documentElement.setAttribute('data-color-mode', colorMode);
   }}
   var accent = localStorage.getItem('loop-dashboard-accent');
-  document.documentElement.setAttribute('data-accent', accent || 'default');
+  document.documentElement.setAttribute('data-accent', accent || 'indigo');
   var font = localStorage.getItem('loop-dashboard-font');
   document.documentElement.setAttribute('data-font', font || 'roboto');{refresh_schedule_script}
 }})();{refresh_note_script}
@@ -10610,7 +10615,7 @@ def _general_settings_body(flash=None, flash_ok=True, active_tab="notifications"
 (function() {{
   function apply() {{
     var mode = localStorage.getItem('loop-dashboard-color-mode') || 'auto';
-    var accent = localStorage.getItem('loop-dashboard-accent') || 'default';
+    var accent = localStorage.getItem('loop-dashboard-accent') || 'indigo';
     var font = localStorage.getItem('loop-dashboard-font') || 'roboto';
     var refreshSeconds = localStorage.getItem('loop-dashboard-refresh-interval') || '30';
     document.querySelectorAll('[data-color-mode-choice]').forEach(function(btn) {{
@@ -14019,8 +14024,8 @@ def _loop_notify_form_html(loop, csrf_input, notify_accounts):
     )
     return (
         f"<form method='post' action='/loops/{safe_name}/notify' class='daemon-action-form'>"
-        f"{csrf_input}<label>{html.escape(_t('Notify via'))} "
-        f"<select multiple name='notify'>{options}</select></label> "
+        f"{csrf_input}<label class='notify-via'>{html.escape(_t('Notify via'))} "
+        f"<select multiple name='notify' size='{min(max(len(notify_accounts), 2), 5)}'>{options}</select></label> "
         f"<button type='submit' class='btn btn-neutral'>{html.escape(_t('Save'))}</button></form>"
     )
 

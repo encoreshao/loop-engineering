@@ -3560,10 +3560,10 @@ def test_render_shell_head_script_restores_color_mode_and_accent_before_paint():
     assert "loop-dashboard-color-mode" in head
     assert "loop-dashboard-accent" in head
     assert "setAttribute('data-color-mode'" in head
-    # accent always ends up set (defaulting to 'default' - no sidebar/
+    # accent always ends up set (defaulting to 'indigo' - no sidebar/
     # topbar tint), unlike color-mode which stays absent for "auto" -
     # never write data-color-mode for a value that isn't 'light'/'dark'.
-    assert "setAttribute('data-accent', accent || 'default')" in head
+    assert "setAttribute('data-accent', accent || 'indigo')" in head
 
 
 def test_render_shell_wraps_content_in_sidebar_and_content_area():
@@ -4344,7 +4344,7 @@ def test_render_general_settings_page_default_is_first_accent_and_default():
     default_index = output.index('data-accent-choice="default"')
     blue_index = output.index('data-accent-choice="blue"')
     assert default_index < blue_index
-    assert "localStorage.getItem('loop-dashboard-accent') || 'default'" in output
+    assert "localStorage.getItem('loop-dashboard-accent') || 'indigo'" in output
 
 
 def test_render_general_settings_page_color_mode_section_has_a_subtitle():
