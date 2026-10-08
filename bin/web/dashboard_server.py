@@ -4390,7 +4390,7 @@ button:focus-visible,
   overflow: hidden;
 }}
 .brand:hover {{ color: var(--md-nav-on-surface); text-decoration: none; }}
-.brand-mark {{ display: none; color: var(--md-primary); flex-shrink: 0; }}
+.brand-mark {{ display: inline-flex; width: 28px; height: 28px; color: var(--md-nav-on-surface); flex-shrink: 0; }}
 .brand-name {{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
 
 .sidebar-toggle {{
@@ -4853,7 +4853,6 @@ html.collapsed .sidebar {{ width: 64px; }}
 html.collapsed .brand-name,
 html.collapsed .nav-label,
 html.collapsed .sidebar-group-label {{ display: none; }}
-html.collapsed .brand-mark {{ display: inline-flex; }}
 html.collapsed .sidebar-toggle .material-symbols-outlined {{ transform: rotate(180deg); }}
 html.collapsed .sidebar-nav a {{ justify-content: center; }}
 html.collapsed .sidebar-top {{
@@ -4892,7 +4891,6 @@ html.collapsed .sidebar-top {{
   html:root {{ --shell-left: 64px; }}
   .sidebar {{ width: 64px; }}
   .brand-name, .nav-label, .sidebar-group-label {{ display: none; }}
-  .brand-mark {{ display: inline-flex; }}
   .sidebar-toggle {{ display: none; }}
   .sidebar-nav a {{ justify-content: center; }}
   .sidebar-top {{ justify-content: center; }}
@@ -6842,27 +6840,33 @@ _SPINNER_ICON = "<span class='md-spinner md-spinner-pill' aria-hidden='true'></s
 
 # Purely decorative, static markup (no dynamic data ever flows through these,
 # so they don't go through html.escape() like the rest of the page). The
-# brand mark stays a hand-drawn inline SVG (currentColor, no external
-# dependency) by design; every other icon constant below is a Material
-# Symbols glyph name rendered through the Google Fonts-hosted icon font
-# linked in _render_shell's head (see _MATERIAL_SYMBOLS_ICON_NAMES) - real
-# Material Design iconography, not a hand-drawn approximation.
-_BRAND_MARK_ICON = (
-    "<svg class='brand-mark' viewBox='0 0 24 24' width='20' height='20' fill='none' "
-    "stroke='currentColor' stroke-width='2' aria-hidden='true'>"
-    "<circle cx='8' cy='12' r='4.5'/><circle cx='16' cy='12' r='4.5'/></svg>"
+# brand mark stays a hand-drawn inline SVG (no external dependency) by
+# design; every other icon constant below is a Material Symbols glyph name
+# rendered through the Google Fonts-hosted icon font linked in
+# _render_shell's head (see _MATERIAL_SYMBOLS_ICON_NAMES) - real Material
+# Design iconography, not a hand-drawn approximation.
+#
+# The mark is the app icon's (assets/app-icon.svg): four ring arcs in fixed
+# brand colors (N blue, E green, S pink, W amber) broken by an X drawn in
+# currentColor, so the X follows the surrounding text color in dark mode.
+_BRAND_MARK_PATHS = (
+    "<path d='M8.97 4.16A8.4 8.4 0 0 1 15.03 4.16' stroke='#2F5BFF'/><path d='M19.84 8.97A8.4 8.4 0 0 1 19.84 15.03' stroke='#0FA37F'/><path d='M15.03 19.84A8.4 8.4 0 0 1 8.97 19.84' stroke='#E8336F'/><path d='M4.16 15.03A8.4 8.4 0 0 1 4.16 8.97' stroke='#FF8A00'/><path d='M6.06 6.06L17.94 17.94' stroke='currentColor'/><path d='M17.94 6.06L6.06 17.94' stroke='currentColor'/>"
 )
+
+
+def _brand_mark_svg(css_class):
+    return (
+        f"<svg class='{css_class}' viewBox='0 0 24 24' width='20' height='20' fill='none' "
+        f"stroke-width='2.6' stroke-linecap='round' aria-hidden='true'>{_BRAND_MARK_PATHS}</svg>"
+    )
+
+
+_BRAND_MARK_ICON = _brand_mark_svg("brand-mark")
 
 # A small brand-mark variant for chat bubbles (see render_activity_page) -
 # not a reuse of _BRAND_MARK_ICON's own `brand-mark` class, since that
-# class is `display: none` by default (only shown in the collapsed
-# sidebar rail - see html.collapsed .brand-mark in _STYLE) and would
-# render as invisible here.
-_MESSAGE_BRAND_ICON = (
-    "<svg class='message-brand-icon' viewBox='0 0 24 24' width='20' height='20' fill='none' "
-    "stroke='currentColor' stroke-width='2' aria-hidden='true'>"
-    "<circle cx='8' cy='12' r='4.5'/><circle cx='16' cy='12' r='4.5'/></svg>"
-)
+# class sizes the mark for the sidebar (28px, see .brand-mark in _STYLE).
+_MESSAGE_BRAND_ICON = _brand_mark_svg("message-brand-icon")
 
 _SECTION_ICON_OVERVIEW = "<span class='material-symbols-outlined' aria-hidden='true'>space_dashboard</span>"
 

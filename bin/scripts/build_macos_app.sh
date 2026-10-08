@@ -72,15 +72,13 @@ fi
 if [ "$SKIP_ICON" -eq 0 ]; then
   work="$(mktemp -d)"
   trap 'rm -rf "$work"' EXIT
-  src="$LOOP_DIR/assets/loop-engineering.jpeg"
-  sips -s format png "$src" --out "$work/full.png" >/dev/null
-  side="$(sips -g pixelWidth -g pixelHeight "$work/full.png" | awk '/pixel/{if($2>m)m=$2} END{print m}')"
-  sips --padToHeightWidth "$side" "$side" --padColor FFFFFF "$work/full.png" --out "$work/square.png" >/dev/null
+  # app-icon.png (rendered from app-icon.svg) is already 1024px on the macOS icon grid
+  square="$LOOP_DIR/assets/app-icon.png"
   iconset="$work/AppIcon.iconset"
   mkdir "$iconset"
   for s in 16 32 128 256 512; do
-    sips -z "$s" "$s" "$work/square.png" --out "$iconset/icon_${s}x${s}.png" >/dev/null
-    sips -z "$((s * 2))" "$((s * 2))" "$work/square.png" --out "$iconset/icon_${s}x${s}@2x.png" >/dev/null
+    sips -z "$s" "$s" "$square" --out "$iconset/icon_${s}x${s}.png" >/dev/null
+    sips -z "$((s * 2))" "$((s * 2))" "$square" --out "$iconset/icon_${s}x${s}@2x.png" >/dev/null
   done
   iconutil -c icns "$iconset" -o "$APP/Contents/Resources/AppIcon.icns"
 fi

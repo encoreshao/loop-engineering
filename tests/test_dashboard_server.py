@@ -1239,11 +1239,17 @@ def test_anchor_scroll_margin_rules_removed():
     assert "scroll-margin-top" not in ds._STYLE
 
 
-def test_brand_mark_icon_is_two_circle_infinity_glyph():
-    assert ds._BRAND_MARK_ICON.count("<circle") == 2
-    assert "cx='8' cy='12' r='4.5'" in ds._BRAND_MARK_ICON
-    assert "cx='16' cy='12' r='4.5'" in ds._BRAND_MARK_ICON
-    assert "M12 4a8 8 0 1 0 8 8" not in ds._BRAND_MARK_ICON, "old circular-arrow path must be gone"
+def test_brand_mark_icon_is_the_loop_x_mark():
+    """Four coloured ring arcs (N/E/S/W) broken by an X drawn in
+    currentColor - the same mark as assets/app-icon.svg."""
+    for icon in (ds._BRAND_MARK_ICON, ds._MESSAGE_BRAND_ICON):
+        assert icon.count("<path") == 6
+        assert icon.count("stroke='currentColor'") == 2
+        for hue in ("#2F5BFF", "#0FA37F", "#E8336F", "#FF8A00"):
+            assert hue in icon
+        assert "<circle" not in icon, "old two-circle glyph must be gone"
+    assert "class='brand-mark'" in ds._BRAND_MARK_ICON
+    assert "class='message-brand-icon'" in ds._MESSAGE_BRAND_ICON
 
 
 def test_dashboard_server_integration_serves_root_page():
@@ -1603,6 +1609,12 @@ def test_render_shell_links_google_fonts_roboto_and_material_symbols():
         "lightbulb", "palette", "send", "settings", "space_dashboard",
     ]:
         assert name in icons_url
+
+
+def test_repo_favicon_is_a_multi_size_ico():
+    data = (Path(ds.__file__).resolve().parent.parent.parent / "assets" / "favicon.ico").read_bytes()
+    assert data[:4] == b"\x00\x00\x01\x00"
+    assert int.from_bytes(data[4:6], "little") >= 4
 
 
 def test_favicon_version_changes_when_file_contents_change(tmp_path, monkeypatch):
@@ -3288,7 +3300,7 @@ def test_sidebar_toggle_icon_is_material_symbols():
 def test_brand_mark_icon_is_still_the_hand_drawn_svg():
     """The brand mark is explicitly excluded from the Material Symbols
     migration - it must stay exactly the SVG it already was."""
-    assert ds._BRAND_MARK_ICON.count("<circle") == 2
+    assert ds._BRAND_MARK_ICON.startswith("<svg")
     assert "material-symbols-outlined" not in ds._BRAND_MARK_ICON
 
 
@@ -3423,17 +3435,19 @@ def test_sidebar_html_includes_brand_and_toggle_button():
     assert "loop-dashboard-sidebar" in sidebar
 
 
-def test_brand_shows_name_when_expanded_and_icon_when_collapsed():
-    """Expanded: name only (the icon mark stays hidden). Collapsed (either
-    via the .collapsed toggle or the narrow-viewport rail): icon only."""
+def test_brand_mark_always_shows_and_is_larger_than_nav_icons():
+    """The logo shows next to the name when expanded and alone when
+    collapsed (either via the .collapsed toggle or the narrow-viewport
+    rail), at 28px - still inside the collapsed rail's ~32px content box."""
     brand_mark_rule = ds._STYLE.split(".brand-mark {")[1].split("}")[0]
-    assert "display: none;" in brand_mark_rule
-
-    collapsed_rule = ds._STYLE.split("html.collapsed .brand-mark {")[1].split("}")[0]
-    assert "display: inline-flex;" in collapsed_rule
-
+    assert "display: none" not in brand_mark_rule
+    assert "width: 28px;" in brand_mark_rule and "height: 28px;" in brand_mark_rule
+    # the X (currentColor) matches the "Loop X" name, not --md-primary,
+    # which is a pale tint in dark mode and vanishes on the light sidebar
+    assert "color: var(--md-nav-on-surface);" in brand_mark_rule
+    assert "html.collapsed .brand-mark" not in ds._STYLE
     mobile_block = ds._STYLE.split("@media (max-width: 720px) {")[1].split("}}")[0]
-    assert ".brand-mark { display: inline-flex; }" in mobile_block
+    assert ".brand-mark" not in mobile_block
 
 
 def test_collapsed_sidebar_top_stacks_brand_and_toggle_instead_of_squeezing_them():

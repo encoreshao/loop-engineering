@@ -23,7 +23,7 @@ LOOP_DIR = Path(__file__).resolve().parent.parent
 DASHBOARD_PLIST_NAME = "com.hermes.loop-engineering-dashboard.plist"
 DEFAULT_DASHBOARD_PORT = 8420
 APP_TITLE = "Loop X Engineering"
-ICON_PATH = LOOP_DIR / "assets" / "loop-engineering.jpeg"
+ICON_PATH = LOOP_DIR / "assets" / "app-icon.png"
 
 
 def find_free_port():

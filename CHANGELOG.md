@@ -15,7 +15,8 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 - `bin/scripts/build_macos_app.sh` builds `dist/Loop X.app`, a native macOS
   window around the dashboard (pywebview). It attaches to the running
-  dashboard daemon, or serves the dashboard itself when none is running. `--desktop-shortcut` adds an alias to it on `~/Desktop`.
+  dashboard daemon, or serves the dashboard itself when none is running. `--desktop-shortcut` adds an alias to it on `~/Desktop`. It has its own
+  app icon (`assets/app-icon.svg`).
 
 - Custom instructions now apply to the topic monitor and inbox triage loops
   too, not just the GitLab issue loop. Besides the global
@@ -25,6 +26,9 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Changed
 
+- New Loop X logo (a ring of four coloured arcs broken by an X) on the
+  dashboard: browser tab icon, sidebar and chat bubbles. The sidebar now
+  always shows the logo (28px) next to the name, not only when collapsed.
 - Calendar Prep is now **Meeting Prep**. Its Live page lists every meeting
   today as past, ongoing or upcoming, with each title linking to the meeting
   link, a Brief ready / pending badge and the brief's summary, and its run table shows meeting titles instead of internal keys. Its
