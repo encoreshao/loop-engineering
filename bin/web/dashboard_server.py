@@ -5635,14 +5635,19 @@ ul.plain li {{ font-size: 0.9rem; }}
 .learning-item .markdown {{ font-size: 0.9rem; }}
 .learning-item .markdown > :last-child {{ margin-bottom: 0; }}
 .meeting-list, .history-runs, .history-items {{ list-style: none; margin: 0; padding: 0; }}
-.meeting-row {{ display: grid; grid-template-columns: 7.5rem 1fr auto 6rem; gap: 0.75rem; align-items: center;
+.meeting-row {{ display: grid; grid-template-columns: 7.5rem 1fr auto auto; gap: 0.75rem; align-items: center;
   padding: 0.6rem 0.85rem; border-left: 4px solid transparent; border-radius: 8px; }}
 .meeting-row + .meeting-row {{ margin-top: 0.35rem; }}
 .meeting-time {{ font-variant-numeric: tabular-nums; font-weight: 500; }}
 .meeting-title a {{ display: inline-flex; align-items: center; gap: 0.35rem; }}
 .meeting-title .material-symbols-outlined {{ font-size: 18px; }}
 .meeting-when {{ font-size: 0.85rem; color: var(--md-on-surface-variant); }}
-.meeting-pill {{ justify-self: end; background: var(--md-surface-container-high); color: var(--md-on-surface-variant); }}
+.meeting-pills {{ display: inline-flex; gap: 0.35rem; justify-self: end; }}
+.meeting-summary {{ grid-column: 2 / -1; margin: 0; font-size: 0.9rem; line-height: 1.4; }}
+.meeting-brief-ready {{ background: var(--md-primary-container); color: var(--md-on-primary-container); }}
+.meeting-brief-pending, .meeting-brief-none {{ background: var(--md-surface-container-high); color: var(--md-on-surface-variant); }}
+.meeting-ongoing .meeting-brief-ready {{ background: var(--md-surface); color: var(--md-on-surface); }}
+.meeting-pill {{ background: var(--md-surface-container-high); color: var(--md-on-surface-variant); }}
 .meeting-past {{ opacity: 0.55; }}
 .meeting-past .meeting-title {{ text-decoration: line-through; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }}
 .meeting-ongoing {{ background: var(--md-primary-container); color: var(--md-on-primary-container); border-left-color: var(--md-primary); }}
@@ -5651,7 +5656,7 @@ ul.plain li {{ font-size: 0.9rem; }}
 .meeting-upcoming {{ background: var(--md-surface-container-low); border-left-color: var(--md-outline-variant, currentColor); }}
 @media (max-width: 640px) {{
   .meeting-row {{ grid-template-columns: 1fr auto; }}
-  .meeting-time {{ grid-column: 1 / -1; }}
+  .meeting-time, .meeting-summary {{ grid-column: 1 / -1; }}
 }}
 .day-group {{ border-top: 1px solid var(--md-outline-variant, rgba(128,128,128,0.3)); padding: 0.4rem 0; }}
 .day-group:first-of-type {{ border-top: 0; }}
@@ -13846,6 +13851,14 @@ def _read_today_meetings(name):
     return sorted(rows, key=lambda m: _aware(m["start"])), _aware(data.get("generated_at"))
 
 
+def _read_meeting_briefs(name):
+    try:
+        data = json.loads((_loop_output_dir(name) / "briefs.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def _meeting_state(meeting, now):
     start, end = _aware(meeting["start"]), _aware(meeting.get("end")) or _aware(meeting["start"])
     if now >= end:
@@ -13865,6 +13878,7 @@ def _meetings_today_card(name, now=None):
         return (f"<section class='card'>{head}"
                 f"<p>{html.escape(_t('No meetings recorded for today yet.'))}</p></section>")
     labels = {"past": _t("Past"), "ongoing": _t("Ongoing"), "upcoming": _t("Upcoming")}
+    briefs = _read_meeting_briefs(name)
     rows = []
     for m in meetings:
         state = _meeting_state(m, now)
@@ -13883,11 +13897,23 @@ def _meetings_today_card(name, now=None):
         if href.startswith(("http://", "https://")):
             icon = ("<span class='material-symbols-outlined' aria-hidden='true'>videocam</span>" if join else "")
             title = (f"<a href='{html.escape(href, quote=True)}' target='_blank' rel='noopener'>{icon}{title}</a>")
+        brief = briefs.get(str(m.get("key") or ""))
+        brief = brief if isinstance(brief, dict) else None
+        if brief:
+            brief_state, brief_label = "ready", _t("Brief ready")
+        elif state == "upcoming":
+            brief_state, brief_label = "pending", _t("Brief pending")
+        else:
+            brief_state, brief_label = "none", _t("No brief")
+        summary = (f"<p class='meeting-summary'>{html.escape(str(brief.get('summary') or ''))}</p>"
+                   if brief and brief.get("summary") else "")
         rows.append(
             f"<li class='meeting-row meeting-{state}'><span class='meeting-time'>{html.escape(span)}</span>"
             f"<span class='meeting-title'>{title}</span>"
             f"<span class='meeting-when'>{html.escape(when)}</span>"
-            f"<span class='pill meeting-pill'>{html.escape(labels[state])}</span></li>")
+            f"<span class='meeting-pills'><span class='pill meeting-brief meeting-brief-{brief_state}'>"
+            f"{html.escape(brief_label)}</span>"
+            f"<span class='pill meeting-pill'>{html.escape(labels[state])}</span></span>{summary}</li>")
     note = (f"<p class='section-subtitle'>{html.escape(_t('Updated {when}', when=_relative_time(updated.isoformat())))}</p>"
             if updated else "")
     return f"<section class='card'>{head}{note}<ul class='meeting-list'>{''.join(rows)}</ul></section>"

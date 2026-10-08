@@ -14271,3 +14271,16 @@ def test_loop_history_is_grouped_by_day_with_run_summaries(monkeypatch, tmp_path
     assert out.index("2026-10-06_090000") < out.index("2026-10-06_080000")   # newest run first within a day
     assert "First &lt;i&gt;x&lt;/i&gt;" in out and "Broke" in out
     assert "/loops/rss-watch-loop/history/2026-10-06_080000.md" in out
+
+
+def test_meeting_prep_live_shows_each_meetings_brief_status_and_summary(monkeypatch, tmp_path):
+    d = _plugin_loop_sandbox(monkeypatch, tmp_path, name="meeting-prep-loop")
+    _write_today(d, [_meeting("a", "Done sync", -120), _meeting("b", "Planning", 20), _meeting("c", "Later", 300)])
+    (d / "briefs.json").write_text(json.dumps({
+        "a": {"summary": "Agree <b>owners</b>.", "prepared_at": "2026-10-08T05:00:00+00:00"},
+        "b": {"summary": "Decide scope.", "prepared_at": "2026-10-08T06:00:00+00:00"}}))
+    out = ds.render_loop_page("meeting-prep-loop").split("<ul class='meeting-list'>")[1].split("</ul>")[0]
+    assert "Agree &lt;b&gt;owners&lt;/b&gt;." in out and "Decide scope." in out
+    assert out.count("meeting-brief-ready") == 2
+    assert out.count("meeting-brief-pending") == 1   # "Later": not briefed yet
+    assert "meeting-brief-none" not in out

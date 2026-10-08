@@ -922,5 +922,8 @@
   "Updated {when}": "{when}に更新",
   "(no title)": "（無題）",
   "+{count} more": "他{count}件",
-  "{count} runs": "{count}回の実行"
+  "{count} runs": "{count}回の実行",
+  "Brief ready": "ブリーフ作成済み",
+  "Brief pending": "ブリーフ待ち",
+  "No brief": "ブリーフなし"
 }

@@ -922,5 +922,8 @@
   "Updated {when}": "Mis à jour {when}",
   "(no title)": "(sans titre)",
   "+{count} more": "+{count} de plus",
-  "{count} runs": "{count} exécutions"
+  "{count} runs": "{count} exécutions",
+  "Brief ready": "Note prête",
+  "Brief pending": "Note à venir",
+  "No brief": "Aucune note"
 }

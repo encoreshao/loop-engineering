@@ -922,5 +922,8 @@
   "Updated {when}": "更新于 {when}",
   "(no title)": "（无标题）",
   "+{count} more": "另有 {count} 项",
-  "{count} runs": "{count} 次运行"
+  "{count} runs": "{count} 次运行",
+  "Brief ready": "摘要已就绪",
+  "Brief pending": "摘要待生成",
+  "No brief": "无摘要"
 }

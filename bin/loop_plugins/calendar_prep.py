@@ -33,6 +33,7 @@ MAX_SNIPPET = 300
 MAX_SUMMARY = 400
 MAX_ENTRY = 200
 MAX_ENTRIES = 5
+MAX_BRIEFS = 100  # briefs kept for the Live page, newest first
 NO_CLAUDE = "mail skipped: reading mail requires the Claude CLI"
 
 SETTINGS_FIELDS = (
@@ -135,13 +136,14 @@ class CalendarPrep(loopkit.LoopPlugin):
     settings_fields = SETTINGS_FIELDS
 
     def __init__(self, accounts_fn=None, loader=None, mail_fn=None, cli_fn=None, series_path=None,
-                 today_path=None):
+                 today_path=None, briefs_path=None):
         self._accounts_fn = accounts_fn
         self._loader = loader
         self._mail_fn = mail_fn
         self._cli_fn = cli_fn
         self._series_path = series_path
         self._today_path = today_path
+        self._briefs_path = briefs_path
 
     def _resolve(self):
         import connectors_config
@@ -157,6 +159,24 @@ class CalendarPrep(loopkit.LoopPlugin):
         if self._today_path is not None:
             return Path(self._today_path)
         return Path(ctx.repo_root) / "outputs" / "loops" / self.loop_name / "today.json"
+
+    def _briefs_file(self, ctx):
+        if self._briefs_path is not None:
+            return Path(self._briefs_path)
+        return Path(ctx.repo_root) / "outputs" / "loops" / self.loop_name / "briefs.json"
+
+    def _record_brief(self, ctx, key, brief):
+        """Keep the brief by meeting key so the Live page can show each
+        meeting's summary; only the newest MAX_BRIEFS are kept."""
+        path = self._briefs_file(ctx)
+        briefs = _read_json(path)
+        briefs[key] = {"summary": brief["summary"], "agenda": brief["agenda"],
+                       "prepared_at": ctx.now.isoformat()}
+        newest = sorted(briefs, key=lambda k: str((briefs[k] or {}).get("prepared_at") or ""), reverse=True)
+        try:
+            _write_json_atomic(path, {k: briefs[k] for k in newest[:MAX_BRIEFS]})
+        except OSError as exc:
+            ctx.log(f"calendar-prep: could not record the brief: {_err(exc)}")
 
     def _cli(self):
         if self._cli_fn is not None:
@@ -348,6 +368,7 @@ class CalendarPrep(loopkit.LoopPlugin):
             series[series_id] = {"date": ctx.now.date().isoformat(), "summary": brief["summary"],
                                  "follow_ups": brief["follow_ups"]}
             _write_json_atomic(path, series)
+        self._record_brief(ctx, item.key, brief)
         ev = item.payload["event"]
         return loopkit.Outcome(item.key, "done", brief["summary"][:120] or "brief written",
                                url=ev["join_url"] or item.url,

@@ -91,7 +91,7 @@ def plugin(tmp_path, events=None, calendars=None, gitlab=None, mail_rows=None, m
         return calendars[aid] if aid in calendars else gitlab
 
     p = cp.CalendarPrep(accounts_fn=accounts_fn, loader=loader, mail_fn=mail_fn, cli_fn=lambda: cli,
-                        series_path=tmp_path / "series.json", today_path=tmp_path / "today.json")
+                        series_path=tmp_path / "series.json", today_path=tmp_path / "today.json", briefs_path=tmp_path / "briefs.json")
     p.mail_calls = mail_calls
     return p
 
@@ -276,6 +276,23 @@ def test_digest_renders_the_brief(tmp_path):
     assert "; " not in text
     assert "<!channel>" not in text
     assert p.digest([loopkit.Outcome("k", "failed", "x")], Ctx()) is None
+
+
+def test_after_item_records_the_brief_for_the_live_page(tmp_path):
+    p, item = _item_with_links(tmp_path)
+    p.after_item(item, ANSWER, Ctx())
+    saved = json.loads((tmp_path / "briefs.json").read_text())[item.key]
+    assert saved["summary"] == "Decide the login fix." and saved["prepared_at"] == NOW.isoformat()
+    assert saved["agenda"] == ["Review MR"]
+
+
+def test_recorded_briefs_are_capped_to_the_newest(tmp_path):
+    p, item = _item_with_links(tmp_path)
+    old = {f"k{n}": {"summary": "s", "prepared_at": f"2026-01-{n % 28 + 1:02d}T00:00:00+00:00"} for n in range(150)}
+    (tmp_path / "briefs.json").write_text(json.dumps(old))
+    p.after_item(item, ANSWER, Ctx())
+    saved = json.loads((tmp_path / "briefs.json").read_text())
+    assert len(saved) == cp.MAX_BRIEFS and item.key in saved
 
 
 def test_outcome_links_to_the_meeting_link_else_the_calendar_event(tmp_path):
