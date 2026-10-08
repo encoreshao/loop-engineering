@@ -1,7 +1,11 @@
+<p align="right">
+
 [English](README.md) | [日本語](README.ja.md) | **简体中文** | [Français](README.fr.md)
 
+</p>
+
 <p align="center">
-  <img src="assets/app-icon.svg" alt="Loop X logo" width="128" height="128">
+  <img src="assets/app-icon.svg" alt="Loop X logo" width="256" height="256">
 </p>
 
 # Loop X Engineering
