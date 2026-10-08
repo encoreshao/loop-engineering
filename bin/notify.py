@@ -4,6 +4,7 @@ field (see loops_config), or to today's default Slack webhook
 (slack_notify) when the loop lists none. Never raises: every target yields
 one (connector_id, ok, message) result. Messages are machine/log status,
 kept English, and never contain connector secrets."""
+import re
 import sys
 from pathlib import Path
 
@@ -12,6 +13,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mail_http  # noqa: E402
 
 DEFAULT_ID = "slack-default"
+# Connector types that render Slack mrkdwn links; others get 'label (url)'.
+_SLACK_LINK_TYPES = frozenset({"slack", "webhook"})
+_SLACK_LINK = re.compile(r"<(https?://[^|>\s]+)(?:\|([^>]*))?>")
+
+
+def _flatten_links(text):
+    """Slack `<url|label>` as plain 'label (url)' for chat services that
+    would show the markup literally."""
+    return _SLACK_LINK.sub(lambda m: f"{m.group(2)} ({m.group(1)})" if m.group(2) else m.group(1), text)
 
 
 def _default_loop_lookup(name):
@@ -63,7 +73,8 @@ def notify(loop_name, text, blocks=None, loop_lookup=None, loader=None, default_
             if "notify" not in conn.capabilities:
                 results.append((account_id, False, "not a notify connector"))
                 continue
-            conn.send(text, blocks=blocks)
+            conn.send(text if getattr(conn, "type", "") in _SLACK_LINK_TYPES else _flatten_links(text),
+                      blocks=blocks)
             results.append((account_id, True, "sent"))
         except KeyError:
             results.append((account_id, False, "unknown connector"))

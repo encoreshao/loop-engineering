@@ -125,3 +125,15 @@ def test_http_error_message_is_status_only():
     conn = FakeConn({"notify"}, exc=mail_http.MailHTTPError(500, "body", "https://hooks.example/SECRET"))
     out = notify.notify("x", "hi", loop_lookup=lambda n: {"notify": ["w"]}, loader=lambda i: conn)
     assert out == [("w", False, "HTTP 500")]
+
+
+def test_slack_links_are_flattened_for_non_slack_connectors():
+    class Typed(FakeConn):
+        def __init__(self, type_):
+            super().__init__({"notify"}); self.type = type_
+    conns = {"tg": Typed("telegram"), "sl": Typed("slack"), "wh": Typed("webhook")}
+    text = "Join <https://meet.example.com/a|Join meeting> and <https://x.test/1|Fix login>"
+    notify.notify("x", text, loop_lookup=lambda n: {"notify": ["tg", "sl", "wh"]},
+                  loader=conns.__getitem__, default_sender=None)
+    assert conns["tg"].sent == ["Join Join meeting (https://meet.example.com/a) and Fix login (https://x.test/1)"]
+    assert conns["sl"].sent == [text] and conns["wh"].sent == [text]

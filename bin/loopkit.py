@@ -127,6 +127,15 @@ def chat_link(text, url):
     return f"{chat_text(text)} ({safe_url})" if safe_url else chat_text(text)
 
 
+def slack_link(url, text):
+    """Slack mrkdwn `<url|label>` for a plain http(s) URL, label sanitised
+    (no `<`, `>`, `|`); just the label when the URL isn't safe. notify.py
+    flattens it to 'label (url)' for connectors that are not Slack."""
+    safe_url = chat_url(url)
+    label = chat_text(str(text).replace("|", " "))
+    return f"<{safe_url}|{label}>" if safe_url and label else label or safe_url
+
+
 def parse_answer(text, required_keys):
     """Parse the model's answer. With required_keys: a JSON object (optionally
     wrapped in a ```json fence) containing every key, else ValueError.

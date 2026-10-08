@@ -267,14 +267,17 @@ def test_digest_renders_the_brief(tmp_path):
     p, item = _item_with_links(tmp_path)
     out = p.after_item(item, ANSWER, Ctx())
     text = p.digest([out], Ctx())
-    assert text.startswith("*Prep: Sync*")
-    assert "in 30 min" in text and "Join: https://meet.google.com/abc" in text
+    lines = text.split("\n")
+    assert lines[0] == "*Meeting Prep: Sync*" and lines[1] == ""      # title, then breathing room
+    assert lines[2].startswith("\U0001F550 `") and "in 30 min" in lines[2]
+    assert "<https://meet.google.com/abc|Join meeting>" in lines[2]
     assert "> Decide the login fix." in text
-    assert "*Agenda*\n\u2022 Review MR" in text
-    assert "*Open items*\n\u2022 MR 7 waits on you (" + f"{GL}/g/p/-/merge_requests/7)" in text
-    assert "*Raise*\n\u2022 " in text and "*From last time*\n\u2022 Ann owes the test plan" in text
-    assert "; " not in text
-    assert "<!channel>" not in text
+    assert "*\U0001F4CB Agenda*\n1. Review MR" in text
+    assert f"*\U0001F513 Open items*\n\u2022 <{GL}/g/p/-/merge_requests/7|MR 7 waits on you>" in text
+    assert "\u2022 evil" in text                                     # un-offered link: plain text, no link
+    assert "*\U0001F4AC Raise*\n\u2022 " in text
+    assert "*\u21A9\uFE0F From last time*\n\u2022 Ann owes the test plan" in text
+    assert "; " not in text and "<!channel>" not in text
     assert p.digest([loopkit.Outcome("k", "failed", "x")], Ctx()) is None
 
 

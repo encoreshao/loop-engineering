@@ -24,8 +24,10 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 - Calendar Prep is now **Meeting Prep**. Its Live page lists every meeting
   today as past, ongoing or upcoming, with each title linking to the meeting
   link, a Brief ready / pending badge and the brief's summary, and its run table shows meeting titles instead of internal keys. Its
-  Slack brief is now formatted (bold title, time and join link, quoted summary,
-  bulleted Agenda / Open items / Raise / From last time). The loop is
+  Slack brief is now formatted ("Meeting Prep:" bold title, a time chip and a
+  clickable Join meeting link, quoted summary, a numbered Agenda and bulleted
+  Open items / Raise / From last time with clickable GitLab links; other
+  chat services get plain `label (url)`). The loop is
   now `meeting-prep-loop`; an existing `loops.json` entry named
   `calendar-prep-loop` (and its default label) is renamed automatically.
 - A loop's History tab is now grouped by day (newest first, today open) and

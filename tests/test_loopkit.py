@@ -339,3 +339,10 @@ def test_a_crashed_item_summary_is_length_capped(env, monkeypatch):
     out = loopkit.run_plugin(p, "run_1", **kw)
     assert out[0].status == "failed" and out[0].summary.startswith("RuntimeError: ")
     assert len(out[0].summary) <= 300
+
+
+def test_slack_link_sanitizes_label_and_rejects_bad_urls():
+    assert loopkit.slack_link("https://x.test/a?b=1&c=2", "Fix <!channel> | now") == \
+        "<https://x.test/a?b=1&c=2|Fix \u2039!channel\u203a now>"
+    assert loopkit.slack_link("javascript:alert(1)", "Fix") == "Fix"
+    assert loopkit.slack_link("https://x.test/a>b", "Fix") == "Fix"

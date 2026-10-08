@@ -388,30 +388,31 @@ class CalendarPrep(loopkit.LoopPlugin):
         ev, brief = data["event"], data["brief"]
         start, end = _parse(ev.get("start")), _parse(ev.get("end"))
         title = loopkit.chat_text(ev.get("title") or "", MAX_ENTRY).replace("*", "")
-        head = f"*Prep: {title}*"
+        lines = [f"*Meeting Prep: {title}*", ""]
         when = []
         if start is not None:
             span = start.astimezone().strftime("%H:%M")
             if end is not None:
                 span += "\u2013" + end.astimezone().strftime("%H:%M")
             minutes = max(0, round((start - ctx.now).total_seconds() / 60))
-            when.append(f"\U0001F552 {span} (in {minutes} min)")
+            when.append(f"\U0001F550 `{span}`  \u00b7  in {minutes} min")
         if ev.get("join_url"):
-            when.append(f"\U0001F4F9 Join: {loopkit.chat_url(ev['join_url'])}")
-        lines = [head]
+            when.append("\U0001F3A5 " + loopkit.slack_link(ev["join_url"], "Join meeting"))
         if when:
-            lines.append(" \u00b7 ".join(when))
+            lines.append("   ".join(when))
         if brief["summary"]:
             lines += ["", f"> {brief['summary']}"]
 
-        def section(name, entries):
+        def section(heading, entries, numbered=False):
             if entries:
-                lines.extend(["", f"*{name}*"] + [f"\u2022 {e}" for e in entries])
+                bullets = [f"{n}. {e}" if numbered else f"\u2022 {e}" for n, e in enumerate(entries, 1)]
+                lines.extend(["", f"*{heading}*"] + bullets)
 
-        section("Agenda", brief["agenda"])
-        section("Open items", [loopkit.chat_link(o["text"], o["link"]) for o in brief["open_items"]])
-        section("Raise", brief["talking_points"])
-        section("From last time", brief["follow_ups"])
+        section("\U0001F4CB Agenda", brief["agenda"], numbered=True)
+        section("\U0001F513 Open items", [loopkit.slack_link(o["link"], o["text"]) if o["link"] else o["text"]
+                                         for o in brief["open_items"]])
+        section("\U0001F4AC Raise", brief["talking_points"])
+        section("\u21A9\uFE0F From last time", brief["follow_ups"])
         return "\n".join(lines)
 
 
