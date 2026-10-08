@@ -438,3 +438,34 @@ def test_set_schedule_rejects_bad_minute_intervals(tmp_path):
                      {"frequency": "hourly"}):
         ok, _ = lc.set_schedule("topic-loop", schedule, config_path=config_path)
         assert ok is False, schedule
+
+
+def _legacy_entry(**over):
+    entry = {"name": "calendar-prep-loop", "label": "Calendar Prep", "enabled": True,
+             "log_suffix": "-calendar-prep-loop", "notify": ["slack-a"]}
+    entry.update(over)
+    return entry
+
+
+def test_legacy_calendar_prep_entry_is_renamed_on_load(tmp_path):
+    path = tmp_path / "loops.json"
+    _write_registry(path, [_legacy_entry()])
+    [loop] = lc.list_loops(config_path=path)
+    assert loop["name"] == "meeting-prep-loop" and loop["label"] == "Meeting Prep"
+    assert loop["log_suffix"] == "-meeting-prep-loop"
+    assert loop["enabled"] is True and loop["notify"] == ["slack-a"]
+    assert lc.get_loop("meeting-prep-loop", config_path=path)["label"] == "Meeting Prep"
+
+
+def test_legacy_rename_keeps_a_custom_label_and_persists_on_write(tmp_path):
+    path = tmp_path / "loops.json"
+    _write_registry(path, [_legacy_entry(label="My prep")])
+    assert lc.set_enabled("meeting-prep-loop", False, config_path=path)[0]
+    [saved] = json.loads(path.read_text())
+    assert saved["name"] == "meeting-prep-loop" and saved["label"] == "My prep" and saved["enabled"] is False
+
+
+def test_legacy_entry_is_dropped_when_the_new_one_already_exists(tmp_path):
+    path = tmp_path / "loops.json"
+    _write_registry(path, [_legacy_entry(), _legacy_entry(name="meeting-prep-loop", label="Meeting Prep")])
+    assert [l["name"] for l in lc.list_loops(config_path=path)] == ["meeting-prep-loop"]

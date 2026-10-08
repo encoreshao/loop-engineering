@@ -25,8 +25,9 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
   today as past, ongoing or upcoming, with each title linking to the meeting
   link, and its run table shows meeting titles instead of internal keys. Its
   Slack brief is now formatted (bold title, time and join link, quoted summary,
-  bulleted Agenda / Open items / Raise / From last time). Existing installs
-  keep their saved "Calendar Prep" label until it is renamed in `loops.json`.
+  bulleted Agenda / Open items / Raise / From last time). The loop is
+  now `meeting-prep-loop`; an existing `loops.json` entry named
+  `calendar-prep-loop` (and its default label) is renamed automatically.
 - A loop's History tab is now grouped by day (newest first, today open) and
   shows each run's done/skipped/failed counts and first items.
 - The dashboard now defaults to the Indigo accent theme (a saved choice still wins).

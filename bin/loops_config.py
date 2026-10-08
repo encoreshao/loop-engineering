@@ -45,6 +45,31 @@ DEFAULT_CONFIG_PATH = LOOP_ENGINEERING_HOME / "loops.json"
 TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "config" / "loops.json.template"
 
 
+# Loops renamed after release: an installed loops.json still carries the old
+# name (and its default label), and a saved entry always beats the template,
+# so rename it on load; the next write persists it.
+_RENAMED_LOOPS = {"calendar-prep-loop": ("meeting-prep-loop", {"Calendar Prep": "Meeting Prep"})}
+
+
+def _migrate_renamed(loops):
+    names = {loop.get("name") for loop in loops}
+    out = []
+    for loop in loops:
+        old = loop.get("name")
+        if old in _RENAMED_LOOPS:
+            new, labels = _RENAMED_LOOPS[old]
+            if new in names:
+                continue  # the new entry already exists: the stale one is dropped
+            loop = dict(loop, name=new)
+            loop["label"] = labels.get(loop.get("label"), loop.get("label"))
+            if "log_suffix" in loop:
+                loop["log_suffix"] = str(loop["log_suffix"]).replace(old, new)
+            if loop["label"] is None:
+                del loop["label"]
+        out.append(loop)
+    return out
+
+
 def list_loops(config_path=None, template_path=None):
     """The full registry as a list of dicts, in file order, followed by any
     template loop not yet in the user's file (their own entries always
@@ -64,7 +89,7 @@ def list_loops(config_path=None, template_path=None):
             f"there (bin/scripts/setup.sh does this automatically)."
         )
     with open(path) as f:
-        loops = json.load(f)
+        loops = _migrate_renamed(json.load(f))
     return loops + _missing_template_loops(loops, template_path)
 
 
