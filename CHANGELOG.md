@@ -13,6 +13,8 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Added
 
+- `build_macos_app.sh --dmg` packs `dist/Loop X.dmg`, and `rebuild_macos_app.sh` pulls the
+  latest changes, rebuilds the app and DMG, and relaunches the app in one command.
 - Generated content is now saved and viewable in the app any time: Inbox Triage has a
   Drafts tab with the full text of every reply draft it wrote, and every LoopKit loop (Meeting
   Prep briefs, RSS Watch highlights, ...) has a Content tab with its saved results.

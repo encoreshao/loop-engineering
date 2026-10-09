@@ -120,3 +120,37 @@ def test_build_script_creates_desktop_shortcut(tmp_path):
     link = desktop / "Loop X"
     assert link.is_symlink()
     assert link.resolve() == (out / "Loop X.app").resolve()
+
+
+def test_build_script_dmg_has_app_and_applications_link(tmp_path):
+    out = tmp_path / "out"
+    result = subprocess.run(
+        ["bash", str(BUILD_SCRIPT), "--output-dir", str(out), "--skip-venv", "--skip-icon", "--dmg"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    dmg = out / "Loop X.dmg"
+    assert dmg.is_file()
+    mount = tmp_path / "mnt"
+    mount.mkdir()
+    subprocess.run(["hdiutil", "attach", str(dmg), "-mountpoint", str(mount), "-nobrowse", "-readonly", "-quiet"], check=True)
+    try:
+        assert (mount / "Loop X.app" / "Contents" / "Info.plist").is_file()
+        assert (mount / "Applications").is_symlink()
+    finally:
+        subprocess.run(["hdiutil", "detach", str(mount), "-quiet", "-force"])
+
+
+REBUILD_SCRIPT = REPO / "bin" / "scripts" / "rebuild_macos_app.sh"
+
+
+def test_rebuild_script_builds_dmg_without_pull_or_launch(tmp_path):
+    out = tmp_path / "out"
+    result = subprocess.run(
+        ["bash", str(REBUILD_SCRIPT), "--no-pull", "--no-launch", "--output-dir", str(out), "--skip-venv", "--skip-icon"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (out / "Loop X.dmg").is_file() and (out / "Loop X.app").is_dir()

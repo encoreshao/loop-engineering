@@ -6,6 +6,7 @@
 #
 # Usage: build_macos_app.sh [--output-dir DIR] [--python PATH] [--skip-venv] [--skip-icon]
 #                           [--desktop-shortcut] [--desktop-dir DIR]
+# --dmg also packs the app into DIR/Loop X.dmg (drag-to-Applications disk image).
 # --desktop-shortcut puts a Finder alias to the app on ~/Desktop; --desktop-dir
 # DIR puts a plain symlink in DIR instead (no Finder automation prompt).
 set -euo pipefail
@@ -16,6 +17,7 @@ PYTHON="python3"
 SKIP_VENV=0
 SKIP_ICON=0
 SHORTCUT=0
+DMG=0
 DESKTOP_DIR=""
 APP_NAME="Loop X"
 
@@ -25,9 +27,10 @@ while [ $# -gt 0 ]; do
     --python) PYTHON="$2"; shift 2 ;;
     --skip-venv) SKIP_VENV=1; shift ;;
     --skip-icon) SKIP_ICON=1; shift ;;
+    --dmg) DMG=1; shift ;;
     --desktop-shortcut) SHORTCUT=1; shift ;;
     --desktop-dir) SHORTCUT=1; DESKTOP_DIR="$2"; shift 2 ;;
-    *) echo "Usage: build_macos_app.sh [--output-dir DIR] [--python PATH] [--skip-venv] [--skip-icon] [--desktop-shortcut] [--desktop-dir DIR]" >&2; exit 1 ;;
+    *) echo "Usage: build_macos_app.sh [--output-dir DIR] [--python PATH] [--skip-venv] [--skip-icon] [--dmg] [--desktop-shortcut] [--desktop-dir DIR]" >&2; exit 1 ;;
   esac
 done
 
@@ -84,6 +87,16 @@ if [ "$SKIP_ICON" -eq 0 ]; then
 fi
 
 echo "Built: $APP"
+
+if [ "$DMG" -eq 1 ]; then
+  stage="$(mktemp -d)"
+  cp -R "$APP" "$stage/"
+  ln -s /Applications "$stage/Applications"
+  rm -f "$OUTPUT_DIR/$APP_NAME.dmg"
+  hdiutil create -quiet -volname "$APP_NAME" -srcfolder "$stage" -ov -format UDZO "$OUTPUT_DIR/$APP_NAME.dmg"
+  rm -rf "$stage"
+  echo "DMG: $OUTPUT_DIR/$APP_NAME.dmg"
+fi
 
 if [ "$SHORTCUT" -eq 1 ]; then
   if [ -n "$DESKTOP_DIR" ]; then
