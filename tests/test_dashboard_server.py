@@ -3438,10 +3438,10 @@ def test_sidebar_html_includes_brand_and_toggle_button():
 def test_brand_mark_always_shows_and_is_larger_than_nav_icons():
     """The logo shows next to the name when expanded and alone when
     collapsed (either via the .collapsed toggle or the narrow-viewport
-    rail), at 28px - still inside the collapsed rail's ~32px content box."""
+    rail), at 45px - still inside the collapsed rail's ~32px content box."""
     brand_mark_rule = ds._STYLE.split(".brand-mark {")[1].split("}")[0]
     assert "display: none" not in brand_mark_rule
-    assert "width: 28px;" in brand_mark_rule and "height: 28px;" in brand_mark_rule
+    assert "width: 45px;" in brand_mark_rule and "height: 45px;" in brand_mark_rule
     # the X (currentColor) matches the "Loop X" name, not --md-primary,
     # which is a pale tint in dark mode and vanishes on the light sidebar
     assert "color: var(--md-nav-on-surface);" in brand_mark_rule

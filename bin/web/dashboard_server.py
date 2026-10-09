@@ -4390,7 +4390,7 @@ button:focus-visible,
   overflow: hidden;
 }}
 .brand:hover {{ color: var(--md-nav-on-surface); text-decoration: none; }}
-.brand-mark {{ display: inline-flex; width: 28px; height: 28px; color: var(--md-nav-on-surface); flex-shrink: 0; }}
+.brand-mark {{ display: inline-flex; width: 45px; height: 45px; color: var(--md-nav-on-surface); flex-shrink: 0; }}
 .brand-name {{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
 
 .sidebar-toggle {{
@@ -4865,6 +4865,7 @@ html.collapsed .sidebar-top {{
   flex-direction: column;
   justify-content: center;
   gap: 0.4rem;
+  margin-top: 1rem;
 }}
 
 /* Label bubble shown beside a nav icon on hover/focus while the sidebar is
@@ -6868,7 +6869,7 @@ _BRAND_MARK_ICON = _brand_mark_svg("brand-mark")
 
 # A small brand-mark variant for chat bubbles (see render_activity_page) -
 # not a reuse of _BRAND_MARK_ICON's own `brand-mark` class, since that
-# class sizes the mark for the sidebar (28px, see .brand-mark in _STYLE).
+# class sizes the mark for the sidebar (45px, see .brand-mark in _STYLE).
 _MESSAGE_BRAND_ICON = _brand_mark_svg("message-brand-icon")
 
 _SECTION_ICON_OVERVIEW = "<span class='material-symbols-outlined' aria-hidden='true'>space_dashboard</span>"
