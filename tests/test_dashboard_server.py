@@ -14298,3 +14298,34 @@ def test_meeting_prep_live_shows_each_meetings_brief_status_and_summary(monkeypa
     assert out.count("meeting-brief-ready") == 2
     assert out.count("meeting-brief-pending") == 1   # "Later": not briefed yet
     assert "meeting-brief-none" not in out
+
+
+def test_generic_loop_content_view_shows_meeting_brief_and_highlights(monkeypatch, tmp_path):
+    d = _plugin_loop_sandbox(monkeypatch, tmp_path, name="meeting-prep-loop")
+    (d / "content.json").write_text(json.dumps([
+        {"run_id": "r", "saved_at": "2026-10-06T08:00:00+00:00", "item_key": "k", "label": "Sync <b>", "summary": "s",
+         "url": "https://meet.test/x",
+         "data": {"event": {"title": "Sync <b>", "start": "2026-10-06T09:00:00+00:00", "end": "2026-10-06T09:30:00+00:00",
+                            "join_url": "https://meet.test/x"},
+                  "brief": {"summary": "Short <i>", "agenda": ["Item A"], "open_items": [{"text": "Fix it", "link": "https://gl.test/1"}],
+                            "talking_points": ["Raise B"], "follow_ups": ["Last time C"]}}},
+        {"run_id": "r2", "saved_at": "2026-10-06T07:00:00+00:00", "item_key": "rss", "label": "feed", "summary": "1",
+         "url": "", "data": {"account": "feed", "highlights": [
+             {"title": "Post <1>", "link": "https://blog.test/p", "why": "relevant", "score": 4}]}}]))
+    out = ds.render_loop_page("meeting-prep-loop", view="content")
+    assert "Sync &lt;b&gt;" in out and "<b>" not in out and "Short &lt;i&gt;" in out
+    for text in ("Item A", "Fix it", "Raise B", "Last time C"):
+        assert text in out
+    assert "href='https://gl.test/1'" in out
+    assert "Post &lt;1&gt;" in out and "https://blog.test/p" in out and "4/5" in out
+
+
+def test_generic_loop_content_view_empty_state(monkeypatch, tmp_path):
+    _plugin_loop_sandbox(monkeypatch, tmp_path)
+    out = ds.render_loop_page("rss-watch-loop", view="content")
+    assert "Nothing saved yet" in out
+
+
+def test_inbox_hub_has_a_drafts_view(monkeypatch):
+    keys = [v.key for v in ds._loop_pages()["inbox-triage-loop"].views]
+    assert "drafts" in keys

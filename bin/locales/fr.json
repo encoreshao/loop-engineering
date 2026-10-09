@@ -925,5 +925,15 @@
   "{count} runs": "{count} exécutions",
   "Brief ready": "Note prête",
   "Brief pending": "Note à venir",
-  "No brief": "Aucune note"
+  "No brief": "Aucune note",
+  "Drafts": "Brouillons",
+  "Content": "Contenu",
+  "(no subject)": "(sans objet)",
+  "No drafts saved yet. Reply drafts appear here after Inbox Triage writes them.": "Aucun brouillon enregistré pour l'instant. Les brouillons de réponse apparaîtront ici après leur création par le tri de la boîte de réception.",
+  "Nothing saved yet. Results appear here after the next run.": "Rien d'enregistré pour l'instant. Les résultats apparaîtront ici après la prochaine exécution.",
+  "Agenda": "Ordre du jour",
+  "Open items": "Points ouverts",
+  "Raise": "À soulever",
+  "From last time": "Depuis la dernière fois",
+  "Highlights": "Points forts"
 }

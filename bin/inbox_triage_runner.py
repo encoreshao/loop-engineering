@@ -37,6 +37,7 @@ from loopkit import raise_on_sigterm as _raise_on_sigterm
 from loop_definition import LoopDefinition
 from loop_runtime import LoopRuntime
 from loop_serialize import write_result
+import content_archive
 import instructions as instructions_mod
 from loop_verifiers import build_verifiers
 
@@ -144,7 +145,7 @@ def classify(prompt, messages, categories, invoke=None, timeout_seconds=None, ma
 
 def _outcome(inbox, status, error=None, **extra):
     base = {"name": inbox["name"], "label": inbox.get("label", inbox["name"]), "status": status,
-            "counts": {}, "urgent": [], "rows": [], "overflow": False, "error": error, "cost_usd": None}
+            "counts": {}, "urgent": [], "rows": [], "drafts": [], "overflow": False, "error": error, "cost_usd": None}
     base.update(extra)
     return base
 
@@ -204,7 +205,7 @@ def triage_inbox(inbox, config, now, provider_factory=None, token_fn=None, invok
         return _outcome(inbox, "failed", f"Labelling stopped after {len(labelled)} of {len(decisions)}: {exc}", cost_usd=cost)
     inbox_seen.record(inbox["name"], labelled, now, state_dir=state_dir)
 
-    rows, urgent = [], []
+    rows, urgent, drafts = [], [], []
     for decision in decisions:
         message = by_id[decision["id"]]
         link, draft_failed = None, False
@@ -221,17 +222,21 @@ def triage_inbox(inbox, config, now, provider_factory=None, token_fn=None, invok
                 draft_failed = True
                 print(f"inbox_triage_runner: draft for one message in {inbox['name']} failed: "
                       f"{type(exc).__name__}", file=sys.stderr)
+        if link:
+            drafts.append({"from": message["from"], "subject": message["subject"], "date": message["date"],
+                           "category": decision["category"], "body": decision["draft_body"], "draft_link": link})
         rows.append({"date": message["date"], "from": message["from"], "subject": message["subject"],
                      "category": decision["category"], "reason": decision["reason"], "draft_link": link})
         if decision["category"] == "urgent":
             urgent.append({"from": message["from"], "subject": message["subject"], "draft_link": link,
                            "needs_manual_reply": decision["needs_manual_reply"], "draft_failed": draft_failed})
     return _outcome(inbox, "ok", counts=inbox_triage.count_by_category(decisions), urgent=urgent,
-                    rows=rows, overflow=overflow, cost_usd=cost)
+                    rows=rows, drafts=drafts, overflow=overflow, cost_usd=cost)
 
 
 DEFAULT_HISTORY_DIR = OUTPUT_DIR / "history"
 DEFAULT_LOCK_PATH = OUTPUT_DIR / "run.lock"
+DEFAULT_DRAFTS_PATH = OUTPUT_DIR / "drafts.json"
 _STATUS_STATE = {"ok": "idle", "quiet": "idle", "failed": "failed", "needs_reauth": "needs_reauth"}
 
 
@@ -346,6 +351,20 @@ def send_digests(outcomes, now, post=None):
                       f"{type(retry_exc).__name__}: {retry_exc}", file=sys.stderr)
 
 
+def save_drafts(outcome, inbox, now, drafts_path=None):
+    """Keep the reply drafts this run wrote (text included) so the dashboard's
+    Drafts tab can show them any time. Best-effort, like write_history."""
+    if drafts_path is None:
+        drafts_path = DEFAULT_DRAFTS_PATH
+    records = [{**d, "inbox": inbox["name"], "inbox_label": inbox.get("label", inbox["name"]),
+                "account": inbox.get("account", ""), "saved_at": now.isoformat()}
+               for d in outcome.get("drafts") or []]
+    try:
+        content_archive.append(drafts_path, records)
+    except OSError as exc:
+        print(f"inbox_triage_runner: saving drafts for {inbox['name']} failed: {type(exc).__name__}", file=sys.stderr)
+
+
 def _mark_inbox_failed(name, reason, status_path=None):
     """Write this inbox's terminal `failed` state ourselves when the normal
     end-of-inbox write never happened - mirrors
@@ -363,7 +382,7 @@ def _mark_inbox_failed(name, reason, status_path=None):
         return False
 
 
-def _run_one_inbox(inbox, config, now, run_id, definition, triage, results_dir, events_dir, history_dir):
+def _run_one_inbox(inbox, config, now, run_id, definition, triage, results_dir, events_dir, history_dir, drafts_path=None):
     captured = {}
 
     def agent_fn(context):
@@ -390,11 +409,13 @@ def _run_one_inbox(inbox, config, now, run_id, definition, triage, results_dir, 
         write_history(outcome, now, history_dir=history_dir)
     except Exception as exc:  # noqa: BLE001 - history is observability; the status write still has to happen
         print(f"inbox_triage_runner: writing history for {inbox['name']} failed: {type(exc).__name__}", file=sys.stderr)
+    save_drafts(outcome, inbox, now, drafts_path=drafts_path)
     return outcome
 
 
 def run_all_inboxes(run_id, now=None, config_path=None, definition_path=None, results_dir=None,
-                    events_dir=None, status_path=None, history_dir=None, triage=None, lock_path=None):
+                    events_dir=None, status_path=None, history_dir=None, triage=None, lock_path=None,
+                    drafts_path=None):
     """One lock for the whole run: the scheduler and the dashboard's run-now
     can both launch a run, and two overlapping runs would each draft replies
     to the same not-yet-recorded messages. A second run exits at once."""
@@ -405,11 +426,11 @@ def run_all_inboxes(run_id, now=None, config_path=None, definition_path=None, re
             print("inbox_triage_runner: another Inbox Triage run is already running - exiting", file=sys.stderr)
             return []
         return _run_all_inboxes_locked(run_id, now, config_path, definition_path, results_dir,
-                                       events_dir, status_path, history_dir, triage)
+                                       events_dir, status_path, history_dir, triage, drafts_path)
 
 
 def _run_all_inboxes_locked(run_id, now, config_path, definition_path, results_dir,
-                            events_dir, status_path, history_dir, triage):
+                            events_dir, status_path, history_dir, triage, drafts_path=None):
     if now is None:
         now = datetime.now(timezone.utc)
     if definition_path is None:
@@ -425,7 +446,7 @@ def _run_all_inboxes_locked(run_id, now, config_path, definition_path, results_d
         try:
             inbox_status.write(inbox["name"], "running", status_path=status_path)
             outcome = _run_one_inbox(inbox, config, now, run_id, definition, triage,
-                                     results_dir, events_dir, history_dir)
+                                     results_dir, events_dir, history_dir, drafts_path)
             inbox_status.write(inbox["name"], _STATUS_STATE[outcome["status"]], status_path=status_path,
                                last_run_at=now.isoformat(), counts=outcome["counts"], urgent=outcome["urgent"],
                                error=outcome["error"], overflow=outcome["overflow"])

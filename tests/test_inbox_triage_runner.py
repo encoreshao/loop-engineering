@@ -758,3 +758,30 @@ def test_classify_default_budget_comes_from_the_loop_definition():
         return {"text": GOOD, "cost_usd": None}
     runner.classify("p", MSGS, CATS, invoke=invoke)
     assert caps == [2]
+
+
+def test_outcome_carries_draft_bodies_for_the_drafts_page(tmp_path):
+    provider = FakeProvider([_m(1, minute=1), _m(2, minute=2)])
+    outcome = _run(provider, _reply(
+        {"id": "m1", "category": "urgent", "reason": "deadline", "draft_body": "On it"},
+        {"id": "m2", "category": "fyi", "reason": "update", "draft_body": None}), tmp_path)
+    assert outcome["drafts"] == [{"from": "Alice <alice@x.com>", "subject": "Subject 1", "date": outcome["rows"][0]["date"],
+                                  "category": "urgent", "body": "On it", "draft_link": "https://mail/m1"}]
+
+
+def test_failed_draft_is_not_listed_as_a_draft(tmp_path):
+    provider = FakeProvider([_m(1, minute=1)])
+    provider.fail_draft_on = "m1"
+    provider.draft_exception = ValueError("x")
+    outcome = _run(provider, _reply(
+        {"id": "m1", "category": "urgent", "reason": "r", "draft_body": "On it"}), tmp_path)
+    assert outcome["drafts"] == []
+
+
+def test_run_all_saves_drafts_to_the_archive(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "send_digests", lambda outcomes, now, post=None: None)
+    drafts = [{"from": "a", "subject": "s", "date": "d", "category": "urgent", "body": "Hi", "draft_link": None}]
+    _run_all(tmp_path, drafts_path=tmp_path / "drafts.json",
+             triage=lambda inbox, config, now: {**_outcome_ok(), "name": inbox["name"], "label": inbox["label"], "drafts": drafts})
+    saved = json.loads((tmp_path / "drafts.json").read_text())
+    assert {r["inbox"] for r in saved} == {"w", "h"} and saved[0]["body"] == "Hi" and saved[0]["saved_at"].startswith("2026")

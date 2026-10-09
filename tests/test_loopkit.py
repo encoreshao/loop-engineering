@@ -346,3 +346,23 @@ def test_slack_link_sanitizes_label_and_rejects_bad_urls():
         "<https://x.test/a?b=1&c=2|Fix \u2039!channel\u203a now>"
     assert loopkit.slack_link("javascript:alert(1)", "Fix") == "Fix"
     assert loopkit.slack_link("https://x.test/a>b", "Fix") == "Fix"
+
+
+def test_done_outcome_data_is_archived_for_viewing(env, tmp_path):
+    kw, _ = env
+    p = Demo([WorkItem("a", "A"), WorkItem("b", "B")], ['{"verdict": "ok"}', '{"verdict": "ok"}'],
+             after=lambda item, ans: Outcome(item.key, "done", "s", url="https://x/1", data={"label": item.key, "brief": {"k": 1}})
+             if item.key == "a" else Outcome(item.key, "skipped", "nope", data={"x": 1}))
+    loopkit.run_plugin(p, "run_1", **kw)
+    records = json.loads((tmp_path / "outputs" / "loops" / "demo-loop" / "content.json").read_text())
+    assert len(records) == 1  # skipped outcomes are not content
+    assert records[0]["item_key"] == "a" and records[0]["run_id"] == "run_1"
+    assert records[0]["data"]["brief"] == {"k": 1} and records[0]["url"] == "https://x/1"
+    assert records[0]["saved_at"].startswith("2026-10-06")
+
+
+def test_outcomes_without_data_are_not_archived(env, tmp_path):
+    kw, _ = env
+    p = Demo([WorkItem("a", "A")], ['{"verdict": "ok"}'])
+    loopkit.run_plugin(p, "run_1", **kw)
+    assert not (tmp_path / "outputs" / "loops" / "demo-loop" / "content.json").exists()

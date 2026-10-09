@@ -925,5 +925,15 @@
   "{count} runs": "{count}回の実行",
   "Brief ready": "ブリーフ作成済み",
   "Brief pending": "ブリーフ待ち",
-  "No brief": "ブリーフなし"
+  "No brief": "ブリーフなし",
+  "Drafts": "下書き",
+  "Content": "コンテンツ",
+  "(no subject)": "(件名なし)",
+  "No drafts saved yet. Reply drafts appear here after Inbox Triage writes them.": "保存された下書きはまだありません。受信トレイ振り分けが返信の下書きを作成すると、ここに表示されます。",
+  "Nothing saved yet. Results appear here after the next run.": "保存された内容はまだありません。次回の実行後に結果がここに表示されます。",
+  "Agenda": "アジェンダ",
+  "Open items": "未解決の項目",
+  "Raise": "提起したい点",
+  "From last time": "前回から",
+  "Highlights": "ハイライト"
 }

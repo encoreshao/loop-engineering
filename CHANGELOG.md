@@ -13,6 +13,9 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Added
 
+- Generated content is now saved and viewable in the app any time: Inbox Triage has a
+  Drafts tab with the full text of every reply draft it wrote, and every LoopKit loop (Meeting
+  Prep briefs, RSS Watch highlights, ...) has a Content tab with its saved results.
 - `bin/scripts/build_macos_app.sh` builds `dist/Loop X.app`, a native macOS
   window around the dashboard (pywebview). It attaches to the running
   dashboard daemon, or serves the dashboard itself when none is running. `--desktop-shortcut` adds an alias to it on `~/Desktop`. It has its own

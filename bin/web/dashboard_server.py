@@ -5641,6 +5641,9 @@ ul.plain li {{ font-size: 0.9rem; }}
 .meeting-title .material-symbols-outlined {{ font-size: 18px; }}
 .meeting-when {{ font-size: 0.85rem; color: var(--md-on-surface-variant); }}
 .meeting-pills {{ display: inline-flex; gap: 0.35rem; justify-self: end; }}
+.draft-body, .content-text {{ white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 0.5rem 0 0; }}
+.content-list {{ margin: 0.25rem 0 0.75rem; padding-left: 1.25rem; }}
+.content-heading {{ margin: 0.75rem 0 0; font-size: 0.95rem; }}
 .meeting-summary {{ grid-column: 2 / -1; margin: 0; font-size: 0.9rem; line-height: 1.4; }}
 .meeting-brief-ready {{ background: var(--md-primary-container); color: var(--md-on-primary-container); }}
 .meeting-brief-pending, .meeting-brief-none {{ background: var(--md-surface-container-high); color: var(--md-on-surface-variant); }}
@@ -13749,6 +13752,7 @@ def _loop_pages():
         )),
         "inbox-triage-loop": hub_mod.Hub("loops", "/loops/inbox-triage-loop", "Inbox Triage", _SECTION_ICON_INBOX, (
             V("live", "Live", lambda **kw: _inbox_body(**_only(kw, "flash", "flash_ok")), refresh=True, badge_fn=inbox_badge),
+            V("drafts", "Drafts", lambda **kw: inbox_pages.render_drafts_body(inbox_pages.load_drafts()), badge_fn=inbox_badge),
             V("setup", "Setup", lambda **kw: _inbox_setup_body(kw.get("port"), kw.get("flash"), kw.get("flash_ok", True), active_tab=kw.get("tab")), badge_fn=inbox_badge),
         )),
     }
@@ -13980,6 +13984,71 @@ def _history_run_html(name, run):
             f"<span class='history-file'> {f[:-3]}</span></a>{pills}</div>{body}</li>")
 
 
+def _read_loop_content(name):
+    from content_archive import load
+    return load(_loop_output_dir(name) / "content.json")
+
+
+def _content_list(heading, entries):
+    """A titled bullet list for the Content view; entries are text or (text, url)."""
+    items = []
+    for entry in entries:
+        text, url = entry if isinstance(entry, tuple) else (entry, "")
+        text = html.escape(str(text))
+        if str(url).startswith(("http://", "https://")):
+            text = f"<a href='{html.escape(str(url), quote=True)}' target='_blank' rel='noopener'>{text}</a>"
+        items.append(f"<li>{text}</li>")
+    if not items:
+        return ""
+    return f"<h3 class='content-heading'>{html.escape(heading)}</h3><ul class='content-list'>{''.join(items)}</ul>"
+
+
+def _content_record_html(record):
+    """One saved result: a meeting brief, an RSS digest, or any other item
+    as its summary. Every string is escaped; only http(s) links are linked."""
+    data = record.get("data") if isinstance(record.get("data"), dict) else {}
+    brief = data.get("brief") if isinstance(data.get("brief"), dict) else None
+    title = html.escape(str(record.get("label") or record.get("item_key") or ""))
+    url = str(record.get("url") or "")
+    if url.startswith(("http://", "https://")):
+        title = f"<a href='{html.escape(url, quote=True)}' target='_blank' rel='noopener'>{title}</a>"
+    saved = _aware(record.get("saved_at"))
+    when = saved.astimezone().strftime("%Y-%m-%d %H:%M") if saved else ""
+    parts = []
+    if brief:
+        ev = data.get("event") if isinstance(data.get("event"), dict) else {}
+        start = _aware(ev.get("start"))
+        if start:
+            when = start.astimezone().strftime("%Y-%m-%d %H:%M")
+        if brief.get("summary"):
+            parts.append(f"<p class='content-text'>{html.escape(str(brief['summary']))}</p>")
+        parts.append(_content_list(_t("Agenda"), brief.get("agenda") or []))
+        parts.append(_content_list(_t("Open items"), [
+            (o.get("text", ""), o.get("link", "")) for o in brief.get("open_items") or [] if isinstance(o, dict)]))
+        parts.append(_content_list(_t("Raise"), brief.get("talking_points") or []))
+        parts.append(_content_list(_t("From last time"), brief.get("follow_ups") or []))
+    elif isinstance(data.get("highlights"), list):
+        parts.append(_content_list(_t("Highlights"), [
+            (f"{h.get('title', '')} - {h.get('why', '')} ({h.get('score', 0)}/5)", h.get("link", ""))
+            for h in data["highlights"] if isinstance(h, dict)]))
+    elif record.get("summary"):
+        parts.append(f"<p class='content-text'>{html.escape(str(record['summary']))}</p>")
+    return (f"<section class='card'><div class='section-header'><h2>{title}</h2></div>"
+            f"<p class='section-subtitle'>{html.escape(when)}</p>{''.join(parts)}</section>")
+
+
+def _generic_loop_content_body(name, flash=None, flash_ok=True):
+    """Everything the loop produced that is worth reading again (meeting
+    briefs, RSS highlights, ...), newest first - loopkit's content.json."""
+    records = _read_loop_content(name)
+    if not records:
+        inner = (f"<section class='card'><div class='section-header'><h2>{html.escape(_t('Content'))}</h2></div>"
+                 f"<p class='section-subtitle'>{html.escape(_t('Nothing saved yet. Results appear here after the next run.'))}</p></section>")
+    else:
+        inner = "".join(_content_record_html(r) for r in records)
+    return _flash_html(flash, flash_ok) + inner
+
+
 def _generic_loop_history_body(name, flash=None, flash_ok=True):
     files = _loop_history_files(name)
     runs = [r for r in (_loop_history_run(name, f) for f in files) if r]
@@ -14100,6 +14169,8 @@ def _generic_loop_page(name, loop=None):
     views = [
         V("live", "Live", lambda **kw: _generic_loop_live_body(name, **_only(kw, "flash", "flash_ok")),
           refresh=True, badge_fn=badge),
+        V("content", "Content", lambda **kw: _generic_loop_content_body(name, **_only(kw, "flash", "flash_ok")),
+          badge_fn=badge),
         V("history", "History", lambda **kw: _generic_loop_history_body(name, **_only(kw, "flash", "flash_ok")),
           badge_fn=badge),
     ]

@@ -925,5 +925,15 @@
   "{count} runs": "{count} 次运行",
   "Brief ready": "摘要已就绪",
   "Brief pending": "摘要待生成",
-  "No brief": "无摘要"
+  "No brief": "无摘要",
+  "Drafts": "草稿",
+  "Content": "内容",
+  "(no subject)": "(无主题)",
+  "No drafts saved yet. Reply drafts appear here after Inbox Triage writes them.": "尚无已保存的草稿。收件箱分拣写出回复草稿后会显示在这里。",
+  "Nothing saved yet. Results appear here after the next run.": "尚无已保存的内容。下次运行后结果会显示在这里。",
+  "Agenda": "议程",
+  "Open items": "未决事项",
+  "Raise": "要提出的事项",
+  "From last time": "上次遗留",
+  "Highlights": "要点"
 }

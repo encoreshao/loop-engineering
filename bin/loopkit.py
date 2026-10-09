@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+import content_archive
 import cost as cost_module
 import loops_config
 import notify as _notify
@@ -319,7 +320,21 @@ def _write_reports(plugin, run_id, now, outcomes, history_dir, last_run_path):
                       "summary": o.summary, "url": o.url}
                      for o in outcomes[:_LAST_RUN_OUTCOME_CAP]],
     }, indent=2) + "\n")
+    _archive_content(run_id, now, outcomes, last_run_path.parent / "content.json")
     return counts
+
+
+def _archive_content(run_id, now, outcomes, path):
+    """Keep what each finished item produced (its Outcome.data: briefs,
+    highlights, ...) so the dashboard's Content tab can show it later.
+    Best-effort: observability never fails a run."""
+    records = [{"run_id": run_id, "saved_at": now.isoformat(), "item_key": o.item_key,
+                "label": _outcome_label(o, ""), "summary": o.summary, "url": o.url, "data": o.data}
+               for o in outcomes if o.status == "done" and o.data]
+    try:
+        content_archive.append(path, records)
+    except OSError:
+        pass
 
 
 def _record_notified(last_run_path, results):

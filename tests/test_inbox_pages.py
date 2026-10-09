@@ -518,3 +518,24 @@ def test_setup_triage_fields_explain_themselves_with_hints():
     assert "<code>@domain.com</code>" in add.split("VIP senders", 1)[1].split("</label>", 1)[0]
     assert "<span class='field-label'>Private senders</span>" in add
     assert "field-hint" in add.split("Inbox ID", 1)[1].split("</label>", 1)[0]
+
+
+def test_drafts_body_lists_saved_drafts_escaped_newest_first():
+    records = [
+        {"inbox_label": "Work <Gmail>", "from": "Bob <b@x.com>", "subject": "Re: <Plan>", "date": "2026-09-27",
+         "category": "urgent", "body": "Hi Bob,\nOn <it>.", "draft_link": "https://mail/1", "saved_at": "2026-09-27T09:00:00+00:00"},
+        {"inbox_label": "Home", "from": "c", "subject": "Older", "date": "d", "category": "fyi",
+         "body": "x", "draft_link": None, "saved_at": "2026-09-26T09:00:00+00:00"}]
+    body = inbox_pages.render_drafts_body(records)
+    assert "Work &lt;Gmail&gt;" in body and "Re: &lt;Plan&gt;" in body and "On &lt;it&gt;." in body
+    assert "<it>" not in body and "href=\"https://mail/1\"" in body
+    assert body.index("Re: &lt;Plan&gt;") < body.index("Older")
+
+
+def test_drafts_body_empty_state():
+    assert "No drafts saved yet" in inbox_pages.render_drafts_body([])
+
+
+def test_drafts_body_ignores_unsafe_link():
+    body = inbox_pages.render_drafts_body([{"subject": "s", "body": "b", "draft_link": "javascript:alert(1)"}])
+    assert "javascript:" not in body

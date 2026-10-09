@@ -8,7 +8,8 @@ class names (.card, .pill/.pill-*, .btn/.btn-primary/.btn-neutral,
 ul.plain) rather than inventing parallel ones - see _STYLE in
 dashboard_server.py for what each one looks like. Never renders message
 bodies - status and history only ever hold sender, subject, category,
-reason, draft link.
+reason, draft link. The one body it shows is the reply draft the loop itself
+wrote (render_drafts_body), never the incoming message.
 
 The action handlers at the bottom (handle_post, handle_google_callback,
 connect_status) are dashboard_server.py's POST/callback back ends: it
@@ -17,8 +18,10 @@ and return a flash message. None of them ever puts a token, an OAuth
 code, or a Microsoft device_code into a returned message or payload."""
 import html
 import re
+from datetime import datetime
 from pathlib import Path
 
+import content_archive
 import i18n
 import inbox_config
 import inbox_seen
@@ -28,6 +31,7 @@ import mail_http
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_HISTORY_DIR = REPO_ROOT / "outputs" / "inbox-triage" / "history"
+DEFAULT_DRAFTS_PATH = REPO_ROOT / "outputs" / "inbox-triage" / "drafts.json"
 _HISTORY_NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-[a-z0-9-]+\.md$")
 
 # state -> (label, pill CSS modifier) - same pill-green/pill-blue/pill-red/
@@ -497,6 +501,38 @@ document.querySelectorAll('.device-flow').forEach(function (box) {
   poll();
 });
 </script>"""
+
+
+def load_drafts(drafts_path=None):
+    if drafts_path is None:
+        drafts_path = DEFAULT_DRAFTS_PATH
+    return content_archive.load(drafts_path)
+
+
+def _saved_label(value):
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone().strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return ""
+
+
+def render_drafts_body(records):
+    """Every reply draft Inbox Triage wrote, newest first, with the text of
+    the draft itself so it can be read here without opening the mailbox."""
+    if not records:
+        return (f"<section class='card'><div class='section-header'><h2>{e(_t('Drafts'))}</h2></div>"
+                f"<p class='section-subtitle'>{e(_t('No drafts saved yet. Reply drafts appear here after Inbox Triage writes them.'))}</p></section>")
+    cards = []
+    for r in records:
+        link = str(r.get("draft_link") or "")
+        open_link = (f" <a class='btn btn-neutral' href=\"{e(link, quote=True)}\" target='_blank' rel='noopener'>"
+                     f"{e(_t('Open draft'))}</a>" if link.startswith(("http://", "https://")) else "")
+        meta = " \u00b7 ".join(e(str(x)) for x in (r.get("inbox_label"), r.get("from"), r.get("category"),
+                                                  _saved_label(r.get("saved_at"))) if x)
+        cards.append(f"<section class='card'><div class='section-header'><h2>{e(str(r.get('subject') or _t('(no subject)')))}</h2>"
+                     f"{open_link}</div><p class='section-subtitle'>{meta}</p>"
+                     f"<pre class='draft-body'>{e(str(r.get('body') or ''))}</pre></section>")
+    return "".join(cards)
 
 
 def render_history_list_body(history_dir=None):
