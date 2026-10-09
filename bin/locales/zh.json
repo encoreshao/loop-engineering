@@ -935,5 +935,6 @@
   "Open items": "未决事项",
   "Raise": "要提出的事项",
   "From last time": "上次遗留",
-  "Highlights": "要点"
+  "Highlights": "要点",
+  "Live {loop}": "实时 {loop}"
 }

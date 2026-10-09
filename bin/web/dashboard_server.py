@@ -5358,11 +5358,10 @@ html .chat-page.is-empty .activity-composer {{
    render_overview_page's two loop cards and render_topic_monitor_page's
    own button, not overview-specific despite the name it started with -
    visually separated from whatever's above it rather than just trailing
-   off the bottom of the card, and, since it's the card's one primary
-   action, full-width like a card footer button rather than an
-   inline-sized one. */
+   off the bottom of the card, and sized to its label rather than
+   stretched across the card. */
 .run-now-action {{ margin-top: 0.85rem; padding-top: 0.85rem; border-top: 1px solid var(--md-outline-variant); }}
-.run-now-action button {{ width: 100%; justify-content: center; }}
+.run-now-action button {{ justify-content: center; }}
 .run-now-action button:disabled {{ opacity: 0.5; cursor: not-allowed; }}
 .run-now-hint {{ margin: 0.6rem 0 0; font-size: 0.8rem; color: var(--md-on-surface-variant); }}
 .message-list {{ list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }}
@@ -9039,6 +9038,30 @@ _CHAT_SUGGESTIONS = (
 )
 
 
+_OVERVIEW_LIVE_LOOPS = (
+    # (registry name, label, icon)
+    ("meeting-prep-loop", "Meeting Prep", "calendar_month"),
+    ("inbox-triage-loop", "Inbox Triage", "mail"),
+)
+
+
+def _overview_live_links_html():
+    """Quick links on the overview hero to the Live page of each enabled
+    Meeting Prep / Inbox Triage loop. Loops that are disabled (or whose
+    registry can't be read) are skipped."""
+    try:
+        enabled = {l.get("name") for l in loops_config.list_loops()
+                   if isinstance(l, dict) and l.get("enabled")}
+    except (OSError, ValueError, KeyError, TypeError):
+        return ""
+    return "".join(
+        f"<a class='btn btn-neutral chat-link-pill' href='/loops/{name}'>"
+        f"<span class='material-symbols-outlined' aria-hidden='true'>{icon}</span>"
+        f"{html.escape(_t('Live {loop}', loop=i18n.t(label)))}</a>"
+        for name, label, icon in _OVERVIEW_LIVE_LOOPS if name in enabled
+    )
+
+
 def _overview_body(flash=None, flash_ok=True, session_id=None):
     """The dashboard's home page: a chat-only view of the two-way message
     thread with the GitLab loop, styled after chatbot landing pages. With
@@ -9135,6 +9158,7 @@ def _overview_body(flash=None, flash_ok=True, session_id=None):
 <div class='chat-hero-links'>
 <a class='btn btn-neutral chat-link-pill' href='/?view=activity'><span class='material-symbols-outlined' aria-hidden='true'>bolt</span>{html.escape(_t('Loop activity'))}</a>
 <a class='btn btn-neutral chat-link-pill' href='/loops/gitlab-loop'><span class='material-symbols-outlined' aria-hidden='true'>merge</span>{html.escape(_t('Live GitLab'))}</a>
+{_overview_live_links_html()}
 </div>
 </div>
 """
@@ -14143,7 +14167,7 @@ def _generic_loop_settings_body(name, flash=None, flash_ok=True):
     safe_name = html.escape(urllib.parse.quote(name, safe=""))
     form = (f"<form method='post' action='/loops/{safe_name}/settings' class='stack-form'>{csrf_input}"
             f"<div class='connector-fields'>{''.join(rows)}</div>"
-            f"<button type='submit' class='btn'>{html.escape(_t('Save'))}</button></form>"
+            f"<button type='submit' class='btn btn-neutral'>{html.escape(_t('Save'))}</button></form>"
             if rows else f"<p>{html.escape(_t('This loop has no settings.'))}</p>")
     return (_flash_html(flash, flash_ok)
             + f"<section class='card'><div class='section-header'><h2>{html.escape(_t('Settings'))}</h2></div>"
@@ -14158,6 +14182,14 @@ def _plugin_loop_label(name, loop):
 
 def _loop_status_badge(name):
     return _status_badge_markup(read_status(status_path_for_loop(name)))
+
+
+# Sidebar/page icon per plugin loop; any other loop falls back to the
+# generic Loops icon. Glyphs must be in _MATERIAL_SYMBOLS_ICON_NAMES.
+_LOOP_NAV_ICONS = {
+    "meeting-prep-loop": "calendar_month",
+    "rss-watch-loop": "rss_feed",
+}
 
 
 def _generic_loop_page(name, loop=None):
@@ -14179,7 +14211,10 @@ def _generic_loop_page(name, loop=None):
         views.append(V("settings", "Settings",
                        lambda **kw: _generic_loop_settings_body(name, **_only(kw, "flash", "flash_ok")),
                        badge_fn=badge))
-    return hub_mod.Hub("loops", f"/loops/{urllib.parse.quote(name)}", label, _SECTION_ICON_LOOPS, tuple(views))
+    icon = _LOOP_NAV_ICONS.get(name)
+    icon = (f"<span class='material-symbols-outlined' aria-hidden='true'>{icon}</span>"
+            if icon else _SECTION_ICON_LOOPS)
+    return hub_mod.Hub("loops", f"/loops/{urllib.parse.quote(name)}", label, icon, tuple(views))
 
 
 def _loop_page_for(name, loop=None):

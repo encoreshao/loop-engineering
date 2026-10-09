@@ -11720,6 +11720,7 @@ def test_activity_route_chat_passes_page_to_prompt(monkeypatch, tmp_path):
 def test_overview_buttons_use_global_btn_style(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "does-not-exist-status.json")
     monkeypatch.setattr(ds, "MESSAGES_PATH", tmp_path / "messages.json")
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: [])
     page = ds.render_overview_page()
     assert "class='btn btn-neutral chat-tool-btn'" in page
     assert "class='btn btn-neutral chat-tool-btn chat-new-btn'" in page
@@ -14329,3 +14330,28 @@ def test_generic_loop_content_view_empty_state(monkeypatch, tmp_path):
 def test_inbox_hub_has_a_drafts_view(monkeypatch):
     keys = [v.key for v in ds._loop_pages()["inbox-triage-loop"].views]
     assert "drafts" in keys
+
+
+def test_overview_live_links_only_for_enabled_meeting_and_inbox_loops(monkeypatch):
+    loops = [
+        {"name": "meeting-prep-loop", "enabled": True},
+        {"name": "inbox-triage-loop", "enabled": False},
+    ]
+    monkeypatch.setattr(ds.loops_config, "list_loops", lambda *a, **k: loops)
+    out = ds._overview_live_links_html()
+    assert "href='/loops/meeting-prep-loop'" in out
+    assert "inbox-triage-loop" not in out and "run-now" not in out
+    loops[1]["enabled"] = True
+    assert "href='/loops/inbox-triage-loop'" in ds._overview_live_links_html()
+
+
+def test_plugin_loop_nav_icons_are_in_the_icon_font_subset():
+    for name, glyph in (("meeting-prep-loop", "calendar_month"), ("rss-watch-loop", "rss_feed")):
+        assert glyph in ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
+        assert glyph in ds._generic_loop_page(name, {"name": name}).icon
+    assert "autorenew" in ds._generic_loop_page("stale-sweeper-loop", {"name": "stale-sweeper-loop"}).icon
+
+
+def test_run_now_button_is_not_full_width():
+    rule = ds._STYLE.split(".run-now-action button {")[1].split("}")[0]
+    assert "width: 100%" not in rule

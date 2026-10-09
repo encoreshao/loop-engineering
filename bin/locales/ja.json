@@ -935,5 +935,6 @@
   "Open items": "未解決の項目",
   "Raise": "提起したい点",
   "From last time": "前回から",
-  "Highlights": "ハイライト"
+  "Highlights": "ハイライト",
+  "Live {loop}": "ライブ {loop}"
 }
