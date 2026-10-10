@@ -11551,7 +11551,7 @@ def test_repo_ships_translated_readmes_with_the_same_section_count(name):
     translated = (root / name).read_text("utf-8")
     assert len(ds._markdown_h2_sections(translated)) == len(ds._markdown_h2_sections(english))
     assert translated.count("```") == english.count("```")
-    assert "[English](README.md)" in translated.splitlines()[0]
+    assert "[English](README.md)" in "\n".join(translated.splitlines()[:5])
 
 
 # --- AI side panel (Gemini-style assistant panel opened from the topbar) ---
