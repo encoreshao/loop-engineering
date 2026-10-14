@@ -104,6 +104,8 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Fixed
 
+- Live GitLab's "Couldn't check" notice now shows the real GitLab error (such as a 404 for an
+  unknown project alias) instead of a Python dependency warning such as `RequestsDependencyWarning`.
 - On phone-width screens (about 390px) the topbar's controls scroll sideways
   instead of being cut off, and cards, grids and tab bars stay inside the
   page.

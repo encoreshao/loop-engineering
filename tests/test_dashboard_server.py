@@ -711,6 +711,18 @@ def test_describe_gitlab_api_error_skips_warning_lines():
     assert ds._describe_gitlab_api_error(exc) == "ModuleNotFoundError: No module named 'requests'"
 
 
+def test_describe_gitlab_api_error_skips_python_warning_lines():
+    stderr = (
+        "/x/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.3.0) doesn't match a supported version!\n"
+        "  warnings.warn(\n"
+        "HTTP Error: 404 Client Error: Not Found\n"
+        'Response: {"message":"404 Project Not Found"}\n'
+    )
+    exc = subprocess.CalledProcessError(1, ["gitlab_api.py"], stderr=stderr)
+
+    assert ds._describe_gitlab_api_error(exc) == "HTTP Error: 404 Client Error: Not Found"
+
+
 def test_describe_gitlab_api_error_falls_back_to_str_when_no_stderr():
     exc = ValueError("boom")
 

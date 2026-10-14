@@ -2193,7 +2193,9 @@ def _describe_gitlab_api_error(exc):
     stderr = getattr(exc, "stderr", "") or ""
     for line in stderr.strip().splitlines():
         line = line.strip()
-        if line and not line.startswith("Warning:"):
+        # Python warnings (e.g. requests' RequestsDependencyWarning and the
+        # "warnings.warn(" source line after it) are noise, not why it failed.
+        if line and "Warning:" not in line and not line.startswith("warnings.warn("):
             return line
     return str(exc)
 
