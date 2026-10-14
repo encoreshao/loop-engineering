@@ -971,5 +971,6 @@
   "Sending is only supported for Gmail mailboxes": "送信は Gmail のメールボックスでのみサポートされています",
   "Chat tools": "チャットツール",
   "Read tools run straight away. Tools that create, comment or send wait for your Approve click in the chat. Tick a tool to skip that review - it then runs as soon as the assistant calls it.": "読み取りツールはすぐに実行されます。作成・コメント・送信を行うツールは、チャットでの承認クリックを待ちます。ツールにチェックを入れるとその確認を省略し、アシスタントが呼び出した時点で実行されます。",
-  "Skip review for these actions": "これらの操作の確認を省略"
+  "Skip review for these actions": "これらの操作の確認を省略",
+  "Latest results": "最新の結果"
 }

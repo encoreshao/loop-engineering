@@ -5962,6 +5962,21 @@ ul.plain li {{ font-size: 0.9rem; }}
 }}
 .learning-item .markdown {{ font-size: 0.9rem; }}
 .learning-item .markdown > :last-child {{ margin-bottom: 0; }}
+.status-head {{ display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.85rem; }}
+.status-head .section-header {{ margin-bottom: 0; }}
+.status-head .run-now-action {{ margin: 0; padding: 0; border: 0; }}
+.stat-tiles {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr)); gap: 0.75rem; }}
+.stat-tile {{ display: flex; flex-direction: column; gap: 0.15rem; padding: 0.75rem 1rem; border-radius: 12px; background: var(--md-surface-container-low); }}
+.stat-label {{ font-size: 0.75rem; color: var(--md-on-surface-variant); text-transform: uppercase; letter-spacing: 0.04em; }}
+.stat-value {{ font-size: 1.25rem; font-weight: 500; font-variant-numeric: tabular-nums; }}
+.stat-sub {{ font-size: 0.8rem; color: var(--md-on-surface-variant); }}
+.stat-failed .stat-value {{ color: var(--md-on-error-container, #900); }}
+.status-link {{ margin: 0.85rem 0 0; font-size: 0.9rem; }}
+.result-list {{ list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }}
+.result-row {{ padding: 0.75rem 1rem; border-radius: 12px; background: var(--md-surface-container-low); border-left: 3px solid var(--md-outline-variant, currentColor); }}
+.result-head {{ display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }}
+.result-title {{ font-weight: 500; min-width: 0; overflow-wrap: anywhere; }}
+.result-summary {{ margin: 0.35rem 0 0; font-size: 0.9rem; line-height: 1.45; color: var(--md-on-surface-variant); }}
 .meeting-list, .history-runs, .history-items {{ list-style: none; margin: 0; padding: 0; }}
 .meeting-row {{ display: grid; grid-template-columns: 7.5rem 1fr auto auto; gap: 0.75rem; align-items: center;
   padding: 0.6rem 0.85rem; border-left: 4px solid transparent; border-radius: 8px; }}
@@ -14541,39 +14556,68 @@ def _generic_loop_live_body(name, flash=None, flash_ok=True):
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
     status = read_status(status_path_for_loop(name))
     last = _read_loop_last_run(name)
-    parts = [_flash_html(flash, flash_ok)]
+    parts = [_flash_html(flash, flash_ok), _loop_status_card(name, status, last, quoted, safe_name, csrf_input)]
     if name == MEETING_PREP_LOOP:
+        # The agenda already lists this loop's per-meeting results.
         parts.append(_meetings_today_card(name))
-    parts.append(f"<section class='card'><div class='section-header'><h2>{html.escape(_t('Status'))}</h2>"
-                 f"{_status_badge_markup(status)}</div>")
+    else:
+        parts.append(_loop_latest_results_card(last))
+    return "".join(parts)
+
+
+_LATEST_RESULTS_SHOWN = 3
+
+
+def _loop_status_card(name, status, last, quoted, safe_name, csrf_input):
+    """The Live tab's Status section, shared by every generic loop: state
+    badge and Run now in the header, then Last run / Done / Skipped / Failed
+    as stat tiles."""
+    run_now = ("" if status.get("state") == "running"
+               else _run_now_action_html(f"/loops/{safe_name}/run-now", "", csrf_input))
+    head = (f"<div class='status-head'><div class='section-header'><h2>{html.escape(_t('Status'))}</h2>"
+            f"{_status_badge_markup(status)}</div>{run_now}</div>")
     if last is None:
-        parts.append(f"<p>{html.escape(_t('No runs recorded yet.'))}</p>")
+        body = f"<p class='section-subtitle'>{html.escape(_t('No runs recorded yet.'))}</p>"
     else:
         counts = last.get("counts") if isinstance(last.get("counts"), dict) else {}
-        parts.append(
-            f"<p>{html.escape(_t('Last run'))}: {html.escape(str(last.get('finished_at', '')))}</p>"
-            "<ul class='loop-counts'>"
-            + "".join(f"<li>{html.escape(_t(label))}: <strong>{html.escape(str(counts.get(key, 0)))}</strong></li>"
-                      for key, label in (("done", "Done"), ("skipped", "Skipped"), ("failed", "Failed")))
-            + "</ul>")
-        outcomes = [o for o in (last.get("outcomes") or []) if isinstance(o, dict)]
-        if outcomes:
-            rows = []
-            for o in outcomes:
-                url = str(o.get("url") or "")
-                key = html.escape(str(o.get("label") or o.get("item_key", "")))
-                if url.startswith(("http://", "https://")):
-                    key = f"<a href='{html.escape(url, quote=True)}' target='_blank' rel='noopener'>{key}</a>"
-                rows.append(f"<tr><td>{key}</td><td>{html.escape(str(o.get('status', '')))}</td>"
-                            f"<td>{html.escape(str(o.get('summary', '')))}</td></tr>")
-            head = "".join(f"<th>{html.escape(_t(c))}</th>" for c in ("Item", "Status", "Summary"))
-            parts.append(f"<div class='table-wrap'><table><thead><tr>{head}</tr></thead>"
-                         f"<tbody>{''.join(rows)}</tbody></table></div>")
-    parts.append(f"<p><a href='/loops/{quoted}?view=history'>{html.escape(_t('View run history'))}</a></p>")
-    if status.get("state") != "running":
-        parts.append(_run_now_action_html(f"/loops/{safe_name}/run-now", "", csrf_input))
-    parts.append("</section>")
-    return "".join(parts)
+        finished = _aware(last.get("finished_at"))
+        when = (finished.astimezone().strftime("%Y-%m-%d %H:%M") if finished
+                else str(last.get("finished_at", "")))
+        ago = _relative_time(finished.isoformat()) if finished else ""
+        tiles = [("", _t("Last run"), when, ago)] + [
+            (key, _t(label), str(counts.get(key, 0)), "")
+            for key, label in (("done", "Done"), ("skipped", "Skipped"), ("failed", "Failed"))]
+        body = "<div class='stat-tiles'>" + "".join(
+            f"<div class='stat-tile{' stat-' + kind if kind else ''}'>"
+            f"<span class='stat-label'>{html.escape(label)}</span>"
+            f"<span class='stat-value'>{html.escape(value)}</span>"
+            + (f"<span class='stat-sub'>{html.escape(sub)}</span>" if sub else "")
+            + "</div>" for kind, label, value, sub in tiles) + "</div>"
+    link = f"<p class='status-link'><a href='/loops/{quoted}?view=history'>{html.escape(_t('View run history'))}</a></p>"
+    return f"<section class='card'>{head}{body}{link}</section>"
+
+
+def _loop_latest_results_card(last):
+    """The newest few items from the last run, full width. Empty when the run
+    recorded none."""
+    outcomes = [o for o in ((last or {}).get("outcomes") or []) if isinstance(o, dict)]
+    head = f"<div class='section-header'><h2>{html.escape(_t('Latest results'))}</h2></div>"
+    if not outcomes:
+        return (f"<section class='card'>{head}"
+                f"<p class='section-subtitle'>{html.escape(_t('Nothing saved yet. Results appear here after the next run.'))}</p></section>")
+    rows = []
+    for o in outcomes[:_LATEST_RESULTS_SHOWN]:
+        status = str(o.get("status", ""))
+        url = str(o.get("url") or "")
+        title = html.escape(str(o.get("label") or o.get("item_key", "")))
+        if url.startswith(("http://", "https://")):
+            title = f"<a href='{html.escape(url, quote=True)}' target='_blank' rel='noopener'>{title}</a>"
+        summary = (f"<p class='result-summary'>{html.escape(str(o.get('summary')))}</p>" if o.get("summary") else "")
+        kind = status if status in ("done", "skipped", "failed") else "skipped"
+        rows.append(f"<li class='result-row'><div class='result-head'><span class='result-title'>{title}</span>"
+                    f"<span class='pill history-pill history-{kind}'>{html.escape(_t(status.capitalize()) if status else '')}</span>"
+                    f"</div>{summary}</li>")
+    return f"<section class='card'>{head}<ul class='result-list'>{''.join(rows)}</ul></section>"
 
 
 MEETING_PREP_LOOP = "meeting-prep-loop"
