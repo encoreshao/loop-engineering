@@ -18,6 +18,7 @@ from pathlib import Path
 # same sys.path convention.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "web"))
 
+import auth_health
 import dashboard_server
 import ledger
 import loops_config
@@ -168,6 +169,12 @@ def run_due_loops(loops=None, state_path=None, run_loop_now_path=None, now=None,
 def main():
     # Best-effort, idempotent: catches runs that predate loop.result events.
     ledger.run_startup_backfill()
+    # Throttled to every few hours and never raises out of here; first, since
+    # run_due_loops blocks for as long as a loop runs.
+    try:
+        auth_health.run_if_due()
+    except Exception as exc:  # noqa: BLE001
+        print(f"loop_scheduler: auth health check failed: {type(exc).__name__}: {exc}", file=sys.stderr)
     run_due_loops()
 
 

@@ -4,7 +4,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin" / "web"))
+import pytest
+
 import loop_scheduler as sched
+
+
+@pytest.fixture(autouse=True)
+def _no_real_auth_health(monkeypatch):
+    """main() runs the auth health check, which probes real accounts and writes
+    ~/.loop-engineering/auth_health.json - never let a test reach that."""
+    monkeypatch.setattr(sched.auth_health, "run_if_due", lambda: False)
+
 
 GITLAB_LOOP = {
     "name": "gitlab-loop",
@@ -286,3 +296,16 @@ def test_minute_interval_tolerates_a_poll_firing_a_few_seconds_early():
     loop = {"name": "x", "schedule": {"frequency": "hourly", "interval_minutes": 15}}
     state = {"x": {"last_attempted_at": "2026-09-14T10:00:05"}}
     assert sched.is_due(loop, state, now=datetime(2026, 9, 14, 10, 15, 1)) is True
+
+
+def test_main_runs_the_auth_health_check_even_if_it_crashes(monkeypatch):
+    calls = []
+    monkeypatch.setattr(sched.ledger, "run_startup_backfill", lambda: None)
+    monkeypatch.setattr(sched, "run_due_loops", lambda: calls.append("loops"))
+
+    def boom():
+        calls.append("auth")
+        raise RuntimeError("probe blew up")
+    monkeypatch.setattr(sched.auth_health, "run_if_due", boom)
+    sched.main()
+    assert calls == ["auth", "loops"]

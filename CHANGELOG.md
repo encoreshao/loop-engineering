@@ -13,6 +13,7 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Added
 
+- A sign-in health check on every scheduler poll (at most every 6 hours) refreshes each mailbox and tests Google Calendar, GitLab, GitHub, Jira, Linear and Notion credentials. A sign-in that has expired or been revoked (Google tokens last 7 days while the OAuth app is in Testing mode) is reported once to Slack, repeated daily, and followed by a recovery message
 - Meeting Prep Slack briefs now list the meeting's Date & Time, Attendees and Meeting Link
   (Slack mrkdwn only), and placeholder, duplicate or empty entries are dropped so each brief
   holds only content grounded in that meeting's invite, GitLab work and mail.
