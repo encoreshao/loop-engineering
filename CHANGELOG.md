@@ -42,7 +42,7 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
   Prep briefs, RSS Watch highlights, ...) has a Content tab with its saved results.
 - `bin/scripts/build_macos_app.sh` builds `dist/Loop X.app`, a native macOS
   window around the dashboard (pywebview). It attaches to the running
-  dashboard daemon, or serves the dashboard itself when none is running. `--desktop-shortcut` adds an alias to it on `~/Desktop`. It has its own
+  dashboard daemon, or serves the dashboard itself when none is running. It has its own
   app icon (`assets/app-icon.svg`).
 
 - Custom instructions now apply to the topic monitor and inbox triage loops

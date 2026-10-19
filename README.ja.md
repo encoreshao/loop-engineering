@@ -143,7 +143,6 @@ bin/scripts/setup.sh --skip-skills-install
 ```bash
 bin/scripts/build_macos_app.sh      # -> dist/Loop X.app
 open "dist/Loop X.app"
-bin/scripts/build_macos_app.sh --desktop-shortcut   # ~/Desktop
 ```
 
 ダッシュボードを包むネイティブウィンドウです（pywebview と PyYAML を入れた専用 venv を使用）。起動中のダッシュボードデーモンに接続し、無ければ自身でダッシュボードを提供します。アプリはこのチェックアウトの `bin/desktop_app.py` を起動するため、チェックアウトは動かさないでください。設定と実行状態は `~/.loop-engineering` と `outputs/` に残ります。

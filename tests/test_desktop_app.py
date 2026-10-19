@@ -109,17 +109,14 @@ def test_build_script_dry_run_makes_bundle(tmp_path):
     assert "com.hermes" not in info["CFBundleIdentifier"]
 
 
-def test_build_script_creates_desktop_shortcut(tmp_path):
-    out, desktop = tmp_path / "out", tmp_path / "Desktop"
+def test_build_script_rejects_removed_desktop_shortcut_flags(tmp_path):
     result = subprocess.run(
-        ["bash", str(BUILD_SCRIPT), "--output-dir", str(out), "--skip-venv", "--skip-icon", "--desktop-dir", str(desktop)],
+        ["bash", str(BUILD_SCRIPT), "--output-dir", str(tmp_path / "out"), "--desktop-shortcut"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, result.stderr
-    link = desktop / "Loop X"
-    assert link.is_symlink()
-    assert link.resolve() == (out / "Loop X.app").resolve()
+    assert result.returncode != 0
+    assert "Usage:" in result.stderr
 
 
 def test_build_script_dmg_has_app_and_applications_link(tmp_path):

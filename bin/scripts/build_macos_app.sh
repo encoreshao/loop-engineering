@@ -5,10 +5,8 @@
 # and outputs/, never inside the bundle, so the app is tied to this checkout.
 #
 # Usage: build_macos_app.sh [--output-dir DIR] [--python PATH] [--skip-venv] [--skip-icon]
-#                           [--desktop-shortcut] [--desktop-dir DIR]
+#                           [--dmg]
 # --dmg also packs the app into DIR/Loop X.dmg (drag-to-Applications disk image).
-# --desktop-shortcut puts a Finder alias to the app on ~/Desktop; --desktop-dir
-# DIR puts a plain symlink in DIR instead (no Finder automation prompt).
 set -euo pipefail
 
 LOOP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -16,9 +14,7 @@ OUTPUT_DIR="$LOOP_DIR/dist"
 PYTHON="python3"
 SKIP_VENV=0
 SKIP_ICON=0
-SHORTCUT=0
 DMG=0
-DESKTOP_DIR=""
 APP_NAME="Loop X"
 
 while [ $# -gt 0 ]; do
@@ -28,9 +24,7 @@ while [ $# -gt 0 ]; do
     --skip-venv) SKIP_VENV=1; shift ;;
     --skip-icon) SKIP_ICON=1; shift ;;
     --dmg) DMG=1; shift ;;
-    --desktop-shortcut) SHORTCUT=1; shift ;;
-    --desktop-dir) SHORTCUT=1; DESKTOP_DIR="$2"; shift 2 ;;
-    *) echo "Usage: build_macos_app.sh [--output-dir DIR] [--python PATH] [--skip-venv] [--skip-icon] [--dmg] [--desktop-shortcut] [--desktop-dir DIR]" >&2; exit 1 ;;
+    *) echo "Usage: build_macos_app.sh [--output-dir DIR] [--python PATH] [--skip-venv] [--skip-icon] [--dmg]" >&2; exit 1 ;;
   esac
 done
 
@@ -96,21 +90,4 @@ if [ "$DMG" -eq 1 ]; then
   hdiutil create -quiet -volname "$APP_NAME" -srcfolder "$stage" -ov -format UDZO "$OUTPUT_DIR/$APP_NAME.dmg"
   rm -rf "$stage"
   echo "DMG: $OUTPUT_DIR/$APP_NAME.dmg"
-fi
-
-if [ "$SHORTCUT" -eq 1 ]; then
-  if [ -n "$DESKTOP_DIR" ]; then
-    mkdir -p "$DESKTOP_DIR"
-    ln -sfn "$APP" "$DESKTOP_DIR/$APP_NAME"
-  else
-    DESKTOP_DIR="$HOME/Desktop"
-    mkdir -p "$DESKTOP_DIR"
-    rm -f "$DESKTOP_DIR/$APP_NAME"
-    osascript <<OSA >/dev/null
-tell application "Finder"
-  make new alias file to (POSIX file "$APP" as alias) at (POSIX file "$DESKTOP_DIR" as alias) with properties {name:"$APP_NAME"}
-end tell
-OSA
-  fi
-  echo "Shortcut: $DESKTOP_DIR/$APP_NAME"
 fi

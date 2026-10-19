@@ -143,7 +143,6 @@ Once it's done, open the dashboard's **Settings → Skills** page to confirm eve
 ```bash
 bin/scripts/build_macos_app.sh      # -> dist/Loop X.app (own venv with pywebview + PyYAML)
 open "dist/Loop X.app"
-bin/scripts/build_macos_app.sh --desktop-shortcut   # also add an alias on ~/Desktop
 bin/scripts/build_macos_app.sh --dmg                # also pack dist/Loop X.dmg (drag to Applications)
 bin/scripts/rebuild_macos_app.sh                    # git pull --ff-only, rebuild app + DMG, relaunch
 ```
