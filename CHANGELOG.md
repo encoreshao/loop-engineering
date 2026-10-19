@@ -11,6 +11,8 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-19
+
 ### Added
 
 - A sign-in health check on every scheduler poll (at most every 6 hours) refreshes each mailbox and tests Google Calendar, GitLab, GitHub, Jira, Linear and Notion credentials. A sign-in that has expired or been revoked (Google tokens last 7 days while the OAuth app is in Testing mode) is reported once to Slack, repeated daily, and followed by a recovery message
@@ -230,6 +232,7 @@ later releases list only what changed since the previous one.
 - `install.sh`, `uninstall.sh` and `setup.sh` with launchd agents and an
   optional nginx front end.
 
-[Unreleased]: https://github.com/encoreshao/loop-engineering/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/encoreshao/loop-engineering/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/encoreshao/loop-engineering/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/encoreshao/loop-engineering/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/encoreshao/loop-engineering/releases/tag/v0.1.0
