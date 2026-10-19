@@ -53,6 +53,8 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Changed
 
+- Each GitLab loop run now opens with one Slack title message ("GitLab loop started — N issues to check") before the per-issue Starting/Finished lines.
+- GitLab issues waiting on a reviewer now get a Slack "Finished ... no action — waiting on review" message after their "Starting" message, so every issue in a run reports an outcome.
 - Loop Live tabs (RSS Watch, Meeting Prep and other plugin loops) share a new Status section with
   the Run now button and Last run / Done / Skipped / Failed tiles; RSS Watch lists its latest three
   results in a separate full-width section.

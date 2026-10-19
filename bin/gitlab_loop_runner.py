@@ -972,15 +972,20 @@ def run_all_issues(run_id, results_dir=None, definition_path=None, repo_root=Non
     assigned = list_assigned_issues(aliases, username)
     timeout_seconds = definition.stop_conditions.max_runtime_minutes * 60
 
+    todo = [(alias, issue) for alias, issues in assigned.items() for issue in issues
+            if issue_tracking_config.is_issue_enabled(alias, issue["iid"])]
+    # One title message so the per-issue Starting/Finished lines that follow
+    # read as a single run in Slack.
+    count = len(todo)
+    _notify_slack_best_effort(
+        f"*GitLab loop started* \u2014 {count} issue{'s' if count != 1 else ''} to check")
+
     results = []
-    for alias, issues in assigned.items():
-        for issue in issues:
-            if not issue_tracking_config.is_issue_enabled(alias, issue["iid"]):
-                continue
-            results.append(_run_one_issue(
-                run_id, alias, issue["iid"], definition, results_dir, repo_root,
-                agent_invoker=invoke_batch_issue_agent, events_dir=events_dir,
-            ))
+    for alias, issue in todo:
+        results.append(_run_one_issue(
+            run_id, alias, issue["iid"], definition, results_dir, repo_root,
+            agent_invoker=invoke_batch_issue_agent, events_dir=events_dir,
+        ))
 
     # UNCONDITIONAL, and deliberately outside LoopRuntime: "End of run" is
     # housekeeping (daily-review.md, outputs/history/, PROGRESS.md, the one

@@ -375,6 +375,22 @@ def test_run_all_issues_writes_one_result_per_issue(tmp_path, monkeypatch):
     ]
 
 
+def test_run_all_issues_posts_one_start_title_before_any_issue(tmp_path, monkeypatch, slack_calls):
+    order = []
+    monkeypatch.setattr(glr, "invoke_batch_issue_agent",
+                        lambda alias, iid, **kw: order.append(("issue", len(slack_calls))) or {"cost_usd": 0.0})
+    monkeypatch.setattr(glr, "invoke_batch_end_of_run_agent", lambda **kw: {"cost_usd": 0.0})
+    monkeypatch.setattr(glr, "list_assigned_issues",
+                        lambda aliases, username: {"harbor": [{"iid": 1}, {"iid": 2}], "orchard": [{"iid": 9}]})
+    glr.run_all_issues(
+        "run_20260907_100000", results_dir=tmp_path / "r",
+        definition_path=REPO_ROOT / "loops" / "gitlab-issue" / "loop.yaml",
+        aliases=["harbor", "orchard"], username="encore", events_dir=tmp_path / "events",
+    )
+    assert slack_calls == ["*GitLab loop started* \u2014 3 issues to check"]
+    assert all(n == 1 for _, n in order)
+
+
 def test_run_all_issues_continues_after_one_issue_fails(tmp_path, monkeypatch):
     def fake_invoke(alias, issue_iid, repo_root=None, timeout_seconds=900, unified_log_path=None,
                     feedback=None, gate=False, run_id=None, max_budget_usd=None):
@@ -575,7 +591,7 @@ def test_run_all_issues_alerts_slack_when_the_wrap_up_itself_fails(tmp_path, mon
         _fake_wrapup_invoker([], exc=RuntimeError("wrap-up blew up")),
     )
     monkeypatch.setattr(glr, "list_assigned_issues", lambda aliases, username: {})
-    monkeypatch.setattr(glr.slack_notify, "post_message", lambda text, **kwargs: sent.append(text))
+    monkeypatch.setattr(glr.slack_notify, "post_message", lambda text, **kwargs: sent.append(text) if "loop started" not in text else None)
 
     unified_log = tmp_path / "unified.log"
     events_dir = tmp_path / "events"
@@ -1018,7 +1034,7 @@ def test_main_alerts_slack_when_an_issue_does_not_complete(tmp_path, monkeypatch
         glr, "list_assigned_issues",
         lambda aliases, username: {"harbor": [{"iid": 1}, {"iid": 2}]},
     )
-    monkeypatch.setattr(glr.slack_notify, "post_message", lambda text, **kwargs: sent.append(text))
+    monkeypatch.setattr(glr.slack_notify, "post_message", lambda text, **kwargs: sent.append(text) if "loop started" not in text else None)
 
     glr.main(
         argv=["run_20260907_170000"], results_dir=tmp_path / "loop-runs",
@@ -1038,7 +1054,7 @@ def test_main_does_not_alert_slack_when_everything_completes(tmp_path, monkeypat
     monkeypatch.setattr(glr, "invoke_batch_issue_agent", _fake_per_issue_invoker([]))
     monkeypatch.setattr(glr, "invoke_batch_end_of_run_agent", _fake_wrapup_invoker([]))
     monkeypatch.setattr(glr, "list_assigned_issues", lambda aliases, username: {"harbor": [{"iid": 1}]})
-    monkeypatch.setattr(glr.slack_notify, "post_message", lambda text, **kwargs: sent.append(text))
+    monkeypatch.setattr(glr.slack_notify, "post_message", lambda text, **kwargs: sent.append(text) if "loop started" not in text else None)
 
     glr.main(
         argv=["run_20260907_171500"], results_dir=tmp_path / "loop-runs",

@@ -298,14 +298,15 @@ Some issues aren't the loop's to act on right now — the work has already been 
 
 5. **`awaiting_review_reminded` is already `true`** — the one reminder already went out; do nothing, and don't send another.
 
-In every case: mark the notes seen so this state isn't re-analyzed as new next run, create no worktree, and emit the outcome (use `reminder_sent: true` only for case 4, `false` for cases 2, 3, and 5):
+In every case: mark the notes seen so this state isn't re-analyzed as new next run, create no worktree, send the one "Finished" Slack message (every issue that got a "Starting" message gets exactly one "Finished" message, even when nothing was done), and emit the outcome (use `reminder_sent: true` only for case 4, `false` for cases 2, 3, and 5):
 ```
+python3 <loop_dir>/bin/slack_notify.py<bundle_flag> "*Finished* <<issue_url>|#<issue_iid> (<alias>)>: no action — waiting on review"
 python3 <loop_dir>/bin/track_new_comments.py mark-seen <instance> <project_id> <issue_iid>
 python3 <loop_dir>/bin/events.py emit --type issue.completed --run-id "$LOOP_RUN_ID" --issue-run-id "${LOOP_RUN_ID}_<alias>_<issue_iid>" --project <alias> --issue-iid <issue_iid> --data "{\"action\": \"wait_for_review\", \"reminder_sent\": <true_or_false>}"
 ```
 No worktree is ever created on this path, so the working directory is already `<loop_dir>` throughout — there's nothing to `cd` back from before moving to the next issue.
 
-None of cases 2, 3, 4, or 5 touches the GitLab issue itself; case 4 is the only one that sends anything at all, and only once per handoff. All four count toward this run's "No-ops" in `daily-review.md` — note there when a Slack reminder actually went out (case 4) so it isn't invisible in the summary.
+None of cases 2, 3, 4, or 5 touches the GitLab issue itself; the only Slack output is the "Finished" no-action message, plus case 4's reminder once per handoff. All four count toward this run's "No-ops" in `daily-review.md` — note there when a Slack reminder actually went out (case 4) so it isn't invisible in the summary.
 
 ### Answer directly (no code change needed)
 
