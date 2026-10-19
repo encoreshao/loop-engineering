@@ -14904,10 +14904,11 @@ def test_gitlab_live_body_shows_status_and_last_run(tmp_path, monkeypatch):
     monkeypatch.setattr(ds, "STATUS_PATH", status)
     events = tmp_path / "events"
     monkeypatch.setattr(ds.events_store, "DEFAULT_EVENTS_DIR", events)
+    _gitlab_event(events, "issue.queued", "run_x", 7, None, title="Fix the login bug",
+                  web_url="https://gl/harbor/-/issues/7")
     _gitlab_event(events, "issue.started", "run_x", 7, None)
     _gitlab_event(events, "issue.completed", "run_x", 7, None, action="fix", mr_url="https://gl/mr/9")
-    monkeypatch.setattr(ds, "_gitlab_issue_info", lambda alias, iid: {
-        "title": "Fix the login bug", "web_url": f"https://gl/harbor/-/issues/{iid}"})
+    monkeypatch.setattr(ds.subprocess, "run", lambda *a, **k: pytest.fail("page render must not call GitLab"))
     body = ds._gitlab_live_body()
     assert "#7 Fix the login bug" in body
     assert "href='https://gl/harbor/-/issues/7'" in body

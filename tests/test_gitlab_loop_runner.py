@@ -419,6 +419,31 @@ def test_run_all_issues_continues_after_one_issue_fails(tmp_path, monkeypatch):
     assert [r.final_state.value for r in results] == ["failed", "completed"]
 
 
+def test_run_all_issues_records_issue_title_and_url_in_events(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        glr, "invoke_batch_issue_agent",
+        lambda *a, **k: {"changed": True, "cost_usd": 0.1})
+    monkeypatch.setattr(
+        glr, "invoke_batch_end_of_run_agent",
+        lambda repo_root=None, timeout_seconds=900, unified_log_path=None: {"changed": True, "cost_usd": 0.0})
+    monkeypatch.setattr(
+        glr, "list_assigned_issues",
+        lambda aliases, username: {"harbor": [
+            {"iid": 5, "title": "Fix login", "web_url": "https://gl/harbor/-/issues/5"}]})
+    events_dir = tmp_path / "events"
+
+    glr.run_all_issues(
+        "run_20260907_110000", results_dir=tmp_path / "loop-runs",
+        definition_path=REPO_ROOT / "loops" / "gitlab-issue" / "loop.yaml",
+        aliases=["harbor"], username="encore", events_dir=events_dir)
+
+    queued = [e for e in glr.events_module.iter_events(events_dir=events_dir)
+              if e["event_type"] == "issue.queued"]
+    assert len(queued) == 1
+    assert queued[0]["issue_iid"] == 5
+    assert queued[0]["data"] == {"title": "Fix login", "web_url": "https://gl/harbor/-/issues/5"}
+
+
 def test_run_all_issues_skips_issues_disabled_in_issue_tracking_config(tmp_path, monkeypatch):
     calls = []
 

@@ -10872,8 +10872,12 @@ def gitlab_last_run_activity(events_dir=None):
             run_id, issues = event.get("run_id"), {}
         key = (event.get("project"), event.get("issue_iid"))
         row = issues.setdefault(key, {"project": event.get("project"), "iid": event.get("issue_iid"),
-                                      "outcome": "in_progress", "detail": "", "mr_url": "", "timestamp": ""})
+                                      "outcome": "in_progress", "detail": "", "mr_url": "", "timestamp": "",
+                                      "title": "", "web_url": ""})
         data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        if etype == "issue.queued":
+            row["title"], row["web_url"] = str(data.get("title") or ""), str(data.get("web_url") or "")
+            continue
         if etype == "issue.completed":
             row["outcome"] = {"fix": "fix", "answer": "answered"}.get(data.get("action"), "waiting")
             row["mr_url"] = str(data.get("mr_url") or "")
@@ -10933,44 +10937,19 @@ def _gitlab_status_card(status, activity, csrf_input):
     return f"<section class='card'>{head}{body}{link}</section>"
 
 
-def _gitlab_issue_info(alias, iid):
-    """{"title", "web_url"} for one issue via the API helper's get-issue, or {}
-    on any failure - a missing title or link must never break the page."""
-    try:
-        result = subprocess.run(
-            [sys.executable, str(GITLAB_API), "get-issue", str(alias), str(iid)],
-            capture_output=True, text=True, check=True, timeout=15)
-        data = json.loads(result.stdout)
-        issue = data.get("issue") if isinstance(data.get("issue"), dict) else data
-        return {"title": str(issue.get("title") or ""), "web_url": str(issue.get("web_url") or "")}
-    except Exception:
-        return {}
-
-
-def _gitlab_issue_infos(issues):
-    """{(project, iid): info} for the given result rows, fetched in parallel."""
-    keys = list({(i["project"], i["iid"]) for i in issues if i.get("project")})
-    if not keys:
-        return {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(keys), 8)) as executor:
-        return dict(zip(keys, executor.map(lambda k: _gitlab_issue_info(*k), keys)))
-
-
 def _gitlab_last_run_card(activity):
     head = f"<div class='section-header'><h2>{html.escape(_t('Last run results'))}</h2></div>"
     if activity is None or not activity["issues"]:
         return (f"<section class='card'>{head}"
                 f"<p class='section-subtitle'>{html.escape(_t('Nothing saved yet. Results appear here after the next run.'))}</p></section>")
-    infos = _gitlab_issue_infos(activity["issues"])
     prefixes = gitlab_issue_url_prefixes()
     rows = []
     for issue in activity["issues"]:
         kind, label = _GITLAB_OUTCOME_PILLS[issue["outcome"]]
-        info = infos.get((issue["project"], issue["iid"]), {})
-        url = info.get("web_url") or ""
+        url = issue["web_url"]
         if not url and issue["project"] in prefixes:
             url = f"{prefixes[issue['project']]}/-/issues/{issue['iid']}"
-        text = f"#{issue['iid']}" + (f" {info['title']}" if info.get("title") else f" ({issue['project']})")
+        text = f"#{issue['iid']}" + (f" {issue['title']}" if issue["title"] else f" ({issue['project']})")
         title = html.escape(text)
         if url.startswith(("http://", "https://")):
             title = f"<a href='{html.escape(url, quote=True)}' target='_blank' rel='noopener'>{title}</a>"

@@ -982,6 +982,14 @@ def run_all_issues(run_id, results_dir=None, definition_path=None, repo_root=Non
 
     results = []
     for alias, issue in todo:
+        # Title and link go in the ledger so the dashboard's Live page can
+        # show them without calling GitLab when it renders.
+        _emit_best_effort(
+            "issue.queued", run_id=run_id, issue_run_id=f"{run_id}_{alias}_{issue['iid']}",
+            project=alias, issue_iid=issue["iid"],
+            data={"title": str(issue.get("title") or ""), "web_url": str(issue.get("web_url") or "")},
+            events_dir=events_dir,
+        )
         results.append(_run_one_issue(
             run_id, alias, issue["iid"], definition, results_dir, repo_root,
             agent_invoker=invoke_batch_issue_agent, events_dir=events_dir,
