@@ -976,5 +976,6 @@
   "Waiting": "等待中",
   "In progress": "进行中",
   "Answered": "已回复",
-  "Last run results": "上次运行结果"
+  "Last run results": "上次运行结果",
+  "Merge request": "合并请求"
 }

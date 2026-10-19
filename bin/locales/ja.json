@@ -976,5 +976,6 @@
   "Waiting": "待機中",
   "In progress": "処理中",
   "Answered": "回答済み",
-  "Last run results": "前回の実行結果"
+  "Last run results": "前回の実行結果",
+  "Merge request": "マージリクエスト"
 }

@@ -53,6 +53,7 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Changed
 
+- Last run results on the GitLab Live page now show each issue as "#number title" linked to the real GitLab issue, with the merge request linked separately.
 - The GitLab Issues loop page is now just "GitLab" with three tabs: Live shows the loop's real status, progress and the last run's per-issue results, Tasks holds the open issues and merge requests list that used to be Live, and Projects is unchanged.
 - Each GitLab loop run now opens with one Slack title message ("GitLab loop started — N issues to check") before the per-issue Starting/Finished lines.
 - GitLab issues waiting on a reviewer now get a Slack "Finished ... no action — waiting on review" message after their "Starting" message, so every issue in a run reports an outcome.

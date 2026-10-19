@@ -976,5 +976,6 @@
   "Waiting": "En attente",
   "In progress": "En cours",
   "Answered": "Répondu",
-  "Last run results": "Résultats de la dernière exécution"
+  "Last run results": "Résultats de la dernière exécution",
+  "Merge request": "Merge request"
 }

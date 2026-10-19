@@ -10933,23 +10933,55 @@ def _gitlab_status_card(status, activity, csrf_input):
     return f"<section class='card'>{head}{body}{link}</section>"
 
 
+def _gitlab_issue_info(alias, iid):
+    """{"title", "web_url"} for one issue via the API helper's get-issue, or {}
+    on any failure - a missing title or link must never break the page."""
+    try:
+        result = subprocess.run(
+            [sys.executable, str(GITLAB_API), "get-issue", str(alias), str(iid)],
+            capture_output=True, text=True, check=True, timeout=15)
+        data = json.loads(result.stdout)
+        issue = data.get("issue") if isinstance(data.get("issue"), dict) else data
+        return {"title": str(issue.get("title") or ""), "web_url": str(issue.get("web_url") or "")}
+    except Exception:
+        return {}
+
+
+def _gitlab_issue_infos(issues):
+    """{(project, iid): info} for the given result rows, fetched in parallel."""
+    keys = list({(i["project"], i["iid"]) for i in issues if i.get("project")})
+    if not keys:
+        return {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(keys), 8)) as executor:
+        return dict(zip(keys, executor.map(lambda k: _gitlab_issue_info(*k), keys)))
+
+
 def _gitlab_last_run_card(activity):
     head = f"<div class='section-header'><h2>{html.escape(_t('Last run results'))}</h2></div>"
     if activity is None or not activity["issues"]:
         return (f"<section class='card'>{head}"
                 f"<p class='section-subtitle'>{html.escape(_t('Nothing saved yet. Results appear here after the next run.'))}</p></section>")
+    infos = _gitlab_issue_infos(activity["issues"])
+    prefixes = gitlab_issue_url_prefixes()
     rows = []
     for issue in activity["issues"]:
         kind, label = _GITLAB_OUTCOME_PILLS[issue["outcome"]]
-        title = html.escape(f"{issue['project']} #{issue['iid']}")
-        url = issue["mr_url"]
+        info = infos.get((issue["project"], issue["iid"]), {})
+        url = info.get("web_url") or ""
+        if not url and issue["project"] in prefixes:
+            url = f"{prefixes[issue['project']]}/-/issues/{issue['iid']}"
+        text = f"#{issue['iid']}" + (f" {info['title']}" if info.get("title") else f" ({issue['project']})")
+        title = html.escape(text)
         if url.startswith(("http://", "https://")):
             title = f"<a href='{html.escape(url, quote=True)}' target='_blank' rel='noopener'>{title}</a>"
+        mr_url = issue["mr_url"]
+        mr = (f" <a class='stat-sub' href='{html.escape(mr_url, quote=True)}' target='_blank' rel='noopener'>"
+              f"{html.escape(_t('Merge request'))}</a>") if mr_url.startswith(("http://", "https://")) else ""
         detail = (f"<p class='result-summary'>{html.escape(issue['detail'].replace('_', ' '))}</p>"
                   if issue["detail"] else "")
         stamp = _aware(issue["timestamp"])
         ago = f"<span class='stat-sub'>{html.escape(_relative_time(stamp.isoformat()))}</span>" if stamp else ""
-        rows.append(f"<li class='result-row'><div class='result-head'><span class='result-title'>{title}</span>"
+        rows.append(f"<li class='result-row'><div class='result-head'><span class='result-title'>{title}</span>{mr}"
                     f"{ago}<span class='pill history-pill history-{kind}'>{html.escape(_t(label))}</span>"
                     f"</div>{detail}</li>")
     return f"<section class='card'>{head}<ul class='result-list'>{''.join(rows)}</ul></section>"
