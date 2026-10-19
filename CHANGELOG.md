@@ -11,6 +11,10 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ## [Unreleased]
 
+### Changed
+
+- Meeting Prep briefs now only keep content tied to issue work: linked GitLab issues/MRs (with the agent's recorded memory for each issue), mail that mentions an issue or MR, and follow-ups about them. Unrelated mail and meeting chatter are removed from the summary.
+
 ## [0.3.0] - 2026-10-19
 
 ### Added

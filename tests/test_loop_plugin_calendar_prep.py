@@ -205,12 +205,12 @@ def test_gitlab_links_are_capped_and_failures_noted(tmp_path):
 
 
 def test_mail_with_attendees_excludes_me(tmp_path):
-    rows = [{"subject": "Plan", "from": "Ann <ann@example.com>", "date": "2026-10-06T07:00:00+00:00",
+    rows = [{"subject": "Plan for issue #3", "from": "Ann <ann@example.com>", "date": "2026-10-06T07:00:00+00:00",
              "snippet": "x" * 900}]
     p = plugin(tmp_path, mail_rows=rows)
     item = p.discover(Ctx())[0]
     assert p.mail_calls == [(["boss@example.com", "ann@example.com"], 30, 10)]
-    assert item.payload["mail"][0]["subject"] == "Plan" and len(item.payload["mail"][0]["snippet"]) <= 300
+    assert item.payload["mail"][0]["subject"] == "Plan for issue #3" and len(item.payload["mail"][0]["snippet"]) <= 300
 
 
 def test_mail_is_skipped_without_claude_or_when_turned_off(tmp_path):
@@ -352,3 +352,18 @@ def test_template_registers_the_loop_disabled_every_15_minutes():
     assert entry["entry_point"] == "bin.loop_plugins.calendar_prep" and entry["enabled"] is False
     assert entry["schedule"] == {"frequency": "hourly", "interval_minutes": 15}
     assert entry["requires"] == ["calendar"] and entry["routes_notifications"] is True
+
+
+def test_mail_unrelated_to_issues_is_dropped(tmp_path):
+    rows = [{"subject": "Lunch?", "from": "Ann", "date": "d", "snippet": "pizza"},
+            {"subject": "Re: MR !7 review", "from": "Ann", "date": "d", "snippet": ""}]
+    item = plugin(tmp_path, mail_rows=rows).discover(Ctx())[0]
+    assert [m["subject"] for m in item.payload["mail"]] == ["Re: MR !7 review"]
+
+
+def test_linked_issue_carries_its_recorded_memory(tmp_path):
+    desc = f"{GL}/g/p/-/issues/3 {GL}/g/p/-/merge_requests/7"
+    p = plugin(tmp_path, events=[event(description=desc)])
+    p._memory_fn = lambda path, iid: "Fix needs a migration" if (path, iid) == ("g/p", "3") else "x"
+    rows = p.discover(Ctx())[0].payload["gitlab"]
+    assert rows[0]["memory"] == "Fix needs a migration" and "memory" not in rows[1]

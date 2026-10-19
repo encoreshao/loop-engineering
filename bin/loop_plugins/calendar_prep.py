@@ -57,6 +57,9 @@ _LEAD_MARK = re.compile(r"^\s*(?:[-*\u2022\u2023]+|\d{1,2}[.)])\s+")
 
 _URL = re.compile(r"https?://[^\s<>\"'()\[\]]+")
 _GITLAB_PATH = re.compile(r"^(.+?)/-/(issues|merge_requests)/(\d+)(?:[/?#].*)?$")
+# A mail only counts toward a brief when it is about issue/MR work.
+_ISSUE_MENTION = re.compile(r"(?:^|[\s(\[])[#!]\d+\b|\b(?:issues?|merge requests?|MRs?)\b|/-/(?:issues|merge_requests)/", re.I)
+MAX_MEMORY = 400
 
 
 def _clean_entry(value, max_len):
@@ -150,6 +153,29 @@ def _write_json_atomic(path, data):
         tmp.unlink(missing_ok=True)
 
 
+def _issue_related(row):
+    """True when a mail row's subject or snippet mentions an issue/MR (#12,
+    !7, 'issue', 'merge request', a GitLab link)."""
+    return bool(_ISSUE_MENTION.search(f"{row.get('subject') or ''} {row.get('snippet') or ''}"))
+
+
+def _default_memory(path, iid):
+    """The recorded task memory for a linked issue as one short string, or
+    '' when the project is not configured here or nothing is recorded."""
+    import loop_config
+    import memory_store
+    try:
+        projects = loop_config.load_config().get("projects") or {}
+    except (OSError, ValueError):
+        return ""
+    for alias, project in projects.items():
+        if isinstance(project, dict) and project.get("project_id") == path:
+            entry = memory_store.get_task_memory(alias, iid)
+            if entry:
+                return f"{entry.get('description') or ''} {entry.get('body') or ''}".strip()
+    return ""
+
+
 def _usernames(value):
     return [str(u.get("username")) for u in value or [] if isinstance(u, dict) and u.get("username")]
 
@@ -161,7 +187,8 @@ class CalendarPrep(loopkit.LoopPlugin):
     settings_fields = SETTINGS_FIELDS
 
     def __init__(self, accounts_fn=None, loader=None, mail_fn=None, cli_fn=None, series_path=None,
-                 today_path=None, briefs_path=None):
+                 today_path=None, briefs_path=None, memory_fn=None):
+        self._memory_fn = memory_fn
         self._accounts_fn = accounts_fn
         self._loader = loader
         self._mail_fn = mail_fn
@@ -351,6 +378,13 @@ class CalendarPrep(loopkit.LoopPlugin):
             if kind == "merge_requests":
                 row["reviewers"] = _usernames(data.get("reviewers"))
                 row["merge_status"] = loopkit.chat_text(data.get("detailed_merge_status") or "", 40)
+            try:
+                memory = (self._memory_fn or _default_memory)(path, iid) if kind == "issues" else ""
+            except Exception as exc:  # noqa: BLE001 - memory is optional context
+                ctx.log(f"calendar-prep: memory lookup failed: {_err(exc)}")
+                memory = ""
+            if memory:
+                row["memory"] = loopkit.chat_text(memory, MAX_MEMORY)
             rows.append(row)
         return rows, ("GitLab links unavailable" if failed else None)
 
@@ -368,7 +402,7 @@ class CalendarPrep(loopkit.LoopPlugin):
                  "from": loopkit.chat_text(r.get("from") or "", 120),
                  "date": loopkit.chat_text(r.get("date") or "", 40),
                  "snippet": loopkit.chat_text(r.get("snippet") or "", MAX_SNIPPET)}
-                for r in (raw or [])[:MAIL_LIMIT] if isinstance(r, dict)], None
+                for r in (raw or [])[:MAIL_LIMIT] if isinstance(r, dict) and _issue_related(r)], None
 
     # --- answer ------------------------------------------------------------
 
