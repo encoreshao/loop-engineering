@@ -5061,7 +5061,7 @@ def test_render_gitlab_page_does_not_fetch_live_state(monkeypatch, tmp_path):
 
     output = ds.render_gitlab_page()
 
-    assert "<h1>Live GitLab</h1>" in output
+    assert "<h1>Tasks</h1>" in output
     assert "data-lazy-load='/gitlab/live'" in output
     assert "md-spinner" in output
 
@@ -12120,7 +12120,7 @@ def test_gitlab_post_handlers_redirect_to_gitlab_loop_projects(tmp_path, monkeyp
 
 
 def test_loop_page_gitlab_live_default(monkeypatch):
-    monkeypatch.setattr(ds, "_gitlab_body", lambda **kw: "<p id='gl'></p>")
+    monkeypatch.setattr(ds, "_gitlab_live_body", lambda **kw: "<p id='gl'></p>")
     out = ds.render_loop_page("gitlab-loop")
     assert "id='gl'" in out and "href='/loops/gitlab-loop?view=projects'" in out
 
@@ -13589,7 +13589,7 @@ def test_generic_loop_page_not_used_for_bespoke_names(monkeypatch):
     def boom(n, *a, **k): raise AssertionError("registry consulted")
     monkeypatch.setattr(ds.loops_config, "get_loop", boom)
     assert ds._loop_page_for("gitlab-loop") is ds._loop_pages()["gitlab-loop"] or \
-        ds._loop_page_for("gitlab-loop").label == "GitLab Issues"
+        ds._loop_page_for("gitlab-loop").label == "GitLab"
 
 
 def test_sidebar_links_plugin_loop_with_description(monkeypatch):
@@ -14845,3 +14845,78 @@ def test_chat_tools_settings_page_lists_write_tools_and_saves_choice(chat_tool_s
         assert chat_tool_settings.auto_approved() == {"gitlab.comment"}
         _post(port, "/settings/chat-tools", {"csrf_token": token})  # nothing ticked clears all
     assert chat_tool_settings.auto_approved() == set()
+
+
+# --- GitLab loop page: Live monitor + Tasks tab --------------------------------
+
+def _gitlab_event(events_dir, etype, run_id, iid, ts, project="harbor", **data):
+    import events as events_store
+    events_store.emit(etype, run_id, issue_run_id=f"{run_id}_{project}_{iid}", project=project,
+                      issue_iid=iid, data=data, events_dir=events_dir)
+
+
+def test_gitlab_loop_page_tabs_and_label():
+    page = ds._loop_pages()["gitlab-loop"]
+    assert page.label == "GitLab"
+    assert [v.key for v in page.views] == ["live", "tasks", "projects"]
+    assert [v.label for v in page.views] == ["Live", "Tasks", "Projects"]
+
+
+def test_gitlab_last_run_activity_none_without_issue_events(tmp_path):
+    assert ds.gitlab_last_run_activity(events_dir=tmp_path) is None
+
+
+def test_gitlab_last_run_activity_reports_latest_run_outcomes(tmp_path):
+    _gitlab_event(tmp_path, "issue.started", "run_old", 1, None)
+    _gitlab_event(tmp_path, "issue.completed", "run_old", 1, None, action="answer")
+    _gitlab_event(tmp_path, "issue.started", "run_new", 10, None)
+    _gitlab_event(tmp_path, "issue.completed", "run_new", 10, None, action="fix", mr_url="https://gl/mr/1")
+    _gitlab_event(tmp_path, "issue.started", "run_new", 11, None)
+    _gitlab_event(tmp_path, "issue.escalated", "run_new", 11, None, reason="needs_clarification")
+    _gitlab_event(tmp_path, "issue.started", "run_new", 12, None)
+    _gitlab_event(tmp_path, "issue.completed", "run_new", 12, None, action="wait_for_review")
+    _gitlab_event(tmp_path, "issue.started", "run_new", 13, None)
+    _gitlab_event(tmp_path, "issue.failed", "run_new", 14, None)
+    _gitlab_event(tmp_path, "issue.started", "run_new", 15, None)
+
+    activity = ds.gitlab_last_run_activity(events_dir=tmp_path)
+
+    assert activity["run_id"] == "run_new"
+    outcomes = {i["iid"]: i["outcome"] for i in activity["issues"]}
+    assert outcomes == {10: "fix", 11: "escalated", 12: "waiting", 13: "in_progress",
+                        14: "failed", 15: "in_progress"}
+    fixed = next(i for i in activity["issues"] if i["iid"] == 10)
+    assert fixed["mr_url"] == "https://gl/mr/1"
+    assert next(i for i in activity["issues"] if i["iid"] == 11)["detail"] == "needs_clarification"
+
+
+def test_gitlab_live_body_never_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(ds.events_store, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+    body = ds._gitlab_live_body()
+    assert "No runs recorded yet." in body
+    assert "Run now" in body
+
+
+def test_gitlab_live_body_shows_status_and_last_run(tmp_path, monkeypatch):
+    status = tmp_path / "status.json"
+    status.write_text('{"state": "idle"}')
+    monkeypatch.setattr(ds, "STATUS_PATH", status)
+    events = tmp_path / "events"
+    monkeypatch.setattr(ds.events_store, "DEFAULT_EVENTS_DIR", events)
+    _gitlab_event(events, "issue.started", "run_x", 7, None)
+    _gitlab_event(events, "issue.completed", "run_x", 7, None, action="fix", mr_url="https://gl/mr/9")
+    body = ds._gitlab_live_body()
+    assert "harbor" in body and "#7" in body
+    assert "https://gl/mr/9" in body
+    assert "stat-tile" in body
+
+
+def test_gitlab_live_body_running_shows_progress(tmp_path, monkeypatch):
+    status = tmp_path / "status.json"
+    status.write_text('{"state": "running", "current_issue": "harbor#7", "current_step": "fixing"}')
+    monkeypatch.setattr(ds, "STATUS_PATH", status)
+    monkeypatch.setattr(ds.events_store, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+    body = ds._gitlab_live_body()
+    assert "harbor#7" in body
+    assert "Run now" not in body

@@ -10837,7 +10837,7 @@ def _gitlab_body():
 
     body = f"""
 <div class="page-title">
-<h1>{html.escape(_t('Live GitLab'))}</h1>
+<h1>{html.escape(_t('Tasks'))}</h1>
 <p class="subtitle">{html.escape(_t('Open issues and merge requests assigned to or created by you, across configured projects.'))}</p>
 </div>
 
@@ -10851,6 +10851,118 @@ def _gitlab_body():
 </div>
 """
     return body
+
+
+_GITLAB_RECENT_EVENT_DAYS = 14
+
+
+def gitlab_last_run_activity(events_dir=None):
+    """The GitLab loop's newest run as seen in the events ledger: its run_id,
+    last event time and one row per issue (project, iid, outcome, detail,
+    mr_url, timestamp). Outcomes: fix, answered, waiting, escalated, failed,
+    in_progress (started, nothing terminal yet). None when no issue events
+    exist in the recent window."""
+    since = (datetime.now(timezone.utc) - timedelta(days=_GITLAB_RECENT_EVENT_DAYS)).date().isoformat()
+    run_id, issues, updated = None, {}, None
+    for event in events_store.iter_events(events_dir, since_date=since):
+        etype = str(event.get("event_type", ""))
+        if not etype.startswith("issue.") or event.get("issue_iid") is None:
+            continue
+        if event.get("run_id") != run_id:
+            run_id, issues = event.get("run_id"), {}
+        key = (event.get("project"), event.get("issue_iid"))
+        row = issues.setdefault(key, {"project": event.get("project"), "iid": event.get("issue_iid"),
+                                      "outcome": "in_progress", "detail": "", "mr_url": "", "timestamp": ""})
+        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        if etype == "issue.completed":
+            row["outcome"] = {"fix": "fix", "answer": "answered"}.get(data.get("action"), "waiting")
+            row["mr_url"] = str(data.get("mr_url") or "")
+        elif etype == "issue.escalated":
+            row["outcome"], row["detail"] = "escalated", str(data.get("reason") or "")
+        elif etype in ("issue.failed", "issue.agent_failed"):
+            row["outcome"], row["detail"] = "failed", str(data.get("reason") or data.get("error") or "")
+        else:
+            continue
+        row["timestamp"] = updated = event.get("timestamp") or ""
+    if run_id is None:
+        return None
+    return {"run_id": run_id, "updated_at": updated, "issues": list(issues.values())}
+
+
+_GITLAB_OUTCOME_PILLS = {
+    "fix": ("done", "MR opened"), "answered": ("done", "Answered"), "waiting": ("skipped", "Waiting"),
+    "escalated": ("failed", "Escalated"), "failed": ("failed", "Failed"), "in_progress": ("skipped", "In progress"),
+}
+
+
+def _gitlab_status_card(status, activity, csrf_input):
+    state = status.get("state")
+    if state == "running":
+        action = _stop_action_html(
+            "/gitlab/stop",
+            _t("Stop the running GitLab loop? The in-progress issue's work will be abandoned."), csrf_input)
+    elif not read_loop_projects_config().get("projects"):
+        action = _run_now_action_html(
+            "/run-now", "", csrf_input,
+            disabled_hint_html=_t("No projects configured yet - <a href='/loops/gitlab-loop?view=projects'>add one on the GitLab page</a>."))
+    else:
+        action = _run_now_action_html(
+            "/run-now", _t("Run the GitLab loop now? This starts a real automated run outside its normal schedule."),
+            csrf_input)
+    head = (f"<div class='status-head'><div class='section-header'><h2>{html.escape(_t('Status'))}</h2>"
+            f"{_status_badge_markup(status)}</div>{action}</div>")
+    if activity is None:
+        return (f"<section class='card'>{head}"
+                f"<p class='section-subtitle'>{html.escape(_t('No runs recorded yet.'))}</p></section>")
+    finished = _aware(activity.get("updated_at"))
+    when = finished.astimezone().strftime("%Y-%m-%d %H:%M") if finished else ""
+    ago = _relative_time(finished.isoformat()) if finished else ""
+    count = lambda *kinds: sum(1 for i in activity["issues"] if i["outcome"] in kinds)
+    tiles = [("", _t("Last run"), when, ago),
+             ("done", _t("Done"), str(count("fix", "answered")), ""),
+             ("", _t("Waiting"), str(count("waiting")), ""),
+             ("failed", _t("Escalated"), str(count("escalated")), ""),
+             ("failed", _t("Failed"), str(count("failed")), "")]
+    body = "<div class='stat-tiles'>" + "".join(
+        f"<div class='stat-tile{' stat-' + kind if kind else ''}'>"
+        f"<span class='stat-label'>{html.escape(label)}</span>"
+        f"<span class='stat-value'>{html.escape(value)}</span>"
+        + (f"<span class='stat-sub'>{html.escape(sub)}</span>" if sub else "")
+        + "</div>" for kind, label, value, sub in tiles) + "</div>"
+    link = f"<p class='status-link'><a href='/runs?view=history'>{html.escape(_t('View run history'))}</a></p>"
+    return f"<section class='card'>{head}{body}{link}</section>"
+
+
+def _gitlab_last_run_card(activity):
+    head = f"<div class='section-header'><h2>{html.escape(_t('Last run results'))}</h2></div>"
+    if activity is None or not activity["issues"]:
+        return (f"<section class='card'>{head}"
+                f"<p class='section-subtitle'>{html.escape(_t('Nothing saved yet. Results appear here after the next run.'))}</p></section>")
+    rows = []
+    for issue in activity["issues"]:
+        kind, label = _GITLAB_OUTCOME_PILLS[issue["outcome"]]
+        title = html.escape(f"{issue['project']} #{issue['iid']}")
+        url = issue["mr_url"]
+        if url.startswith(("http://", "https://")):
+            title = f"<a href='{html.escape(url, quote=True)}' target='_blank' rel='noopener'>{title}</a>"
+        detail = (f"<p class='result-summary'>{html.escape(issue['detail'].replace('_', ' '))}</p>"
+                  if issue["detail"] else "")
+        stamp = _aware(issue["timestamp"])
+        ago = f"<span class='stat-sub'>{html.escape(_relative_time(stamp.isoformat()))}</span>" if stamp else ""
+        rows.append(f"<li class='result-row'><div class='result-head'><span class='result-title'>{title}</span>"
+                    f"{ago}<span class='pill history-pill history-{kind}'>{html.escape(_t(label))}</span>"
+                    f"</div>{detail}</li>")
+    return f"<section class='card'>{head}<ul class='result-list'>{''.join(rows)}</ul></section>"
+
+
+def _gitlab_live_body(flash=None, flash_ok=True):
+    """The GitLab loop's Live tab: live status/progress and the last run's
+    per-issue outcomes (the open issues and MRs list is the Tasks tab)."""
+    csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
+    status = read_status(STATUS_PATH)
+    activity = gitlab_last_run_activity()
+    return (_flash_html(flash, flash_ok) + _gitlab_status_card(status, activity, csrf_input)
+            + _gitlab_last_run_card(activity))
 
 
 def render_gitlab_page():
@@ -14508,8 +14620,9 @@ def _loop_pages():
     topic_badge = lambda: _topic_status_badge_markup()
     inbox_badge = lambda: _inbox_status_badge_markup()
     return {
-        "gitlab-loop": hub_mod.Hub("loops", "/loops/gitlab-loop", "GitLab Issues", _SECTION_ICON_GITLAB, (
-            V("live", "Live", lambda **kw: _gitlab_body(), refresh=True, lazy_refresh=True),
+        "gitlab-loop": hub_mod.Hub("loops", "/loops/gitlab-loop", "GitLab", _SECTION_ICON_GITLAB, (
+            V("live", "Live", lambda **kw: _gitlab_live_body(**_only(kw, "flash", "flash_ok")), refresh=True),
+            V("tasks", "Tasks", lambda **kw: _gitlab_body(), refresh=True, lazy_refresh=True),
             V("projects", "Projects", lambda **kw: _gitlab_projects_body(**_only(kw, "flash", "flash_ok"))),
         )),
         "topic-loop": hub_mod.Hub("loops", "/loops/topic-loop", "Topic Monitor", _SECTION_ICON_TOPIC_MONITOR, (

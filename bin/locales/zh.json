@@ -223,7 +223,6 @@
   "General": "常规",
   "Generic webhook": "通用 Webhook",
   "GitLab": "GitLab",
-  "GitLab Issues": "GitLab Issue",
   "GitLab Loop": "GitLab 循环",
   "GitLab Monitor": "GitLab 监控",
   "GitLab Settings": "GitLab 设置",
@@ -972,5 +971,10 @@
   "Chat tools": "聊天工具",
   "Read tools run straight away. Tools that create, comment or send wait for your Approve click in the chat. Tick a tool to skip that review - it then runs as soon as the assistant calls it.": "读取类工具会立即运行。创建、评论或发送类工具会等待你在聊天中点击批准。勾选某个工具即可跳过该审核，助手一调用它就会直接运行。",
   "Skip review for these actions": "跳过这些操作的审核",
-  "Latest results": "最新结果"
+  "Latest results": "最新结果",
+  "Tasks": "任务",
+  "Waiting": "等待中",
+  "In progress": "进行中",
+  "Answered": "已回复",
+  "Last run results": "上次运行结果"
 }

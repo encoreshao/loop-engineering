@@ -223,7 +223,6 @@
   "General": "Général",
   "Generic webhook": "Webhook générique",
   "GitLab": "GitLab",
-  "GitLab Issues": "Issues GitLab",
   "GitLab Loop": "Boucle GitLab",
   "GitLab Monitor": "Veille GitLab",
   "GitLab Settings": "Paramètres GitLab",
@@ -972,5 +971,10 @@
   "Chat tools": "Outils du chat",
   "Read tools run straight away. Tools that create, comment or send wait for your Approve click in the chat. Tick a tool to skip that review - it then runs as soon as the assistant calls it.": "Les outils de lecture s'exécutent immédiatement. Les outils qui créent, commentent ou envoient attendent votre clic sur Approuver dans le chat. Cochez un outil pour ignorer cette vérification : il s'exécute alors dès que l'assistant l'appelle.",
   "Skip review for these actions": "Ignorer la vérification pour ces actions",
-  "Latest results": "Derniers résultats"
+  "Latest results": "Derniers résultats",
+  "Tasks": "Tâches",
+  "Waiting": "En attente",
+  "In progress": "En cours",
+  "Answered": "Répondu",
+  "Last run results": "Résultats de la dernière exécution"
 }
