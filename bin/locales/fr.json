@@ -977,5 +977,9 @@
   "In progress": "En cours",
   "Answered": "Répondu",
   "Last run results": "Résultats de la dernière exécution",
-  "Merge request": "Merge request"
+  "Merge request": "Merge request",
+  "Needs you": "À traiter par vous",
+  "Waiting on others": "En attente des autres",
+  "What Loop X did": "Ce qu'a fait Loop X",
+  "FYI": "Pour information"
 }

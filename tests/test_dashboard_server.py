@@ -14924,3 +14924,14 @@ def test_gitlab_live_body_running_shows_progress(tmp_path, monkeypatch):
     body = ds._gitlab_live_body()
     assert "harbor#7" in body
     assert "Run now" not in body
+
+
+def test_content_record_renders_daily_digest_sections_and_icon():
+    html_out = ds._content_record_html({
+        "label": "Daily digest", "summary": "5 need you", "saved_at": "2026-10-06T08:00:00+00:00",
+        "data": {"summary": "Busy day.", "needs_you": [{"text": "Review !7", "url": "https://gl/m/7"}],
+                 "waiting_on_others": [], "meetings": [{"text": "Standup", "url": ""}],
+                 "loop_x_did": [], "fyi": []}})
+    assert "Busy day." in html_out and "Review !7" in html_out and "href='https://gl/m/7'" in html_out
+    assert "Standup" in html_out and "5 need you" not in html_out
+    assert ds._LOOP_NAV_ICONS["daily-digest-loop"] in ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")

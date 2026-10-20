@@ -2,11 +2,14 @@ You write a 1-minute morning brief for one engineer from the JSON data below.
 
 Answer with ONLY a JSON object (no prose, no code fence) of exactly this shape:
 
-{"needs_you": [{"text": "...", "url": "..."}],
+{"summary": "...",
+ "needs_you": [{"text": "...", "url": "..."}],
  "waiting_on_others": [{"text": "...", "url": "..."}],
  "meetings": [{"text": "...", "url": "..."}],
  "loop_x_did": [{"text": "...", "url": "..."}],
  "fyi": [{"text": "...", "url": "..."}]}
+
+- summary: one plain sentence (max 25 words) giving the day's overall picture, e.g. how much needs the user and the one thing that matters most. No URLs.
 
 Sections:
 - needs_you: todos, review requests and assigned issues that need the user to act today, most urgent first.

@@ -103,13 +103,13 @@ def test_after_item_drops_unknown_urls():
               "waiting_on_others": [], "loop_x_did": [], "fyi": [], "meetings": []}
     out = dd.DailyDigest().after_item(item, answer, ctx())
     assert [b["url"] for b in out.data["needs_you"]] == ["https://gl/t/1", ""]
-    assert out.status == "done" and out.summary == "2 items"
+    assert out.status == "done" and out.summary == "2 need you"
 
 
 def test_format_digest_sections_and_empty_message():
     text = dd.format_digest({"needs_you": [{"text": "Review !7", "url": "https://gl/m/7"}], "waiting_on_others": [], "loop_x_did": [],
                              "fyi": [], "meetings": [{"text": "Standup 10:00", "url": ""}]}, "2026-10-06")
-    assert "Needs you" in text and "Review !7 (https://gl/m/7)" in text
+    assert "*Needs you* (1)" in text and "\u2022 <https://gl/m/7|Review !7>" in text
     assert "Today's meetings" in text and "Standup 10:00" in text
     assert "Nothing" in dd.format_digest({"needs_you": [], "waiting_on_others": [], "loop_x_did": [], "fyi": [], "meetings": []}, "2026-10-06")
 
@@ -217,3 +217,12 @@ def test_todays_meetings_window_spans_a_dst_change(monkeypatch):
     t_min, t_max = (datetime.fromisoformat(t) for t in calls[0])
     assert t_min.astimezone(timezone.utc) == datetime(2026, 11, 1, 4, 0, tzinfo=timezone.utc)
     assert t_max.astimezone(timezone.utc) == datetime(2026, 11, 2, 5, 0, tzinfo=timezone.utc)
+
+
+def test_digest_summary_prefers_model_headline_and_is_stored():
+    item = dd.loopkit.WorkItem("digest:2026-10-06", "d", payload={})
+    answer = {"summary": "Light day; review !7 first.", "needs_you": [{"text": "a", "url": ""}],
+              "waiting_on_others": [], "loop_x_did": [], "fyi": [], "meetings": []}
+    out = dd.DailyDigest().after_item(item, answer, ctx())
+    assert out.summary == "Light day; review !7 first." and out.data["summary"] == out.summary
+    assert "_Light day; review !7 first._" in dd.format_digest(out.data, "2026-10-06")

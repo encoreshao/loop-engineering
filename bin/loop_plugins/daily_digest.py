@@ -245,18 +245,36 @@ def _known_urls(payload):
     return urls
 
 
+_SHORT_LABELS = (("needs_you", "need you"), ("waiting_on_others", "waiting"), ("meetings", "meetings"),
+                 ("loop_x_did", "Loop X"), ("fyi", "FYI"))
+
+
+def headline(answer):
+    """One high-level line for the run: the model's own `summary` when it
+    gave one, else per-section counts ("3 need you, 2 meetings")."""
+    own = loopkit.chat_text(answer.get("summary") or "", 200)
+    if own:
+        return own
+    parts = [f"{len(answer.get(k) or [])} {label}" for k, label in _SHORT_LABELS if answer.get(k)]
+    return ", ".join(parts) if parts else "Nothing needs your attention"
+
+
 def format_digest(answer, date):
-    lines = [f"Daily digest - {loopkit.chat_text(date, 20)}"]
+    """Slack mrkdwn: bold title, an italic one-line summary, then a bold
+    header and `•` bullets (`<url|text>` links) per section."""
+    lines = [f"*Daily digest* \u00b7 {loopkit.chat_text(date, 20)}"]
     any_bullets = False
+    summary = loopkit.chat_text(answer.get("summary") or "", 200)
+    if summary:
+        lines.append(f"_{summary}_")
     for key, title in _SECTIONS:
-        bullets = answer.get(key) or []
+        bullets = [b for b in answer.get(key) or [] if isinstance(b, dict)]
         if not bullets:
             continue
         any_bullets = True
-        lines += ["", loopkit.chat_text(title)]
+        lines += ["", f"*{loopkit.chat_text(title)}* ({len(bullets)})"]
         for b in bullets:
-            if isinstance(b, dict):
-                lines.append("- " + loopkit.chat_link(b.get("text", ""), b.get("url")))
+            lines.append("\u2022 " + loopkit.slack_link(b.get("url"), b.get("text", "")))
     if not any_bullets:
         lines += ["", "Nothing needs your attention today."]
     return "\n".join(lines)
@@ -284,7 +302,8 @@ class DailyDigest(loopkit.LoopPlugin):
                 bullets.append({"text": str(b.get("text", "")), "url": url if ok else ""})
             cleaned[key] = bullets
             count += len(bullets)
-        return loopkit.Outcome(item.key, "done", f"{count} items", data=cleaned)
+        cleaned["summary"] = loopkit.chat_text(answer.get("summary") or "", 200)
+        return loopkit.Outcome(item.key, "done", headline(cleaned), data=cleaned)
 
     def digest(self, outcomes, ctx):
         for o in outcomes:

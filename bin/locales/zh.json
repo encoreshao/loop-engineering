@@ -977,5 +977,9 @@
   "In progress": "进行中",
   "Answered": "已回复",
   "Last run results": "上次运行结果",
-  "Merge request": "合并请求"
+  "Merge request": "合并请求",
+  "Needs you": "需要你处理",
+  "Waiting on others": "等待他人",
+  "What Loop X did": "Loop X 完成的工作",
+  "FYI": "供参考"
 }

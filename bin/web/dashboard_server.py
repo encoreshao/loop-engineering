@@ -4369,7 +4369,7 @@ _FONT_FACE_VARS = "\n".join(
 _MATERIAL_SYMBOLS_ICON_NAMES = (
     "account_balance_wallet,add,add_comment,arrow_forward,arrow_upward,auto_awesome,autorenew,bolt,calendar_month,cancel,check,check_circle,chevron_left,circle,"
     "close,code,content_copy,delete,description,dns,download,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,help,history,hub,"
-    "lightbulb,login,loop,mail,merge,monitoring,newspaper,open_in_new,palette,payments,rss_feed,save,schedule,search,send,settings,smart_toy,space_dashboard,speed,task_alt,terminal,topic,"
+    "lightbulb,login,loop,mail,merge,monitoring,newspaper,open_in_new,palette,payments,rss_feed,save,schedule,search,send,settings,smart_toy,space_dashboard,speed,summarize,task_alt,terminal,topic,"
     "translate,tune,videocam,warning,webhook,widgets"
 )
 
@@ -14946,6 +14946,14 @@ def _content_record_html(record):
             (o.get("text", ""), o.get("link", "")) for o in brief.get("open_items") or [] if isinstance(o, dict)]))
         parts.append(_content_list(_t("Raise"), brief.get("talking_points") or []))
         parts.append(_content_list(_t("From last time"), brief.get("follow_ups") or []))
+    elif isinstance(data.get("needs_you"), list):
+        if data.get("summary"):
+            parts.append(f"<p class='content-text'>{html.escape(str(data['summary']))}</p>")
+        for heading, key in ((_t("Needs you"), "needs_you"), (_t("Waiting on others"), "waiting_on_others"),
+                             (_t("Today's meetings"), "meetings"), (_t("What Loop X did"), "loop_x_did"),
+                             (_t("FYI"), "fyi")):
+            parts.append(_content_list(heading, [
+                (b.get("text", ""), b.get("url", "")) for b in data.get(key) or [] if isinstance(b, dict)]))
     elif isinstance(data.get("highlights"), list):
         parts.append(_content_list(_t("Highlights"), [
             (f"{h.get('title', '')} - {h.get('why', '')} ({h.get('score', 0)}/5)", h.get("link", ""))
@@ -15083,6 +15091,7 @@ def _loop_status_badge(name):
 _LOOP_NAV_ICONS = {
     "meeting-prep-loop": "calendar_month",
     "rss-watch-loop": "rss_feed",
+    "daily-digest-loop": "summarize",
 }
 
 

@@ -977,5 +977,9 @@
   "In progress": "処理中",
   "Answered": "回答済み",
   "Last run results": "前回の実行結果",
-  "Merge request": "マージリクエスト"
+  "Merge request": "マージリクエスト",
+  "Needs you": "要対応",
+  "Waiting on others": "他の人待ち",
+  "What Loop X did": "Loop X の実績",
+  "FYI": "参考情報"
 }
