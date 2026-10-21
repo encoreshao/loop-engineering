@@ -151,3 +151,38 @@ def test_rebuild_script_builds_dmg_without_pull_or_launch(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert (out / "Loop X.dmg").is_file() and (out / "Loop X.app").is_dir()
+
+
+def test_running_app_path_from_bundle_venv(tmp_path):
+    prefix = tmp_path / "Loop X.app" / "Contents" / "Resources" / "venv"
+    prefix.mkdir(parents=True)
+    assert desktop_app.running_app_path(prefix) == tmp_path / "Loop X.app"
+    assert desktop_app.running_app_path(tmp_path / "somewhere" / "venv") is None
+
+
+def test_notify_if_update_fires_once_per_update(tmp_path):
+    import update_check
+
+    update_check._write(tmp_path, "status.json", {"behind": 2, "origin_sha": "aaa", "new_release": False,
+                                                 "latest_tag": ""})
+    sent = []
+    assert desktop_app.notify_if_update(notify=sent.append, state_dir=tmp_path) is True
+    assert desktop_app.notify_if_update(notify=sent.append, state_dir=tmp_path) is False
+    assert len(sent) == 1 and "Upgrade now" in sent[0]
+
+
+def test_notify_if_update_silent_when_up_to_date(tmp_path):
+    sent = []
+    assert desktop_app.notify_if_update(notify=sent.append, state_dir=tmp_path) is False
+    assert sent == []
+
+
+def test_post_upgrade_url_opens_update_page_only_right_after_a_finished_upgrade():
+    from datetime import datetime, timedelta, timezone
+    now = datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc)
+    fresh = {"state": "done", "finished": (now - timedelta(minutes=1)).isoformat()}
+    old = {"state": "done", "finished": (now - timedelta(hours=3)).isoformat()}
+    assert desktop_app.post_upgrade_url("http://127.0.0.1:8420/", fresh, now) == "http://127.0.0.1:8420/update"
+    assert desktop_app.post_upgrade_url("http://127.0.0.1:8420/", old, now) == "http://127.0.0.1:8420/"
+    assert desktop_app.post_upgrade_url("http://127.0.0.1:8420/", {"state": "failed"}, now) == "http://127.0.0.1:8420/"
+    assert desktop_app.post_upgrade_url("http://127.0.0.1:8420/", {}, now) == "http://127.0.0.1:8420/"

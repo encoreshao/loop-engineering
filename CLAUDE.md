@@ -16,6 +16,9 @@ dashboard and tooling around it; follow them without being asked.
 `project_memory.py`, `memory_store.py`, `loop_scheduler.py`,
 `loops_config.py`, `inbox_config.py`, `inbox_triage.py`,
 `inbox_triage_runner.py`, `inbox_seen.py`, `inbox_status.py`,
+`update_check.py` and `update_runner.py` (the macOS app's self-update: state
+in `<repo_root>/outputs/update/`, per-checkout like events, override with the
+`LOOP_UPDATE_DIR` env var, which `tests/` must always set or pass `state_dir`),
 `mail_auth.py`, `mail_http.py`, `connectors_config.py`, `secret_store.py`,
 `notify.py`, `loopkit.py` (the LoopKit plugin runner), `seen_store.py` (its
 per-loop de-dup store), `i18n.py` with its `locales/` catalogs, the
@@ -25,7 +28,7 @@ per-loop de-dup store), `i18n.py` with its `locales/` catalogs, the
 — LoopKit plugin modules (they have their own pattern in
 `bin/gitlab_loop_runner.py`'s `_allowed_tools()` glob, since `*` doesn't cross
 `/`). `bin/web/`
-— the dashboard web server (`dashboard_server.py`, `inbox_pages.py`),
+— the dashboard web server (`dashboard_server.py`, `inbox_pages.py`, `update_pages.py`),
 `hub.py` (pure hub/tab navigation helpers) and `brand_logos.py` (connector
 brand marks) alone. Logos are inline Simple Icons SVG (CC0) only — never load
 logos from external hosts; to add a missing brand, paste its validated path
@@ -64,6 +67,7 @@ To run a sandboxed dev instance of the dashboard from the current directory:
 ```bash
 export LOOP_ENGINEERING_HOME=$(mktemp -d)
 export HOME=$(mktemp -d)   # for connector work - see below
+export LOOP_UPDATE_DIR=$(mktemp -d)   # the server's background update check does a real `git fetch`
 python3 bin/web/dashboard_server.py 18420 &   # any free port, never the live one
 sleep 1
 curl -s -o /dev/null -w "HTTP %{http_code}\n" http://127.0.0.1:18420/<page>

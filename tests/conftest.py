@@ -98,3 +98,13 @@ def _no_real_evals_dir(monkeypatch, tmp_path_factory):
     scratch = tmp_path_factory.mktemp("evals")
     monkeypatch.setenv("LOOP_EVALS_DIR", str(scratch))
     return scratch
+
+
+@pytest.fixture(autouse=True)
+def _no_real_update_dir(monkeypatch, tmp_path_factory):
+    """The dashboard renders the self-update banner from outputs/update/ on
+    every page and the background check writes it; point that at a scratch
+    dir (inherited by subprocesses) so no test reads or writes the checkout's."""
+    scratch = tmp_path_factory.mktemp("update")
+    monkeypatch.setenv("LOOP_UPDATE_DIR", str(scratch))
+    return scratch

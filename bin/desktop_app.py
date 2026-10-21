@@ -10,8 +10,10 @@ installs it into the bundle's own venv.
     python3 bin/desktop_app.py [--port N] [--title TEXT]
 """
 import argparse
+import json
 import plistlib
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -86,6 +88,60 @@ def start_embedded_server():
     return port
 
 
+def running_app_path(prefix=None):
+    """`<X>.app` when this process runs from the bundle's own venv
+    (<X>.app/Contents/Resources/venv), else None (a dev run from the checkout)."""
+    prefix = Path(prefix if prefix is not None else sys.prefix)
+    app = prefix.parent.parent.parent
+    if prefix.name == "venv" and prefix.parent.name == "Resources" and app.suffix == ".app":
+        return app
+    return None
+
+
+def _post_notification(text):
+    script = f"display notification {json.dumps(text)} with title \"Loop X\""
+    try:
+        subprocess.run(["osascript", "-e", script], timeout=10, capture_output=True)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def notify_if_update(notify=None, state_dir=None):
+    """Post a native notification the first time a new update is seen."""
+    sys.path.insert(0, str(LOOP_DIR / "bin"))
+    import update_check
+
+    text = update_check.take_notification(state_dir=state_dir)
+    if not text:
+        return False
+    (notify or _post_notification)(text)
+    return True
+
+
+def start_update_watch(interval=60, state_dir=None, notify=None):
+    def loop():
+        while True:
+            notify_if_update(notify=notify, state_dir=state_dir)
+            time.sleep(interval)
+
+    threading.Thread(target=loop, daemon=True, name="update-notify").start()
+
+
+def post_upgrade_url(url, progress, now=None):
+    """Land on /update right after an upgrade relaunched the app, so the user
+    sees "Updated to <version>"; any other launch opens the dashboard as usual."""
+    from datetime import datetime, timezone
+
+    try:
+        finished = datetime.fromisoformat(progress.get("finished") or "")
+    except (TypeError, ValueError):
+        return url
+    now = now or datetime.now(timezone.utc)
+    if progress.get("state") == "done" and 0 <= (now - finished).total_seconds() < 600:
+        return url.rstrip("/") + "/update"
+    return url
+
+
 def _brand_application(title):
     """Best effort: Dock icon and menu-bar name instead of Python's."""
     try:
@@ -126,6 +182,16 @@ def main(argv=None):
         url = resolve_dashboard_url(ports, start_embedded_server)
 
     _brand_application(args.title)
+    sys.path.insert(0, str(LOOP_DIR / "bin"))
+    import update_check
+    import update_runner
+
+    update_check.start_background()
+    url = post_upgrade_url(url, update_runner.read_progress())
+    app = running_app_path()
+    if app:
+        update_runner.record_app_path(app)  # so an upgrade reinstalls over this very app
+    start_update_watch()
     webview.create_window(args.title, url, width=1360, height=900, min_size=(900, 600))
     webview.start()
     return 0

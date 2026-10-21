@@ -15058,3 +15058,68 @@ def test_linkedin_autopilot_loop_shows_the_linkedin_mark_in_its_hub_icon():
     assert "brand-logo" not in icon and "#0A66C2" not in icon
     other = ds._generic_loop_page("rss-watch-loop", {"name": "rss-watch-loop"}).icon
     assert "material-symbols-outlined" in other and "<svg" not in other
+
+
+# --- self-update: /update routes, topbar chip --------------------------------
+
+def test_update_start_without_csrf_is_forbidden_and_starts_nothing(tmp_path, monkeypatch):
+    started = []
+    monkeypatch.setenv("LOOP_UPDATE_DIR", str(tmp_path))
+    monkeypatch.setattr(ds.update_runner, "start_detached", lambda **kw: started.append(kw) or {"state": "starting"})
+    with _running_server() as port:
+        status, _h, _b = _post(port, "/update/start", {"csrf_token": ""})
+        assert status == 403
+        status, _h, _b = _post(port, "/update/start")
+        assert status == 403
+        status, _h, _b = _post(port, "/update/check", {"csrf_token": "x" * 43})
+        assert status == 403
+    assert started == []
+
+
+def test_update_start_with_csrf_starts_runner_and_redirects_to_update(tmp_path, monkeypatch):
+    started = []
+    monkeypatch.setenv("LOOP_UPDATE_DIR", str(tmp_path))
+    monkeypatch.setattr(ds.update_runner, "start_detached", lambda **kw: started.append(kw) or {"state": "starting"})
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/update")
+        status, headers, _b = _post(port, "/update/start", {"csrf_token": token})
+    assert status == 303 and headers["Location"] == "/update" and len(started) == 1
+
+
+def test_update_check_with_csrf_runs_a_check(tmp_path, monkeypatch):
+    checked = []
+    monkeypatch.setenv("LOOP_UPDATE_DIR", str(tmp_path))
+    monkeypatch.setattr(ds.update_check, "check", lambda **kw: checked.append(kw) or {})
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/update")
+        status, headers, _b = _post(port, "/update/check", {"csrf_token": token})
+    assert status == 303 and headers["Location"] == "/update" and len(checked) == 1
+
+
+def test_update_progress_json_and_page_render(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOOP_UPDATE_DIR", str(tmp_path))
+    ds.update_runner._write_progress(tmp_path, {"state": "done", "pid": 1, "to": "v9", "steps": []})
+    with _running_server() as port:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/update/progress", timeout=10) as r:
+            data = json.loads(r.read())
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/update", timeout=10) as r:
+            page = r.read().decode()
+    assert data["progress"]["state"] == "done" and "Updated to v9" in page
+
+
+def test_topbar_chip_and_banner_appear_on_any_page_when_behind(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOOP_UPDATE_DIR", str(tmp_path))
+    ds.update_check._write(tmp_path, "status.json", {"behind": 2, "clean": True, "can_fast_forward": True,
+                                                    "commits": [], "branch": "main"})
+    with _running_server() as port:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/daemons", timeout=10) as r:
+            page = r.read().decode()
+    assert "href='/update'" in page and "action='/update/start'" in page
+
+
+def test_no_chip_when_up_to_date(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOOP_UPDATE_DIR", str(tmp_path))
+    with _running_server() as port:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/daemons", timeout=10) as r:
+            page = r.read().decode()
+    assert "href='/update'" not in page

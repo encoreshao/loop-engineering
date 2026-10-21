@@ -69,12 +69,15 @@ import project_memory
 import slack_notify
 import topic_config
 import topic_seen
+import update_check
+import update_runner
 
 # inbox_pages is bin/web/inbox_pages.py - this file's own sibling, so no
 # sys.path insert is needed for it the way the bin/-level imports above
 # need one (see the comment on sys.path.insert just above).
 import brand_logos
 import inbox_pages
+import update_pages
 
 # hub is bin/web/hub.py (pure tab/selection helpers for tabbed hub pages).
 import hub as hub_mod
@@ -4369,7 +4372,7 @@ _FONT_FACE_VARS = "\n".join(
 _MATERIAL_SYMBOLS_ICON_NAMES = (
     "account_balance_wallet,add,add_comment,arrow_forward,arrow_upward,auto_awesome,autorenew,bolt,calendar_month,cancel,check,check_circle,chevron_left,circle,"
     "close,code,content_copy,delete,description,dns,download,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,group,help,history,hub,"
-    "lightbulb,login,loop,mail,merge,monitoring,newspaper,open_in_new,palette,payments,rss_feed,save,schedule,search,send,settings,smart_toy,space_dashboard,speed,summarize,task_alt,terminal,topic,"
+    "lightbulb,login,loop,mail,merge,monitoring,newspaper,open_in_new,palette,payments,rss_feed,save,schedule,search,send,settings,smart_toy,space_dashboard,speed,summarize,system_update,task_alt,terminal,topic,"
     "translate,tune,videocam,warning,webhook,widgets"
 )
 
@@ -8416,6 +8419,16 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
         f"<div class='lang-switch-menu' role='menu' aria-label='{language_label}' hidden>{lang_options_html}</div>"
         "</div>"
     )
+    # A broken or missing status file must never break a page render.
+    try:
+        update_status = update_check.read_status()
+        update_progress = update_runner.read_progress()
+    except Exception:  # noqa: BLE001
+        update_status, update_progress = {}, {}
+    update_chip_html = update_pages.render_chip(update_status)
+    update_banner_html = "" if active_page == "update" else update_pages.render_banner(
+        update_status, update_progress,
+        f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">")
     ai_label = html.escape(_t("Ask Loop X"))
     ai_trigger_html = (
         f"<button type='button' class='ai-panel-trigger' id='ai-panel-trigger' aria-controls='ai-panel' "
@@ -9414,6 +9427,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
 <div class="topbar-progress-bar{" is-active" if "md-spinner" in status_badge_html else ""}"></div>
 <span class="topbar-page-title" id="topbar-page-title"></span>
 <div class="header-right">
+{update_chip_html}
 {ai_trigger_html}
 {ai_cli_badge_html}
 {status_badge_html}
@@ -9424,6 +9438,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
 </div>
 <div class="main-scroll" id="main-scroll">
 <div class="wrap">
+{update_banner_html}
 {body_html}
 </div>
 </div>
@@ -12290,6 +12305,15 @@ def _inbox_setup_body(port, flash=None, flash_ok=True, active_tab=None):
         active_tab=active_tab,
     )
     return body
+
+
+def render_update_page():
+    """/update: what is new on origin, the Upgrade now button, and the live
+    step-by-step progress of a running upgrade (bin/update_runner.py)."""
+    status = read_status(STATUS_PATH)
+    csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
+    body = update_pages.render_update_body(update_check.read_status(), update_runner.read_progress(), csrf_input)
+    return _render_shell("Update · Loop X Engineering", "update", _status_badge_markup(status), body)
 
 
 def render_inbox_setup_page(port, flash=None, flash_ok=True, active_tab=None):
@@ -15793,6 +15817,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._redirect_with_flash(ok, message, location="/loops/inbox-triage-loop?view=setup&tab=inboxes")
             return
 
+        if split.path == "/update":
+            self._send_html(render_update_page())
+            return
+
+        if split.path == "/update/progress":
+            self._send_json(200, {"progress": update_runner.read_progress(), "status": update_check.read_status()})
+            return
+
         if split.path == "/inbox/connect/status":
             # Outlook device-code progress for the setup page's poller -
             # inbox_pages.connect_status whitelists state/user_code/
@@ -16662,6 +16694,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
         # Inbox Triage. /inbox/run-now is matched before the generic
         # /inbox/ prefix below; every other /inbox/... POST is dispatched
         # to inbox_pages.handle_post only after the same CSRF check.
+        if self.path in ("/update/start", "/update/check"):
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            if self.path == "/update/start":
+                update_runner.start_detached()
+            else:
+                update_check.check()
+            self.send_response(303)
+            self.send_header("Location", "/update")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
         if self.path == "/inbox/run-now":
             if not self._csrf_ok(body):
                 self._forbidden()
@@ -16843,6 +16889,7 @@ def main():
     # Best-effort, idempotent: legacy result.json runs -> loop.result events,
     # so a `git pull` upgrade (no install.sh --upgrade) still fills the ledger.
     ledger.run_startup_backfill()
+    update_check.start_background()
     server = ThreadingHTTPServer(("127.0.0.1", port), DashboardHandler)
     print(f"Dashboard serving at http://127.0.0.1:{port}/")
     server.serve_forever()

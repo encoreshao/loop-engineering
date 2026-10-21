@@ -150,6 +150,8 @@ bin/scripts/rebuild_macos_app.sh                    # git pull --ff-only, rebuil
 
 A native window around the dashboard. It attaches to the running dashboard daemon, or serves the dashboard itself if none is running. The bundle launches this checkout's `bin/desktop_app.py`, so keep the checkout in place; config and run state stay in `~/.loop-engineering` and `outputs/`.
 
+**Updates.** The app and dashboard check `origin` every 6 hours (and on **Check now**). When there are new commits or a newer release, a topbar chip, a banner and a native notification say so. **Upgrade now** opens the progress screen (`/update`) and runs, automatically and in order: fetch, `git pull --ff-only`, build the app and DMG, replace the installed app (the one you are running, or `dist/Loop X.app` when run from the checkout), restart the dashboard daemon (never the scheduler) and relaunch. It refuses, and tells you why, if tracked files have local changes (`PROGRESS.md` is ignored) or the checkout has diverged from `origin`; on a failed step the old app stays in place and Retry is offered. State lives in `outputs/update/`.
+
 ### Uninstalling
 
 ```bash
