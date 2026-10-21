@@ -981,5 +981,13 @@
   "Needs you": "要対応",
   "Waiting on others": "他の人待ち",
   "What Loop X did": "Loop X の実績",
-  "FYI": "参考情報"
+  "FYI": "参考情報",
+  "Not connected - use Connect LinkedIn": "未接続です。「LinkedInに接続」を使ってください",
+  "Playwright or Google Chrome is not available - install Playwright (python3 -m pip install playwright) and Google Chrome": "PlaywrightまたはGoogle Chromeが利用できません。Playwright(python3 -m pip install playwright)とGoogle Chromeをインストールしてください",
+  "Signed in to LinkedIn": "LinkedInにサインイン済み",
+  "LinkedIn session expired - reconnect": "LinkedInのセッションが期限切れです。再接続してください",
+  "LinkedIn showed a security check - open LinkedIn in a normal browser, then reconnect": "LinkedInがセキュリティチェックを表示しました。通常のブラウザでLinkedInを開いてから再接続してください",
+  "Could not open Chrome ({kind})": "Chromeを開けませんでした({kind})",
+  "Read your LinkedIn feed, notifications and messages through your own signed-in browser session.": "ご自身のサインイン済みブラウザセッションで、LinkedIn のフィード、通知、メッセージを読み取ります。",
+  "LinkedIn": "LinkedIn"
 }

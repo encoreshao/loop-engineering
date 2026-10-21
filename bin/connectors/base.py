@@ -14,6 +14,7 @@ FEED = "feed"
 MAIL = "mail"
 DOCS = "docs"
 CALENDAR = "calendar"
+SOCIAL = "social"
 
 TEST_TIMEOUT_SECONDS = 10
 

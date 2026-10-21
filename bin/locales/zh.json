@@ -981,5 +981,13 @@
   "Needs you": "需要你处理",
   "Waiting on others": "等待他人",
   "What Loop X did": "Loop X 完成的工作",
-  "FYI": "供参考"
+  "FYI": "供参考",
+  "Not connected - use Connect LinkedIn": "未连接——请使用“连接 LinkedIn”",
+  "Playwright or Google Chrome is not available - install Playwright (python3 -m pip install playwright) and Google Chrome": "Playwright 或 Google Chrome 不可用——请安装 Playwright(python3 -m pip install playwright)和 Google Chrome",
+  "Signed in to LinkedIn": "已登录 LinkedIn",
+  "LinkedIn session expired - reconnect": "LinkedIn 会话已过期——请重新连接",
+  "LinkedIn showed a security check - open LinkedIn in a normal browser, then reconnect": "LinkedIn 出现了安全验证——请在普通浏览器中打开 LinkedIn,然后重新连接",
+  "Could not open Chrome ({kind})": "无法打开 Chrome({kind})",
+  "Read your LinkedIn feed, notifications and messages through your own signed-in browser session.": "通过你自己已登录的浏览器会话读取 LinkedIn 的动态、通知和消息。",
+  "LinkedIn": "LinkedIn"
 }

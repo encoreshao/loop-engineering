@@ -981,5 +981,13 @@
   "Needs you": "À traiter par vous",
   "Waiting on others": "En attente des autres",
   "What Loop X did": "Ce qu'a fait Loop X",
-  "FYI": "Pour information"
+  "FYI": "Pour information",
+  "Not connected - use Connect LinkedIn": "Non connecté : utilisez Connecter LinkedIn",
+  "Playwright or Google Chrome is not available - install Playwright (python3 -m pip install playwright) and Google Chrome": "Playwright ou Google Chrome n'est pas disponible : installez Playwright (python3 -m pip install playwright) et Google Chrome",
+  "Signed in to LinkedIn": "Connecté à LinkedIn",
+  "LinkedIn session expired - reconnect": "Session LinkedIn expirée : reconnectez-vous",
+  "LinkedIn showed a security check - open LinkedIn in a normal browser, then reconnect": "LinkedIn a demandé une vérification de sécurité : ouvrez LinkedIn dans un navigateur normal, puis reconnectez-vous",
+  "Could not open Chrome ({kind})": "Impossible d'ouvrir Chrome ({kind})",
+  "Read your LinkedIn feed, notifications and messages through your own signed-in browser session.": "Lit votre fil, vos notifications et vos messages LinkedIn via votre propre session de navigateur connectée.",
+  "LinkedIn": "LinkedIn"
 }
