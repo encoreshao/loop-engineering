@@ -91,3 +91,41 @@ def test_parse_active_hours():
 def test_within_hours():
     assert lh.within_hours(9, (9, 21)) and lh.within_hours(20, (9, 21))
     assert not lh.within_hours(21, (9, 21)) and not lh.within_hours(8, (9, 21))
+
+
+class FakeMouse:
+    def __init__(self): self.moves, self.wheels = [], []
+    def move(self, x, y): self.moves.append((x, y))
+    def wheel(self, dx, dy): self.wheels.append((dx, dy))
+
+
+class FakePage:
+    def __init__(self): self.mouse = FakeMouse(); self.gotos = []
+    def goto(self, url, **kw): self.gotos.append((url, kw))
+
+
+def test_goto_waits_for_gap_navigates_then_moves_cursor():
+    page = FakePage()
+    h, slept = human(now=50.0)
+    hp = lh.HumanPage(page, h)
+    hp.goto("https://www.linkedin.com/feed/")
+    hp.goto("https://www.linkedin.com/jobs/")
+    assert [u for u, _ in page.gotos] == ["https://www.linkedin.com/feed/", "https://www.linkedin.com/jobs/"]
+    assert max(slept) >= lh.MIN_GAP_S                    # second load waited out the gap
+    assert len(page.mouse.moves) >= 28                   # a cursor path after each load
+    assert page.gotos[0][1]["wait_until"] == "domcontentloaded"
+
+
+def test_scroll_uses_wheel_steps_and_pauses():
+    page = FakePage()
+    h, slept = human(seed=4)
+    lh.HumanPage(page, h).scroll(2000)
+    assert sum(dy for _, dy in page.mouse.wheels) >= 2000
+    assert len(slept) == len(page.mouse.wheels)
+
+
+def test_dwell_sleeps_once():
+    page = FakePage()
+    h, slept = human()
+    lh.HumanPage(page, h).dwell(800)
+    assert len(slept) == 1 and lh.DWELL_MIN_S <= slept[0] <= lh.DWELL_MAX_S

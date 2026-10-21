@@ -103,3 +103,33 @@ class Humanizer:
 
     def start_delay_seconds(self):
         return self.rng.uniform(0.0, START_DELAY_MAX_S)
+
+
+class HumanPage:
+    """Wraps a Playwright page. Navigation, scrolling and cursor movement all
+    happen here and nowhere else, so every one of them is paced."""
+
+    def __init__(self, page, human):
+        self.page = page
+        self.human = human
+        self._pos = (400.0, 300.0)
+
+    def goto(self, url):
+        self.human.sleep(self.human.gap_before_load())
+        self.page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        self.idle_mouse()
+
+    def idle_mouse(self):
+        end = (self.human.rng.uniform(200, 1200), self.human.rng.uniform(150, 700))
+        for x, y in self.human.mouse_path(self._pos, end):
+            self.page.mouse.move(x, y)
+            self.human.sleep(self.human.rng.uniform(0.005, 0.03))
+        self._pos = end
+
+    def scroll(self, total_px):
+        for delta, pause in self.human.scroll_plan(total_px):
+            self.page.mouse.wheel(0, delta)
+            self.human.sleep(pause)
+
+    def dwell(self, text_len=0):
+        self.human.sleep(self.human.dwell_seconds(text_len))
