@@ -219,3 +219,120 @@ def test_manual_run_at_night_with_schedule_inside_window_is_silent(tmp_path):
     night = datetime(2026, 10, 6, 3, 0, tzinfo=timezone.utc)
     assert p.discover(ctx(now=night, force=False, settings={"active_hours": "9-21"})) == []
     assert FakeSession.instances == []
+
+
+
+@pytest.mark.parametrize("error,problem", [(lb.SessionExpired(), "session_expired"),
+                                           (lb.ChallengeError(), "challenge"),
+                                           (lb.BrowserUnavailable("x"), "browser_unavailable"),
+                                           (RuntimeError("secret token"), "error")])
+def test_problems_become_failed_outcomes_without_calling_the_model(tmp_path, error, problem):
+    FakeSession.error = error
+    p = plugin(tmp_path)
+    [item] = p.discover(ctx())
+    assert item.payload == {"problem": problem}
+    prompt = p.build_prompt(item, ctx(repo_root=ROOT))
+    reply = p.call_model(prompt, ctx(repo_root=ROOT))
+    assert reply["cost_usd"] == 0.0 and json.loads(reply["text"])["summary"] == ""
+    out = p.after_item(item, loopkit.parse_answer(reply["text"], p.output_keys), ctx())
+    assert out.status == "failed" and out.data["problem"] == problem and "secret token" not in out.summary
+
+
+def test_challenge_stops_before_reading_other_pages(tmp_path):
+    FakeSession.error = lb.ChallengeError()
+    plugin(tmp_path).discover(ctx())
+    assert FakeSession.instances[0].calls == ["feed"]
+
+
+def test_outside_active_hours_or_skip_day_discovers_nothing_unless_forced(tmp_path):
+    p = plugin(tmp_path)
+    assert p.discover(ctx(force=False, settings={"active_hours": "13-18"})) == []        # 10:00 UTC is outside
+    assert FakeSession.instances == []
+    skipper = lh.Humanizer(rng=random.Random(0), sleep=lambda s: None)
+    skipper.skip_today = lambda: True
+    assert plugin(tmp_path / "s", human=skipper).discover(ctx(force=False, settings={"active_hours": "9-21"})) == []
+    assert len(plugin(tmp_path / "f", human=skipper).discover(ctx(force=True))) == 1
+
+
+def test_random_start_delay_is_slept_unless_forced(tmp_path):
+    slept = []
+    human = lh.Humanizer(rng=random.Random(0), sleep=slept.append)
+    human.skip_today = lambda: False
+    plugin(tmp_path / "a", human=human).discover(ctx(force=False, settings={"active_hours": "9-21"}))
+    assert slept and max(slept) > 0
+    slept.clear()
+    plugin(tmp_path / "b", human=human).discover(ctx(force=True))
+    assert not any(s > 60 for s in slept)
+
+
+def test_digest_lists_summary_links_and_problems(tmp_path):
+    p = plugin(tmp_path)
+    [item] = p.discover(ctx())
+    out = p.after_item(item, {"summary": "Quiet day", "topics": ["rails"],
+                              "worth_reading": [{"id": "urn:li:activity:2", "why": "useful"}],
+                              "people": [{"id": "urn:li:activity:2", "why": "ships Rails"}]}, ctx())
+    text = p.digest([out], ctx())
+    assert "LinkedIn Autopilot - 2026-10-06" in text and "Quiet day" in text
+    assert "30 notifications, 20 messages, 30 feed posts" in text
+    assert "https://www.linkedin.com/feed/update/urn:li:activity:2/" in text and "useful" in text
+    failed = loopkit.Outcome("k", "failed", "LinkedIn session expired - reconnect it on the Connectors page",
+                             data={"problem": "session_expired"})
+    assert "needs attention" in p.digest([failed], ctx()).lower()
+    assert p.digest([], ctx()) is None
+
+
+def test_definition_and_prompt_load():
+    from loop_definition import LoopDefinition
+    d = LoopDefinition.from_yaml(ROOT / "loops" / "linkedin-autopilot" / "loop.yaml")
+    assert d.name == "linkedin-autopilot-loop"
+    prompt = (ROOT / "loops" / "linkedin-autopilot" / "prompt.md").read_text()
+    assert "{{item_json}}" in prompt and "{{settings_json}}" in prompt and "untrusted" in prompt
+    assert "worth_reading" in prompt and "people" in prompt
+
+
+def test_settings_fields_are_declared():
+    keys = [f.key for f in la.SETTINGS_FIELDS]
+    assert keys == ["headless", "active_hours", "topics"]
+    headless = la.SETTINGS_FIELDS[0]
+    assert headless.default == "no" and headless.options == ("no", "yes")
+
+
+BAD_IDS = [["x"], {"a": 1}, 3, None, True]
+
+
+def test_wrong_typed_ids_are_ignored(tmp_path):
+    p = plugin(tmp_path)
+    [item] = p.discover(ctx())
+    answer = {"summary": "s", "topics": [], "worth_reading": [{"id": i, "why": "w"} for i in BAD_IDS],
+              "people": [{"id": i, "why": "w"} for i in BAD_IDS]}
+    out = p.after_item(item, answer, ctx())
+    assert out.status == "done" and out.data["worth_reading"] == [] and out.data["people"] == []
+
+
+@pytest.mark.parametrize("bad", [5, True, "rails", {"a": 1}])
+def test_wrong_typed_lists_become_empty(tmp_path, bad):
+    p = plugin(tmp_path)
+    [item] = p.discover(ctx())
+    out = p.after_item(item, {"summary": "s", "topics": bad, "worth_reading": bad, "people": bad}, ctx())
+    assert out.status == "done"
+    assert out.data["topics"] == [] and out.data["worth_reading"] == [] and out.data["people"] == []
+
+
+def test_rows_are_marked_seen_even_if_validation_raises(tmp_path):
+    p = plugin(tmp_path)
+    [item] = p.discover(ctx())
+    def boom(*a, **k): raise RuntimeError("unforeseen")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(loopkit, "chat_text", boom)
+        with pytest.raises(RuntimeError):
+            p.after_item(item, {"summary": "s", "topics": ["a"], "worth_reading": [], "people": []}, ctx())
+    [again] = plugin(tmp_path).discover(ctx())
+    assert {r["id"] for r in again.payload["feed"]}.isdisjoint({r["id"] for r in item.payload["feed"]})
+
+
+def test_digest_reports_a_crashed_run_without_problem(tmp_path):
+    p = plugin(tmp_path)
+    crashed = loopkit.Outcome("k", "failed", "TypeError: secret", data={})
+    text = p.digest([crashed], ctx())
+    assert "LinkedIn needs attention: the run failed - check the loop log" in text
+    assert "secret" not in text
