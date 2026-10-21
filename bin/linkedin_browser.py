@@ -36,6 +36,7 @@ class _Nodes(HTMLParser):
         super().__init__(convert_charrefs=True)
         self._match, self.found = match, []
         self._open, self._stack, self._seq = [], [], 0
+        self._where = {}                      # tag name -> stack indices, innermost last
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
@@ -45,6 +46,7 @@ class _Nodes(HTMLParser):
         if tag in _VOID:
             return
         self._stack.append(tag)
+        self._where.setdefault(tag, []).append(len(self._stack) - 1)
         if self._match(tag, attrs):
             self._seq += 1
             self._open.append({"seq": self._seq, "level": len(self._stack), "attrs": attrs,
@@ -53,14 +55,15 @@ class _Nodes(HTMLParser):
     def handle_endtag(self, tag):
         if tag in _VOID:
             return
-        if tag not in self._stack:            # stray end tag: ignore, never shift nesting
+        if not self._where.get(tag):          # stray end tag: ignore, never shift nesting
             return
-        index = len(self._stack) - 1 - self._stack[::-1].index(tag)
+        index = self._where[tag][-1]
         while self._open and self._open[-1]["level"] > index:
             node = self._open.pop()
             self.found.append({"seq": node["seq"], "attrs": node["attrs"], "hrefs": node["hrefs"],
                                "text": " ".join("".join(node["text"]).split())})
-        del self._stack[index:]
+        while len(self._stack) > index:
+            self._where[self._stack.pop()].pop()
 
     def handle_data(self, data):
         for node in self._open:

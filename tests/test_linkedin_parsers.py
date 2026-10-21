@@ -123,3 +123,11 @@ def test_top_level_stray_end_tag_is_ignored():
 
 def test_lookalike_host_is_not_linkedin():
     assert lb._clean_url("https://www.linkedin.com.evil.example/x") == ""
+
+
+def test_end_tag_handling_is_linear_on_hostile_nesting():
+    for html in ("<div>" * 50000 + "</span>" * 50000, "<div>" * 30000 + "<b></b>" * 30000,
+                 "<div>" * 50000 + "</div>" * 50000):
+        start = time.perf_counter()
+        lb.parse_notifications(html)
+        assert time.perf_counter() - start < 1.0
