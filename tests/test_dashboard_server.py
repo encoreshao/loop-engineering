@@ -15044,3 +15044,17 @@ def test_loops_template_registers_linkedin_autopilot_disabled_and_requiring_soci
     assert entry["enabled"] is False and entry["requires"] == ["social"]
     assert entry["entry_point"] == "bin.loop_plugins.linkedin_autopilot"
     assert entry["timeout_seconds"] >= 5400
+
+
+def test_linkedin_autopilot_loop_shows_the_linkedin_mark_in_its_hub_icon():
+    icon = ds._generic_loop_page("linkedin-autopilot-loop", {"name": "linkedin-autopilot-loop"}).icon
+    # Same shape as the GitLab nav mark: a monochrome 18px inline SVG that follows the nav
+    # colour, not the padded white brand tile used on the Connectors page.
+    assert icon.startswith("<svg") and "M20.447" in icon and "material-symbols" not in icon
+    assert "fill='currentColor'" in icon and "width='18'" in icon and "height='18'" in icon
+    # optical size matches the Material glyphs next to it: the 18px box is kept (text alignment) but the
+    # mark is padded inside it
+    assert "viewBox='-2 -2 28 28'" in icon
+    assert "brand-logo" not in icon and "#0A66C2" not in icon
+    other = ds._generic_loop_page("rss-watch-loop", {"name": "rss-watch-loop"}).icon
+    assert "material-symbols-outlined" in other and "<svg" not in other

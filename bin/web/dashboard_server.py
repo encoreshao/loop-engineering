@@ -15158,6 +15158,23 @@ _LOOP_NAV_ICONS = {
 }
 
 
+# Loops whose own mark is a connector brand logo rather than a Material Symbols glyph.
+# Drawn like _SECTION_ICON_GITLAB: the brand's path as a monochrome 18px inline SVG in
+# currentColor, so it sizes and recolors like every other nav icon (brand_logo_svg's
+# padded coloured tile is for the Connectors page and is far too big in the sidebar).
+_LOOP_BRAND_ICONS = {
+    "linkedin-autopilot-loop": "linkedin",
+}
+
+
+def _brand_nav_icon(brand_key):
+    path = brand_logos.LOGOS[brand_key][0]
+    # The mark fills its whole 24x24 box, while Material glyphs leave ~2px of built-in padding
+    # (about 15-16px of ink in their 18px box), so pad the viewBox to the same optical size.
+    return ("<svg class='brand-nav-mark' viewBox='-2 -2 28 28' width='18' height='18' fill='currentColor' "
+            f"aria-hidden='true' focusable='false'><path d='{html.escape(path, quote=True)}'/></svg>")
+
+
 def _generic_loop_page(name, loop=None):
     """Generic tabbed page (Live + History, plus Settings when the plugin
     declares settings_fields) for a registered LoopKit plugin loop with no
@@ -15180,6 +15197,8 @@ def _generic_loop_page(name, loop=None):
     icon = _LOOP_NAV_ICONS.get(name)
     icon = (f"<span class='material-symbols-outlined' aria-hidden='true'>{icon}</span>"
             if icon else _SECTION_ICON_LOOPS)
+    if name in _LOOP_BRAND_ICONS:
+        icon = _brand_nav_icon(_LOOP_BRAND_ICONS[name])
     return hub_mod.Hub("loops", f"/loops/{urllib.parse.quote(name)}", label, icon, tuple(views))
 
 

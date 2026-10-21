@@ -13,7 +13,7 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Added
 
-- LinkedIn Autopilot loop (read-only for now): browses your own signed-in LinkedIn session at a human pace (variable dwell, scrolling, extra pages, random start inside your active hours), reads the feed, notifications and messages, and saves a summary with topics, posts worth reading and people to know to the Content tab and Slack. A new LinkedIn connector signs in through a Chrome window (Connect LinkedIn) and stores the session in `~/.loop-engineering/linkedin/`; requires `python3 -m pip install playwright` and Google Chrome.
+- LinkedIn Autopilot loop (read-only for now): browses your own signed-in LinkedIn session at a human pace (variable dwell, scrolling, extra pages, random start inside your active hours), reads the feed, notifications and messages, and saves a summary with topics, posts worth reading and people to know to the Content tab and Slack. A new LinkedIn connector, shown with the LinkedIn logo on the Connectors page and as the loop's own icon, signs in through a Chrome window (Connect LinkedIn) and stores the session in `~/.loop-engineering/linkedin/`; requires `python3 -m pip install playwright` and Google Chrome.
 
 ### Changed
 
