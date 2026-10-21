@@ -14138,7 +14138,9 @@ def test_loop_run_now_refuses_while_a_run_is_in_progress(monkeypatch, tmp_path):
     monkeypatch.setattr(ds.subprocess, "Popen", lambda *a, **k: launched.append(a))
     with _running_server() as port:
         status, headers, _b = _post(port, "/loops/rss-watch-loop/run-now", {"csrf_token": ds._CSRF_TOKEN})
-    assert status == 303 and "ok=0" in headers["Location"] and launched == []
+    # The server's background update check also shells out to git; only a loop launch counts.
+    runs = [a for a in launched if not (a and a[0] and a[0][0] == "git")]
+    assert status == 303 and "ok=0" in headers["Location"] and runs == []
 
 
 def test_auto_grids_never_force_a_column_wider_than_a_phone_card():
