@@ -7,6 +7,9 @@ import hashlib
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 
+import linkedin_session
+from linkedin_humanize import HumanPage, Humanizer
+
 LINKEDIN = "https://www.linkedin.com"
 MAX_TEXT = 400
 _VOID = {"br", "img", "input", "meta", "link", "hr", "wbr", "source", "area", "col", "embed", "track"}
@@ -159,3 +162,88 @@ def detect_challenge(url, html=""):
     if any(word in heads for word in _CHALLENGE_WORDS):
         return "challenge"
     return None
+
+
+WANDER_URLS = (f"{LINKEDIN}/mynetwork/", f"{LINKEDIN}/jobs/", f"{LINKEDIN}/in/me/", f"{LINKEDIN}/feed/")
+_VIEWPORT = {"width": 1440, "height": 900}
+
+
+def _playwright_launcher(profile, headless):
+    """(playwright, persistent_context) for the profile, using the real Chrome
+    channel. Playwright is imported here so the rest of Loop X works without it."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise BrowserUnavailable("playwright is not installed") from exc
+    pw = sync_playwright().start()
+    try:
+        ctx = pw.chromium.launch_persistent_context(profile, channel="chrome", headless=headless,
+                                                    viewport=_VIEWPORT)
+    except Exception:
+        pw.stop()
+        raise
+    return pw, ctx
+
+
+class Session:
+    def __init__(self, account_id, headless=False, human=None, launcher=None):
+        self.account_id = account_id
+        self.headless = headless
+        self.human = human or Humanizer()
+        self._launcher = launcher or _playwright_launcher
+        self._pw = self._ctx = self.page = self.hp = None
+
+    def __enter__(self):
+        profile = linkedin_session.ensure_profile(self.account_id)
+        self._pw, self._ctx = self._launcher(str(profile), self.headless)
+        self.page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
+        self.hp = HumanPage(self.page, self.human)
+        return self
+
+    def __exit__(self, *exc_info):
+        for close in (lambda: self._ctx.close(), lambda: self._pw.stop()):
+            try:
+                close()
+            except Exception:  # noqa: BLE001 - never mask the run's own error
+                pass
+        return False
+
+    def _check(self, html=""):
+        reason = detect_challenge(self.page.url, html)
+        if reason == "login":
+            raise SessionExpired()
+        if reason == "challenge":
+            raise ChallengeError()
+
+    def _read(self, url, parser, scroll_px):
+        self.hp.goto(url)
+        self._check()
+        self.hp.scroll(scroll_px)
+        html = self.page.content()
+        self._check(html)
+        rows = parser(html)
+        self.hp.dwell(sum(len(r["text"]) for r in rows))
+        return rows
+
+    def session_ok(self):
+        self.hp.goto(f"{LINKEDIN}/feed/")
+        self._check(self.page.content())
+        return True
+
+    def feed(self):
+        return self._read(f"{LINKEDIN}/feed/", parse_feed, 3000)
+
+    def notifications(self):
+        return self._read(f"{LINKEDIN}/notifications/", parse_notifications, 1200)
+
+    def messages(self):
+        return self._read(f"{LINKEDIN}/messaging/", parse_messages, 400)
+
+    def wander(self):
+        """A person does not only visit the pages they need: open one to three
+        extra ones, scroll a little and stay a while."""
+        for url in self.human.wander_pages(WANDER_URLS):
+            self.hp.goto(url)
+            self._check()
+            self.hp.scroll(int(self.human.rng.uniform(300, 1500)))
+            self.hp.dwell()
