@@ -49,6 +49,14 @@ def is_connected(account_id):
     return (_account_dir(account_id) / MARKER).is_file()
 
 
+def mark_disconnected(account_id):
+    """Drop only the connected marker (profile files stay); idempotent."""
+    try:
+        (_account_dir(account_id) / MARKER).unlink()
+    except FileNotFoundError:
+        pass
+
+
 def wipe(account_id):
     shutil.rmtree(_account_dir(account_id), ignore_errors=True)
 

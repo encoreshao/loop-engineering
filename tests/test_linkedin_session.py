@@ -61,3 +61,15 @@ def test_rename_moves_the_session(home):
     assert ls.is_connected("b") and not ls.is_connected("a")
     ls.rename("missing", "c")                                      # nothing to move: no error
     assert not ls.is_connected("c")
+
+
+def test_mark_disconnected_removes_only_the_marker_and_is_idempotent(home):
+    ls.ensure_profile("li")
+    (ls.profile_dir("li") / "Cookies").write_text("x")
+    ls.mark_connected("li")
+    ls.mark_disconnected("li")
+    assert not ls.is_connected("li") and (ls.profile_dir("li") / "Cookies").exists()
+    ls.mark_disconnected("li")
+    ls.mark_disconnected("never-connected")
+    with pytest.raises(ValueError):
+        ls.mark_disconnected("../x")

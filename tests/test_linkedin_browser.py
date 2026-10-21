@@ -187,3 +187,15 @@ def test_browser_module_never_moves_the_page_itself():
     linkedin_humanize.HumanPage (self.hp) so they are all paced like a person.
     Reading self.page.url / self.page.content() is fine."""
     assert _violations(Path(lb.__file__).read_text()) == []
+
+
+def test_enter_closes_chrome_when_page_setup_fails():
+    class BadCtx(FakeCtx):
+        def __init__(self): self.pages = []; self.closed = False
+        def new_page(self): raise RuntimeError("no page")
+    ctx, pw = BadCtx(), FakePW()
+    human = lh.Humanizer(rng=random.Random(0), sleep=lambda s: None)
+    s = lb.Session("li", human=human, launcher=lambda p, h: (pw, ctx))
+    with pytest.raises(RuntimeError):
+        s.__enter__()
+    assert ctx.closed and pw.stopped

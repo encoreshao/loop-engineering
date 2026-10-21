@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import linkedin_browser  # noqa: E402
 import linkedin_humanize  # noqa: E402
+import linkedin_session  # noqa: E402
 import loopkit  # noqa: E402
 import seen_store  # noqa: E402
 from connectors.base import Field  # noqa: E402
@@ -28,6 +29,9 @@ PROBLEMS = {
     "session_expired": "LinkedIn session expired - reconnect it on the Connectors page",
     "challenge": "LinkedIn showed a security check - open LinkedIn in a normal browser, then reconnect",
     "browser_unavailable": "Playwright or Chrome is not available - see the Connectors page",
+    "not_connected": "LinkedIn is not connected - press Connect LinkedIn on the Connectors page",
+    "page_changed": "LinkedIn's page layout was not recognised - no feed posts found, the loop may need an update",
+    "schedule_outside_hours": "The loop's schedule hour is outside its active hours - change one of them on the loop's page",
     "error": "LinkedIn could not be read - check the loop log",
 }
 
@@ -64,7 +68,12 @@ class LinkedInAutopilot(loopkit.LoopPlugin):
     output_keys = ("summary", "topics", "worth_reading", "people")
     settings_fields = SETTINGS_FIELDS
 
-    def __init__(self, accounts_fn=None, session_factory=None, human=None, seen=None):
+    def __init__(self, accounts_fn=None, session_factory=None, human=None, seen=None,
+                 connected_fn=None, disconnect_fn=None, loop_seen=None, schedule_hour_fn=None):
+        self._connected_fn = connected_fn
+        self._disconnect_fn = disconnect_fn
+        self._loop_seen = loop_seen
+        self._schedule_hour_fn = schedule_hour_fn
         self._accounts_fn = accounts_fn
         self._session_factory = session_factory
         self._human = human
@@ -74,6 +83,29 @@ class LinkedInAutopilot(loopkit.LoopPlugin):
         if self._seen is None:
             self._seen = seen_store.SeenStore("linkedin-autopilot-loop-items")
         return self._seen
+
+    def _loop_seen_store(self):
+        if self._loop_seen is None:
+            self._loop_seen = seen_store.SeenStore(self.loop_name)
+        return self._loop_seen
+
+    def _is_connected(self, aid):
+        return (self._connected_fn or linkedin_session.is_connected)(aid)
+
+    def _disconnect(self, aid, ctx):
+        try:
+            (self._disconnect_fn or linkedin_session.mark_disconnected)(aid)
+        except Exception as exc:  # noqa: BLE001 - best effort
+            ctx.log(f"linkedin-autopilot: could not mark {aid} disconnected: {_err(exc)}")
+
+    def _schedule_hour(self):
+        try:
+            if self._schedule_hour_fn is not None:
+                return self._schedule_hour_fn()
+            import loops_config
+            return loops_config.get_loop(self.loop_name)["schedule"].get("hour")
+        except Exception:  # noqa: BLE001
+            return None
 
     def _accounts(self):
         if self._accounts_fn is None:
@@ -105,6 +137,10 @@ class LinkedInAutopilot(loopkit.LoopPlugin):
         human = self._human or linkedin_humanize.Humanizer()
         if not ctx.force:
             window = linkedin_humanize.parse_active_hours(settings.get("active_hours"))
+            hour = self._schedule_hour()
+            if isinstance(hour, int) and not isinstance(hour, bool) and not linkedin_humanize.within_hours(hour, window):
+                return [self._problem(f"linkedin:schedule:{ctx.now.astimezone().date()}", "schedule",
+                                      "schedule_outside_hours")]
             if not linkedin_humanize.within_hours(ctx.now.astimezone().hour, window):
                 ctx.log("linkedin-autopilot: outside active hours")
                 return []
@@ -117,14 +153,22 @@ class LinkedInAutopilot(loopkit.LoopPlugin):
         for account in self._accounts():
             aid = account["id"]
             key = f"linkedin:{aid}:{ctx.now.astimezone().date()}"
+            if not self._is_connected(aid):
+                items.append(self._problem(key, aid, "not_connected"))
+                continue
             if not ctx.force:
+                if self._loop_seen_store().has(key):
+                    ctx.log(f"linkedin-autopilot: {aid} already ran today")
+                    continue
                 human.sleep(human.start_delay_seconds())
             try:
                 data = self._collect(aid, settings, human)
             except linkedin_browser.SessionExpired:
+                self._disconnect(aid, ctx)
                 items.append(self._problem(key, aid, "session_expired"))
                 continue
             except linkedin_browser.ChallengeError:
+                self._disconnect(aid, ctx)
                 items.append(self._problem(key, aid, "challenge"))
                 continue
             except linkedin_browser.BrowserUnavailable:
@@ -133,6 +177,9 @@ class LinkedInAutopilot(loopkit.LoopPlugin):
             except Exception as exc:  # noqa: BLE001 - one account failing never stops the others
                 ctx.log(f"linkedin-autopilot: account {aid} failed: {_err(exc)}")
                 items.append(self._problem(key, aid, "error"))
+                continue
+            if not data.get("feed"):
+                items.append(self._problem(key, aid, "page_changed"))
                 continue
             fresh = {name: [r for r in rows if isinstance(r, dict) and r.get("id") and not seen.has(str(r["id"]))]
                      for name, rows in data.items()}

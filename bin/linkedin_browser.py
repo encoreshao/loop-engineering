@@ -196,8 +196,12 @@ class Session:
     def __enter__(self):
         profile = linkedin_session.ensure_profile(self.account_id)
         self._pw, self._ctx = self._launcher(str(profile), self.headless)
-        self.page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
-        self.hp = HumanPage(self.page, self.human)
+        try:
+            self.page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
+            self.hp = HumanPage(self.page, self.human)
+        except BaseException:
+            self.__exit__(None, None, None)   # never leave Chrome holding the profile lock
+            raise
         return self
 
     def __exit__(self, *exc_info):
