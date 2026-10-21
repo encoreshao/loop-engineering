@@ -215,3 +215,44 @@ def test_settings_fields_are_declared():
     assert keys == ["headless", "active_hours", "topics"]
     headless = la.SETTINGS_FIELDS[0]
     assert headless.default == "no" and headless.options == ("no", "yes")
+
+
+BAD_IDS = [["x"], {"a": 1}, 3, None, True]
+
+
+def test_wrong_typed_ids_are_ignored(tmp_path):
+    p = plugin(tmp_path)
+    [item] = p.discover(ctx())
+    answer = {"summary": "s", "topics": [], "worth_reading": [{"id": i, "why": "w"} for i in BAD_IDS],
+              "people": [{"id": i, "why": "w"} for i in BAD_IDS]}
+    out = p.after_item(item, answer, ctx())
+    assert out.status == "done" and out.data["worth_reading"] == [] and out.data["people"] == []
+
+
+@pytest.mark.parametrize("bad", [5, True, "rails", {"a": 1}])
+def test_wrong_typed_lists_become_empty(tmp_path, bad):
+    p = plugin(tmp_path)
+    [item] = p.discover(ctx())
+    out = p.after_item(item, {"summary": "s", "topics": bad, "worth_reading": bad, "people": bad}, ctx())
+    assert out.status == "done"
+    assert out.data["topics"] == [] and out.data["worth_reading"] == [] and out.data["people"] == []
+
+
+def test_rows_are_marked_seen_even_if_validation_raises(tmp_path):
+    p = plugin(tmp_path)
+    [item] = p.discover(ctx())
+    def boom(*a, **k): raise RuntimeError("unforeseen")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(loopkit, "chat_text", boom)
+        with pytest.raises(RuntimeError):
+            p.after_item(item, {"summary": "s", "topics": ["a"], "worth_reading": [], "people": []}, ctx())
+    [again] = plugin(tmp_path).discover(ctx())
+    assert {r["id"] for r in again.payload["feed"]}.isdisjoint({r["id"] for r in item.payload["feed"]})
+
+
+def test_digest_reports_a_crashed_run_without_problem(tmp_path):
+    p = plugin(tmp_path)
+    crashed = loopkit.Outcome("k", "failed", "TypeError: secret", data={})
+    text = p.digest([crashed], ctx())
+    assert "LinkedIn needs attention: the run failed - check the loop log" in text
+    assert "secret" not in text

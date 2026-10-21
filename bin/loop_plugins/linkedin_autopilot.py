@@ -48,6 +48,10 @@ def _err(exc):
     return type(exc).__name__
 
 
+def _as_list(value):
+    return value if isinstance(value, list) else []
+
+
 def _clean(rows, cap):
     return [{"id": str(r["id"]), "text": loopkit.chat_text(r.get("text", ""), MAX_TEXT),
              "url": loopkit.chat_url(r.get("url", "")), "profile": loopkit.chat_url(r.get("profile", ""))}
@@ -158,30 +162,34 @@ class LinkedInAutopilot(loopkit.LoopPlugin):
             return loopkit.Outcome(item.key, "failed", PROBLEMS.get(problem, PROBLEMS["error"]),
                                    data={"problem": problem})
         payload = item.payload
-        feed = {r["id"]: r for r in payload["feed"]}
-        worth, people, used_worth, used_people = [], [], set(), set()
-        for w in answer.get("worth_reading") or []:
-            row = feed.get(w.get("id")) if isinstance(w, dict) else None
-            if row is None or row["id"] in used_worth:
-                continue
-            used_worth.add(row["id"])
-            worth.append({"id": row["id"], "title": loopkit.chat_text(row["text"], 100), "url": row["url"],
-                          "why": loopkit.chat_text(w.get("why", ""), MAX_WHY)})
-        for p in answer.get("people") or []:
-            row = feed.get(p.get("id")) if isinstance(p, dict) else None
-            if row is None or not row["profile"] or row["id"] in used_people:
-                continue
-            used_people.add(row["id"])
-            people.append({"id": row["id"], "title": loopkit.chat_text(row["text"], 60), "profile": row["profile"],
-                           "url": row["url"], "why": loopkit.chat_text(p.get("why", ""), MAX_WHY)})
-        topics = [loopkit.chat_text(t, 40) for t in answer.get("topics") or [] if isinstance(t, str) and t.strip()]
-        counts = {"notifications": len(payload["notifications"]), "messages": len(payload["messages"]),
-                  "feed": len(payload["feed"])}
+        # Mark the offered rows seen first: a malformed answer must never get the
+        # same rows re-offered (and re-paid for) on every run.
         seen = self._seen_store()
         for rows in (payload["notifications"], payload["feed"], payload["messages"]):
             for row in rows:
                 seen.add(row["id"])
         seen.save()
+        feed = {r["id"]: r for r in payload["feed"]}
+        worth, people, used_worth, used_people = [], [], set(), set()
+        for w in _as_list(answer.get("worth_reading")):
+            wid = w.get("id") if isinstance(w, dict) else None
+            row = feed.get(wid) if isinstance(wid, str) else None
+            if row is None or row["id"] in used_worth:
+                continue
+            used_worth.add(row["id"])
+            worth.append({"id": row["id"], "title": loopkit.chat_text(row["text"], 100), "url": row["url"],
+                          "why": loopkit.chat_text(w.get("why", ""), MAX_WHY)})
+        for p in _as_list(answer.get("people")):
+            pid = p.get("id") if isinstance(p, dict) else None
+            row = feed.get(pid) if isinstance(pid, str) else None
+            if row is None or not row["profile"] or row["id"] in used_people:
+                continue
+            used_people.add(row["id"])
+            people.append({"id": row["id"], "title": loopkit.chat_text(row["text"], 60), "profile": row["profile"],
+                           "url": row["url"], "why": loopkit.chat_text(p.get("why", ""), MAX_WHY)})
+        topics = [loopkit.chat_text(t, 40) for t in _as_list(answer.get("topics")) if isinstance(t, str) and t.strip()]
+        counts = {"notifications": len(payload["notifications"]), "messages": len(payload["messages"]),
+                  "feed": len(payload["feed"])}
         return loopkit.Outcome(
             item.key, "done",
             f"{counts['notifications']} notifications, {counts['messages']} messages, {counts['feed']} posts",
@@ -192,8 +200,10 @@ class LinkedInAutopilot(loopkit.LoopPlugin):
     def digest(self, outcomes, ctx):
         lines = []
         for o in outcomes:
-            if o.status == "failed" and isinstance(o.data, dict) and o.data.get("problem"):
-                lines += ["", f"LinkedIn needs attention: {o.summary}"]
+            if o.status == "failed":
+                problem = isinstance(o.data, dict) and o.data.get("problem")
+                text = o.summary if problem else "the run failed - check the loop log"
+                lines += ["", f"LinkedIn needs attention: {text}"]
             elif o.status == "done":
                 d, c = o.data, o.data["counts"]
                 lines += ["", loopkit.chat_text(d.get("account", ""), 60)]
