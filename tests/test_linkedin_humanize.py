@@ -94,25 +94,44 @@ def test_within_hours():
 
 
 class FakeMouse:
-    def __init__(self): self.moves, self.wheels = [], []
-    def move(self, x, y): self.moves.append((x, y))
+    def __init__(self, events=None):
+        self.moves, self.wheels = [], []
+        self.events = [] if events is None else events
+    def move(self, x, y):
+        self.moves.append((x, y))
+        self.events.append(("move", x, y))
     def wheel(self, dx, dy): self.wheels.append((dx, dy))
 
 
 class FakePage:
-    def __init__(self): self.mouse = FakeMouse(); self.gotos = []
-    def goto(self, url, **kw): self.gotos.append((url, kw))
+    def __init__(self, events=None):
+        self.events = [] if events is None else events
+        self.mouse = FakeMouse(self.events)
+        self.gotos = []
+    def goto(self, url, **kw):
+        self.gotos.append((url, kw))
+        self.events.append(("goto", url))
 
 
 def test_goto_waits_for_gap_navigates_then_moves_cursor():
-    page = FakePage()
-    h, slept = human(now=50.0)
+    feed, jobs = "https://www.linkedin.com/feed/", "https://www.linkedin.com/jobs/"
+    events = []
+    page = FakePage(events)
+    h = lh.Humanizer(rng=random.Random(0), sleep=lambda s: events.append(("sleep", s)), clock=lambda: 50.0)
     hp = lh.HumanPage(page, h)
-    hp.goto("https://www.linkedin.com/feed/")
-    hp.goto("https://www.linkedin.com/jobs/")
-    assert [u for u, _ in page.gotos] == ["https://www.linkedin.com/feed/", "https://www.linkedin.com/jobs/"]
-    assert max(slept) >= lh.MIN_GAP_S                    # second load waited out the gap
-    assert len(page.mouse.moves) >= 28                   # a cursor path after each load
+    hp.goto(feed)
+    hp.goto(jobs)
+    gotos = [i for i, e in enumerate(events) if e[0] == "goto"]
+    assert [events[i][1] for i in gotos] == [feed, jobs]
+    first, second = gotos
+    # the first load is not preceded by a gap sleep
+    assert not any(e[0] == "sleep" and e[1] >= lh.MIN_GAP_S for e in events[:first])
+    # the gap sleep sits right before the second load, after the first one
+    assert first < second - 1 and events[second - 1][0] == "sleep" and events[second - 1][1] >= lh.MIN_GAP_S
+    # the cursor moves right after each load, and at least once before the next load
+    for g, nxt in ((first, second), (second, len(events))):
+        assert events[g + 1][0] == "move"
+        assert any(e[0] == "move" for e in events[g + 1:nxt])
     assert page.gotos[0][1]["wait_until"] == "domcontentloaded"
 
 
