@@ -14935,3 +14935,126 @@ def test_content_record_renders_daily_digest_sections_and_icon():
     assert "Busy day." in html_out and "Review !7" in html_out and "href='https://gl/m/7'" in html_out
     assert "Standup" in html_out and "5 need you" not in html_out
     assert ds._LOOP_NAV_ICONS["daily-digest-loop"] in ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
+
+
+def _linkedin_sandbox(monkeypatch, tmp_path, account_id="li"):
+    monkeypatch.setenv("LOOP_ENGINEERING_HOME", str(tmp_path))
+    acct = {"id": account_id, "type": "linkedin", "managed_by": "native", "settings": {}}
+    monkeypatch.setattr(ds.connectors_config, "get_account", lambda i, **k: acct if i == account_id else (_ for _ in ()).throw(KeyError(i)))
+    return acct
+
+
+def test_linkedin_connect_requires_csrf_and_spawns_the_login_window(monkeypatch, tmp_path):
+    _linkedin_sandbox(monkeypatch, tmp_path)
+    spawned = []
+    monkeypatch.setattr(ds.subprocess, "Popen", lambda cmd, **kw: spawned.append((cmd, kw)))
+    with _running_server() as port:
+        status, _h, _b = _post(port, "/connectors/linkedin/connect", {"id": "li"})
+        assert status == 403 and spawned == []
+        status, headers, _b = _post(port, "/connectors/linkedin/connect",
+                                    {"csrf_token": ds._CSRF_TOKEN, "id": "li"})
+    assert status == 303 and headers["Location"].startswith("/connectors")
+    cmd, kw = spawned[0]
+    assert cmd[1].endswith("bin/linkedin_login.py") and cmd[2] == "li" and kw["start_new_session"] is True
+
+
+def test_linkedin_disconnect_wipes_the_session(monkeypatch, tmp_path):
+    import linkedin_session
+    _linkedin_sandbox(monkeypatch, tmp_path)
+    linkedin_session.ensure_profile("li"); linkedin_session.mark_connected("li")
+    with _running_server() as port:
+        status, _h, _b = _post(port, "/connectors/linkedin/disconnect", {"id": "li"})
+        assert status == 403 and linkedin_session.is_connected("li")
+        status, _h, _b = _post(port, "/connectors/linkedin/disconnect", {"csrf_token": ds._CSRF_TOKEN, "id": "li"})
+    assert status == 303 and not linkedin_session.is_connected("li")
+
+
+def test_linkedin_action_rejects_other_connector_types_and_unknown_ids(monkeypatch, tmp_path):
+    monkeypatch.setenv("LOOP_ENGINEERING_HOME", str(tmp_path))
+    rss = {"id": "news", "type": "rss", "managed_by": "native", "settings": {}}
+    monkeypatch.setattr(ds.connectors_config, "get_account",
+                        lambda i, **k: rss if i == "news" else (_ for _ in ()).throw(KeyError(i)))
+    monkeypatch.setattr(ds.subprocess, "Popen", lambda *a, **k: pytest.fail("must not spawn"))
+    assert ds._linkedin_account_action("connect", "news")[0] is False
+    assert ds._linkedin_account_action("connect", "nope")[0] is False
+    assert ds._linkedin_account_action("connect", "../x")[0] is False
+
+
+def test_linkedin_connect_reports_a_spawn_failure(monkeypatch, tmp_path):
+    _linkedin_sandbox(monkeypatch, tmp_path)
+    def boom(*a, **k): raise OSError("no")
+    monkeypatch.setattr(ds.subprocess, "Popen", boom)
+    ok, message = ds._linkedin_account_action("connect", "li")
+    assert ok is False and "sign-in window" in message
+
+
+def test_connectors_page_shows_connect_for_linkedin_accounts(monkeypatch, tmp_path):
+    import linkedin_session
+    monkeypatch.setenv("LOOP_ENGINEERING_HOME", str(tmp_path))
+    acct = {"id": "li", "type": "linkedin", "label": "LinkedIn", "managed_by": "native", "settings": {}}
+    monkeypatch.setattr(ds.connectors_config, "list_accounts", lambda *a, **k: [acct])
+    out = ds.render_hub_page("connectors")
+    assert "/connectors/linkedin/connect" in out and "Connect LinkedIn" in out
+    assert "/connectors/linkedin/disconnect" not in out            # not connected yet
+    linkedin_session.ensure_profile("li"); linkedin_session.mark_connected("li")
+    out = ds.render_hub_page("connectors")
+    assert "/connectors/linkedin/disconnect" in out and "Reconnect" in out
+
+
+def test_deleting_a_linkedin_connector_wipes_its_session(monkeypatch, tmp_path):
+    import linkedin_session
+    monkeypatch.setenv("LOOP_ENGINEERING_HOME", str(tmp_path))
+    linkedin_session.ensure_profile("li"); linkedin_session.mark_connected("li")
+    monkeypatch.setattr(ds.connectors_config, "delete_account", lambda i, **k: (True, "Deleted"))
+    with _running_server() as port:
+        _post(port, "/connectors/delete", {"csrf_token": ds._CSRF_TOKEN, "id": "li"})
+    assert not linkedin_session.is_connected("li")
+
+
+def test_capability_label_for_social():
+    assert ds._CAPABILITY_LABELS["social"] == "Social"
+
+
+def test_linkedin_content_record_renders_summary_topics_posts_and_people():
+    record = {"item_key": "linkedin:li:2026-10-06", "label": "LinkedIn", "saved_at": "2026-10-06T10:00:00+00:00",
+              "summary": "x", "url": "", "data": {
+                  "summary": "A quiet day <b>",
+                  "counts": {"notifications": 3, "messages": 2, "feed": 9},
+                  "topics": ["rails"],
+                  "worth_reading": [{"title": "Rails 9 <script>", "why": "big", "url": "https://www.linkedin.com/feed/update/urn:li:activity:1/"}],
+                  "people": [{"title": "Ada", "why": "ships", "profile": "javascript:alert(1)"}]}}
+    out = ds._content_record_html(record)
+    assert "A quiet day &lt;b&gt;" in out and "<script>" not in out
+    assert "3 notifications, 2 messages, 9 feed posts" in out
+    assert "Worth reading" in out and "People to know" in out and "Topics" in out
+    assert "href='https://www.linkedin.com/feed/update/urn:li:activity:1/'" in out
+    assert "javascript:" not in out
+
+
+def test_linkedin_loop_has_its_own_icon_and_the_icon_is_loaded():
+    assert ds._LOOP_NAV_ICONS["linkedin-autopilot-loop"] == "group"
+    names = ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
+    assert "group" in names
+    assert names == sorted(names)
+
+
+def test_loops_template_registers_linkedin_autopilot_disabled_and_requiring_social():
+    loops = json.loads((Path(__file__).resolve().parent.parent / "config" / "loops.json.template").read_text())
+    entry = next(l for l in loops if l["name"] == "linkedin-autopilot-loop")
+    assert entry["enabled"] is False and entry["requires"] == ["social"]
+    assert entry["entry_point"] == "bin.loop_plugins.linkedin_autopilot"
+    assert entry["timeout_seconds"] >= 5400
+
+
+def test_linkedin_autopilot_loop_shows_the_linkedin_mark_in_its_hub_icon():
+    icon = ds._generic_loop_page("linkedin-autopilot-loop", {"name": "linkedin-autopilot-loop"}).icon
+    # Same shape as the GitLab nav mark: a monochrome 18px inline SVG that follows the nav
+    # colour, not the padded white brand tile used on the Connectors page.
+    assert icon.startswith("<svg") and "M20.447" in icon and "material-symbols" not in icon
+    assert "fill='currentColor'" in icon and "width='18'" in icon and "height='18'" in icon
+    # optical size matches the Material glyphs next to it: the 18px box is kept (text alignment) but the
+    # mark is padded inside it
+    assert "viewBox='-2 -2 28 28'" in icon
+    assert "brand-logo" not in icon and "#0A66C2" not in icon
+    other = ds._generic_loop_page("rss-watch-loop", {"name": "rss-watch-loop"}).icon
+    assert "material-symbols-outlined" in other and "<svg" not in other

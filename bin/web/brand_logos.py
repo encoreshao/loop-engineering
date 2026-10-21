@@ -8,6 +8,9 @@ Brands without a usable mark fall back to a lettermark (feishu, dingtalk, webhoo
 Slack, Microsoft Teams and Microsoft Outlook still ship icon files but are absent from
 Simple Icons' data file, so their hex colors are the well-known brand colors.
 ``wecom`` reuses the WeChat mark because Simple Icons has no separate WeCom slug.
+``linkedin`` was removed from Simple Icons after 13.0.0 (the 16.34.0 CDN path 404s), so its
+path comes from https://cdn.jsdelivr.net/npm/simple-icons@13.0.0/icons/linkedin.svg (identical
+in 9.21.0, 11.0.0 and 12.0.0); its hex is LinkedIn's well-known brand blue.
 """
 import html
 import re
@@ -54,6 +57,10 @@ LOGOS = {
     "rss": (
         "M19.199 24C19.199 13.467 10.533 4.8 0 4.8V0c13.165 0 24 10.835 24 24h-4.801zM3.291 17.415c1.814 0 3.293 1.479 3.293 3.295 0 1.813-1.485 3.29-3.301 3.29C1.47 24 0 22.526 0 20.71s1.475-3.294 3.291-3.295zM15.909 24h-4.665c0-6.169-5.075-11.245-11.244-11.245V8.09c8.727 0 15.909 7.184 15.909 15.91z",
         "#FFA500",
+    ),
+    "linkedin": (
+        "M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z",
+        "#0A66C2",
     ),
     "gmail": (
         "M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z",

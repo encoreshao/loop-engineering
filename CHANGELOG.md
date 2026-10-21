@@ -11,6 +11,10 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ## [Unreleased]
 
+### Added
+
+- LinkedIn Autopilot loop (read-only for now): browses your own signed-in LinkedIn session at a human pace (variable dwell, scrolling, extra pages, random start inside your active hours), reads the feed, notifications and messages, and saves a summary with topics, posts worth reading and people to know to the Content tab and Slack. A new LinkedIn connector, shown with the LinkedIn logo on the Connectors page and as the loop's own icon, signs in through a Chrome window (Connect LinkedIn) and stores the session in `~/.loop-engineering/linkedin/`; requires `python3 -m pip install playwright` and Google Chrome.
+
 ### Changed
 
 - Daily Digest results are now saved to the loop's Content tab (summary plus each section), the loop has its own sidebar icon, its Slack message uses bold section headers, counts and linked bullets, and Latest results shows a one-line high-level summary instead of an item count.

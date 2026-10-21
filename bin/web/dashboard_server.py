@@ -4368,7 +4368,7 @@ _FONT_FACE_VARS = "\n".join(
 # to this list before shipping a new icon constant that uses it.
 _MATERIAL_SYMBOLS_ICON_NAMES = (
     "account_balance_wallet,add,add_comment,arrow_forward,arrow_upward,auto_awesome,autorenew,bolt,calendar_month,cancel,check,check_circle,chevron_left,circle,"
-    "close,code,content_copy,delete,description,dns,download,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,help,history,hub,"
+    "close,code,content_copy,delete,description,dns,download,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,group,help,history,hub,"
     "lightbulb,login,loop,mail,merge,monitoring,newspaper,open_in_new,palette,payments,rss_feed,save,schedule,search,send,settings,smart_toy,space_dashboard,speed,summarize,task_alt,terminal,topic,"
     "translate,tune,videocam,warning,webhook,widgets"
 )
@@ -13927,6 +13927,34 @@ def _is_google_oauth_type(cls):
     return cls is not None and getattr(cls, "auth", "secret") == connectors_config.OAUTH_GOOGLE
 
 
+def _is_linkedin_type(cls):
+    """A connector type that signs in through a browser window, not a pasted secret."""
+    return cls is not None and getattr(cls, "auth", "secret") == "browser_session"
+
+
+def _linkedin_account_action(action, account_id):
+    """Connect opens a visible Chrome window (bin/linkedin_login.py) for the
+    user to sign in; Disconnect wipes the saved session. Only native accounts
+    of a browser_session type qualify. Returns (ok, message)."""
+    import linkedin_session
+    try:
+        account = connectors_config.get_account(account_id)
+        cls = connectors.get_type(account["type"])
+    except KeyError:
+        return False, _t("No connector with id {id}", id=account_id)
+    if account.get("managed_by") != "native" or not _is_linkedin_type(cls) or not connectors_config.is_valid_id(account_id):
+        return False, _t("Connector {id} does not use a browser sign-in", id=account_id)
+    if action == "disconnect":
+        linkedin_session.wipe(account_id)
+        return True, _t("Disconnected {id}", id=account_id)
+    try:
+        subprocess.Popen([sys.executable, str(LOOP_DIR / "bin" / "linkedin_login.py"), account_id],
+                         start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        return False, _t("Could not open the sign-in window")
+    return True, _t("A Chrome window opened - sign in to LinkedIn, then return here and press Test")
+
+
 _GOOGLE_CLIENT_SETUP_HREF = "/loops/inbox-triage-loop?view=setup&tab=gmail"
 
 
@@ -13975,6 +14003,24 @@ def _connector_account_row_html(account, csrf_input, result):
             f"<button type='submit' class='btn {'btn-neutral' if connected else 'btn-primary'}'>"
             f"<span class='material-symbols-outlined' aria-hidden='true'>login</span> "
             f"{html.escape(_t('Reconnect') if connected else _t('Connect with Google'))}</button></form>")
+    elif _is_linkedin_type(cls) and managed_by == "native":
+        import linkedin_session
+        connected = linkedin_session.is_connected(account_id)
+        oauth_html = (f"<span class='pill {'pill-green' if connected else 'pill-grey'}'>"
+                      f"{html.escape(_t('Connected') if connected else _t('Not connected'))}</span>")
+        connect_html = (
+            f"<form method='post' action='/connectors/linkedin/connect' class='daemon-action-form'>{csrf_input}"
+            f"<input type='hidden' name='id' value=\"{safe_id}\">"
+            f"<button type='submit' class='btn {'btn-neutral' if connected else 'btn-primary'}'>"
+            f"<span class='material-symbols-outlined' aria-hidden='true'>login</span> "
+            f"{html.escape(_t('Reconnect') if connected else _t('Connect LinkedIn'))}</button></form>")
+        if connected:
+            connect_html += (
+                f"<form method='post' action='/connectors/linkedin/disconnect' class='daemon-action-form'>{csrf_input}"
+                f"<input type='hidden' name='id' value=\"{safe_id}\">"
+                f"<button type='submit' class='btn btn-neutral'>"
+                f"<span class='material-symbols-outlined' aria-hidden='true'>delete</span> "
+                f"{html.escape(_t('Disconnect'))}</button></form>")
     buttons = connect_html + (
         f"<form method='post' action='/connectors/test' class='daemon-action-form'>{csrf_input}"
         f"<input type='hidden' name='id' value=\"{safe_id}\">"
@@ -14954,6 +15000,22 @@ def _content_record_html(record):
                              (_t("FYI"), "fyi")):
             parts.append(_content_list(heading, [
                 (b.get("text", ""), b.get("url", "")) for b in data.get(key) or [] if isinstance(b, dict)]))
+    elif isinstance(data.get("worth_reading"), list):
+        if data.get("summary"):
+            parts.append(f"<p class='content-text'>{html.escape(str(data['summary']))}</p>")
+        counts = data.get("counts") if isinstance(data.get("counts"), dict) else {}
+        if counts:
+            parts.append("<p class='section-subtitle'>" + html.escape(_t(
+                "{notifications} notifications, {messages} messages, {feed} feed posts",
+                notifications=counts.get("notifications", 0), messages=counts.get("messages", 0),
+                feed=counts.get("feed", 0))) + "</p>")
+        parts.append(_content_list(_t("Topics"), data.get("topics") or []))
+        parts.append(_content_list(_t("Worth reading"), [
+            (f"{w.get('title', '')} - {w.get('why', '')}", w.get("url", ""))
+            for w in data["worth_reading"] if isinstance(w, dict)]))
+        parts.append(_content_list(_t("People to know"), [
+            (f"{p.get('title', '')} - {p.get('why', '')}", p.get("profile", ""))
+            for p in data.get("people") or [] if isinstance(p, dict)]))
     elif isinstance(data.get("highlights"), list):
         parts.append(_content_list(_t("Highlights"), [
             (f"{h.get('title', '')} - {h.get('why', '')} ({h.get('score', 0)}/5)", h.get("link", ""))
@@ -15091,8 +15153,26 @@ def _loop_status_badge(name):
 _LOOP_NAV_ICONS = {
     "meeting-prep-loop": "calendar_month",
     "rss-watch-loop": "rss_feed",
+    "linkedin-autopilot-loop": "group",
     "daily-digest-loop": "summarize",
 }
+
+
+# Loops whose own mark is a connector brand logo rather than a Material Symbols glyph.
+# Drawn like _SECTION_ICON_GITLAB: the brand's path as a monochrome 18px inline SVG in
+# currentColor, so it sizes and recolors like every other nav icon (brand_logo_svg's
+# padded coloured tile is for the Connectors page and is far too big in the sidebar).
+_LOOP_BRAND_ICONS = {
+    "linkedin-autopilot-loop": "linkedin",
+}
+
+
+def _brand_nav_icon(brand_key):
+    path = brand_logos.LOGOS[brand_key][0]
+    # The mark fills its whole 24x24 box, while Material glyphs leave ~2px of built-in padding
+    # (about 15-16px of ink in their 18px box), so pad the viewBox to the same optical size.
+    return ("<svg class='brand-nav-mark' viewBox='-2 -2 28 28' width='18' height='18' fill='currentColor' "
+            f"aria-hidden='true' focusable='false'><path d='{html.escape(path, quote=True)}'/></svg>")
 
 
 def _generic_loop_page(name, loop=None):
@@ -15117,6 +15197,8 @@ def _generic_loop_page(name, loop=None):
     icon = _LOOP_NAV_ICONS.get(name)
     icon = (f"<span class='material-symbols-outlined' aria-hidden='true'>{icon}</span>"
             if icon else _SECTION_ICON_LOOPS)
+    if name in _LOOP_BRAND_ICONS:
+        icon = _brand_nav_icon(_LOOP_BRAND_ICONS[name])
     return hub_mod.Hub("loops", f"/loops/{urllib.parse.quote(name)}", label, icon, tuple(views))
 
 
@@ -15153,6 +15235,7 @@ _CAPABILITY_LABELS = {
     "mail": "Mail",
     "docs": "Documents",
     "calendar": "Calendar",
+    "social": "Social",
 }
 
 
@@ -15890,6 +15973,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             if old_id and new_id and old_id != new_id:
                 _connector_renamed_or_deleted(old_id, new_id)
+                if connectors_config.is_valid_id(old_id) and connectors_config.is_valid_id(new_id):
+                    import linkedin_session
+                    linkedin_session.rename(old_id, new_id)
             if form.get("then_test") == "1":
                 test_ok, test_message = _run_connector_test(new_id)
                 ok, message = test_ok, f"{message} — {test_message}"
@@ -15915,6 +16001,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                                           location=result.get("location", "/connectors"))
             return
 
+        if self.path in ("/connectors/linkedin/connect", "/connectors/linkedin/disconnect"):
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
+            ok, message = _linkedin_account_action(self.path.rsplit("/", 1)[1], form.get("id", [""])[0])
+            self._redirect_with_flash(ok, message, location="/connectors")
+            return
+
         if self.path == "/connectors/delete":
             if not self._csrf_ok(body):
                 self._forbidden()
@@ -15924,6 +16019,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             ok, message = connectors_config.delete_account(account_id)
             if ok:
                 _connector_renamed_or_deleted(account_id)
+                if connectors_config.is_valid_id(account_id):
+                    import linkedin_session
+                    linkedin_session.wipe(account_id)
             self._redirect_with_flash(ok, message, location="/connectors")
             return
 

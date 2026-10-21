@@ -4,7 +4,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin" / "web"))
 import brand_logos as bl
 
 REQUIRED = {"gitlab", "github", "slack", "feishu", "dingtalk", "wecom", "microsoftteams", "discord",
-            "googlechat", "telegram", "notion", "jira", "linear", "rss", "gmail", "microsoftoutlook", "webhook"}
+            "googlechat", "telegram", "notion", "jira", "linear", "rss", "gmail", "microsoftoutlook", "webhook",
+            "linkedin"}
 
 
 def test_every_required_brand_renders_svg_or_lettermark():
@@ -67,3 +68,9 @@ def test_brand_color_known_and_lettermark_fallback():
     # Same color the lettermark itself paints, so tile accent and mark agree.
     assert f"--brand:{fallback}" in bl.brand_logo_svg("webhook", label="Web Hook")
     assert re.fullmatch(r"#[0-9A-F]{6}", bl.brand_color(None))
+
+
+def test_linkedin_has_a_real_mark_not_a_lettermark():
+    out = bl.brand_logo_svg("linkedin", label="LinkedIn")
+    assert out.startswith("<svg") and "brand-lettermark" not in out and "<path d='M20.447" in out
+    assert bl.brand_color("linkedin") == "#0A66C2"
