@@ -1,4 +1,5 @@
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin"))
@@ -86,9 +87,39 @@ def test_detect_challenge_by_url():
     assert lb.detect_challenge("https://www.linkedin.com/feed/") is None
 
 
-def test_detect_challenge_by_visible_text_only():
-    assert lb.detect_challenge("https://www.linkedin.com/feed/",
-                               "<p>Let's do a quick security check</p>") == "challenge"
-    assert lb.detect_challenge("https://www.linkedin.com/feed/", "<div>Please solve this CAPTCHA</div>") == "challenge"
+def test_detect_challenge_by_headings_only():
+    url = "https://www.linkedin.com/feed/"
+    assert lb.detect_challenge(url, "<h1>Let's do a quick security check</h1>") == "challenge"
+    assert lb.detect_challenge(url, "<html><title>Security Verification | LinkedIn</title></html>") == "challenge"
+    assert lb.detect_challenge(url, "<h2>Please solve this CAPTCHA</h2>") == "challenge"
     script_only = "<script>var captcha = 'unusual activity';</script><style>.captcha{}</style><p>ok</p>"
-    assert lb.detect_challenge("https://www.linkedin.com/feed/", script_only) is None
+    assert lb.detect_challenge(url, script_only) is None
+    post = '<div data-urn="urn:li:activity:1"><p>Someone asked me to solve a CAPTCHA, unusual activity indeed</p></div>'
+    assert lb.detect_challenge(url, post) is None
+    assert lb.detect_challenge("https://www.linkedin.com/company/challenge-corp/") is None
+    assert lb.detect_challenge("https://www.linkedin.com/challenge/abc") == "challenge"
+
+
+def test_detect_challenge_is_fast_on_hostile_input():
+    start = time.perf_counter()
+    assert lb.detect_challenge("https://www.linkedin.com/feed/", "<script>" * 40000) is None
+    assert time.perf_counter() - start < 1.0
+
+
+def test_stray_end_tag_does_not_close_a_card_early():
+    rows = lb.parse_notifications('<article class="nt-card"><a>one</a></p> tail text</article>')
+    assert [r["text"] for r in rows] == ["one tail text"]
+
+
+def test_unclosed_inline_tag_does_not_swallow_next_row():
+    html = '<li class="msg-conversation-listitem"><b>A</li><li class="msg-conversation-listitem"><b>B</li>'
+    assert [r["text"] for r in lb.parse_messages(html)] == ["A", "B"]
+
+
+def test_top_level_stray_end_tag_is_ignored():
+    rows = lb.parse_notifications('</div></p><article class="nt-card">hi</article>')
+    assert [r["text"] for r in rows] == ["hi"]
+
+
+def test_lookalike_host_is_not_linkedin():
+    assert lb._clean_url("https://www.linkedin.com.evil.example/x") == ""

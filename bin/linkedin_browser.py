@@ -4,7 +4,6 @@ the Session that fetches pages through linkedin_humanize.HumanPage. This is the
 only module that knows LinkedIn's page structure. It never navigates, scrolls,
 clicks or types by itself - tests/test_linkedin_browser.py enforces that."""
 import hashlib
-import re
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 
@@ -12,7 +11,6 @@ LINKEDIN = "https://www.linkedin.com"
 MAX_TEXT = 400
 _VOID = {"br", "img", "input", "meta", "link", "hr", "wbr", "source", "area", "col", "embed", "track"}
 _LOGIN_PATHS = ("/login", "/uas/", "/authwall", "/signup")
-_CHALLENGE_PATHS = ("/checkpoint/", "/challenge")
 _CHALLENGE_WORDS = ("captcha", "security verification", "quick security check",
                     "unusual activity", "restricted your account")
 
@@ -37,7 +35,7 @@ class _Nodes(HTMLParser):
     def __init__(self, match):
         super().__init__(convert_charrefs=True)
         self._match, self.found = match, []
-        self._open, self._depth, self._seq = [], 0, 0
+        self._open, self._stack, self._seq = [], [], 0
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
@@ -46,19 +44,23 @@ class _Nodes(HTMLParser):
                 node["hrefs"].append(attrs["href"])
         if tag in _VOID:
             return
-        self._depth += 1
+        self._stack.append(tag)
         if self._match(tag, attrs):
             self._seq += 1
-            self._open.append({"seq": self._seq, "depth": self._depth, "attrs": attrs, "text": [], "hrefs": []})
+            self._open.append({"seq": self._seq, "level": len(self._stack), "attrs": attrs,
+                               "text": [], "hrefs": []})
 
     def handle_endtag(self, tag):
         if tag in _VOID:
             return
-        while self._open and self._open[-1]["depth"] >= self._depth:
+        if tag not in self._stack:            # stray end tag: ignore, never shift nesting
+            return
+        index = len(self._stack) - 1 - self._stack[::-1].index(tag)
+        while self._open and self._open[-1]["level"] > index:
             node = self._open.pop()
             self.found.append({"seq": node["seq"], "attrs": node["attrs"], "hrefs": node["hrefs"],
                                "text": " ".join("".join(node["text"]).split())})
-        self._depth = max(0, self._depth - 1)
+        del self._stack[index:]
 
     def handle_data(self, data):
         for node in self._open:
@@ -142,14 +144,15 @@ def parse_messages(html):
 
 def detect_challenge(url, html=""):
     """None for a normal page, 'login' for a login wall, 'challenge' for a
-    checkpoint / captcha / security check. Text is searched outside
-    <script>/<style> only, so page code cannot trigger it."""
+    checkpoint / captcha / security check. Text is matched only against the
+    <title>, <h1> and <h2> of the page, so post bodies, messages and page code
+    can never trigger it."""
     path = urlparse(url or "").path.lower()
-    if any(p in path for p in _CHALLENGE_PATHS):
+    if "/checkpoint/" in path or path.startswith("/challenge"):
         return "challenge"
     if any(path.startswith(p) for p in _LOGIN_PATHS):
         return "login"
-    visible = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", html or "").lower()
-    if any(word in visible for word in _CHALLENGE_WORDS):
+    heads = " ".join(n["text"] for n in _extract(html, lambda t, a: t in ("title", "h1", "h2"))).lower()
+    if any(word in heads for word in _CHALLENGE_WORDS):
         return "challenge"
     return None
