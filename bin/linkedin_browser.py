@@ -179,9 +179,9 @@ def _playwright_launcher(profile, headless):
     try:
         ctx = pw.chromium.launch_persistent_context(profile, channel="chrome", headless=headless,
                                                     viewport=_VIEWPORT)
-    except Exception:
+    except Exception as exc:
         pw.stop()
-        raise
+        raise BrowserUnavailable("Chrome could not be started") from exc
     return pw, ctx
 
 

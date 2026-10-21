@@ -86,10 +86,24 @@ def test_security_heading_in_page_raises_challenge():
         s.feed()
 
 
-def test_session_ok_true_on_feed_false_paths_raise():
+def test_session_ok_true_on_a_healthy_feed():
     s, *_ = session(FakePage({f"{lb.LINKEDIN}/feed/": FEED}))
     with s:
         assert s.session_ok() is True
+
+
+def test_session_ok_login_redirect_raises_session_expired():
+    page = FakePage({}, redirects={f"{lb.LINKEDIN}/feed/": f"{lb.LINKEDIN}/login"})
+    s, *_ = session(page)
+    with s, pytest.raises(lb.SessionExpired):
+        s.session_ok()
+
+
+def test_session_ok_checkpoint_raises_challenge():
+    page = FakePage({}, redirects={f"{lb.LINKEDIN}/feed/": f"{lb.LINKEDIN}/checkpoint/challenge/1"})
+    s, *_ = session(page)
+    with s, pytest.raises(lb.ChallengeError):
+        s.session_ok()
 
 
 def test_wander_visits_between_one_and_three_extra_pages():
@@ -105,6 +119,7 @@ def test_wander_stops_on_challenge():
     s, *_ = session(page)
     with s, pytest.raises(lb.ChallengeError):
         s.wander()
+    assert len(page.visited) == 1
 
 
 def test_missing_playwright_is_browser_unavailable(monkeypatch):
@@ -112,6 +127,23 @@ def test_missing_playwright_is_browser_unavailable(monkeypatch):
     monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
     with pytest.raises(lb.BrowserUnavailable):
         lb._playwright_launcher("/tmp/x", True)
+
+
+def test_chrome_launch_failure_is_browser_unavailable_without_leaking_details(monkeypatch):
+    import types
+    pw = FakePW()
+
+    class Chromium:
+        def launch_persistent_context(self, *a, **kw):
+            raise RuntimeError("secret")
+    pw.chromium = Chromium()
+    api = types.ModuleType("playwright.sync_api")
+    api.sync_playwright = lambda: types.SimpleNamespace(start=lambda: pw)
+    monkeypatch.setitem(sys.modules, "playwright", types.ModuleType("playwright"))
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", api)
+    with pytest.raises(lb.BrowserUnavailable) as info:
+        lb._playwright_launcher("/tmp/x", True)
+    assert pw.stopped and "secret" not in str(info.value)
 
 
 def test_close_errors_do_not_mask_the_real_error():
@@ -124,13 +156,34 @@ def test_close_errors_do_not_mask_the_real_error():
     assert pw.stopped
 
 
+_DRIVE_VERBS = {"goto", "click", "dblclick", "fill", "type", "press", "hover", "tap", "check",
+                "select_option", "evaluate", "reload", "go_back", "go_forward", "set_content", "wheel"}
+_DRIVE_ATTRS = {"mouse", "keyboard", "touchscreen"}
+
+
+def _violations(source):
+    import ast
+    hp = ast.dump(ast.parse("self.hp", mode="eval").body)
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Attribute) and node.attr in _DRIVE_ATTRS:
+            found.append(f"line {node.lineno}: .{node.attr}")
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr in _DRIVE_VERBS and ast.dump(node.func.value) != hp):
+            found.append(f"line {node.lineno}: .{node.func.attr}() not on self.hp")
+    return found
+
+
+def test_violation_checker_catches_aliased_and_chained_driving():
+    snippet = ("p = self.page\np.goto(u)\nself._ctx.new_page().click('x')\n"
+               "self.page.mouse.move(1, 2)\nself.hp.goto(u)\n")
+    found = _violations(snippet)
+    assert len(found) == 3 and not any("line 5" in f for f in found)
+    assert _violations("self.hp.goto(u)\nx = self.page.url\nself.page.content()\n") == []
+
+
 def test_browser_module_never_moves_the_page_itself():
     """Navigation, scrolling, clicking, typing and cursor moves must go through
     linkedin_humanize.HumanPage (self.hp) so they are all paced like a person.
     Reading self.page.url / self.page.content() is fine."""
-    import re
-    source = Path(lb.__file__).read_text()
-    direct = re.compile(r"\bpage\.(goto|click|dblclick|fill|type|press|hover|tap|check|select_option|evaluate|"
-                        r"reload|go_back|go_forward|set_content|wheel|mouse|keyboard|touchscreen)\b")
-    assert direct.findall(source) == []
-    assert ".mouse" not in source and ".keyboard" not in source
+    assert _violations(Path(lb.__file__).read_text()) == []
