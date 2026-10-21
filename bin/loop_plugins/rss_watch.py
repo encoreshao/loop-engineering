@@ -5,7 +5,9 @@ interests (settings.interests) and sends a short digest through the loop's
 notifier. Feed content is untrusted: entries are trimmed before the prompt,
 the model runs sealed and every highlight link must be one that was offered.
 Run by run-loop-now.sh with the run id as argv[1]."""
+import re
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -18,6 +20,11 @@ MAX_ENTRIES = 40
 MAX_HIGHLIGHTS = 10
 MAX_TITLE = 200
 MAX_WHY = 140
+MAX_SUMMARY = 500
+MAX_ACTION = 200
+MAX_LINKS = 4
+NUMBER_EMOJI = ("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "keycap_ten")
+SEPARATOR = "\u2500" * 16
 
 SETTINGS_FIELDS = (
     Field("interests", "Interests", kind="textarea", required=False,
@@ -93,7 +100,8 @@ class RSSWatch(loopkit.LoopPlugin):
                         continue
                     links.add(link)
                     entries.append({"title": loopkit.chat_text(row.get("title", ""), MAX_TITLE),
-                                    "link": link, "published": loopkit.chat_text(row.get("published", ""), 40)})
+                                    "link": link, "published": loopkit.chat_text(row.get("published", ""), 40),
+                                    "summary": loopkit.chat_text(re.sub(r"<[^>]*>", " ", str(row.get("summary", ""))), MAX_SUMMARY)})
             if entries:
                 items.append(loopkit.WorkItem(
                     key=f"rss:{aid}:{ctx.now.astimezone().date()}", title=aid,
@@ -103,14 +111,25 @@ class RSSWatch(loopkit.LoopPlugin):
         return items
 
     def after_item(self, item, answer, ctx):
-        offered = {e["link"] for e in item.payload["entries"]}
+        offered = {e["link"]: e for e in item.payload["entries"]}
         highlights, used = [], set()
         for h in answer.get("highlights") or []:
             if not isinstance(h, dict) or h.get("link") not in offered or h["link"] in used:
                 continue
             used.add(h["link"])
-            highlights.append({"title": loopkit.chat_text(h.get("title", ""), MAX_TITLE), "link": h["link"],
-                               "why": loopkit.chat_text(h.get("why", ""), MAX_WHY), "score": _score(h.get("score"))})
+            extra = []
+            for link in h.get("links") or []:
+                if link in offered and link != h["link"] and link not in extra:
+                    extra.append(link)
+            highlights.append({
+                "title": loopkit.chat_text(h.get("title", ""), MAX_TITLE), "link": h["link"],
+                "links": [h["link"]] + extra[:MAX_LINKS - 1],
+                "source": loopkit.chat_text(h.get("source") or item.title, 80),
+                "published": offered[h["link"]].get("published", ""),
+                "summary": loopkit.chat_text(h.get("summary") or h.get("why", ""), MAX_SUMMARY),
+                "do_next": loopkit.chat_text(h.get("do_next", ""), MAX_ACTION),
+                "kill_if": loopkit.chat_text(h.get("kill_if", ""), MAX_ACTION),
+                "score": _score(h.get("score"))})
         highlights.sort(key=lambda h: -h["score"])
         highlights = highlights[:MAX_HIGHLIGHTS]
         seen = self._seen_store()
@@ -120,17 +139,39 @@ class RSSWatch(loopkit.LoopPlugin):
         return loopkit.Outcome(item.key, "done", f"{len(highlights)} highlights",
                                data={"account": item.title, "highlights": highlights})
 
-    def digest(self, outcomes, ctx):
-        lines = []
-        for o in outcomes:
-            if o.status != "done" or not o.data.get("highlights"):
+    @staticmethod
+    def _clock(published):
+        for fmt in ("%a, %d %b %Y %H:%M:%S %z", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%SZ"):
+            try:
+                return datetime.strptime(published.replace("GMT", "+0000"), fmt).astimezone().strftime("%H:%M")
+            except ValueError:
                 continue
-            lines += ["", loopkit.chat_text(o.data.get("account", ""), 60)]
-            for h in o.data["highlights"]:
-                lines.append(f"- {loopkit.chat_link(h['title'], h['link'])} - {h['why']} ({h['score']}/5)")
-        if not lines:
+        return ""
+
+    def digest(self, outcomes, ctx):
+        highlights = [h for o in outcomes if o.status == "done" for h in o.data.get("highlights") or []]
+        highlights.sort(key=lambda h: -h["score"])
+        highlights = highlights[:MAX_HIGHLIGHTS]
+        if not highlights:
             return None
-        return "\n".join([f"RSS digest - {ctx.now.astimezone().date()}"] + lines)
+        now = ctx.now.astimezone()
+        out = [f"RSS Watch Brief \u00b7 {now.strftime('%Y-%m-%d %H:%M %Z')}"]
+        for i, h in enumerate(highlights):
+            out += ["", SEPARATOR, f":{NUMBER_EMOJI[i]}: {h['title']}"]
+            meta = " \u00b7 ".join(x for x in (self._clock(h["published"]), h["source"]) if x)
+            if meta:
+                out.append(meta)
+            if h["summary"]:
+                out += ["", h["summary"]]
+            if h["do_next"] or h["kill_if"]:
+                out.append("")
+            if h["do_next"]:
+                out.append(f"Do next: {h['do_next']}")
+            if h["kill_if"]:
+                out.append(f"Kill if: {h['kill_if']}")
+            out += [f"\u2022 {loopkit.chat_url(link)}" for link in h["links"] if loopkit.chat_url(link)]
+        out += ["", SEPARATOR, f"Run timestamp {now.strftime('%Y-%m-%d %H:%M %Z')}"]
+        return "\n".join(out)
 
 
 if __name__ == "__main__":

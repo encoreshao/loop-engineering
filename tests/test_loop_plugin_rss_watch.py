@@ -66,10 +66,26 @@ def test_highlights_capped_sorted_and_digest(tmp_path):
     hl = [{"title": f"t{i}", "link": f"https://a/{i}", "why": "w" * 300, "score": 1 + i % 5} for i in range(15)]
     out = p.after_item(item, {"highlights": hl}, C())
     got = out.data["highlights"]
-    assert len(got) == 10 and len(got[0]["why"]) <= 140
+    assert len(got) == 10 and len(got[0]["summary"]) <= 500
     assert [h["score"] for h in got] == sorted((h["score"] for h in got), reverse=True)
     text = p.digest([out], C())
     assert "news" in text and "https://a/" in text
+
+
+def test_digest_numbered_brief_layout(tmp_path):
+    p = plugin(tmp_path, n=3)
+    item = p.discover(C())[0]
+    hl = [{"title": "Voxtral 3", "link": "https://a/0", "links": ["https://a/1", "https://evil/x"],
+           "source": "Mistral AI", "summary": "Voice stack.", "do_next": "Pilot it.", "kill_if": "No edge.", "score": 5},
+          {"title": "Second", "link": "https://a/2", "summary": "S2.", "score": 3}]
+    out = p.after_item(item, {"highlights": hl}, C())
+    lines = p.digest([out], C()).splitlines()
+    assert lines[0].startswith("RSS Watch Brief \u00b7 2026-10-06")
+    assert ":one: Voxtral 3" in lines and ":two: Second" in lines
+    assert "Do next: Pilot it." in lines and "Kill if: No edge." in lines
+    assert "\u2022 https://a/0" in lines and "\u2022 https://a/1" in lines
+    assert not any("evil" in l for l in lines)
+    assert lines[-1].startswith("Run timestamp 2026-10-06")
 
 
 def test_settings_fields_declared():

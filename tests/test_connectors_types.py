@@ -99,7 +99,7 @@ def test_rss_atom_supported(monkeypatch):
     xml = b"<feed xmlns='http://www.w3.org/2005/Atom'><entry><title>t</title><link href='https://x/1'/><id>1</id></entry></feed>"
     monkeypatch.setattr(rss, "_fetch", lambda url, timeout: xml)
     c = connectors.get_type("rss")({"id": "r", "settings": {"feeds": "https://a"}})
-    assert c.entries("https://a") == [{"title": "t", "link": "https://x/1", "id": "1", "published": ""}]
+    assert c.entries("https://a") == [{"title": "t", "link": "https://x/1", "id": "1", "published": "", "summary": ""}]
 
 
 def test_rss_rejects_doctype_entities(monkeypatch):

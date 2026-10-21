@@ -18,6 +18,7 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Changed
 
+- The RSS Watch Slack digest is now a numbered brief: each item has a headline, time and source, a short summary, Do next / Kill if lines and its links.
 - Daily Digest results are now saved to the loop's Content tab (summary plus each section), the loop has its own sidebar icon, its Slack message uses bold section headers, counts and linked bullets, and Latest results shows a one-line high-level summary instead of an item count.
 - Meeting Prep briefs now only keep content tied to issue work: linked GitLab issues/MRs (with the agent's recorded memory for each issue), mail that mentions an issue or MR, and follow-ups about them. Unrelated mail and meeting chatter are removed from the summary.
 

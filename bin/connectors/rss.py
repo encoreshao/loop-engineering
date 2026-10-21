@@ -50,7 +50,8 @@ def _parse(body):
     out = []
     for item in root.iter("item"):
         out.append({"title": _text(item, "title"), "link": _text(item, "link"),
-                    "id": _text(item, "guid"), "published": _text(item, "pubDate")})
+                    "id": _text(item, "guid"), "published": _text(item, "pubDate"),
+                    "summary": _text(item, "description")})
     for entry in root.iter(_ATOM + "entry"):
         link = ""
         for el in entry.findall(_ATOM + "link"):
@@ -59,7 +60,8 @@ def _parse(body):
                 break
         out.append({"title": _text(entry, _ATOM + "title"), "link": link,
                     "id": _text(entry, _ATOM + "id"),
-                    "published": _text(entry, _ATOM + "published") or _text(entry, _ATOM + "updated")})
+                    "published": _text(entry, _ATOM + "published") or _text(entry, _ATOM + "updated"),
+                    "summary": _text(entry, _ATOM + "summary")})
     return out
 
 
