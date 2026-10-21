@@ -13927,6 +13927,34 @@ def _is_google_oauth_type(cls):
     return cls is not None and getattr(cls, "auth", "secret") == connectors_config.OAUTH_GOOGLE
 
 
+def _is_linkedin_type(cls):
+    """A connector type that signs in through a browser window, not a pasted secret."""
+    return cls is not None and getattr(cls, "auth", "secret") == "browser_session"
+
+
+def _linkedin_account_action(action, account_id):
+    """Connect opens a visible Chrome window (bin/linkedin_login.py) for the
+    user to sign in; Disconnect wipes the saved session. Only native accounts
+    of a browser_session type qualify. Returns (ok, message)."""
+    import linkedin_session
+    try:
+        account = connectors_config.get_account(account_id)
+        cls = connectors.get_type(account["type"])
+    except KeyError:
+        return False, _t("No connector with id {id}", id=account_id)
+    if account.get("managed_by") != "native" or not _is_linkedin_type(cls) or not connectors_config.is_valid_id(account_id):
+        return False, _t("Connector {id} does not use a browser sign-in", id=account_id)
+    if action == "disconnect":
+        linkedin_session.wipe(account_id)
+        return True, _t("Disconnected {id}", id=account_id)
+    try:
+        subprocess.Popen([sys.executable, str(LOOP_DIR / "bin" / "linkedin_login.py"), account_id],
+                         start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        return False, _t("Could not open the sign-in window")
+    return True, _t("A Chrome window opened - sign in to LinkedIn, then return here and press Test")
+
+
 _GOOGLE_CLIENT_SETUP_HREF = "/loops/inbox-triage-loop?view=setup&tab=gmail"
 
 
@@ -13975,6 +14003,24 @@ def _connector_account_row_html(account, csrf_input, result):
             f"<button type='submit' class='btn {'btn-neutral' if connected else 'btn-primary'}'>"
             f"<span class='material-symbols-outlined' aria-hidden='true'>login</span> "
             f"{html.escape(_t('Reconnect') if connected else _t('Connect with Google'))}</button></form>")
+    elif _is_linkedin_type(cls) and managed_by == "native":
+        import linkedin_session
+        connected = linkedin_session.is_connected(account_id)
+        oauth_html = (f"<span class='pill {'pill-green' if connected else 'pill-grey'}'>"
+                      f"{html.escape(_t('Connected') if connected else _t('Not connected'))}</span>")
+        connect_html = (
+            f"<form method='post' action='/connectors/linkedin/connect' class='daemon-action-form'>{csrf_input}"
+            f"<input type='hidden' name='id' value=\"{safe_id}\">"
+            f"<button type='submit' class='btn {'btn-neutral' if connected else 'btn-primary'}'>"
+            f"<span class='material-symbols-outlined' aria-hidden='true'>login</span> "
+            f"{html.escape(_t('Reconnect') if connected else _t('Connect LinkedIn'))}</button></form>")
+        if connected:
+            connect_html += (
+                f"<form method='post' action='/connectors/linkedin/disconnect' class='daemon-action-form'>{csrf_input}"
+                f"<input type='hidden' name='id' value=\"{safe_id}\">"
+                f"<button type='submit' class='btn btn-neutral'>"
+                f"<span class='material-symbols-outlined' aria-hidden='true'>delete</span> "
+                f"{html.escape(_t('Disconnect'))}</button></form>")
     buttons = connect_html + (
         f"<form method='post' action='/connectors/test' class='daemon-action-form'>{csrf_input}"
         f"<input type='hidden' name='id' value=\"{safe_id}\">"
@@ -15153,6 +15199,7 @@ _CAPABILITY_LABELS = {
     "mail": "Mail",
     "docs": "Documents",
     "calendar": "Calendar",
+    "social": "Social",
 }
 
 
@@ -15890,6 +15937,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             if old_id and new_id and old_id != new_id:
                 _connector_renamed_or_deleted(old_id, new_id)
+                if connectors_config.is_valid_id(old_id) and connectors_config.is_valid_id(new_id):
+                    import linkedin_session
+                    linkedin_session.rename(old_id, new_id)
             if form.get("then_test") == "1":
                 test_ok, test_message = _run_connector_test(new_id)
                 ok, message = test_ok, f"{message} — {test_message}"
@@ -15915,6 +15965,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                                           location=result.get("location", "/connectors"))
             return
 
+        if self.path in ("/connectors/linkedin/connect", "/connectors/linkedin/disconnect"):
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
+            ok, message = _linkedin_account_action(self.path.rsplit("/", 1)[1], form.get("id", [""])[0])
+            self._redirect_with_flash(ok, message, location="/connectors")
+            return
+
         if self.path == "/connectors/delete":
             if not self._csrf_ok(body):
                 self._forbidden()
@@ -15924,6 +15983,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             ok, message = connectors_config.delete_account(account_id)
             if ok:
                 _connector_renamed_or_deleted(account_id)
+                if connectors_config.is_valid_id(account_id):
+                    import linkedin_session
+                    linkedin_session.wipe(account_id)
             self._redirect_with_flash(ok, message, location="/connectors")
             return
 

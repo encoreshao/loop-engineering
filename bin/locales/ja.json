@@ -989,5 +989,11 @@
   "LinkedIn showed a security check - open LinkedIn in a normal browser, then reconnect": "LinkedInがセキュリティチェックを表示しました。通常のブラウザでLinkedInを開いてから再接続してください",
   "Could not open Chrome ({kind})": "Chromeを開けませんでした({kind})",
   "Read your LinkedIn feed, notifications and messages through your own signed-in browser session.": "ご自身のサインイン済みブラウザセッションで、LinkedIn のフィード、通知、メッセージを読み取ります。",
-  "LinkedIn": "LinkedIn"
+  "LinkedIn": "LinkedIn",
+  "Connect LinkedIn": "LinkedInに接続",
+  "Disconnected {id}": "{id} の接続を解除しました",
+  "Connector {id} does not use a browser sign-in": "コネクタ {id} はブラウザでのサインインを使用しません",
+  "Could not open the sign-in window": "サインインウィンドウを開けませんでした",
+  "A Chrome window opened - sign in to LinkedIn, then return here and press Test": "Chromeのウィンドウが開きました。LinkedInにサインインしてから、ここに戻ってテストを押してください",
+  "Social": "ソーシャル"
 }

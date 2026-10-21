@@ -989,5 +989,11 @@
   "LinkedIn showed a security check - open LinkedIn in a normal browser, then reconnect": "LinkedIn 出现了安全验证——请在普通浏览器中打开 LinkedIn,然后重新连接",
   "Could not open Chrome ({kind})": "无法打开 Chrome({kind})",
   "Read your LinkedIn feed, notifications and messages through your own signed-in browser session.": "通过你自己已登录的浏览器会话读取 LinkedIn 的动态、通知和消息。",
-  "LinkedIn": "LinkedIn"
+  "LinkedIn": "LinkedIn",
+  "Connect LinkedIn": "连接 LinkedIn",
+  "Disconnected {id}": "已断开 {id}",
+  "Connector {id} does not use a browser sign-in": "连接器 {id} 不使用浏览器登录",
+  "Could not open the sign-in window": "无法打开登录窗口",
+  "A Chrome window opened - sign in to LinkedIn, then return here and press Test": "已打开 Chrome 窗口——请登录 LinkedIn,然后返回此处点击“测试”",
+  "Social": "社交"
 }

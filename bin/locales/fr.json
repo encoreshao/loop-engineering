@@ -989,5 +989,11 @@
   "LinkedIn showed a security check - open LinkedIn in a normal browser, then reconnect": "LinkedIn a demandé une vérification de sécurité : ouvrez LinkedIn dans un navigateur normal, puis reconnectez-vous",
   "Could not open Chrome ({kind})": "Impossible d'ouvrir Chrome ({kind})",
   "Read your LinkedIn feed, notifications and messages through your own signed-in browser session.": "Lit votre fil, vos notifications et vos messages LinkedIn via votre propre session de navigateur connectée.",
-  "LinkedIn": "LinkedIn"
+  "LinkedIn": "LinkedIn",
+  "Connect LinkedIn": "Connecter LinkedIn",
+  "Disconnected {id}": "{id} déconnecté",
+  "Connector {id} does not use a browser sign-in": "Le connecteur {id} n'utilise pas de connexion par navigateur",
+  "Could not open the sign-in window": "Impossible d'ouvrir la fenêtre de connexion",
+  "A Chrome window opened - sign in to LinkedIn, then return here and press Test": "Une fenêtre Chrome s'est ouverte : connectez-vous à LinkedIn, puis revenez ici et lancez le test",
+  "Social": "Réseaux sociaux"
 }
