@@ -15013,3 +15013,34 @@ def test_deleting_a_linkedin_connector_wipes_its_session(monkeypatch, tmp_path):
 
 def test_capability_label_for_social():
     assert ds._CAPABILITY_LABELS["social"] == "Social"
+
+
+def test_linkedin_content_record_renders_summary_topics_posts_and_people():
+    record = {"item_key": "linkedin:li:2026-10-06", "label": "LinkedIn", "saved_at": "2026-10-06T10:00:00+00:00",
+              "summary": "x", "url": "", "data": {
+                  "summary": "A quiet day <b>",
+                  "counts": {"notifications": 3, "messages": 2, "feed": 9},
+                  "topics": ["rails"],
+                  "worth_reading": [{"title": "Rails 9 <script>", "why": "big", "url": "https://www.linkedin.com/feed/update/urn:li:activity:1/"}],
+                  "people": [{"title": "Ada", "why": "ships", "profile": "javascript:alert(1)"}]}}
+    out = ds._content_record_html(record)
+    assert "A quiet day &lt;b&gt;" in out and "<script>" not in out
+    assert "3 notifications, 2 messages, 9 feed posts" in out
+    assert "Worth reading" in out and "People to know" in out and "Topics" in out
+    assert "href='https://www.linkedin.com/feed/update/urn:li:activity:1/'" in out
+    assert "javascript:" not in out
+
+
+def test_linkedin_loop_has_its_own_icon_and_the_icon_is_loaded():
+    assert ds._LOOP_NAV_ICONS["linkedin-autopilot-loop"] == "group"
+    names = ds._MATERIAL_SYMBOLS_ICON_NAMES.split(",")
+    assert "group" in names
+    assert names == sorted(names)
+
+
+def test_loops_template_registers_linkedin_autopilot_disabled_and_requiring_social():
+    loops = json.loads((Path(__file__).resolve().parent.parent / "config" / "loops.json.template").read_text())
+    entry = next(l for l in loops if l["name"] == "linkedin-autopilot-loop")
+    assert entry["enabled"] is False and entry["requires"] == ["social"]
+    assert entry["entry_point"] == "bin.loop_plugins.linkedin_autopilot"
+    assert entry["timeout_seconds"] >= 5400

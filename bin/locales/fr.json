@@ -995,5 +995,16 @@
   "Connector {id} does not use a browser sign-in": "Le connecteur {id} n'utilise pas de connexion par navigateur",
   "Could not open the sign-in window": "Impossible d'ouvrir la fenêtre de connexion",
   "A Chrome window opened - sign in to LinkedIn, then return here and press Test": "Une fenêtre Chrome s'est ouverte : connectez-vous à LinkedIn, puis revenez ici et lancez le test",
-  "Social": "Réseaux sociaux"
+  "Social": "Réseaux sociaux",
+  "Worth reading": "À lire",
+  "People to know": "Personnes à connaître",
+  "{notifications} notifications, {messages} messages, {feed} feed posts": "{notifications} notifications, {messages} messages, {feed} publications du fil",
+  "Run Chrome headless": "Exécuter Chrome en mode headless",
+  "Active hours": "Heures d'activité",
+  "Topics you care about": "Sujets qui vous intéressent",
+  "Comma-separated topics the loop looks for": "Sujets recherchés par la boucle, séparés par des virgules",
+  "Hours (24h clock) in which the loop may browse, e.g. 9-21": "Plage horaire (24 h) pendant laquelle la boucle peut naviguer, par ex. 9-21",
+  "Off opens a visible Chrome window while the loop runs (looks most like a real user). On is invisible but easier for LinkedIn to detect.": "Désactivé : une fenêtre Chrome visible s'ouvre pendant l'exécution (le plus proche d'un vrai utilisateur). Activé : invisible, mais plus facile à détecter pour LinkedIn.",
+  "LinkedIn Autopilot": "LinkedIn Autopilot",
+  "Browses your LinkedIn feed, notifications and messages through your own signed-in browser at a human pace and summarizes what is worth your attention.": "Parcourt votre fil, vos notifications et vos messages LinkedIn depuis votre propre navigateur connecté, à un rythme humain, et résume ce qui mérite votre attention."
 }
