@@ -11,6 +11,8 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-22
+
 ### Added
 
 - The macOS app and dashboard now tell you when `origin` has new commits or a release (a topbar chip, a banner and a native notification, checked every 6 hours or with Check now). **Upgrade now** pulls, rebuilds the app and DMG, reinstalls the app over the one you are running, restarts the dashboard and relaunches, with a live step-by-step progress screen at `/update`. It refuses, and says why, when tracked files have local changes or the checkout has diverged from `origin`.
@@ -245,7 +247,8 @@ later releases list only what changed since the previous one.
 - `install.sh`, `uninstall.sh` and `setup.sh` with launchd agents and an
   optional nginx front end.
 
-[Unreleased]: https://github.com/encoreshao/loop-engineering/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/encoreshao/loop-engineering/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/encoreshao/loop-engineering/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/encoreshao/loop-engineering/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/encoreshao/loop-engineering/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/encoreshao/loop-engineering/releases/tag/v0.1.0
