@@ -62,6 +62,12 @@ class FakeSession:
     def notifications(self): return self._go("notifications", FakeSession.note_rows)
     def messages(self): return self._go("messages", FakeSession.msg_rows)
     def wander(self): self.calls.append("wander")
+    people_rows, people_error = [], None
+    def search_people(self, query, want=30, known=()):
+        self.calls.append("people")
+        self.people_args = (query, want, set(known))
+        if FakeSession.people_error: raise FakeSession.people_error
+        return FakeSession.people_rows
 
 
 DISCONNECTS = []
@@ -72,6 +78,7 @@ def reset_fake():
     DISCONNECTS.clear()
     FakeSession.instances, FakeSession.feed_rows = [], FEED
     FakeSession.note_rows, FakeSession.msg_rows, FakeSession.error = NOTES, MSGS, None
+    FakeSession.people_rows, FakeSession.people_error = [], None
 
 
 def plugin(tmp_path, human=None, **kw):
@@ -79,6 +86,7 @@ def plugin(tmp_path, human=None, **kw):
     kw.setdefault("disconnect_fn", DISCONNECTS.append)
     kw.setdefault("loop_seen", seen_store.SeenStore("linkedin-autopilot-loop", state_dir=tmp_path / "loopseen", now_fn=lambda: NOW))
     kw.setdefault("schedule_hour_fn", lambda: None)
+    kw.setdefault("people_path", tmp_path / "people.json")
     return la.LinkedInAutopilot(
         accounts_fn=lambda cap: [{"id": "li", "type": "linkedin"}, {"id": "other", "type": "rss"}],
         session_factory=FakeSession,
@@ -112,7 +120,7 @@ def test_reads_feed_first_then_the_rest_in_varying_order(tmp_path):
         FakeSession.instances = []
         plugin(tmp_path / str(seed), human=lh.Humanizer(rng=random.Random(seed), sleep=lambda s: None)).discover(ctx())
         calls = FakeSession.instances[0].calls
-        assert calls[0] == "feed" and sorted(calls[1:]) == ["messages", "notifications", "wander"]
+        assert calls[0] == "feed" and sorted(calls[1:]) == ["messages", "notifications", "people", "wander"]
         orders.add(tuple(calls))
     assert len(orders) > 1
 
@@ -292,7 +300,7 @@ def test_definition_and_prompt_load():
 
 def test_settings_fields_are_declared():
     keys = [f.key for f in la.SETTINGS_FIELDS]
-    assert keys == ["headless", "active_hours", "topics"]
+    assert keys == ["headless", "active_hours", "people_query", "people_target", "topics"]
     headless = la.SETTINGS_FIELDS[0]
     assert headless.default == "no" and headless.options == ("no", "yes")
 
@@ -336,3 +344,42 @@ def test_digest_reports_a_crashed_run_without_problem(tmp_path):
     text = p.digest([crashed], ctx())
     assert "LinkedIn needs attention: the run failed - check the loop log" in text
     assert "secret" not in text
+
+
+def person(i):
+    return {"name": f"P{i}", "url": f"https://www.linkedin.com/in/p{i}", "avatar": "", "company": "Acme", "position": "Eng"}
+
+
+def test_people_are_searched_for_the_configured_query_and_saved(tmp_path):
+    FakeSession.people_rows = [person(i) for i in range(25)]
+    p = plugin(tmp_path)
+    p.discover(ctx(settings={"people_query": "AI builder", "people_target": "25"}))
+    s = FakeSession.instances[0]
+    assert s.people_args == ("AI builder", 25, set())
+    import linkedin_people
+    assert len(linkedin_people.load(tmp_path / "people.json")) == 25
+
+
+def test_people_search_defaults_to_ai_builder_and_30_and_skips_known_people(tmp_path):
+    import linkedin_people
+    linkedin_people.merge([person(1)], "AI builder", NOW, path=tmp_path / "people.json")
+    plugin(tmp_path).discover(ctx())
+    assert FakeSession.instances[0].people_args == ("AI builder", 30, {person(1)["url"]})
+
+
+def test_people_search_can_be_turned_off_with_an_empty_query(tmp_path):
+    plugin(tmp_path).discover(ctx(settings={"people_query": ""}))
+    assert "people" not in FakeSession.instances[0].calls
+
+
+def test_a_people_search_timeout_does_not_lose_the_feed_run(tmp_path):
+    FakeSession.people_error = lb.PageTimeout()
+    items = plugin(tmp_path).discover(ctx())
+    assert len(items) == 1 and "problem" not in items[0].payload
+
+
+def test_a_feed_that_never_renders_is_a_page_timeout_problem(tmp_path):
+    FakeSession.error = lb.PageTimeout()
+    [item] = plugin(tmp_path).discover(ctx())
+    out = plugin(tmp_path).after_item(item, {}, ctx())
+    assert out.status == "failed" and out.data["problem"] == "page_timeout" and "10 minutes" in out.summary

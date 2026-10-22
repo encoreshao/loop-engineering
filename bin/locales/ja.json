@@ -1026,5 +1026,8 @@
   "Update": "アップデート",
   "Updated to {version}": "{version} に更新しました",
   "Upgrading Loop X - this window will relaunch when it is done.": "Loop X をアップグレード中です。完了するとこのウィンドウが再起動します。",
-  "Loop X is up to date.": "Loop X は最新です。"
+  "Loop X is up to date.": "Loop X は最新です。",
+  "People": "人物",
+  "No people collected yet. They appear here after the next run.": "まだ収集された人物はいません。次回の実行後にここに表示されます。",
+  "{count} people": "{count}人"
 }

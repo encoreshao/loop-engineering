@@ -5,10 +5,11 @@ only module that knows LinkedIn's page structure. It never navigates, scrolls,
 clicks or types by itself - tests/test_linkedin_browser.py enforces that."""
 import hashlib
 from html.parser import HTMLParser
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
+import linkedin_extract
 import linkedin_session
-from linkedin_humanize import HumanPage, Humanizer
+from linkedin_humanize import HumanPage, Humanizer, PageTimeout  # noqa: F401 - re-exported
 
 LINKEDIN = "https://www.linkedin.com"
 MAX_TEXT = 400
@@ -165,6 +166,9 @@ def detect_challenge(url, html=""):
 
 
 WANDER_URLS = (f"{LINKEDIN}/mynetwork/", f"{LINKEDIN}/jobs/", f"{LINKEDIN}/in/me/", f"{LINKEDIN}/feed/")
+SEARCH_BOX = "input.search-global-typeahead__input, input[aria-label*='Search' i], input[placeholder*='Search' i]"
+PEOPLE_FILTER = "button:has-text('People'), a:has-text('People')"
+MAX_SEARCH_PAGES = 5
 _VIEWPORT = {"width": 1440, "height": 900}
 
 
@@ -186,8 +190,9 @@ def _playwright_launcher(profile, headless):
 
 
 class Session:
-    def __init__(self, account_id, headless=False, human=None, launcher=None):
+    def __init__(self, account_id, headless=False, human=None, launcher=None, extractor=None):
         self.account_id = account_id
+        self._extractor = extractor or linkedin_extract.extract
         self.headless = headless
         self.human = human or Humanizer()
         self._launcher = launcher or _playwright_launcher
@@ -219,13 +224,17 @@ class Session:
         if reason == "challenge":
             raise ChallengeError()
 
-    def _read(self, url, parser, scroll_px):
+    def _read(self, url, kind, parser, scroll_px):
         self.hp.goto(url)
         self._check()
+        self.hp.wait_rendered()
         self.hp.scroll(scroll_px)
+        self.hp.wait_rendered()
         html = self.page.content()
         self._check(html)
         rows = parser(html)
+        if not rows:    # markup not recognised: let the model read what the page shows
+            rows = self._extractor(kind, self.hp.evaluate(linkedin_extract.PAGE_DUMP_JS))
         self.hp.dwell(sum(len(r["text"]) for r in rows))
         return rows
 
@@ -235,13 +244,53 @@ class Session:
         return True
 
     def feed(self):
-        return self._read(f"{LINKEDIN}/feed/", parse_feed, 3000)
+        return self._read(f"{LINKEDIN}/feed/", "feed", parse_feed, 3000)
 
     def notifications(self):
-        return self._read(f"{LINKEDIN}/notifications/", parse_notifications, 1200)
+        return self._read(f"{LINKEDIN}/notifications/", "notifications", parse_notifications, 1200)
 
     def messages(self):
-        return self._read(f"{LINKEDIN}/messaging/", parse_messages, 400)
+        return self._read(f"{LINKEDIN}/messaging/", "messages", parse_messages, 400)
+
+    def search_people(self, query, want=30, known=()):
+        """People matching `query`, found through the header search bar like a
+        person would: type, Enter, People filter, then page through results
+        until `want` people not in `known` are collected (or the page cap)."""
+        self.hp.goto(f"{LINKEDIN}/feed/")
+        self._check()
+        self.hp.wait_rendered()
+        results = f"{LINKEDIN}/search/results/people/?keywords={quote(query)}&origin=GLOBAL_SEARCH_HEADER"
+        if self.hp.type_into(SEARCH_BOX, query):
+            self.human.sleep(self.human.pause_seconds(2.0, 4.0))
+            self.hp.wait_rendered()
+            self._check()
+            if "/search/results/people" not in self.page.url:
+                if self.hp.click(PEOPLE_FILTER):
+                    self.human.sleep(self.human.pause_seconds(2.0, 4.0))
+                else:
+                    self.hp.goto(results)
+        else:
+            self.hp.goto(results)
+        taken, found = set(known), []
+        for number in range(1, MAX_SEARCH_PAGES + 1):
+            if number > 1:
+                self.hp.goto(f"{results}&page={number}")
+            self._check()
+            self.hp.wait_rendered()
+            self.hp.scroll(2500)
+            self.hp.wait_rendered()
+            self._check(self.page.content())
+            rows = self._extractor("people", self.hp.evaluate(linkedin_extract.PAGE_DUMP_JS))
+            if not rows:
+                break
+            for row in rows:
+                if row["url"] not in taken:
+                    taken.add(row["url"])
+                    found.append(row)
+            if len(found) >= want:
+                break
+            self.hp.dwell()
+        return found[:want]
 
     def wander(self):
         """A person does not only visit the pages they need: open one to three

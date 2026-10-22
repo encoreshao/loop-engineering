@@ -12,9 +12,16 @@ DWELL_MIN_S = 5.0
 DWELL_MAX_S = 60.0
 READ_CHARS_PER_S = 22.0
 START_DELAY_MAX_S = 1800.0
+RENDER_TIMEOUT_S = 600.0   # a page that has not rendered after 10 minutes is given up on
+RENDER_POLL_S = 2.0
+RENDER_MIN_CHARS = 300     # less visible text than this is still the loading shell
 SKIP_DAY_P = 0.1
 WANDER_MIN, WANDER_MAX = 1, 3
 _HOURS_RE = re.compile(r"^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$")
+
+
+class PageTimeout(Exception):
+    """A page did not respond or finish rendering within RENDER_TIMEOUT_S."""
 
 
 def parse_active_hours(text, default=(9, 21)):
@@ -116,8 +123,70 @@ class HumanPage:
 
     def goto(self, url):
         self.human.sleep(self.human.gap_before_load())
-        self.page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        try:
+            self.page.goto(url, wait_until="domcontentloaded", timeout=RENDER_TIMEOUT_S * 1000)
+        except Exception as exc:  # noqa: BLE001
+            if type(exc).__name__ == "TimeoutError":
+                raise PageTimeout() from exc
+            raise
         self.idle_mouse()
+
+    def evaluate(self, js):
+        return self.page.evaluate(js)
+
+    def wait_rendered(self, timeout=RENDER_TIMEOUT_S, poll=RENDER_POLL_S, min_chars=RENDER_MIN_CHARS):
+        """LinkedIn renders client-side, so a loaded page is not a rendered page.
+        Poll the visible text length until it is long enough and has stopped
+        changing for two polls in a row; PageTimeout after `timeout` seconds."""
+        clock = self.human._clock
+        deadline = clock() + timeout
+        last, stable = -1, 0
+        while True:
+            try:
+                size = int(self.page.evaluate("() => (document.body && document.body.innerText || '').length") or 0)
+            except Exception:  # noqa: BLE001 - mid-navigation: just poll again
+                size = 0
+            stable = stable + 1 if size == last and size >= min_chars else 0
+            last = size
+            if stable >= 2:
+                return
+            if clock() >= deadline:
+                raise PageTimeout()
+            self.human.sleep(poll)
+
+    def _move_to(self, locator):
+        box = locator.bounding_box()
+        if not box:
+            return
+        end = (box["x"] + box["width"] * self.human.rng.uniform(0.3, 0.7),
+               box["y"] + box["height"] * self.human.rng.uniform(0.3, 0.7))
+        for x, y in self.human.mouse_path(self._pos, end):
+            self.page.mouse.move(x, y)
+            self.human.sleep(self.human.rng.uniform(0.005, 0.03))
+        self._pos = end
+
+    def click(self, selector):
+        """Click the first visible match like a person. False when nothing matches."""
+        locator = self.page.locator(selector).first
+        try:
+            locator.wait_for(state="visible", timeout=8000)
+        except Exception:  # noqa: BLE001 - absent control: the caller falls back
+            return False
+        self._move_to(locator)
+        self.human.sleep(self.human.pause_seconds())
+        self.page.mouse.click(*self._pos)
+        return True
+
+    def type_into(self, selector, text):
+        """Click a field and type with uneven key delays, then Enter. False if the field is missing."""
+        if not self.click(selector):
+            return False
+        for ch in text:
+            self.page.keyboard.type(ch)
+            self.human.sleep(self.human.rng.uniform(0.05, 0.22))
+        self.human.sleep(self.human.pause_seconds())
+        self.page.keyboard.press("Enter")
+        return True
 
     def idle_mouse(self):
         end = (self.human.rng.uniform(200, 1200), self.human.rng.uniform(150, 700))

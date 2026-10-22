@@ -15125,3 +15125,24 @@ def test_no_chip_when_up_to_date(tmp_path, monkeypatch):
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/daemons", timeout=10) as r:
             page = r.read().decode()
     assert "href='/update'" not in page
+
+
+def test_linkedin_loop_has_a_people_view_listing_collected_people(monkeypatch, tmp_path):
+    d = _plugin_loop_sandbox(monkeypatch, tmp_path, name="linkedin-autopilot-loop")
+    assert "people" in [v.key for v in ds._generic_loop_page("linkedin-autopilot-loop", {"name": "linkedin-autopilot-loop"}).views]
+    (d / "people.json").write_text(json.dumps([
+        {"name": "Ada <b>", "url": "https://www.linkedin.com/in/ada", "avatar": "https://media.licdn.com/a.jpg",
+         "company": "Acme", "position": "AI builder", "query": "AI builder", "first_seen": "2026-10-22T10:00:00+00:00",
+         "last_seen": "2026-10-22T10:00:00+00:00"},
+        {"name": "Bob", "url": "javascript:alert(1)", "avatar": "javascript:1", "company": "", "position": "",
+         "query": "q", "first_seen": "", "last_seen": ""}]))
+    out = ds.render_loop_page("linkedin-autopilot-loop", view="people")
+    assert "Ada &lt;b&gt;" in out and "<b>" not in out
+    assert "href='https://www.linkedin.com/in/ada'" in out and "src='https://media.licdn.com/a.jpg'" in out
+    assert "referrerpolicy='no-referrer'" in out and "Acme" in out and "AI builder" in out
+    assert "javascript:" not in out
+
+
+def test_linkedin_people_view_empty_state(monkeypatch, tmp_path):
+    _plugin_loop_sandbox(monkeypatch, tmp_path, name="linkedin-autopilot-loop")
+    assert "No people collected yet" in ds.render_loop_page("linkedin-autopilot-loop", view="people")

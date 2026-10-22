@@ -1026,5 +1026,8 @@
   "Update": "Mise à jour",
   "Updated to {version}": "Mis à jour vers {version}",
   "Upgrading Loop X - this window will relaunch when it is done.": "Mise à niveau de Loop X en cours ; cette fenêtre se relancera à la fin.",
-  "Loop X is up to date.": "Loop X est à jour."
+  "Loop X is up to date.": "Loop X est à jour.",
+  "People": "Personnes",
+  "No people collected yet. They appear here after the next run.": "Aucune personne collectée pour l'instant. Elles apparaîtront ici après la prochaine exécution.",
+  "{count} people": "{count} personnes"
 }

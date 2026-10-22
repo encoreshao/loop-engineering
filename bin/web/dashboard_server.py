@@ -5993,6 +5993,12 @@ ul.plain li {{ font-size: 0.9rem; }}
 .meeting-pills {{ display: inline-flex; gap: 0.35rem; justify-self: end; }}
 .draft-body, .content-text {{ white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 0.5rem 0 0; }}
 .content-list {{ margin: 0.25rem 0 0.75rem; padding-left: 1.25rem; }}
+.people-list {{ list-style: none; margin: 0.75rem 0 0; padding: 0; display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fill, minmax(min(18rem, 100%), 1fr)); }}
+.person {{ display: flex; gap: 0.75rem; align-items: center; padding: 0.75rem; border: 1px solid var(--md-outline-variant); border-radius: 12px; min-width: 0; }}
+.person-avatar {{ width: 48px; height: 48px; border-radius: 50%; flex: 0 0 48px; object-fit: cover; display: flex; align-items: center; justify-content: center; background: var(--md-surface-container-high); font-weight: 500; }}
+.person-body {{ min-width: 0; display: flex; flex-direction: column; gap: 0.125rem; }}
+.person-body a {{ font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+.person-meta {{ font-size: 0.85rem; color: var(--md-on-surface-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
 .content-heading {{ margin: 0.75rem 0 0; font-size: 0.95rem; }}
 .meeting-summary {{ grid-column: 2 / -1; margin: 0; font-size: 0.9rem; line-height: 1.4; }}
 .meeting-brief-ready {{ background: var(--md-primary-container); color: var(--md-on-primary-container); }}
@@ -15062,6 +15068,37 @@ def _generic_loop_content_body(name, flash=None, flash_ok=True):
     return _flash_html(flash, flash_ok) + inner
 
 
+def _linkedin_people_body(name, flash=None, flash_ok=True):
+    """The people the loop collected through LinkedIn's header search, newest
+    first, for review. Every string is escaped; only http(s) links/images are used."""
+    import linkedin_people
+    people = linkedin_people.load(_loop_output_dir(name) / "people.json")
+    head = f"<div class='section-header'><h2>{html.escape(_t('People'))}</h2></div>"
+    if not people:
+        inner = f"<p class='section-subtitle'>{html.escape(_t('No people collected yet. They appear here after the next run.'))}</p>"
+    else:
+        cards = []
+        for p in people:
+            person_name = str(p.get("name") or "")
+            url = str(p.get("url") or "")
+            avatar = str(p.get("avatar") or "")
+            if avatar.startswith("https://"):
+                pic = (f"<img class='person-avatar' src='{html.escape(avatar, quote=True)}' alt='' loading='lazy' "
+                       "referrerpolicy='no-referrer'>")
+            else:
+                pic = f"<span class='person-avatar' aria-hidden='true'>{html.escape(person_name[:1].upper())}</span>"
+            label = html.escape(person_name)
+            if url.startswith("https://"):
+                label = f"<a href='{html.escape(url, quote=True)}' target='_blank' rel='noopener'>{label}</a>"
+            meta = " · ".join(html.escape(str(x)) for x in (p.get("position"), p.get("company")) if x)
+            seen = html.escape(str(p.get("first_seen") or "")[:10])
+            cards.append(f"<li class='person'>{pic}<div class='person-body'>{label}"
+                         f"<span class='person-meta'>{meta}</span><span class='person-meta'>{seen}</span></div></li>")
+        inner = (f"<p class='section-subtitle'>{html.escape(_t('{count} people', count=len(people)))}</p>"
+                 f"<ul class='people-list'>{''.join(cards)}</ul>")
+    return _flash_html(flash, flash_ok) + f"<section class='card'>{head}{inner}</section>"
+
+
 def _generic_loop_history_body(name, flash=None, flash_ok=True):
     files = _loop_history_files(name)
     runs = [r for r in (_loop_history_run(name, f) for f in files) if r]
@@ -15214,6 +15251,10 @@ def _generic_loop_page(name, loop=None):
         V("history", "History", lambda **kw: _generic_loop_history_body(name, **_only(kw, "flash", "flash_ok")),
           badge_fn=badge),
     ]
+    if name == "linkedin-autopilot-loop":
+        views.insert(2, V("people", "People",
+                          lambda **kw: _linkedin_people_body(name, **_only(kw, "flash", "flash_ok")),
+                          badge_fn=badge))
     if _loop_settings_fields(name, loop):
         views.append(V("settings", "Settings",
                        lambda **kw: _generic_loop_settings_body(name, **_only(kw, "flash", "flash_ok")),

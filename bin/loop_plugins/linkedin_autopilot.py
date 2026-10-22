@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import linkedin_browser  # noqa: E402
 import linkedin_humanize  # noqa: E402
+import linkedin_people  # noqa: E402
 import linkedin_session  # noqa: E402
 import loopkit  # noqa: E402
 import seen_store  # noqa: E402
@@ -24,12 +25,14 @@ MAX_NOTIFICATIONS, MAX_FEED, MAX_MESSAGES = 30, 30, 20
 MAX_TEXT = 300
 MAX_WHY = 140
 MAX_TOPICS = 10
+DEFAULT_PEOPLE_QUERY = "AI builder"
 PROBLEM_PROMPT = "__linkedin_problem__"
 PROBLEMS = {
     "session_expired": "LinkedIn session expired - reconnect it on the Connectors page",
     "challenge": "LinkedIn showed a security check - open LinkedIn in a normal browser, then reconnect",
     "browser_unavailable": "Playwright or Chrome is not available - see the Connectors page",
     "not_connected": "LinkedIn is not connected - press Connect LinkedIn on the Connectors page",
+    "page_timeout": "LinkedIn did not respond or render within 10 minutes - the run was stopped, try again later",
     "page_changed": "LinkedIn's page layout was not recognised - no feed posts found, the loop may need an update",
     "schedule_outside_hours": "The loop's schedule hour is outside its active hours - change one of them on the loop's page",
     "error": "LinkedIn could not be read - check the loop log",
@@ -41,6 +44,12 @@ SETTINGS_FIELDS = (
                "On is invisible but easier for LinkedIn to detect."),
     Field("active_hours", "Active hours", required=False, default="9-21", placeholder="9-21",
           help="Hours (24h clock) in which the loop may browse, e.g. 9-21"),
+    Field("people_query", "People search", required=False, default=DEFAULT_PEOPLE_QUERY,
+          placeholder=DEFAULT_PEOPLE_QUERY,
+          help="Searched in LinkedIn's header search bar each run to collect people to review on the People tab. "
+               "Leave empty to turn it off."),
+    Field("people_target", "New people per run", required=False, default=str(linkedin_people.DEFAULT_TARGET),
+          placeholder="30", help="How many people not collected before to look for each run (20-50)"),
     Field("topics", "Topics you care about", kind="textarea", required=False,
           help="Comma-separated topics the loop looks for",
           placeholder="Rails, AI coding agents, hiring"),
@@ -69,7 +78,8 @@ class LinkedInAutopilot(loopkit.LoopPlugin):
     settings_fields = SETTINGS_FIELDS
 
     def __init__(self, accounts_fn=None, session_factory=None, human=None, seen=None,
-                 connected_fn=None, disconnect_fn=None, loop_seen=None, schedule_hour_fn=None):
+                 connected_fn=None, disconnect_fn=None, loop_seen=None, schedule_hour_fn=None, people_path=None):
+        self._people_path = people_path
         self._connected_fn = connected_fn
         self._disconnect_fn = disconnect_fn
         self._loop_seen = loop_seen
@@ -113,18 +123,34 @@ class LinkedInAutopilot(loopkit.LoopPlugin):
             self._accounts_fn = connectors_config.accounts_with_capability
         return [a for a in self._accounts_fn("social") if a.get("type") == "linkedin"]
 
-    def _collect(self, aid, settings, human):
+    def _collect_people(self, session, settings, ctx):
+        """Search for new people; a failure here never costs the run its feed."""
+        query = str(settings.get("people_query", DEFAULT_PEOPLE_QUERY) or "").strip()[:100]
+        if not query:
+            return
+        want = linkedin_people.target(settings.get("people_target"))
+        try:
+            rows = session.search_people(query, want=want, known=linkedin_people.known_urls(self._people_path))
+            added = linkedin_people.merge(rows, query, ctx.now, path=self._people_path)
+            ctx.log(f"linkedin-autopilot: {added} new people for {query!r}")
+        except (linkedin_browser.SessionExpired, linkedin_browser.ChallengeError):
+            raise
+        except Exception as exc:  # noqa: BLE001 - incl. PageTimeout
+            ctx.log(f"linkedin-autopilot: people search failed: {_err(exc)}")
+
+    def _collect(self, aid, settings, human, ctx):
         headless = str(settings.get("headless") or "no") == "yes"
         factory = self._session_factory or linkedin_browser.Session
         out = {}
         with factory(aid, headless=headless, human=human) as session:
             out["feed"] = session.feed()
-            rest = {"notifications": session.notifications, "messages": session.messages, "wander": session.wander}
+            rest = {"notifications": session.notifications, "messages": session.messages, "wander": session.wander,
+                    "people": lambda: self._collect_people(session, settings, ctx)}
             order = list(rest)
             human.rng.shuffle(order)
             for name in order:
                 rows = rest[name]()
-                if name != "wander":
+                if name in ("notifications", "messages"):
                     out[name] = rows
         return out
 
@@ -162,7 +188,7 @@ class LinkedInAutopilot(loopkit.LoopPlugin):
                     continue
                 human.sleep(human.start_delay_seconds())
             try:
-                data = self._collect(aid, settings, human)
+                data = self._collect(aid, settings, human, ctx)
             except linkedin_browser.SessionExpired:
                 self._disconnect(aid, ctx)
                 items.append(self._problem(key, aid, "session_expired"))
@@ -170,6 +196,9 @@ class LinkedInAutopilot(loopkit.LoopPlugin):
             except linkedin_browser.ChallengeError:
                 self._disconnect(aid, ctx)
                 items.append(self._problem(key, aid, "challenge"))
+                continue
+            except linkedin_browser.PageTimeout:
+                items.append(self._problem(key, aid, "page_timeout"))
                 continue
             except linkedin_browser.BrowserUnavailable:
                 items.append(self._problem(key, aid, "browser_unavailable"))

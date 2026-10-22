@@ -1026,5 +1026,8 @@
   "Update": "更新",
   "Updated to {version}": "已更新到 {version}",
   "Upgrading Loop X - this window will relaunch when it is done.": "正在升级 Loop X,完成后此窗口将重新启动。",
-  "Loop X is up to date.": "Loop X 已是最新版本。"
+  "Loop X is up to date.": "Loop X 已是最新版本。",
+  "People": "人员",
+  "No people collected yet. They appear here after the next run.": "尚未收集到人员。下次运行后将显示在这里。",
+  "{count} people": "{count} 人"
 }

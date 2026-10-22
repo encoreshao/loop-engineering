@@ -148,3 +148,46 @@ def test_dwell_sleeps_once():
     h, slept = human()
     lh.HumanPage(page, h).dwell(800)
     assert len(slept) == 1 and lh.DWELL_MIN_S <= slept[0] <= lh.DWELL_MAX_S
+
+
+class WaitPage:
+    """evaluate() returns the next body-text length from a script."""
+    def __init__(self, lengths):
+        self.lengths = list(lengths)
+    def evaluate(self, js):
+        return self.lengths.pop(0) if len(self.lengths) > 1 else self.lengths[0]
+
+
+def ticking_human():
+    t = [0.0]
+    h = lh.Humanizer(rng=random.Random(0), sleep=lambda s: t.__setitem__(0, t[0] + s), clock=lambda: t[0])
+    return h
+
+
+def test_wait_rendered_returns_once_the_page_text_stops_growing():
+    hp = lh.HumanPage(WaitPage([0, 50, 400, 900, 2000, 2000, 2000]), ticking_human())
+    hp.wait_rendered()                      # no exception: stable and long enough
+
+
+def test_wait_rendered_gives_up_after_ten_minutes_of_a_page_that_never_renders():
+    h = ticking_human()
+    hp = lh.HumanPage(WaitPage([10]), h)    # a blank page forever
+    import pytest
+    with pytest.raises(lh.PageTimeout):
+        hp.wait_rendered()
+    assert 600 <= h._clock() < 620
+
+
+def test_wait_rendered_keeps_waiting_while_the_page_keeps_changing():
+    lengths = list(range(500, 500 + 40 * 100, 100)) + [9999] * 3
+    lh.HumanPage(WaitPage(lengths), ticking_human()).wait_rendered()
+
+
+def test_a_playwright_goto_timeout_becomes_page_timeout():
+    import pytest
+    class TimeoutError(Exception): pass
+    class Page:
+        mouse = None
+        def goto(self, *a, **kw): raise TimeoutError("slow")
+    with pytest.raises(lh.PageTimeout):
+        lh.HumanPage(Page(), ticking_human()).goto("https://www.linkedin.com/feed/")

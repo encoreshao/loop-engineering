@@ -15,16 +15,22 @@ FEED = '<div data-urn="urn:li:activity:5"><a href="/in/ada/">Ada</a> hello</div>
 class FakeMouse:
     def move(self, x, y): pass
     def wheel(self, dx, dy): pass
+    def click(self, x, y): pass
 
 
 class FakePage:
     def __init__(self, pages, redirects=None):
         self.pages, self.redirects, self.url, self.visited = pages, redirects or {}, "about:blank", []
         self.mouse = FakeMouse()
+        self.dumps = {}
     def goto(self, url, **kw):
         self.visited.append(url)
         self.url = self.redirects.get(url, url)
     def content(self): return self.pages.get(self.url, "")
+    def evaluate(self, js):
+        if "cards" in js:
+            return self.dumps.get(self.url, {"text": "", "cards": [], "links": []})
+        return 1000
 
 
 class FakeCtx:
@@ -43,14 +49,14 @@ def home(monkeypatch, tmp_path):
     monkeypatch.setenv("LOOP_ENGINEERING_HOME", str(tmp_path))
 
 
-def session(page, headless=False):
+def session(page, headless=False, extractor=None):
     ctx, pw = FakeCtx(page), FakePW()
     seen = {}
     def launcher(profile, hl):
         seen["profile"], seen["headless"] = profile, hl
         return pw, ctx
     human = lh.Humanizer(rng=random.Random(0), sleep=lambda s: None)
-    return lb.Session("li", headless=headless, human=human, launcher=launcher), ctx, pw, seen
+    return lb.Session("li", headless=headless, human=human, launcher=launcher, extractor=extractor), ctx, pw, seen
 
 
 def test_reads_pages_and_parses(tmp_path):
@@ -199,3 +205,112 @@ def test_enter_closes_chrome_when_page_setup_fails():
     with pytest.raises(RuntimeError):
         s.__enter__()
     assert ctx.closed and pw.stopped
+
+
+NEW_LAYOUT = "<html><body><div class='x9'>no data-urn anywhere</div></body></html>"
+
+
+def test_feed_falls_back_to_ai_extraction_when_the_markup_is_not_recognised():
+    page = FakePage({f"{lb.LINKEDIN}/feed/": NEW_LAYOUT})
+    page.dumps[f"{lb.LINKEDIN}/feed/"] = {"text": "Ada posted hello", "cards": [], "links": []}
+    asked = []
+    def extractor(kind, dump):
+        asked.append((kind, dump["text"]))
+        return [{"id": "feed:1", "text": "hello", "url": "", "profile": ""}]
+    s, *_ = session(page, extractor=extractor)
+    with s:
+        assert [r["id"] for r in s.feed()] == ["feed:1"]
+    assert asked == [("feed", "Ada posted hello")]
+
+
+def test_recognised_markup_never_calls_the_model():
+    page = FakePage({f"{lb.LINKEDIN}/feed/": FEED})
+    s, *_ = session(page, extractor=lambda k, d: (_ for _ in ()).throw(AssertionError("model called")))
+    with s:
+        assert s.feed()[0]["id"] == "urn:li:activity:5"
+
+
+def test_a_page_that_never_renders_raises_page_timeout():
+    page = FakePage({f"{lb.LINKEDIN}/feed/": ""})
+    page.evaluate = lambda js: 0
+    t = [0.0]
+    human = lh.Humanizer(rng=random.Random(0), sleep=lambda s: t.__setitem__(0, t[0] + s), clock=lambda: t[0])
+    s = lb.Session("li", human=human, launcher=lambda p, h: (FakePW(), FakeCtx(page)))
+    with s, pytest.raises(lb.PageTimeout):
+        s.feed()
+
+
+class SearchPage(FakePage):
+    """Header search box present or absent; each results page offers 10 people."""
+    def __init__(self, has_box=True):
+        super().__init__({})
+        self.has_box, self.typed, self.clicked, self.page_no = has_box, [], [], 1
+        self.keyboard = self
+    def locator(self, sel):
+        page = self
+        class Loc:
+            first = None
+            def wait_for(self, **kw):
+                if not (page.has_box if "Search" in sel or "search" in sel else "People" in sel and page.has_people):
+                    raise RuntimeError("absent")
+            def bounding_box(self): return {"x": 10, "y": 10, "width": 100, "height": 20}
+        Loc.first = Loc()
+        page.clicked.append(sel)
+        return Loc
+    has_people = False
+    def type(self, ch): self.typed.append(ch)
+    def press(self, key):
+        if key == "Enter":
+            self.url = f"{lb.LINKEDIN}/search/results/all/?keywords=x"
+    def goto(self, url, **kw):
+        super().goto(url, **kw)
+        if "page=" in url:
+            self.page_no = int(url.split("page=")[1].split("&")[0])
+        elif "/search/results/people" in url:
+            self.page_no = 1
+    def evaluate(self, js):
+        if "cards" in js:
+            base = (self.page_no - 1) * 10
+            return {"text": "results", "links": [], "cards": [{"url": f"{lb.LINKEDIN}/in/p{base + i}", "avatar": "", "text": f"P{base + i}"} for i in range(10)]}
+        return 1000
+
+
+def people_extractor(kind, dump):
+    assert kind == "people"
+    return [{"name": c["text"], "url": c["url"], "avatar": "", "company": "", "position": ""} for c in dump["cards"]]
+
+
+def test_search_people_types_into_the_header_search_and_pages_until_enough_new_people():
+    page = SearchPage()
+    s, *_ = session(page, extractor=people_extractor)
+    known = {f"{lb.LINKEDIN}/in/p{i}" for i in range(5)}
+    with s:
+        rows = s.search_people("AI builder", want=20, known=known)
+    assert "".join(page.typed) == "AI builder"
+    assert len(rows) == 20 and not known & {r["url"] for r in rows}
+    assert any("page=2" in u for u in page.visited) and not any("page=4" in u for u in page.visited)
+
+
+def test_search_people_without_a_search_box_opens_the_people_results_url():
+    page = SearchPage(has_box=False)
+    s, *_ = session(page, extractor=people_extractor)
+    with s:
+        rows = s.search_people("AI builder", want=20)
+    assert len(rows) == 20
+    assert any("/search/results/people/?keywords=AI%20builder" in u for u in page.visited)
+
+
+def test_search_people_stops_at_the_page_cap_and_when_a_page_has_no_people():
+    page = SearchPage()
+    s, *_ = session(page, extractor=lambda k, d: [])
+    with s:
+        assert s.search_people("x", want=50) == []
+    assert not any("page=3" in u for u in page.visited)
+
+
+def test_search_people_login_wall_raises_session_expired():
+    page = SearchPage()
+    page.redirects = {f"{lb.LINKEDIN}/feed/": f"{lb.LINKEDIN}/login"}
+    s, *_ = session(page, extractor=people_extractor)
+    with s, pytest.raises(lb.SessionExpired):
+        s.search_people("x")
