@@ -10,12 +10,17 @@ final class DashboardWindowController: NSObject, WKNavigationDelegate, WKUIDeleg
     private(set) var webView: WKWebView?
     private var loadedBase: URL?
     var baseURLProvider: () -> URL? = { nil }
+    /// Why there is no backend yet ("Starting…" or the failure), shown in place of the page.
+    var statusProvider: () -> String = { "Starting LoopX…" }
+    /// Asked to bring a backend up when the window opens without one.
+    var onNeedsBackend: () -> Void = {}
 
     func show() {
         ensureWindow()
         guard let base = baseURLProvider() else {
-            webView?.loadHTMLString(Self.placeholder("The loopx backend is not running yet."), baseURL: nil)
+            webView?.loadHTMLString(Self.placeholder(statusProvider()), baseURL: nil)
             loadedBase = nil
+            onNeedsBackend()
             present(); return
         }
         if loadedBase?.port != base.port {
@@ -70,6 +75,9 @@ final class DashboardWindowController: NSObject, WKNavigationDelegate, WKUIDeleg
     }
 
     static func placeholder(_ text: String) -> String {
-        "<html><body style='font:14px -apple-system;color:#888;display:flex;align-items:center;justify-content:center;height:100vh'>\(text)</body></html>"
+        let safe = text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
+        return "<html><body style='font:14px -apple-system;color:#888;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0'>"
+            + "<div style='font-size:22px;font-weight:600;color:#555;margin-bottom:8px'>LoopX</div>"
+            + "<div>\(safe)</div><div style='font-size:12px;margin-top:6px'>This window opens the dashboard by itself once the backend is ready.</div></body></html>"
     }
 }

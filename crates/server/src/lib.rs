@@ -123,6 +123,29 @@ async fn termination() {
     }
 }
 
+/// The legacy Python dashboard behind unported pages, when wanted. It is optional:
+/// if it cannot start (no Python checkout, a missing module), say so and serve the
+/// ported pages anyway rather than leaving the Mac app with no backend at all.
+async fn start_legacy(opts: &ServeOptions) -> Option<LegacyDashboard> {
+    if !opts.legacy {
+        return None;
+    }
+    let root = opts
+        .legacy_root
+        .clone()
+        .unwrap_or_else(|| opts.root.clone());
+    match tokio::task::spawn_blocking(move || LegacyDashboard::start(&root))
+        .await
+        .expect("join")
+    {
+        Ok(l) => Some(l),
+        Err(e) => {
+            eprintln!("loopx: legacy dashboard unavailable ({e}); serving the ported pages only");
+            None
+        }
+    }
+}
+
 /// `loopx serve`: take the lock, start the legacy dashboard (if wanted), and
 /// serve until interrupted. `on_ready` receives the bound port.
 pub async fn serve(opts: ServeOptions, on_ready: impl FnOnce(u16)) -> Result<(), ServeError> {
@@ -134,19 +157,7 @@ pub async fn serve(opts: ServeOptions, on_ready: impl FnOnce(u16)) -> Result<(),
     let info = lock::LockInfo::new(port, loopx_core::VERSION, &token);
     let _lock = lock::acquire(&opts.lock_path, &info)?;
 
-    let legacy = if opts.legacy {
-        let root = opts
-            .legacy_root
-            .clone()
-            .unwrap_or_else(|| opts.root.clone());
-        Some(
-            tokio::task::spawn_blocking(move || LegacyDashboard::start(&root))
-                .await
-                .expect("join")?,
-        )
-    } else {
-        None
-    };
+    let legacy = start_legacy(&opts).await;
     let proxy = legacy.as_ref().map(|l| Proxy::new(l.port));
     let state = AppState::new(opts.root.clone(), token, proxy);
     on_ready(port);
@@ -160,6 +171,14 @@ pub fn crate_name() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_legacy_dashboard_that_cannot_start_is_not_fatal() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut opts = ServeOptions::new(dir.path().to_path_buf(), 0, true);
+        opts.legacy_root = Some(dir.path().join("no-checkout"));
+        assert!(start_legacy(&opts).await.is_none());
+    }
 
     #[test]
     fn crate_name_is_stable() {

@@ -38,6 +38,13 @@ public final class SettingsStore: @unchecked Sendable {
         set { defaults.set(newValue.id, forKey: "hotkey") }
     }
 
+    /// Whether the app runs `loopx scheduler` every 15 minutes while it is open. Off by default:
+    /// a due loop acts on the real GitLab and Slack, so it is something the user opts into.
+    public var runScheduler: Bool {
+        get { defaults.bool(forKey: "runScheduler") }
+        set { defaults.set(newValue, forKey: "runScheduler") }
+    }
+
     /// HUD top-centre anchor as fractions of the screen's visible frame (see `NotchGeometry.hudAnchor`).
     public var hudAnchor: CGPoint? {
         get {

@@ -6,19 +6,21 @@ import LoopXKit
 final class SettingsModel: ObservableObject {
     @Published var displayMode: DisplayMode { didSet { store.displayMode = displayMode; onChange() } }
     @Published var hotkey: HotkeyPreset { didSet { store.hotkey = hotkey; onChange() } }
+    @Published var runScheduler: Bool { didSet { store.runScheduler = runScheduler; onChange() } }
     @Published var launchAtLogin: Bool
     @Published var loginNeedsApproval: Bool
     @Published var error: String?
     @Published var accountStatus: [OAuthProvider: String] = [:]
     @Published var signingIn: OAuthProvider?
     private let oauth = OAuthSession()
+    @Published var legacyScheduler = false
     private let store: SettingsStore
     private let login: LaunchAtLogin
     var onChange: () -> Void = {}
 
     init(store: SettingsStore, login: LaunchAtLogin) {
         self.store = store; self.login = login
-        displayMode = store.displayMode; hotkey = store.hotkey
+        displayMode = store.displayMode; hotkey = store.hotkey; runScheduler = store.runScheduler
         launchAtLogin = login.isEnabled; loginNeedsApproval = login.needsApproval
     }
 
@@ -66,6 +68,13 @@ struct SettingsView: View {
                     Text("Approve LoopX in System Settings > General > Login Items.").font(.caption).foregroundStyle(.orange)
                 }
                 if let e = settings.error { Text(e).font(.caption).foregroundStyle(.red) }
+                Toggle("Run scheduled loops while LoopX is open", isOn: $settings.runScheduler)
+                Text("Checks every 15 minutes and starts any loop that is due. Due loops act on your real GitLab and Slack.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if settings.runScheduler && settings.legacyScheduler {
+                    Text("The installed launchd scheduler (\(SchedulerRunner.legacyLabel)) is loaded and keeps running the loops; LoopX does not start a second one.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
             }
             Section("Display") {
                 Picker("Show status as", selection: $settings.displayMode) {
@@ -105,7 +114,10 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 440, height: 520)
-        .onAppear { settings.refreshAccounts(lock: app.lock) }
+        .frame(width: 440, height: 600)
+        .onAppear {
+            settings.refreshAccounts(lock: app.lock)
+            settings.legacyScheduler = SchedulerRunner.legacyJobLoaded()
+        }
     }
 }

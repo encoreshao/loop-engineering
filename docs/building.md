@@ -47,6 +47,15 @@ open dist/LoopX.app
   checks. If a `loopx serve` is already running (`loopx.lock`), the app connects
   to it and offers to replace it when it is older than the bundled one.
 
+## Scheduled loops
+
+`loopx serve` only serves the dashboard. Loops run when `loopx scheduler` polls. The
+Mac app can do that for you: Settings > "Run scheduled loops while LoopX is open"
+(off by default, since a due loop acts on the real GitLab and Slack) polls on launch and
+every 15 minutes. Loops therefore only run while the app is open (turn on "Launch LoopX at
+login" to cover that). If the installed launchd job `com.hermes.loop-engineering` is
+loaded, the app does not start a second scheduler.
+
 ## Swift package only
 
 ```bash

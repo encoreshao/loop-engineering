@@ -9,6 +9,8 @@ struct BackendConfig {
     var discovery: BackendDiscovery
     var starter: BackendStarter
     var fallback: BackendStarter?
+    /// The `loopx` binary the scheduler poll runs: the bundled helper, or the one found for dev runs.
+    var loopxBinary: URL?
 
     func makeSupervisor() -> Supervisor { Supervisor(discovery: discovery, starter: starter, fallback: fallback) }
 
@@ -25,7 +27,8 @@ struct BackendConfig {
             env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
             return BackendConfig(discovery: BackendDiscovery(lockURL: lockURL, bundledVersion: version),
                                  starter: SMAppServiceStarter(service: SMAppServiceAdapter(.agent(plistName: agentPlistName))),
-                                 fallback: ProcessStarter(binary: helper, arguments: ["serve"], environment: env, logURL: log))
+                                 fallback: ProcessStarter(binary: helper, arguments: ["serve"], environment: env, logURL: log),
+                                 loopxBinary: helper)
         }
         let binary = findBinary(environment: environment)
         let version = binary.flatMap(binaryVersion) ?? "0.0.0"
@@ -33,7 +36,8 @@ struct BackendConfig {
         return BackendConfig(
             discovery: BackendDiscovery(lockURL: lockURL, bundledVersion: version),
             starter: ProcessStarter(binary: binary ?? URL(fileURLWithPath: "/nonexistent/loopx"),
-                                    arguments: serveArguments(environment), environment: environment, logURL: log))
+                                    arguments: serveArguments(environment), environment: environment, logURL: log),
+            loopxBinary: binary)
     }
 
     /// `LOOPX_SERVE_ARGS` overrides the arguments of the spawned backend (unbundled runs only), e.g.

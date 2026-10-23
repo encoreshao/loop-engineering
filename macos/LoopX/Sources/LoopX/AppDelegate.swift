@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let dashboard = DashboardWindowController()
     let hotkey = HotkeyManager()
     let updater = Updater()
+    let scheduler: SchedulerRunner
     let settingsModel: SettingsModel
     private var settingsWindow: NSWindow?
 
@@ -19,12 +20,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notch = NotchController(model: model)
         status = StatusItemController(model: model)
         settingsModel = SettingsModel(store: settings, login: LaunchAtLogin(service: SMAppServiceAdapter(.mainApp)))
+        scheduler = SchedulerRunner(binary: model.backendConfig.loopxBinary)
         super.init()
         wire()
     }
 
     private func wire() {
         dashboard.baseURLProvider = { [weak self] in self?.model.lock?.baseURL }
+        dashboard.statusProvider = { [weak self] in
+            switch self?.model.connection {
+            case .failed(let m)?: return m
+            default: return "Starting the backend…"
+            }
+        }
+        dashboard.onNeedsBackend = { [weak self] in
+            guard let self, self.model.lock == nil else { return }
+            Task { await self.model.ensureBackend() }
+        }
         model.openDashboard = { [weak self] in self?.dashboard.show() }
         let previous = model.onNotchChange
         model.onNotchChange = { [weak self] old, new in
@@ -42,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             self.notch.refresh()
             self.hotkey.register(self.settingsModel.hotkey)
+            self.scheduler.setEnabled(self.settingsModel.runScheduler)
         }
         hotkey.onPress = { [weak self] in self?.notch.toggleHidden() }
     }
@@ -50,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         notch.refresh()
         hotkey.register(settingsModel.hotkey)
+        scheduler.setEnabled(settingsModel.runScheduler)
         model.start()
         // The takeover prompt is modal-ish: ask once, as soon as discovery finds an older backend.
         Task { @MainActor in
