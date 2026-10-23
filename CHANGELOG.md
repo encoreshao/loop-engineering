@@ -17,6 +17,9 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Fixed
 
+- Settings → Daemons: a fresh install now seeds `loops.json` from the template, so the registered loops list is no longer empty.
+- The Mac app has a main menu, so ⌘Q quits LoopX and ⌘W, ⌘, ⌘H and the copy/paste shortcuts work.
+- Settings → Daemons explains that the LoopX app runs scheduled loops itself when no launchd agents are installed, instead of showing an empty list.
 - A running `loopx serve` rewrites `loopx.lock` within a few seconds if it disappears (for example when the data directory is removed under it), so the Mac app finds the backend instead of retrying forever against a port that is already in use.
 - The Mac app's waiting screen shows the LoopX logo and name with a spinner and the backend's status, or the failure reason with a Try again link, and follows the system appearance.
 - `loopx serve` keeps running when the legacy Python dashboard cannot start (no checkout, a missing module) and serves the ported pages, instead of exiting and leaving the Mac app without a backend. The app's dashboard window shows "LoopX" with the backend's status and opens by itself once it is ready.

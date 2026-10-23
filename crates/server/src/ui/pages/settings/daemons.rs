@@ -339,7 +339,7 @@ pub fn body(ctx: &UiCtx, flash: Option<&str>, flash_ok: bool) -> String {
     let csrf = ctx.csrf_input();
     let rows: String = daemons.iter().map(|d| daemon_row(ctx, d, &csrf)).collect();
     let daemons_html = if rows.is_empty() {
-        format!("<p>{}</p>", pyfmt::escape(&ctx.t("(no launchd plist files found)")))
+        format!("<p>{}</p>", pyfmt::escape(&ctx.t("No launchd agents are installed. In the LoopX app, scheduled loops run from the app itself while it is open (LoopX Settings → Run scheduled loops while LoopX is open), checking every 15 minutes; the schedules are in Registered Loops below.")))
     } else {
         format!(
             "<div class='table-wrap'><table class='daemons'>\

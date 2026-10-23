@@ -111,15 +111,31 @@ pub struct UiState {
     pub registry: Arc<Registry>,
 }
 
+/// What `setup.sh` used to do: seed `<home>/loops.json` so the Settings -> Daemons registry
+/// isn't empty on a fresh install. Uses the checkout's template when there is one, else the
+/// copy embedded in the binary (the Mac app has no checkout). Best effort, never overwrites.
+fn scaffold_loops_config(home_dir: &Path, repo_root: &Path) {
+    let target = home_dir.join("loops.json");
+    if target.exists() {
+        return;
+    }
+    let template = std::fs::read_to_string(repo_root.join("config").join("loops.json.template"))
+        .unwrap_or_else(|_| include_str!("../../../../config/loops.json.template").to_string());
+    let _ = std::fs::create_dir_all(home_dir);
+    let _ = std::fs::write(&target, template);
+}
+
 impl UiState {
     /// Production wiring: paths from the environment, a fresh CSRF token.
     pub fn from_env(repo_root: &Path) -> Self {
         let update_dir = std::env::var_os("LOOP_UPDATE_DIR")
             .filter(|v| !v.is_empty())
             .map_or_else(|| repo_root.join("outputs").join("update"), PathBuf::from);
+        let home_dir = loopx_core::config::home_dir();
+        scaffold_loops_config(&home_dir, repo_root);
         Self {
             repo_root: repo_root.to_path_buf(),
-            home_dir: loopx_core::config::home_dir(),
+            home_dir,
             user_home: PathBuf::from(std::env::var_os("HOME").unwrap_or_default()),
             update_dir,
             events_dir: std::env::var_os("LOOP_EVENTS_DIR")

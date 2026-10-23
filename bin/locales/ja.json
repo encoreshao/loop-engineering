@@ -1030,5 +1030,6 @@
   "People": "人物",
   "No people collected yet. They appear here after the next run.": "まだ収集された人物はいません。次回の実行後にここに表示されます。",
   "{count} people": "{count}人",
-  "Could not save": "保存できませんでした"
+  "Could not save": "保存できませんでした",
+  "No launchd agents are installed. In the LoopX app, scheduled loops run from the app itself while it is open (LoopX Settings → Run scheduled loops while LoopX is open), checking every 15 minutes; the schedules are in Registered Loops below.": "launchd エージェントはインストールされていません。LoopX アプリでは、アプリを開いている間、スケジュールされたループがアプリ自体から実行されます（LoopX 設定 → LoopX を開いている間スケジュールされたループを実行）。15 分ごとに確認します。スケジュールは下の登録済みループにあります。"
 }

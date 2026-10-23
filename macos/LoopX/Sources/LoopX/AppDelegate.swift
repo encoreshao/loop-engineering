@@ -62,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        NSApp.mainMenu = makeMainMenu()
         notch.refresh()
         hotkey.register(settingsModel.hotkey)
         scheduler.setEnabled(settingsModel.runScheduler)
@@ -80,6 +81,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for await _ in model.$connection.values { dashboard.refreshPlaceholder() }
         }
     }
+
+    /// An accessory app has no menu bar of its own, but the key equivalents (⌘Q, ⌘W, ⌘C/⌘V, ⌘,)
+    /// are dispatched through the main menu, so it must exist even while the bar is not shown.
+    private func makeMainMenu() -> NSMenu {
+        func item(_ title: String, _ action: Selector?, _ key: String, target: AnyObject? = nil,
+                  _ flags: NSEvent.ModifierFlags = .command) -> NSMenuItem {
+            let i = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            i.keyEquivalentModifierMask = flags; i.target = target
+            return i
+        }
+        func submenu(_ title: String, _ items: [NSMenuItem]) -> NSMenuItem {
+            let m = NSMenu(title: title); items.forEach(m.addItem)
+            let host = NSMenuItem(title: title, action: nil, keyEquivalent: ""); host.submenu = m
+            return host
+        }
+        let main = NSMenu()
+        main.addItem(submenu("LoopX", [
+            item("Settings…", #selector(openSettingsFromMenu), ",", target: self),
+            .separator(),
+            item("Hide LoopX", #selector(NSApplication.hide(_:)), "h"),
+            item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
+            .separator(),
+            item("Quit LoopX", #selector(NSApplication.terminate(_:)), "q"),
+        ]))
+        main.addItem(submenu("Edit", [
+            item("Undo", Selector(("undo:")), "z"),
+            item("Redo", Selector(("redo:")), "z", [.command, .shift]),
+            .separator(),
+            item("Cut", #selector(NSText.cut(_:)), "x"),
+            item("Copy", #selector(NSText.copy(_:)), "c"),
+            item("Paste", #selector(NSText.paste(_:)), "v"),
+            item("Select All", #selector(NSText.selectAll(_:)), "a"),
+        ]))
+        main.addItem(submenu("Window", [
+            item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
+            item("Close", #selector(NSWindow.performClose(_:)), "w"),
+        ]))
+        return main
+    }
+
+    @objc private func openSettingsFromMenu() { showSettings() }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 

@@ -1030,5 +1030,6 @@
   "People": "人员",
   "No people collected yet. They appear here after the next run.": "尚未收集到人员。下次运行后将显示在这里。",
   "{count} people": "{count} 人",
-  "Could not save": "无法保存"
+  "Could not save": "无法保存",
+  "No launchd agents are installed. In the LoopX app, scheduled loops run from the app itself while it is open (LoopX Settings → Run scheduled loops while LoopX is open), checking every 15 minutes; the schedules are in Registered Loops below.": "未安装 launchd 代理。在 LoopX 应用中，计划循环会在应用打开期间由应用自身运行（LoopX 设置 → 在 LoopX 打开时运行计划循环），每 15 分钟检查一次；计划见下方已注册的循环。"
 }
