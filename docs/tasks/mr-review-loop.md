@@ -9,7 +9,7 @@ under Review, and submit to publish them (or discard them).
 
 ## How it runs
 
-- Plugin: `bin/loop_plugins/mr_review.py` on LoopKit (`bin/loopkit.py`);
+- Plugin: `crates/core/src/loop_plugins/mr_review.rs` on LoopKit (`crates/core/src/loopkit.rs`);
   definition `loops/mr-review/loop.yaml`, prompt `loops/mr-review/prompt.md`.
 - Schedule: every 2 hours from its `loops.json` entry (disabled by default;
   `requires: ["merge_requests"]`). Only `gitlab` accounts are used.

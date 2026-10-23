@@ -21,7 +21,7 @@ The second column is the job's last exit code. `78` is `EX_CONFIG`
 (misconfiguration); a non-zero code here means the job failed on its last
 run. There are only two `com.hermes.loop-engineering*` daemons now — the
 always-on dashboard, and the unified scheduler
-(`bin/loop_scheduler.py`, see
+(`loopx scheduler`, see
 `docs/superpowers/specs/2026-09-14-unified-loop-scheduler-design.md`) that
 polls `~/.loopx/loops.json` and runs whichever registered loop
 (the GitLab issue loop, the topic monitor loop) is due. There is no
@@ -42,39 +42,39 @@ tail -f ~/.loopx/outputs/history/dashboard.err.log
 launchctl print gui/$(id -u)/com.hermes.loop-engineering-dashboard | grep -iE "state|last exit|program|stdout|stderr"
 ```
 
-## Common root cause: `~/.loopx` isn't actually a full clone
+## Common root cause: the plist points at a program that isn't there
 
-Both agents' plists (`launchd/*.plist.template`, rendered by
-`bin/scripts/install.sh`) point `ProgramArguments`/`StandardOutPath`/
-`StandardErrorPath` at paths under `~/.loopx`. If that directory
-was never fully populated by `install.sh` (e.g. it only contains an
-`outputs/` folder, with no `bin/`), every one of these jobs fails
-immediately:
+Both agents' plists (rendered by `bin/scripts/install-loopx.sh` from
+`launchd/loopx/*.plist.template`) point `ProgramArguments`/`StandardOutPath`/
+`StandardErrorPath` at the installed `loopx` binary and log paths under
+`~/.loopx`. If that binary was removed or moved, or the plist is an old
+pre-Rust one that still runs Python code that no longer exists in this repo,
+every one of these jobs fails immediately. An old plist looks like this in
+the error log:
 
 ```
 python3: can't open file '/Users/encore/.loop-engineering/bin/web/dashboard_server.py': [Errno 2] No such file or directory
 ```
 
-Check whether the install is actually there:
+Check what the plist actually runs and whether it is there:
 
 ```bash
-ls ~/.loopx
-# Expected: bin/, launchd/, config/, instructions/gitlab-issue.md, outputs/, ...
-# If you only see outputs/, the clone step never completed.
+grep -A4 ProgramArguments ~/Library/LaunchAgents/com.hermes.loop-engineering-dashboard.plist
+ls -l ~/.loopx/bin/loopx
 ```
 
 ## Fix
 
-**Option A — finish the install (recommended):** re-run the installer so
-`~/.loopx` becomes a real clone with the dashboard restarted on
-the current code:
+**Option A — re-run the installer (recommended):** `--upgrade` keeps your
+config, replaces the `loopx` binary, re-renders a plist that still points at
+the Python code (same port) and reloads the agents that are loaded:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install-loopx.sh | bash -s -- --upgrade
 ```
 
-If it's already a clone but just stale/broken, use `--upgrade` instead (see
-`README.md`'s install section).
+If nothing is installed yet, run it without `--upgrade` (see `README.md`'s
+install section).
 
 **Option B — stop the crash-loop without installing yet.** `kill`ing a PID
 does nothing useful here — `KeepAlive` respawns it instantly. Unload the

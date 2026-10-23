@@ -17,7 +17,16 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Changed
 
+- The Mac app no longer checks for a legacy `com.hermes.loop-engineering` launchd scheduler before running scheduled loops, and Settings no longer warns about one.
+- The Update page and banner only report that origin is ahead (and let you check again); upgrading is done by Sparkle (the app) or Homebrew / `install-loopx.sh --upgrade` (the binary).
+- `loopx serve --no-legacy` is accepted and ignored; the legacy Python dashboard no longer exists.
 - The Mac app's dashboard window now opens filling the screen's visible area (menu bar and Dock stay visible) the first time it is shown in a session; Settings > Display > "Dashboard window opens" switches it to native full screen or the standard window.
+
+### Removed
+
+- All Python code: `bin/*.py`, the Python dashboard, scripts and their tests. Everything runs in the `loopx` binary; `loopx run` no longer falls back to `python3` for an entry point it does not know.
+- The legacy `install.sh`/`uninstall.sh`/`setup-nginx.sh` flow, `run-loop-now.sh`, the Python-bundled app build (`build_macos_app.sh`) and the legacy `launchd/com.hermes.loop-engineering*` templates.
+- `loopx update run` and `loopx update start`, and the Update page's "Upgrade now" / "Retry" buttons: the git-pull self-update is replaced by Sparkle and Homebrew.
 
 ### Fixed
 

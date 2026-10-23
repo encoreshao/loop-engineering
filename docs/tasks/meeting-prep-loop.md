@@ -9,7 +9,7 @@ per-meeting complement.
 
 ## How it runs
 
-- Plugin: `bin/loop_plugins/calendar_prep.py` on LoopKit (`bin/loopkit.py`);
+- Plugin: `crates/core/src/loop_plugins/calendar_prep.rs` on LoopKit (`crates/core/src/loopkit.rs`);
   definition `loops/calendar-prep/loop.yaml`, prompt
   `loops/calendar-prep/prompt.md`.
 - Schedule: every 15 minutes (`{"frequency": "hourly", "interval_minutes": 15}`)

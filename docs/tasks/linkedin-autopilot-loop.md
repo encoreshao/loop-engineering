@@ -9,11 +9,11 @@ and sending connection requests come in Stage 2.
 
 ## How it runs
 
-- Plugin: `bin/loop_plugins/linkedin_autopilot.py` on LoopKit; definition
+- Plugin: `crates/core/src/loop_plugins/linkedin_autopilot.rs` on LoopKit; definition
   `loops/linkedin-autopilot/loop.yaml`, prompt `loops/linkedin-autopilot/prompt.md`.
 - Schedule: daily 09:00 from its `loops.json` entry (disabled by default;
   `requires: ["social"]`, so add a LinkedIn connector and press Connect LinkedIn first).
-- Browsing: `bin/linkedin_browser.py` through `bin/linkedin_humanize.py` - variable
+- Browsing: `crates/core/src/linkedin_browser.rs` through `crates/core/src/linkedin_humanize.rs` - variable
   dwell time, uneven scrolling, curved cursor movement, one to three extra pages
   (My Network, Jobs, your profile), a random start time inside the active-hours
   window, some days skipped, and at least 2.5 s between page loads.

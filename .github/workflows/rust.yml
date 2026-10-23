@@ -34,13 +34,14 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
-      - name: Packaging contract tests (doctor, installers) against the built binary
+      - name: Black-box contract and end-to-end tests against the built binary
         run: |
           cargo build -p loopx
           pip install pyyaml pytest
-          LOOPX_BIN="$PWD/target/debug/loopx" python3 -m pytest -q \
-            tests/test_cli_loopx_doctor.py tests/test_install_loopx.py \
-            tests/test_uninstall_loopx.py tests/test_release_packaging.py
+          LOOPX_BIN="$PWD/target/debug/loopx" python3 -m pytest tests/ -q
+
+      - name: Loop audit (blocking)
+        run: target/debug/loopx loop audit loops/*/loop.yaml --min-score 70
 
   universal-binary:
     runs-on: macos-latest

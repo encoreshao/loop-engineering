@@ -1,170 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# One-command setup for a new loop-engineering user (see
-# docs/tasks/gitlab-issue-loop.md - every team member running this loop has
-# their own local config). Installs this
-# loop's one external dependency, the `gitlab-config` skill from
-# encore-skills (github.com/encoreshao/encore-skills), and scaffolds all
-# four per-machine config files from their templates if they don't exist
-# yet: ~/.loop-engineering/projects.json (the GitLab issue loop),
-# ~/.loop-engineering/topics.json (the topic monitor loop),
-# ~/.loop-engineering/ai_cli.json (which AI CLI both loops invoke), and
-# ~/.loop-engineering/loops.json (the unified scheduler's loop registry).
-# Check the dashboard's /skills page afterward for a live view of what's
-# installed.
+# Installs the one external dependency of the GitLab issue loop, the
+# `gitlab-config` skill from encore-skills (github.com/encoreshao/encore-skills).
+# Run from the dashboard's Settings > Skills page; check that page afterwards
+# for a live view of what is installed. Per-machine config files
+# (projects.json, topics.json, loops.json, ...) are created by loopx itself the
+# first time the dashboard or scheduler needs them.
 
-# Colored output, only when stdout is an actual terminal - never for a
-# pipe/redirect (e.g. under a test harness). The color variables carry
-# literal escape bytes ($'...' ANSI-C quoting), so referencing them works
-# the same in echo, printf, and heredocs alike - no `echo -e` needed.
 if [ -t 1 ]; then
-  C_BLUE=$'\033[1;34m'; C_GREEN=$'\033[1;32m'; C_YELLOW=$'\033[1;33m'; C_RED=$'\033[1;31m'; C_RESET=$'\033[0m'
+  C_BLUE=$'\033[1;34m'; C_GREEN=$'\033[1;32m'; C_RESET=$'\033[0m'
 else
-  C_BLUE=""; C_GREEN=""; C_YELLOW=""; C_RED=""; C_RESET=""
+  C_BLUE=""; C_GREEN=""; C_RESET=""
 fi
 
-SKIP_SKILLS_INSTALL=0
-CONFIG_PATH="$HOME/.loop-engineering/projects.json"
-TOPICS_CONFIG_PATH="$HOME/.loop-engineering/topics.json"
-INBOXES_CONFIG_PATH="$HOME/.loop-engineering/inboxes.json"
-CONNECTORS_CONFIG_PATH="$HOME/.loop-engineering/connectors.json"
-AI_CLI_CONFIG_PATH="$HOME/.loop-engineering/ai_cli.json"
-LOOPS_CONFIG_PATH="$HOME/.loop-engineering/loops.json"
-STATE_PATH="$HOME/.loop-engineering/loop_scheduler_state.json"
-
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --skip-skills-install)
-      SKIP_SKILLS_INSTALL=1
-      shift
-      ;;
-    --config-path)
-      CONFIG_PATH="$2"
-      shift 2
-      ;;
-    --topics-config-path)
-      TOPICS_CONFIG_PATH="$2"
-      shift 2
-      ;;
-    --connectors-config-path)
-      CONNECTORS_CONFIG_PATH="$2"
-      shift 2
-      ;;
-    --ai-cli-config-path)
-      AI_CLI_CONFIG_PATH="$2"
-      shift 2
-      ;;
-    --loops-config-path)
-      LOOPS_CONFIG_PATH="$2"
-      shift 2
-      ;;
-    --state-path)
-      STATE_PATH="$2"
-      shift 2
-      ;;
-    *)
-      echo "${C_RED}Usage: setup.sh [--skip-skills-install] [--config-path PATH] [--topics-config-path PATH] [--connectors-config-path PATH] [--ai-cli-config-path PATH] [--loops-config-path PATH] [--state-path PATH]${C_RESET}" >&2
-      exit 1
-      ;;
-  esac
-done
-
-LOOP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-
-if [ "$SKIP_SKILLS_INSTALL" -eq 1 ]; then
-  echo "${C_BLUE}==> Skipping skills install (--skip-skills-install)${C_RESET}"
-else
-  echo "${C_BLUE}==> Installing the gitlab-config skill (encore-skills)...${C_RESET}"
-  curl -fsSL https://raw.githubusercontent.com/encoreshao/encore-skills/main/scripts/setup.sh | bash -s -- --claude
-fi
-
-if [ -f "$CONFIG_PATH" ]; then
-  echo "${C_BLUE}==> $CONFIG_PATH already exists, leaving it alone${C_RESET}"
-else
-  echo "${C_BLUE}==> Creating $CONFIG_PATH from the template${C_RESET}"
-  mkdir -p "$(dirname "$CONFIG_PATH")"
-  sed "s|{{HOME}}|$HOME|g" "$LOOP_DIR/config/projects.json.template" > "$CONFIG_PATH"
-  echo "${C_YELLOW}    Edit it now: GitLab username and each project's path/branch/commands (worktree_root already defaults to \$HOME/.loop-engineering/worktrees).${C_RESET}"
-fi
-
-if [ -f "$TOPICS_CONFIG_PATH" ]; then
-  echo "${C_BLUE}==> $TOPICS_CONFIG_PATH already exists, leaving it alone${C_RESET}"
-else
-  echo "${C_BLUE}==> Creating $TOPICS_CONFIG_PATH from the template${C_RESET}"
-  mkdir -p "$(dirname "$TOPICS_CONFIG_PATH")"
-  cp "$LOOP_DIR/config/topics.json.template" "$TOPICS_CONFIG_PATH"
-  echo "${C_YELLOW}    Edit it now: which topics to monitor, and what counts as notable for each (only needed for the topic monitor loop).${C_RESET}"
-fi
-
-if [ -f "$INBOXES_CONFIG_PATH" ]; then
-  echo "${C_BLUE}==> $INBOXES_CONFIG_PATH already exists, leaving it alone${C_RESET}"
-else
-  echo "${C_BLUE}==> Creating $INBOXES_CONFIG_PATH from the template${C_RESET}"
-  mkdir -p "$(dirname "$INBOXES_CONFIG_PATH")"
-  cp "$LOOP_DIR/config/inboxes.json.template" "$INBOXES_CONFIG_PATH"
-  echo "${C_YELLOW}    Only needed for the Inbox Triage loop - connect mailboxes from the dashboard's Inbox Triage setup page.${C_RESET}"
-fi
-
-if [ -f "$CONNECTORS_CONFIG_PATH" ]; then
-  echo "${C_BLUE}==> $CONNECTORS_CONFIG_PATH already exists, leaving it alone${C_RESET}"
-else
-  echo "${C_BLUE}==> Creating $CONNECTORS_CONFIG_PATH from the template${C_RESET}"
-  mkdir -p "$(dirname "$CONNECTORS_CONFIG_PATH")"
-  cp "$LOOP_DIR/config/connectors.json.template" "$CONNECTORS_CONFIG_PATH"
-  echo "${C_YELLOW}    Connector accounts (GitHub, Jira, Linear, ...) - add them from the dashboard's Connectors page; secrets go to the Keychain, never this file.${C_RESET}"
-fi
-
-if [ -f "$AI_CLI_CONFIG_PATH" ]; then
-  echo "${C_BLUE}==> $AI_CLI_CONFIG_PATH already exists, leaving it alone${C_RESET}"
-else
-  echo "${C_BLUE}==> Creating $AI_CLI_CONFIG_PATH from the template${C_RESET}"
-  mkdir -p "$(dirname "$AI_CLI_CONFIG_PATH")"
-  cp "$LOOP_DIR/config/ai_cli.json.template" "$AI_CLI_CONFIG_PATH"
-  echo "${C_YELLOW}    Defaults to Claude - switch to Codex any time from the dashboard's AI CLI page.${C_RESET}"
-fi
-
-if [ -f "$LOOPS_CONFIG_PATH" ]; then
-  echo "${C_BLUE}==> $LOOPS_CONFIG_PATH already exists, leaving it alone${C_RESET}"
-else
-  echo "${C_BLUE}==> Creating $LOOPS_CONFIG_PATH from the template${C_RESET}"
-  mkdir -p "$(dirname "$LOOPS_CONFIG_PATH")"
-  cp "$LOOP_DIR/config/loops.json.template" "$LOOPS_CONFIG_PATH"
-  echo "${C_YELLOW}    Registers the GitLab issue loop and topic monitor with the unified scheduler (bin/loop_scheduler.py) - add a future loop here, not a new plist/shell script.${C_RESET}"
-fi
-
-if [ -f "$STATE_PATH" ]; then
-  echo "${C_BLUE}==> $STATE_PATH already exists, leaving it alone${C_RESET}"
-else
-  # Seed the scheduler's own state file with today's date for every
-  # registered loop, so its very first poll (right after install, or right
-  # after the scheduler daemon is enabled from the Daemons page) treats
-  # every loop as already attempted today instead of overdue. Without
-  # this, is_due() in bin/loop_scheduler.py sees "no state file yet" as
-  # "never attempted" and fires an immediate, unattended run - a real,
-  # live GitLab-loop run nobody is expecting - within the first ~15
-  # minutes, at whatever time of day install/enable happened to run.
-  echo "${C_BLUE}==> Seeding $STATE_PATH so the first poll doesn't fire an immediate run${C_RESET}"
-  mkdir -p "$(dirname "$STATE_PATH")"
-  python3 -c "
-import json
-import sys
-from datetime import date
-
-loops_path, state_path = sys.argv[1], sys.argv[2]
-with open(loops_path) as f:
-    loops = json.load(f)
-today = date.today().isoformat()
-state = {loop['name']: {'last_attempted_date': today} for loop in loops}
-with open(state_path, 'w') as f:
-    json.dump(state, f, indent=2)
-" "$LOOPS_CONFIG_PATH" "$STATE_PATH"
-fi
-
-cat <<EOF
-
-${C_GREEN}Setup done.${C_RESET} Next steps:
-  1. Fill in $CONFIG_PATH
-  2. Configure ~/.gitlab/config.json and ~/.slack/config.json (the dashboard's Settings page can do this)
-  3. Run 'python3 $LOOP_DIR/bin/web/dashboard_server.py' and check its Skills page
-EOF
+echo "${C_BLUE}==> Installing the gitlab-config skill (encore-skills)...${C_RESET}"
+curl -fsSL https://raw.githubusercontent.com/encoreshao/encore-skills/main/scripts/setup.sh | bash -s -- --claude
+echo "${C_GREEN}Setup done.${C_RESET} Configure ~/.gitlab/config.json and ~/.slack/config.json from the dashboard's Settings page."

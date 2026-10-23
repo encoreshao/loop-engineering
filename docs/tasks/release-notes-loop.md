@@ -8,7 +8,7 @@ and a short summary notification.
 
 ## How it runs
 
-- Plugin: `bin/loop_plugins/release_notes.py` on LoopKit (`bin/loopkit.py`);
+- Plugin: `crates/core/src/loop_plugins/release_notes.rs` on LoopKit (`crates/core/src/loopkit.rs`);
   definition `loops/release-notes/loop.yaml`, prompt
   `loops/release-notes/prompt.md`.
 - Schedule: hourly from its `loops.json` entry, disabled by default;

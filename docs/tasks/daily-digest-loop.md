@@ -12,7 +12,7 @@ the loop's notification routing.
 
 ## How it runs
 
-- Plugin: `bin/loop_plugins/daily_digest.py` on LoopKit (`bin/loopkit.py`);
+- Plugin: `crates/core/src/loop_plugins/daily_digest.rs` on LoopKit (`crates/core/src/loopkit.rs`);
   definition `loops/daily-digest/loop.yaml`, prompt `loops/daily-digest/prompt.md`.
 - Schedule: weekdays 09:30 from its `loops.json` entry (disabled by default;
   `requires: ["issues"]`).

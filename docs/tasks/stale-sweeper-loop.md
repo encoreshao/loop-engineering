@@ -8,7 +8,7 @@ touched for a while, and open MRs waiting on your review.
 
 ## How it runs
 
-- Plugin: `bin/loop_plugins/stale_sweeper.py` on LoopKit (`bin/loopkit.py`);
+- Plugin: `crates/core/src/loop_plugins/stale_sweeper.rs` on LoopKit (`crates/core/src/loopkit.rs`);
   definition `loops/stale-sweeper/loop.yaml` (no prompt - see below).
 - Schedule: Mondays 09:00 from its `loops.json` entry, disabled by default;
   `requires: ["issues"]`, so a GitLab connector must exist.

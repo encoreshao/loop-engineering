@@ -10,7 +10,7 @@ below links to its own spec rather than re-explaining it.
 
 Read [`README.md`](../README.md) first for what this project *does*
 (schedule, dashboard, safety boundaries). Read
-[`instructions/gitlab-issue.md`](../instructions/gitlab-issue.md) for the GitLab issue
+[`instructions/loopx/gitlab-issue.md`](../instructions/loopx/gitlab-issue.md) for the GitLab issue
 loop's own step-by-step spec — this file is about the runtime underneath
 both scheduled loops, not either loop's own decision logic.
 
@@ -35,11 +35,11 @@ Trigger → Goal → Context → Agent → Actions → Verification → Evaluati
 
 ## 2. Ledger
 
-The run history is the **ledger** (`bin/ledger.py`). `ledger.iter_runs`
+The run history is the **ledger** (`crates/core/src/ledger.rs`). `ledger.iter_runs`
 reads only the append-only event log (`outputs/events/*.jsonl`, written by
-`bin/events.py`) and builds one `RunRecord` per run from its `loop.result`
+`crates/core/src/events.rs`) and builds one `RunRecord` per run from its `loop.result`
 event (last one wins). It does not open `result.json`; that per-run file
-(`outputs/loop-runs/<run_id>/result.json`, written by `bin/loop_serialize.py`)
+(`outputs/loop-runs/<run_id>/result.json`, written by `crates/core/src/loop_serialize.rs`)
 reaches the ledger only through the `loop.result` event `write_result` emits,
 or through backfill. A run with a legacy terminal event (`loop.completed`/
 `loop.failed`/`loop.stopped`) but no `loop.result` is a complete record with
@@ -72,11 +72,11 @@ metrics/cost/learning.
   rather than aborting, and never rewrites existing JSONL: it writes only
   `outputs/events/backfill-loop-result.jsonl`. It runs automatically,
   best-effort, once per process start of the dashboard and of the scheduler
-  (`ledger.run_startup_backfill`), as well as from `install.sh --upgrade`.
-- **Readers** — `health.py` (its retry-rate and cost-efficiency components)
-  and `loop_budget.py`/`loop_serialize`'s `summarize_*` (Runs → Loop Runs,
-  Insights → Budget, Harness → Audit) read through the ledger. `metrics.py`,
-  `cost.py`, `learning.py` and `risk.py` (Insights Analytics/Cost/Memory, and
+  (`ledger.run_startup_backfill`), as well as from `install-loopx.sh --upgrade`.
+- **Readers** — `health.rs` (its retry-rate and cost-efficiency components)
+  and `budget.rs`/`loop_serialize`'s `summarize_*` (Runs → Loop Runs,
+  Insights → Budget, Harness → Audit) read through the ledger. `metrics.rs`,
+  `cost.rs`, `learning.rs` and `risk.rs` (Insights Analytics/Cost/Memory, and
   Health's other five components) read the event log directly with
   `events.iter_events`, not through `iter_runs`. `LOOP_EVENTS_DIR` overrides
   the events directory (`events.default_events_dir()`), e.g. for tests and
@@ -89,7 +89,7 @@ log, and the topic monitor loop emits `loop.result` only.
 ### Golden evals
 
 `loop eval` (scripted agent, §8) tests the runtime; `loop eval --golden`
-tests the real agent. `bin/golden_eval.py` builds a synthetic fixture repo per
+tests the real agent. `crates/core/src/golden_eval.rs` builds a synthetic fixture repo per
 case from `evals/golden/<case>/case.yaml` (generated repos and invented issue
 text only, never real issue content), runs the issue-loop path against it in a
 sandboxed `LOOP_ENGINEERING_HOME`/events dir, and checks the project's checks
@@ -104,36 +104,38 @@ Results go to `outputs/evals/golden-last.json`; the scripted run writes
 
 ## 3. Module map
 
-Every runtime module under `bin/` — one line each, pulled from its own
-docstring so this stays honest as the code changes. Flat `bin/*.py`,
+Every runtime module under `crates/core/src/` (the CLI is in `crates/cli/src/`,
+the dashboard in `crates/server/src/`) — one line each, pulled from its own
+module docs so this stays honest as the code changes. Flat modules,
 not the plan's original `bin/runtime/`, `bin/verifiers/`, etc.
-subdirectories — see §9.
+subdirectories — see §9. Bare file names in the table below are in
+`crates/core/src/`.
 
 | Module | Responsibility |
 |---|---|
-| `loop_definition.py` | `LoopDefinition` dataclasses + YAML loader/validator |
-| `loop_state.py` | `LoopState` enum + its explicit transition table (raises on an invalid transition, not silent) |
-| `loop_runtime.py` | `LoopRuntime` — the orchestrator; owns iteration, budget, retry, policy, events |
-| `loop_verifiers.py` | `Verifier` interface + `CommandVerifier`/`DiffVerifier` |
-| `loop_budget.py` | `BudgetController` (per-iteration OK/WARNING/EXCEEDED) + the Budget dashboard's rollup functions |
-| `loop_policy.py` | `RiskLevel` (L0–L3) classification + `PolicyEngine` — which *action types* need a human gate |
-| `loop_progress.py` | `ProgressDetector` — same failing-verifier signature twice in a row? |
-| `risk.py` | Deterministic keyword risk scorer for *issue text* (advisory only) — distinct from `loop_policy.py`'s action-type risk |
-| `loop_serialize.py` | `LoopResult` JSON persistence (`result.json`) + `summarize_results()` |
-| `loop_audit.py` | `loop audit` — scores a `LoopDefinition`'s readiness (PASS/WARN/FAIL per check + weighted score) |
-| `loop_eval.py` | Evaluation dataset harness — drives a real `LoopRuntime` with a scripted agent/verifiers |
-| `loop_cli.py` | The `loop` CLI: `init`/`validate`/`run`/`status`/`inspect`/`audit`/`cost`/`doctor`/`replay`/`eval` |
-| `agents/base.py`, `agents/claude.py`, `agents/codex.py` | `Agent` ABC + `AgentResult` + provider adapters |
-| `events.py` | Append-only JSONL event log (read through the ledger, §2) |
-| `metrics.py`, `cost.py`, `health.py`, `learning.py` | Pure report builders over the event log (read through the ledger, §2) |
-| `gitlab_loop_runner.py` | Wires the real GitLab issue loop through `LoopRuntime`, one issue at a time |
-| `topic_monitor_runner.py` | Wires the real Topic Monitor loop through `LoopRuntime`, one topic at a time |
-| `loop_scheduler.py` | The single launchd-scheduled poll loop: reads `loops_config.list_loops()` and runs whichever registered loop(s) are due, via `run-loop-now.sh` |
-| `loops_config.py` | Loads the loops registry (`~/.loopx/loops.json`) — name, schedule, entry point, and per-loop knobs for `run-loop-now.sh`/`loop_scheduler.py` |
+| `loop_definition.rs` | `LoopDefinition` structs + YAML loader/validator |
+| `loop_state.rs` | `LoopState` enum + its explicit transition table (raises on an invalid transition, not silent) |
+| `loop_runtime.rs` | `LoopRuntime` — the orchestrator; owns iteration, budget, retry, policy, events |
+| `loop_verifiers.rs` | `Verifier` interface + `CommandVerifier`/`DiffVerifier` |
+| `budget.rs` | `BudgetController` (per-iteration OK/WARNING/EXCEEDED) + the Budget dashboard's rollup functions |
+| `policy.rs` | `RiskLevel` (L0–L3) classification + `PolicyEngine` — which *action types* need a human gate |
+| `loop_progress.rs` | `ProgressDetector` — same failing-verifier signature twice in a row? |
+| `risk.rs` | Deterministic keyword risk scorer for *issue text* (advisory only) — distinct from `policy.rs`'s action-type risk |
+| `loop_serialize.rs` | `LoopResult` JSON persistence (`result.json`) + `summarize_results()` |
+| `loop_audit.rs` | `loop audit` — scores a `LoopDefinition`'s readiness (PASS/WARN/FAIL per check + weighted score) |
+| `loop_eval.rs` | Evaluation dataset harness — drives a real `LoopRuntime` with a scripted agent/verifiers |
+| `loop_cmd.rs` | The `loop` CLI: `init`/`validate`/`run`/`status`/`inspect`/`audit`/`cost`/`doctor`/`replay`/`eval` |
+| `crates/core/src/agents/mod.rs`, `crates/core/src/agents/claude.rs`, `crates/core/src/agents/codex.rs` | `Agent` trait + `AgentResult` + provider adapters |
+| `events.rs` | Append-only JSONL event log (read through the ledger, §2) |
+| `metrics.rs`, `cost.rs`, `health.rs`, `learning.rs` | Pure report builders over the event log (read through the ledger, §2) |
+| `gitlab_runner.rs` | Wires the real GitLab issue loop through `LoopRuntime`, one issue at a time |
+| `topic_runner.rs` | Wires the real Topic Monitor loop through `LoopRuntime`, one topic at a time |
+| `loop_scheduler.rs` | The single launchd-scheduled poll loop: reads `loops_config.list_loops()` and runs whichever registered loop(s) are due, via `loopx run` |
+| `loops_config.rs` | Loads the loops registry (`~/.loopx/loops.json`) — name, schedule, entry point, and per-loop knobs for `loopx run`/`loop_scheduler.rs` |
 
 ## 4. `LoopDefinition`
 
-A `LoopDefinition` (`bin/loop_definition.py`) is loaded from a `loop.yaml`
+A `LoopDefinition` (`crates/core/src/loop_definition.rs`) is loaded from a `loop.yaml`
 (see `loops/gitlab-issue/loop.yaml`, `loops/topic-monitor/loop.yaml`, or
 any of the 8 generic templates under `templates/`):
 
@@ -158,7 +160,7 @@ Every field has a validated default via `_STOP_CONDITION_DEFAULTS`/
 omission. See
 [`2026-09-06-loop-runtime-foundation-design.md`](superpowers/specs/2026-09-06-loop-runtime-foundation-design.md).
 
-### Risk levels (`loop_policy.py`)
+### Risk levels (`policy.rs`)
 
 Every *action type* a loop can take (not the loop definition's own
 config — the actual actions like `modify_code`, `create_merge_request`)
@@ -199,23 +201,24 @@ is merely trusted to follow.
 The actual public surface is smaller than the plan's original mockup
 (`start`/`execute`/`transition`/`stop`) — it collapsed to one entry point:
 
-```python
+```text
+# sketch of the surface — see `loop_runtime.rs` for the exact Rust signatures
 runtime = LoopRuntime(agent_fn, verifiers, progress_detector=None,
                        policy_engine=None, events_dir=None, on_iteration=None)
 result = runtime.start(definition, run_id, loop_id=None)  # -> LoopResult
 ```
 
-`agent_fn` and `verifiers` are injected, not imported — `loop_runtime.py`
+`agent_fn` and `verifiers` are injected, not imported — `loop_runtime.rs`
 itself has no GitLab/Claude/Codex/Slack dependency. Each iteration:
 executes the agent, runs every configured verifier, checks budget
-(`loop_budget.BudgetController`), checks progress
-(`loop_progress.ProgressDetector`), checks policy
-(`loop_policy.PolicyEngine`) for any action needing a human gate, and
+(`BudgetController` in `budget.rs`), checks progress
+(`ProgressDetector` in `loop_progress.rs`), checks policy
+(`PolicyEngine` in `policy.rs`) for any action needing a human gate, and
 either transitions to `COMPLETED`, retries (`EXECUTING` again, subject to
 `retry.max_attempts`), or exits to `BLOCKED`/`ESCALATED`/`STOPPED`/`FAILED`.
-Every step emits through `bin/events.py`, best-effort (an event-log write
+Every step emits through `crates/core/src/events.rs`, best-effort (an event-log write
 failure never crashes the runtime — same `|| true` philosophy as
-`run-loop-now.sh`). See
+`loopx run`). See
 [`2026-09-06-loop-runtime-foundation-design.md`](superpowers/specs/2026-09-06-loop-runtime-foundation-design.md).
 
 ## 7. Observability
@@ -223,26 +226,26 @@ failure never crashes the runtime — same `|| true` philosophy as
 - **Events** — `outputs/events/<UTC date>.jsonl`, one JSON object per
   line: `{event_id, run_id, iteration, type, timestamp, data}`. See §2 for
   how the ledger joins the event log with persisted results.
-- **Metrics** (`metrics.py`) — issue/verification/classification/failure-
+- **Metrics** (`metrics.rs`) — issue/verification/classification/failure-
   taxonomy/quality-and-autonomy metrics computed from the event log.
-- **Cost** (`cost.py`) — Claude-only usage/cost extraction (`claude -p
+- **Cost** (`cost.rs`) — Claude-only usage/cost extraction (`claude -p
   --output-format json`'s `total_cost_usd`); Codex cost is still
   unverified and reported as `None` (its success-path usage schema has not
   been confirmed against a real sample). Failed budget stops are booked at
   the per-call cap (`--max-budget-usd`, from `stop_conditions.max_cost_usd`);
   other unknown costs stay `None`.
-- **Health** (`health.py`) — a 7-component Loop Health score (weights:
+- **Health** (`health.rs`) — a 7-component Loop Health score (weights:
   resolution 30, autonomy 25, verification 15, cost efficiency 10, retry rate
   10, escalation 5, learning effectiveness 5). Retry rate and cost efficiency
   come from the ledger's per-run records; learning effectiveness from memory
   reuse outcomes. A component with no data yet is reported as such rather
   than guessed, and the score is flagged partial in that case.
-- **Audit** (`loop_audit.py`) — `loop audit <loop.yaml>... [--min-score N]` scores a
+- **Audit** (`loop_audit.rs`) — `loop audit <loop.yaml>... [--min-score N]` scores a
   `LoopDefinition`'s readiness: goal/trigger/verification/stop_conditions/
   retry/budget/no_progress_detection/human_gates/context_strategy/
   memory_strategy/credential_boundary/observability, each PASS/WARN/FAIL,
   weighted into a 0–100 score. Same honest-degradation pattern as
-  `health.py`.
+  `health.rs`.
 - **Loop Efficiency Score** (`loop_serialize.summarize_results`) — the
   plan's experimental §17 metric: verified-successful runs / (total
   cost_usd × total duration_hours × total iterations), summed across all
@@ -261,10 +264,9 @@ failure never crashes the runtime — same `|| true` philosophy as
   agreement rate. See
   [`2026-09-13-gitlab-issue-external-verification-design.md`](superpowers/specs/2026-09-13-gitlab-issue-external-verification-design.md).
 
-## 8. CLI (`bin/loop_cli.py`)
+## 8. CLI (`crates/cli/src/loop_cmd.rs`)
 
-Manual `sys.argv` subcommand dispatch (matching `events.py`'s own style,
-not `argparse`):
+`loopx loop <command>` (subcommand dispatch in `crates/cli/src/loop_cmd.rs`):
 
 | Command | Does |
 |---|---|
@@ -280,7 +282,7 @@ not `argparse`):
 
 See [`2026-09-07-loop-cli-design.md`](superpowers/specs/2026-09-07-loop-cli-design.md).
 
-### Evaluation harness (`loop_eval.py`, `evals/cases/`)
+### Evaluation harness (`loop_eval.rs`, `evals/cases/`)
 
 Drives a real, unmodified `LoopRuntime` with a `ScriptedAgent` and
 `ScriptedVerifiers`, so a passing case is evidence about the runtime's
@@ -294,17 +296,17 @@ verifies, and escalates correctly, not whether an agent can write code
 ## 9. How the two production loops actually plug in
 
 ```text
-loop_scheduler.py (launchd, StartInterval poll)     dashboard "Run now" / chat tool
+loop_scheduler.rs (launchd, StartInterval poll)     dashboard "Run now" / chat tool
               │                                              │
               └──────────────────┬───────────────────────────┘
                                   ↓
-                    run-loop-now.sh <loop_name>
+                    loopx run <loop_name>
                  (entry point/timeout/etc. looked up
-                  from loops.json via loops_config.py)
+                  from loops.json via loops_config.rs)
                                   │
                   ┌───────────────┴───────────────┐
                   ↓                                ↓
-        gitlab_loop_runner.py              topic_monitor_runner.py
+        gitlab_runner.rs              topic_runner.rs
          (one issue at a time)               (one topic at a time)
                   │                                ↓
                   └───────────────┬────────────────┘
@@ -314,14 +316,14 @@ LoopRuntime(agent_fn, verifiers).start(definition, run_id=issue_run_id)
 
 Each issue/topic gets its own `LoopRuntime.start()` call — the runtime
 tracks and bounds that single invocation, it does not span the whole
-scheduled batch. `run-loop-now.sh` is the one shell entry point both loops
+scheduled batch. `loopx run` is the one CLI entry point both loops
 go through (replacing the old separate `run-loop.sh`/
-`run-topic-monitor-loop.sh`); `bin/loop_scheduler.py` is the actual
+`run-topic-monitor-loop.sh`); `crates/core/src/loop_scheduler.rs` is the actual
 `launchd`-scheduled trigger now — a single `com.hermes.loop-engineering`
 job on a fixed `StartInterval` poll, replacing the old per-loop
-`StartCalendarInterval` plists, which invokes `run-loop-now.sh <loop_name>`
+`StartCalendarInterval` plists, which invokes `loopx run <loop_name>`
 for whichever registered loop(s) are due. The dashboard's Run now button
-and its chat tool's "paste an issue link" flow invoke `run-loop-now.sh`
+and its chat tool's "paste an issue link" flow invoke `loopx run`
 directly, on demand, bypassing the scheduler. Nothing here requires
 `loop run gitlab-issue` as the plan originally imagined (plan §25/§26's
 "final state" was never reached — the shell script remains the real
@@ -355,12 +357,12 @@ capabilities (`issues`, `merge_requests`, `pipelines`, `notify`, `feed`,
 
 | Module | Responsibility |
 |---|---|
-| `connectors/__init__.py` | `CONNECTOR_TYPES` registry + `get_type(name)` |
-| `connectors/base.py` | `Field`, `Connector` base class, capability constants, `ConnectorError` |
-| `connectors/{gitlab,github,slack,webhook,rss,jira,linear,mailbox}.py` | One module per type: its settings fields, capabilities, and `test()` (plus `send()` for `notify` types) |
-| `connectors_config.py` | The account registry: `list_accounts`/`get_account`/`accounts_with_capability`, `upsert_account`/`delete_account`, `load_connector` |
-| `secret_store.py` | macOS Keychain wrapper for connector secrets (service `loop-engineering.connectors`, sandbox-suffixed under `LOOP_ENGINEERING_HOME`), built on `mail_auth`'s Keychain calls |
-| `notify.py` | Per-loop notification routing (below) |
+| `crates/core/src/connectors/mod.rs` | `CONNECTOR_TYPES` registry + `get_type(name)` |
+| `crates/core/src/connectors/mod.rs` | `Field`, `Connector` base class, capability constants, `ConnectorError` |
+| `connectors/{gitlab,github,slack,webhook,rss,jira,linear,mailbox}.rs` | One module per type: its settings fields, capabilities, and `test()` (plus `send()` for `notify` types) |
+| `connectors_config.rs` | The account registry: `list_accounts`/`get_account`/`accounts_with_capability`, `upsert_account`/`delete_account`, `load_connector` |
+| `secrets.rs` | macOS Keychain wrapper for connector secrets (service `loop-engineering.connectors`, sandbox-suffixed under `LOOP_ENGINEERING_HOME`), built on `mail_auth`'s Keychain calls |
+| `loop_notify.rs` | Per-loop notification routing (below) |
 
 **Native vs external accounts.** *Native* accounts are the ones added on the
 dashboard's `/connectors` page: non-secret settings live in
@@ -377,8 +379,8 @@ per loop (written by `set_notify`, and kept in step by `replace_notify_id` when 
 connector is deleted or renamed). `notify.notify(loop_name, text)`
 sends to each listed connector that has the `notify` capability and returns one
 `(connector_id, ok, message)` per target without raising; a loop with no
-`notify` goes to the default Slack webhook via `slack_notify`, as before.
-`python3 bin/notify.py <loop> <text>` is the CLI form. Routing applies only to
+`notify` goes to the default Slack webhook via `slack.rs`, as before.
+`loopx notify-loop <loop> <text>` is the CLI form. Routing applies only to
 loops whose registry entry declares `"routes_notifications": true` (their runner
 calls `notify`); only those get the dashboard's "Notify via" control. The
 built-in GitLab, Topic and Inbox loops don't declare it and still post to the
@@ -390,10 +392,10 @@ capability in its `requires` exists, and the AI panel exposes a read-only
 
 ## LoopKit
 
-`bin/loopkit.py` is a small plugin runner for "discover items, ask the model
+`crates/core/src/loopkit.rs` is a small plugin runner for "discover items, ask the model
 about each, act on the answer" loops. The seven plugin loops (Daily Digest, MR
 Review, Pipeline Doctor, RSS Watch, Meeting Prep, Release Notes, Stale Work
-Sweeper) are modules under `bin/loop_plugins/`; each
+Sweeper) are modules under `crates/core/src/loop_plugins/`; each
 one's `loops.json` entry points its `entry_point` at that module, whose
 `__main__` block hands a `LoopPlugin` subclass instance to `loopkit.main`. Each plugin also has
 a loop definition and prompt under `loops/<definition_dir>/` (`loop.yaml`,
@@ -427,7 +429,7 @@ definition's `prompt.md`, and `call_model` defaults to the sealed call.
 5. Write a history markdown file and `last-run.json`, call `digest`, notify,
    and send a second notification if any item failed.
 
-**Sealed model calls.** `bin/agents/sealed.py` is the one hardened Claude call
+**Sealed model calls.** `crates/core/src/agents/sealed.rs` is the one hardened Claude call
 every plugin uses on untrusted content: no tools, no MCP servers, prompt on
 stdin, no session persistence, hooks disabled. It is Claude-only; codex is
 refused because it always gives the model a shell and records the prompt.
@@ -437,7 +439,7 @@ untrusted text before it goes into any chat message (control characters
 stripped, whitespace collapsed, `<`/`>` replaced so no Slack control sequence
 can form, only plain http(s) URLs kept, links rendered as `label (url)`).
 
-**Seen store and persistence.** `bin/seen_store.py` keeps
+**Seen store and persistence.** `crates/core/src/seen_store.rs` keeps
 `outputs/loops/<name>/seen.json` (`{key: iso timestamp}`, entries older than 30
 days dropped on save). An item is marked seen only when its outcome is `done`
 or `skipped`, and the store is saved right after each such item, so a crash or

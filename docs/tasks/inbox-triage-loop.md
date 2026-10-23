@@ -15,14 +15,14 @@ report on a run with nothing to do.
 
 This is a third, independent loop from the [daily GitLab issue
 loop](gitlab-issue-loop.md) and the [topic monitor loop](topic-monitor-loop.md)
-— its own entry script (`bin/inbox_triage_runner.py`), instructions doc
-(`instructions/inbox-triage.md`), and config files (`inboxes.json`,
+— its own entry script (`crates/core/src/inbox_runner.rs`), instructions doc
+(`instructions/loopx/inbox-triage.md`), and config files (`inboxes.json`,
 `mail_oauth.json`). It shares nothing with either other loop's files except
-the one scheduler that runs all three, `bin/loop_scheduler.py`.
+the one scheduler that runs all three, `crates/core/src/loop_scheduler.rs`.
 
 ## Setup
 
-`bin/scripts/setup.sh` scaffolds `~/.loopx/inboxes.json` from
+`install-loopx.sh` scaffolds `~/.loopx/inboxes.json` from
 `config/inboxes.json.template`, the same way it scaffolds `projects.json`
 and `topics.json`. Unlike those two, though, connecting an actual mailbox
 is not a hand-edit-JSON step: it all happens on the dashboard's **Loops →
@@ -118,18 +118,18 @@ in use by the connected inboxes — the default config has every inbox on the
 same (default) bundle, so a normal run sends exactly one message, with one
 section per inbox in that bundle, e.g. "Work Gmail: 2 urgent (drafts
 ready), 4 action, 11 other", followed by each urgent sender and subject.
-Sent through `bin/slack_notify.py` under a new `notification_key`,
+Sent through `crates/core/src/slack.rs` under a new `notification_key`,
 `inbox_triage_digest`, so it can be bound to its own Block Kit template the
 same way the GitLab and topic-monitor alerts are. A run with no new mail in
 any inbox still sends the digest, saying so.
 
 ## Safety boundary (fixed — does not loosen with time or repeated success)
 
-- **Never sends mail.** Neither provider module (`bin/mail_providers/gmail.py`,
-  `bin/mail_providers/outlook.py`) contains a send function; a test asserts
+- **Never sends mail.** Neither provider module (`crates/core/src/mail_provider/gmail.rs`,
+  `crates/core/src/mail_provider/outlook.rs`) contains a send function; a test asserts
   neither module references a send endpoint (`messages/send`, `drafts/send`,
   `/sendMail`, `/send`). For Outlook the token additionally lacks
-  `Mail.Send` — `bin/mail_auth.py`'s requested scope is
+  `Mail.Send` — `crates/core/src/mail_auth.rs`'s requested scope is
   `offline_access https://graph.microsoft.com/Mail.ReadWrite` only — so
   sending is impossible at the token level, not just at the code level.
   Gmail has no scope that permits drafts and labels without also permitting
@@ -177,7 +177,7 @@ any inbox still sends the digest, saying so.
 - Inboxes are processed one at a time, sequentially — never multiple
   inboxes' mail fetched or triaged in parallel in the same run.
 - Refresh tokens live only in the macOS **Keychain**, never on disk in
-  plain text, and never in a process's argv: `bin/mail_auth.py` writes them
+  plain text, and never in a process's argv: `crates/core/src/mail_auth.rs` writes them
   by running `/usr/bin/security -i` and passing the `add-generic-password -U
   ... -w "<token>" -T /usr/bin/security` command on its stdin (quoted for
   `security`'s own tokenizer), so not even a same-user `ps` can see a token

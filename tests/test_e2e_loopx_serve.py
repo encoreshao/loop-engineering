@@ -1,5 +1,5 @@
 """End-to-end `loopx serve`: the lock file, /api/version, the SSE event stream,
-approvals over HTTP, and the proxy to the legacy Python dashboard. Rust-only
+approvals over HTTP, and the server-rendered pages. Rust-only
 (skipped without LOOPX_BIN)."""
 import json
 import os
@@ -63,7 +63,7 @@ def test_lock_file_version_and_clean_shutdown(tmp_path):
         status, body = get(port, "/api/version")
         v = json.loads(body)
         assert status == 200 and v["name"] == "loopx" and v["pid"] == proc.pid
-        assert v["root"] == str(le) and v["legacy_dashboard"] is False
+        assert v["root"] == str(le)
         assert get(port, "/healthz")[1] == "ok"
     finally:
         stop(proc)
@@ -171,10 +171,9 @@ def test_approvals_can_be_answered_over_http_with_the_lock_token(tmp_path):
         stop(proc)
 
 
-def test_unported_pages_come_from_the_legacy_dashboard(tmp_path):
-    proc, port, le, _ = start_server(tmp_path, legacy=True)
+def test_the_dashboard_home_page_is_served_by_loopx(tmp_path):
+    proc, port, le, _ = start_server(tmp_path)
     try:
-        assert json.loads(get(port, "/api/version")[1])["legacy_dashboard"] is True
         status, html = get(port, "/")
         assert status == 200 and "<html" in html.lower()
         assert "LOOP" in html.upper()

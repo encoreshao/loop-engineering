@@ -1,24 +1,13 @@
-"""Run a loop CLI as a black-box subprocess, as either the Python script or
-the Rust `loopx` subcommand that replaces it.
+"""Run a loop CLI as a black-box subprocess: the `loopx` subcommand that
+replaced each legacy `bin/*.py` script (the legacy name is kept as the key, so
+the contract tests read the same as when they ran both sides).
 
-Set `LOOPX_BIN` to the path of a built `loopx` binary and every test that goes
-through `run_cli` exercises the Rust version; leave it unset and the same test
-runs the legacy `bin/*.py` script. This is how the migration (see
-docs/执行计划.md, P1) keeps one suite green on both sides: a script is only
-deleted once its contract tests pass against `loopx`.
+`LOOPX_BIN` is the path of the built binary; without it, tests that need it skip.
 """
 import os
 import subprocess
-import sys
-from pathlib import Path
 
-BIN_DIR = Path(__file__).resolve().parent.parent / "bin"
-
-# Scripts that live outside this repo (the gitlab-config skill). Resolved from
-# the real home at import time, so a scratch HOME in a test's env can't hide it.
-EXTERNAL_SCRIPTS = {
-    "gitlab_api.py": Path.home() / ".encore-skills" / "skills" / "gitlab-config" / "scripts" / "gitlab_api.py",
-}
+import pytest
 
 # legacy script -> loopx subcommand words. Grow this as scripts migrate.
 SUBCOMMANDS = {
@@ -27,7 +16,6 @@ SUBCOMMANDS = {
     "ai_cli_config.py": ["ai-cli"],
     "loop_cli.py": ["loop"],  # `loopx loop <sub>`; `ledger` is also top-level `loopx ledger`
     "metrics.py": ["metrics"],
-    "update_runner.py": ["update"],
     "loop_config.py": ["config"],
     "list_assigned_issues.py": ["issues", "list"],
     "track_new_comments.py": ["issues", "comments"],
@@ -48,19 +36,15 @@ SUBCOMMANDS = {
 
 
 def loopx_bin():
-    """The binary under test, or None to test the Python scripts."""
+    """The binary under test, or None when `LOOPX_BIN` is unset."""
     return os.environ.get("LOOPX_BIN") or None
 
 
 def command_for(script, *args):
     binary = loopx_bin()
-    if binary:
-        return [binary, *SUBCOMMANDS[script], *args]
-    if script in EXTERNAL_SCRIPTS:
-        return [sys.executable, str(EXTERNAL_SCRIPTS[script]), *args]
-    if script.endswith(".sh"):
-        return ["bash", str(BIN_DIR / "scripts" / script), *args]
-    return [sys.executable, str(BIN_DIR / script), *args]
+    if not binary:
+        pytest.skip("needs LOOPX_BIN")
+    return [binary, *SUBCOMMANDS[script], *args]
 
 
 def run_cli(script, *args, env=None, input=None, cwd=None, check=False):

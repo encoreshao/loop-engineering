@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from cli_runner import EXTERNAL_SCRIPTS, loopx_bin, run_cli
+from cli_runner import run_cli
 from fake_gitlab import FakeGitLab
 
 
@@ -44,8 +44,6 @@ def gitlab():
 
 @pytest.fixture
 def env(tmp_path, gitlab):
-    if not loopx_bin() and not EXTERNAL_SCRIPTS["gitlab_api.py"].exists():
-        pytest.skip("gitlab-config skill (~/.encore-skills) not installed")
     home = tmp_path / "home"
     (home / ".gitlab").mkdir(parents=True)
     (home / ".gitlab" / "config.json").write_text(json.dumps({

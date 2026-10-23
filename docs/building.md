@@ -55,8 +55,8 @@ open dist/LoopX.app
 Mac app can do that for you: Settings > "Run scheduled loops while LoopX is open"
 (off by default, since a due loop acts on the real GitLab and Slack) polls on launch and
 every 15 minutes. Loops therefore only run while the app is open (turn on "Launch LoopX at
-login" to cover that). If the installed launchd job `com.hermes.loop-engineering` is
-loaded, the app does not start a second scheduler.
+login" to cover that). Use one scheduler at a time: if you also load the `com.hermes.loop-engineering` launchd
+agent (Web mode, `install-loopx.sh`), leave this setting off — the app no longer checks for it.
 
 ## Swift package only
 

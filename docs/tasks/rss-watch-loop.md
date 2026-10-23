@@ -7,7 +7,7 @@ them against your interests and send a short digest of the best ones.
 
 ## How it runs
 
-- Plugin: `bin/loop_plugins/rss_watch.py` on LoopKit (`bin/loopkit.py`);
+- Plugin: `crates/core/src/loop_plugins/rss_watch.rs` on LoopKit (`crates/core/src/loopkit.rs`);
   definition `loops/rss-watch/loop.yaml`, prompt `loops/rss-watch/prompt.md`.
 - Schedule: daily 08:00 from its `loops.json` entry (disabled by default;
   `requires: ["feed"]`, so add an RSS connector first).

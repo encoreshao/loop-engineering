@@ -25,7 +25,7 @@ outputs/chat-docs/
 outputs/chat-pending/
 
 # The unified log every `claude` CLI invocation across this project writes
-# to (see bin/web/dashboard_server.py's append_unified_log/render_logs_page,
+# to (see crates/core/src/runner_util.rs append_unified_log,
 # and run-loop.sh/run-topic-monitor-loop.sh) - live process output, never
 # project source.
 /logs/
@@ -54,7 +54,7 @@ launchd/*.plist
 # checkouts (each with its own .git), never this repo's source.
 /worktrees/
 
-# macOS app bundle built by bin/scripts/build_macos_app.sh
+# macOS app bundle built by bin/scripts/build_loopx_app.sh
 /dist/
 
 # macOS

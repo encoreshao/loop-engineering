@@ -4,330 +4,207 @@ Read [`README.md`](README.md) for what this project is. [`TASK.md`](TASK.md)
 indexes every scheduled task this repo runs; read the task's own spec under
 `docs/tasks/` (currently just
 [`docs/tasks/gitlab-issue-loop.md`](docs/tasks/gitlab-issue-loop.md)) and
-[`instructions/gitlab-issue.md`](instructions/gitlab-issue.md) before touching the loop's
-own decision logic — those are the loop's actual spec, not this file. This
-file is operational conventions learned the hard way while building the
+[`instructions/loopx/gitlab-issue.md`](instructions/loopx/gitlab-issue.md) before touching
+the loop's own decision logic — those are the loop's actual spec, not this file.
+This file is operational conventions learned the hard way while building the
 dashboard and tooling around it; follow them without being asked.
 
-## `bin/` is split by kind, not flat
+## Layout
 
-`bin/*.py` — the loop's own small Python CLI helpers (`loop_config.py`,
-`slack_notify.py`, `list_assigned_issues.py`, `track_new_comments.py`,
-`project_memory.py`, `memory_store.py`, `loop_scheduler.py`,
-`loops_config.py`, `inbox_config.py`, `inbox_triage.py`,
-`inbox_triage_runner.py`, `inbox_seen.py`, `inbox_status.py`,
-`update_check.py` and `update_runner.py` (the macOS app's self-update: state
-in `<repo_root>/outputs/update/`, per-checkout like events, override with the
-`LOOP_UPDATE_DIR` env var, which `tests/` must always set or pass `state_dir`),
-`mail_auth.py`, `mail_http.py`, `connectors_config.py`, `secret_store.py`,
-`notify.py`, `loopkit.py` (the LoopKit plugin runner), `seen_store.py` (its
-per-loop de-dup store), `i18n.py` with its `locales/` catalogs, the
-`connectors/` package (one module per connector type), the `agents/` package
-(`agents/sealed.py` is the hardened tool-less model call), and the
-`mail_providers/` package). `bin/loop_plugins/`
-— LoopKit plugin modules (they have their own pattern in
-`bin/gitlab_loop_runner.py`'s `_allowed_tools()` glob, since `*` doesn't cross
-`/`). `bin/web/`
-— the dashboard web server (`dashboard_server.py`, `inbox_pages.py`, `update_pages.py`),
-`hub.py` (pure hub/tab navigation helpers) and `brand_logos.py` (connector
-brand marks) alone. Logos are inline Simple Icons SVG (CC0) only — never load
-logos from external hosts; to add a missing brand, paste its validated path
-into `brand_logos.py`, otherwise it falls back to a lettermark.
-`bin/scripts/` — one-shot shell scripts
-(`setup.sh`, `setup-nginx.sh`, `uninstall.sh`, `new_worktree.sh`,
-`open_merge_request.sh`). Moving a script between these means updating, in
-the same change: any `LOOP_DIR`/`sys.path` self-location math inside the
-script itself (it's relative-path-depth-sensitive — see
-`bin/web/dashboard_server.py`'s `LOOP_DIR` and its explicit `sys.path`
-insert for `loop_config`/`project_memory`, and `bin/scripts/setup.sh`'s
-`LOOP_DIR`), every hardcoded path to it in `instructions/gitlab-issue.md`,
-`run-loop-now.sh`, `bin/gitlab_loop_runner.py` (including its `_allowed_tools()`
-patterns — the `bin/*.py`/`bin/web/*.py`/`bin/loop_plugins/*.py` globs need one
-pattern per directory since `*` doesn't cross a `/`, but agent-invoked shell
-scripts (`new_worktree.sh`, `open_merge_request.sh`) are enumerated in its
-`_AGENT_SCRIPTS` tuple, so moving or adding one means editing that tuple; this list lived in `run-loop.sh` as `ALLOWED_TOOLS` until the
-per-issue runner moved it into Python), `README.md`, and any
-installed `launchd/*.plist`'s absolute `Program`/`ProgramArguments` path
-(both the source file here and the live copy in
-`~/Library/LaunchAgents/`, which needs a real `launchctl unload`+`load`,
-not just `kickstart -k`, since the plist's own path changed).
+The product is one Rust binary, `loopx`, plus the macOS app that hosts it. There
+is no Python runtime left.
 
-## Development mode: never touch the real `~/.loopx` or real daemons
+- `crates/core` — everything that is not HTTP or CLI parsing: config files, the
+  loop runners (GitLab issue, topic monitor, inbox triage, LoopKit plugins), the
+  scheduler, connectors, the chat tool registry, evals, launchd helpers.
+- `crates/server` — the dashboard: `loopx serve`, the page registry
+  (`src/ui/pages/*.rs`, one module per page — `build.rs` registers them), the API
+  and SSE the Mac app uses, `src/chat_tool.rs` (the `loopx chat-tool` actions),
+  the translation catalogs in `crates/server/locales/{ja,zh,fr}.json`, and UI
+  assets in `crates/server/assets/`.
+- `crates/cli` — the `loopx` subcommands (thin wrappers over core/server).
+- `macos/LoopX` — the Swift app (`swift build`/`swift test` in that directory).
+- `instructions/loopx/*.md`, `loops/*/`, `templates/`, `config/` — agent
+  prompts and loop definitions; some are embedded into the binary at build time.
+- `bin/scripts/*.sh` — shell only: `build_loopx_app.sh`, `install-loopx.sh`,
+  `uninstall-loopx.sh`, `release_notes.sh`, and `setup.sh` (installs the
+  `gitlab-config` skill). `tests/` — the black-box pytest suite (it drives the
+  built binary through `LOOPX_BIN`) and `tests/golden_ui/` page snapshots.
+
+## Development mode: never touch the real `~/.loop-engineering` or real daemons
 
 Day-to-day development and verification happens entirely inside this
-checked-out repo directory, against a disposable sandbox — never against
-the real `~/.loopx` (this machine's live `projects.json`,
-`topics.json`, `ai_cli.json`, `instructions.md`, run history) and never by
-starting, stopping, or kickstarting the real installed `launchd` agents
-(`com.hermes.loop-engineering*`). Those are live, personal, possibly-in-use
-state; a dev/verification step has no business touching them.
+checked-out repo directory, against a disposable sandbox — never against the
+real `~/.loop-engineering` (this machine's live `projects.json`, `topics.json`,
+`ai_cli.json`, `loops.json`, run history), the real Keychain, or the real
+installed `launchd` agents. Those are live, personal, possibly-in-use state; a
+dev/verification step has no business touching them.
 
 To run a sandboxed dev instance of the dashboard from the current directory:
 
 ```bash
-export LOOP_ENGINEERING_HOME=$(mktemp -d)
-export HOME=$(mktemp -d)   # for connector work - see below
-export LOOP_UPDATE_DIR=$(mktemp -d)   # the server's background update check does a real `git fetch`
-python3 bin/web/dashboard_server.py 18420 &   # any free port, never the live one
+export LOOP_ENGINEERING_HOME=$(mktemp -d)   # per-machine config
+export HOME=$(mktemp -d)                    # connectors read ~/.gitlab and ~/.slack
+export LOOPX_ROOT=$(mktemp -d)              # the "checkout": outputs/, launchd/, logs/
+export LOOP_UPDATE_DIR=$(mktemp -d)         # the background update check does a real `git fetch`
+export LOOP_EVENTS_DIR=$(mktemp -d)
+cargo run -p loopx -- serve --port 18420 &  # any free port, never the live one
 sleep 1
 curl -s -o /dev/null -w "HTTP %{http_code}\n" http://127.0.0.1:18420/<page>
 kill %1
 ```
 
-`LOOP_ENGINEERING_HOME` overrides the default `~/.loopx` base
-directory everywhere it's resolved — `bin/loop_config.py`,
-`bin/topic_config.py`, `bin/ai_cli_config.py`'s `DEFAULT_CONFIG_PATH`,
-`bin/memory_store.py`'s `DEFAULT_MEMORY_ROOT`, `bin/loops_config.py`'s
-`DEFAULT_CONFIG_PATH`, `bin/connectors_config.py`'s `DEFAULT_CONFIG_PATH`, `bin/loop_scheduler.py`'s `DEFAULT_STATE_PATH`, and
-`bin/web/dashboard_server.py`'s `CUSTOM_INSTRUCTIONS_PATH`. Leave it
-unset and every one of those falls back to the real path, which is exactly
-why it must always be set before running anything in dev/verification.
-`bin/events.py` is a deliberate exception: it always writes to
-`<repo_root>/outputs/events/` regardless of `LOOP_ENGINEERING_HOME`,
-because events are per-checkout run history (same category as
-`outputs/daily-review.md`/`outputs/history/`), not per-machine config
-like `projects.json`. The one override is the `LOOP_EVENTS_DIR` env var
-(resolved at call time by `events.default_events_dir()`): set it to a scratch
-dir for any subprocess that emits events - `tests/conftest.py` does this for
-every test, so spawned `loop_cli.py run` processes never touch the real ledger.
-`LOOP_EVALS_DIR` does the same for `outputs/evals/` (`last.json`, `golden-last.json`),
-also set for every test by `tests/conftest.py`. Only a default-cases `loop eval`
-and a full (no `--case`) `loop eval --golden` record those files.
-`outputs/connectors/test-results.json` (the Connectors page's last Test
-result per account) is the same kind of per-checkout exception: it always
-lives under `<repo_root>/outputs/connectors/`, regardless of
-`LOOP_ENGINEERING_HOME`.
-`bin/mail_auth.py`'s Keychain service (`loop-engineering.mail`) is
-suffixed `.sandbox-<hash>` whenever `LOOP_ENGINEERING_HOME` is set, so a
-sandboxed run (including `bin/inbox_triage_runner.py`) can never read or
-overwrite the real mailbox tokens — tests must still monkeypatch
-`subprocess.run`/`keychain_*` rather than touch any Keychain at all.
-`bin/secret_store.py`'s connector-secret service (`loop-engineering.connectors`,
-a separate service from the mailbox one so deleting a connector can never touch
-a mailbox token) gets the same `.sandbox-<hash>` suffix under
-`LOOP_ENGINEERING_HOME`, via `mail_auth.sandboxed_service`.
-`tests/test_setup.py`'s `run_setup` now always runs `setup.sh` against a temp
-`HOME` (unless a test passes its own): the suite used to scaffold the real
-`~/.loopx/connectors.json` as a side effect of running, the same
-class of leak as the `uninstall.sh` one below.
-For connector work, also `export HOME=$(mktemp -d)` before starting the
-sandboxed dashboard: `connectors_config` reads the GitLab instances and
-Slack webhooks straight from `~/.gitlab/config.json` and
-`~/.slack/config.json`, which `LOOP_ENGINEERING_HOME` doesn't cover — so
-without a scratch `HOME` the sandbox lists your real accounts, and "Send
-test message" on `slack-default` posts to your real Slack.
-Run this way, `dashboard_server.py` is a plain foreground process — no
-`launchd`, no `KeepAlive` — kill it whenever you're done. Same idea for the
-loop scripts themselves (`run-loop-now.sh`, `bin/*.py`): run them with
-`LOOP_ENGINEERING_HOME` set to a scratch directory, never against the real
-config, when the point is to exercise the code rather than actually act on
-the user's real projects.
+`LOOP_ENGINEERING_HOME` overrides the default `~/.loop-engineering` base directory
+everywhere it is resolved (`loopx_core::config::home_dir()`); leave it unset and
+everything falls back to the real path, which is exactly why it must be set before
+running anything in dev/verification. `LOOPX_ROOT` is the per-checkout root
+(`outputs/`, `launchd/`, `logs/`); `LOOP_EVENTS_DIR`, `LOOP_EVALS_DIR` and
+`LOOP_UPDATE_DIR` redirect the event ledger, eval results and update state.
+`tests/conftest.py` sets all of them for every pytest test.
 
-**`bin/scripts/*.sh` do NOT read `LOOP_ENGINEERING_HOME` at all** —
-`install.sh`'s `DIR` and `uninstall.sh`'s `PROJECT_DIR` (which it
-`rm -rf`s) both default straight to the real `$HOME/.loop-engineering`
-unless you pass their own `--dir`/`--project-dir` flag explicitly. Setting
-`LOOP_ENGINEERING_HOME` before running these does nothing to protect you.
-This bit us for real twice: the second time, the actual command that
-deleted the live `~/.loopx` was the ordinary, CLAUDE.md-mandated
-`python3 -m pytest tests/ -q` — several pre-existing `tests/test_uninstall.py`
-cases invoked the real `bin/scripts/uninstall.sh` without `--project-dir`,
-so on any machine that also has a real install, running the test suite
-deleted it as a side effect. `uninstall.sh` now refuses to delete the
-default `$HOME/.loop-engineering` path whenever it's invoked from a
-*different* on-disk location than that path (a dev clone's own copy of the
-script, run bare) and `--project-dir` wasn't passed explicitly — see the
-`PROJECT_DIR_GIVEN`/`LOOP_DIR` check right before its `rm -rf`. That guard
-is the real backstop; treat every test in `tests/test_uninstall.py` and
-`tests/test_install.py` that invokes the real script as required to pass
-an explicit `--project-dir`/`--dir` regardless — never rely on the guard
-alone to justify a new test skipping it.
-Never run `install.sh` or `uninstall.sh` bare for dev/verification — always
-pass `--dir`/`--project-dir` (and `--launch-agents-dir` if it touches
-launchd) pointed at a scratch directory, e.g.:
+The Keychain service names (`loop-engineering.mail`, `loop-engineering.connectors`)
+get a `.sandbox-<hash>` suffix whenever `LOOP_ENGINEERING_HOME` is set, so a
+sandboxed run can never read or overwrite the real tokens. Unit tests must still use
+the in-memory store (`loopx_core::keychain::MemoryStore`) rather than touch any
+Keychain at all. For connector work, a scratch `HOME` matters too:
+`connectors_config` reads GitLab instances and Slack webhooks from
+`~/.gitlab/config.json` and `~/.slack/config.json`, so without it "Send test
+message" on `slack-default` posts to your real Slack.
 
-```bash
-scratch=$(mktemp -d)
-bin/scripts/uninstall.sh --project-dir "$scratch/.loop-engineering" \
-  --launch-agents-dir "$scratch/LaunchAgents" --skip-nginx --skip-hosts --skip-service
-```
+**`bin/scripts/*.sh` do NOT read `LOOP_ENGINEERING_HOME`**: `install-loopx.sh` and
+`uninstall-loopx.sh` default straight to the real install directory unless you pass
+their own `--dir`/`--project-dir`/`--launch-agents-dir` flags. Never run them bare for
+dev/verification; always point them at a scratch directory (the tests in
+`tests/test_install_loopx.py` and `tests/test_uninstall_loopx.py` do exactly this).
 
-The test suite already does this correctly (`tests/test_install.py`,
-`tests/test_uninstall.py` always pass explicit `--dir`/`--project-dir`
-under `tmp_path`) — the risk is only in ad-hoc manual runs of these
-scripts outside pytest.
-
-The one exception: confirming a reviewed, already-merged change is
-actually live on this machine's real install. Do that only when explicitly
-asked to — never as the routine way to check a change works — using the
-real daemon:
-
-```bash
-bin/scripts/restart-daemons.sh
-sleep 1
-curl -s -o /dev/null -w "HTTP %{http_code}\n" http://127.0.0.1:8420/<page>
-```
-
-`restart-daemons.sh` wraps `launchctl kickstart -k gui/$(id -u)/<label>` for
-every one of this repo's launchd agents that is currently loaded, restarting
-only the dashboard by default — it never loads, enables, or removes an
-agent, and it deliberately does **not** restart `com.hermes.loop-engineering`
-(the unified scheduler) unless `--with-scheduler` is also passed, since
-kickstarting the scheduler forces an immediate poll and, if any registered
-loop is overdue, a real unscheduled run against live GitLab/Slack right now.
-Pass `--with-scheduler` only when that's actually the point of the check.
-
-(`8420` is `dashboard_server.py`'s own local-dev default. A machine installed via `bin/scripts/install.sh` may be running on a different port picked at first install — check the actual port in `launchd/com.hermes.loop-engineering-dashboard.plist`'s `ProgramArguments` before assuming 8420.) `dashboard_server.py` does **not** hot-reload, so this is the only way to see a code change reflected on the real daemon.
-
-A passing test suite proves the Python logic is correct; a sandboxed dev
-run proves the server behaves correctly end-to-end. Neither proves the
-*real* daemon is serving the new code — only the exception above does, and
-it's rare.
+The one exception: confirming a reviewed, already-merged change is live on this
+machine's real install. Do that only when explicitly asked, never as the routine way
+to check a change works. The server does not hot-reload, so a code change only shows
+on the real daemon after a restart.
 
 ## Test-driven, no exceptions
 
-Every script under `bin/` change gets a test in the matching
-`tests/test_*.py` first — watch it fail for the right reason, then make it
-pass. Run the full suite before considering anything done:
+Every behavior change gets a test first — watch it fail for the right reason, then
+make it pass. Run the full suite before considering anything done:
 
 ```bash
-python3 -m pytest tests/ -q
+cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo build -p loopx && LOOPX_BIN="$PWD/target/debug/loopx" python3 -m pytest tests/ -q
+(cd macos/LoopX && swift test)        # when the app changed
 ```
 
-Prefer real subprocesses/tmp dirs over mocks where practical (see
-`tests/test_new_worktree.py`, which drives a real local git repo). Where a
-test needs to fake something async or a background process
-(`subprocess.Popen`, `launchctl`), monkeypatch that call directly rather
-than mocking the function under test.
+Rust unit tests live next to the code; the pytest suite is for black-box
+behavior (CLI contracts, end-to-end runs, installers, packaging). Prefer real
+subprocesses and temp dirs over mocks; inject fakes through the existing seams
+(`UiState::explicit`, `chat_tools::Env::with_provider`, `Launchctl { command }`,
+`run_control::Launcher`).
+
+`tests/golden_ui/` holds the rendered HTML of every page in four languages
+(`expected/`) and the fixture each page renders against; `crates/server/tests/golden_ui.rs`
+compares the Rust pages byte for byte. The snapshots were first captured from the old
+Python dashboard and are now plain baselines: when a page changes on purpose, update
+the affected files under `expected/` in the same commit.
 
 ## Agent instruction/tool changes need a golden eval before/after
 
-Any change to `instructions/gitlab-issue.md`, `instructions/topic-monitor.md`,
-`instructions/inbox-triage.md`, `loops/*/prompt.md`,
-`bin/scripts/build_run_prompt.sh`, or any `_allowed_tools()` must paste a
-before/after `loop eval --golden` summary in the PR (the PR template asks
-for it). The unit suite can't tell whether the real agent still fixes,
-answers and escalates correctly; the golden suite
-(`python3 bin/loop_cli.py eval --golden [--budget-usd N] [--case NAME]`,
-cases under `evals/golden/<name>/case.yaml`) runs the real agent in gate
-mode, offline, on synthetic fixture repos. It costs real money (default
-budget $10, it stops launching cases once spent), so it is never part of
-`pytest` - run it by hand, once on the base commit and once on your change.
-Each run writes `outputs/evals/golden-last.json`. It runs every case under
-a throwaway `LOOP_ENGINEERING_HOME`/`LOOP_EVENTS_DIR` and hard-denies the
-GitLab, Slack and dashboard tools (offline mode also swaps the `bin/*.py`
-globs for an explicit helper allowlist). That allowlist is **not a hard
-sandbox**: the fixtures' allowed `pytest` runs arbitrary code from the
-fixture repo; the real `HOME` is kept so `claude` can authenticate; gate-mode
-handoffs land in this checkout's real `outputs/handoffs/golden-*`; and the
-bare `Read Edit Write` allow is not path-scoped, so the agent can write into
-the repo (`repo_root`) as well as the fixture. Run it only on a machine and
-checkout you are willing to expose to the agent, and check `git status`
-afterwards.
-Fixtures stay synthetic: never put real issue text or project names in a
+Any change to `instructions/loopx/*.md`, `loops/*/prompt.md`,
+`crates/core/src/prompt.rs`, or any `allowed_tools()`/`disallowed_tools()` must paste
+a before/after `loopx loop eval --golden` summary in the PR (the PR template asks for
+it). The unit suite can't tell whether the real agent still fixes, answers and
+escalates correctly; the golden suite
+(`loopx loop eval --golden [--budget-usd N] [--case NAME]`, cases under
+`evals/golden/<name>/case.yaml`) runs the real agent in gate mode, offline, on
+synthetic fixture repos. It costs real money (default budget $10, it stops launching
+cases once spent), so it is never part of `cargo test` or `pytest` — run it by hand,
+once on the base commit and once on your change. Each run writes
+`outputs/evals/golden-last.json`. It runs every case under a throwaway
+`LOOP_ENGINEERING_HOME`/`LOOP_EVENTS_DIR` and hard-denies the GitLab, Slack and
+dashboard tools. That allowlist is **not a hard sandbox**: the fixtures' allowed
+`pytest` runs arbitrary code from the fixture repo; the real `HOME` is kept so
+`claude` can authenticate; gate-mode handoffs land in this checkout's real
+`outputs/handoffs/golden-*`; and the bare `Read Edit Write` allow is not path-scoped,
+so the agent can write into the repo as well as the fixture. Run it only on a
+machine and checkout you are willing to expose to the agent, and check `git status`
+afterwards. Fixtures stay synthetic: never put real issue text or project names in a
 case.
 
 The dashboard chat has its own paid suite, since the golden one never exercises the
-chat prompt: any change to `_CHAT_ASSISTANT_SYSTEM_PROMPT`, `_CHAT_TOOLS_PROMPT`,
-`build_chat_command`'s flags, or a `bin/chat_tools/` tool description or write
-behavior must paste a before/after `python3 bin/loop_cli.py eval --chat
-[--budget-usd N] [--case NAME]` summary in the PR (default budget $3, about $0.05
-a case; cases under `evals/chat/<name>/case.yaml`, written to
-`outputs/evals/chat-last.json`). It runs the dashboard's real `claude -p` command
-with its one allowed Bash command pointed at a sandbox copy of
-`evals/chat/stub_dashboard.py`, which drives the real tool registry against canned
+chat prompt: any change to `crates/core/src/chat_prompts/*.txt`,
+`ChatCommand::build_command`'s flags, or a `crates/core/src/chat_tools/` tool
+description or write behavior must paste a before/after
+`loopx loop eval --chat [--budget-usd N] [--case NAME]` summary in the PR (default
+budget $3, about $0.05 a case; cases under `evals/chat/<name>/case.yaml`, written to
+`outputs/evals/chat-last.json`). It runs the dashboard's real `claude -p` command with
+its one allowed Bash command pointed at `loopx _chat-eval-stub`
+(`chat_eval::stub_main`), which drives the real tool registry against canned
 connectors, so nothing reaches GitLab, mail or the calendar and no real Keychain or
-`~/.loopx` is read. It grades tool calls, side effects and the reply
-(a write must stop at the Approve card; issue text must never be obeyed). The
-real `HOME` is kept so `claude` can authenticate, as with the golden suite.
+`~/.loop-engineering` is read. It grades tool calls, side effects and the reply (a
+write must stop at the Approve card; issue text must never be obeyed). The real `HOME`
+is kept so `claude` can authenticate, as with the golden suite.
 
-## Dependency injection, resolved at call time — not def time
+## Every state-changing route needs CSRF
 
-Module-level constants (`STATUS_PATH`, `LAUNCHD_DIR`, `SKILLS_ROOT`, etc.)
-are always passed as `None`-default function arguments and resolved
-*inside the function body*:
+Every POST route registered in `crates/server/src/ui/pages/*.rs` is checked by the
+registry (`route.csrf` → `ctx.csrf_ok()`) before its handler runs. The token is a
+per-process secret embedded only in pages this server itself renders — never weaken
+this to "POST-only", which is not a real CSRF defense. The JSON write endpoints in
+`crates/server/src/api.rs` use the lock-file token instead (`authorized_to_write`).
 
-```python
-def read_status(status_path=None):
-    if status_path is None:
-        status_path = STATUS_PATH
-    ...
-```
+`/oauth/google/callback` serves both Inbox Triage and connector (Google Calendar)
+sign-ins: the pending state's `kind` (`inbox` by default, `connector`) picks the
+handler, so one Google Cloud redirect URI works for both.
 
-Never `def read_status(status_path=STATUS_PATH)` — that default is bound
-once at import time, so a test's `monkeypatch.setattr(ds, "STATUS_PATH",
-tmp_path)` silently has no effect and the "unit test" can reach the real
-repo's real files. This bit us once already (see
-`_resolve_runner`'s docstring) — don't reintroduce it.
-
-## Every state-changing route needs CSRF + a live-daemon check
-
-Every `POST` handler in `do_POST` starts with `self._csrf_ok(body)` (403 via
-`self._forbidden()` on failure) before doing anything else. The token is a
-per-process secret embedded only in pages this server itself renders —
-never weaken this to "POST-only," which is not a real CSRF defense (see
-the comment above `do_POST`).
-
-`/oauth/google/callback` serves both Inbox Triage and connector (Google
-Calendar) sign-ins: the pending state's `kind` (`mail_auth.create_pending_state`,
-`inbox` by default, `connector`) picks the handler, so one Google Cloud
-redirect URI works for both.
-
-## Every new UI string goes through `_t()`
+## Every new UI string goes through the translator
 
 The dashboard is translated into Japanese, Simplified Chinese, and French
-(`bin/i18n.py`; the topbar's translate-icon menu sets a `loop_lang` cookie,
-falling back to `Accept-Language`, then English). Wrap every new
-user-visible string in `bin/web/*.py` as `_t("English text")` — always a
-literal first argument, with `{placeholders}` + kwargs for dynamic parts —
-and add the same key to `bin/locales/ja.json`, `zh.json`, and `fr.json`.
-`tests/test_i18n.py` fails on any `_t()` literal missing from a catalog or
-any placeholder mismatch. Translations contain apostrophes (French), so
-anything inside an HTML attribute must be `html.escape(_t(...))`, and text
-inside JS must be `json.dumps(_t(...))`. Never translate at import time
-(module-level label tables) — translate at render time with `i18n.t(var)`,
-since the language is per request thread.
+(`crates/server/src/ui/i18n.rs`; the topbar's translate-icon menu sets a `loop_lang`
+cookie, falling back to `Accept-Language`, then English). Wrap every new
+user-visible string in `crates/server/src/ui/` as `ctx.t("English text")` or
+`ctx.tf("English {placeholder}", &[("placeholder", value)])` — always a literal first
+argument — and add the same key to `crates/server/locales/ja.json`, `zh.json`, and
+`fr.json`. The unit test `every_translated_literal_in_the_ui_sources_has_a_catalog_entry`
+fails on any literal missing from a catalog or any placeholder mismatch. Translations
+contain apostrophes (French), so anything placed inside an HTML attribute must be
+escaped. Never translate at import/static time — translate at render time, since the
+language is per request.
 
 ## Adding a Material Symbols icon
 
-Roboto and the Material Symbols Outlined icon font are loaded from Google
-Fonts at request time (`<link>` tags built in `_render_shell`), not
-self-hosted — there's no local font file to regenerate. Adding a new icon
-means adding its glyph name to `_MATERIAL_SYMBOLS_ICON_NAMES` in
-`bin/web/dashboard_server.py`, keeping the list alphabetically sorted:
-Google's `icon_names=` parameter subsets the served font to exactly that
-list, so a glyph name used in markup but missing from this constant renders
-as tofu/missing glyph.
+Roboto and the Material Symbols Outlined icon font are loaded from Google Fonts at
+request time, not self-hosted. Adding a new icon means adding its glyph name to
+`_MATERIAL_SYMBOLS_ICON_NAMES` in `crates/server/assets/constants.json`, keeping the
+list alphabetically sorted: Google's `icon_names=` parameter subsets the served font to
+exactly that list, so a glyph name used in markup but missing from this list renders
+as tofu/missing glyph (and the golden snapshots change, so update them too).
 
 ## A loading spinner's motion is functional, not decorative
 
-Purely decorative animations (`.pulse-dot`, the topbar progress sliver)
-are gated behind `@media (prefers-reduced-motion: no-preference)`, and
-should stay that way. A *loading* spinner is different: its motion is the
-only signal a page is still working, so `.md-spinner`'s animation is
-deliberately **not** gated — under `prefers-reduced-motion`, it would
-otherwise look permanently frozen rather than just calmer. Don't move it
-back inside that media block.
+Purely decorative animations (`.pulse-dot`, the topbar progress sliver) are gated
+behind `@media (prefers-reduced-motion: no-preference)`, and should stay that way. A
+*loading* spinner is different: its motion is the only signal a page is still working,
+so `.md-spinner`'s animation is deliberately **not** gated — under
+`prefers-reduced-motion`, it would otherwise look permanently frozen rather than just
+calmer. Don't move it back inside that media block.
 
 ## Flexbox: watch for the shrink-and-clip trap
 
-A flex child with `flex-shrink: 0` forces *all* the shrinkage onto its
-sibling(s). If that sibling also has `overflow: hidden`, it can be crushed
-to near-zero width and its content effectively disappears — even though
-every `display`/visibility property on it is technically correct. This
-bit the collapsed sidebar once (the brand icon vs. the toggle button
-competing for a 64px rail); if a collapsed/narrow layout ever "loses" an
-element that has `display` set correctly, check the flex-shrink math on
-its container before touching `display` again.
+A flex child with `flex-shrink: 0` forces *all* the shrinkage onto its sibling(s). If
+that sibling also has `overflow: hidden`, it can be crushed to near-zero width and its
+content effectively disappears — even though every `display`/visibility property on it
+is technically correct. This bit the collapsed sidebar once (the brand icon vs. the
+toggle button competing for a 64px rail); if a collapsed/narrow layout ever "loses" an
+element that has `display` set correctly, check the flex-shrink math on its container
+before touching `display` again.
 
 ## Page sections: let the shared card spacing do it
 
-`.card` has no margin by design. Sibling cards at page level (direct children
-of `.wrap`) get their 1.25rem gap from the shared `.wrap > .card + *` rule;
-cards inside a container go in `.grid` or a flex stack that sets `gap`. Never
-add per-page margin hacks, and never wrap a new view's cards in an extra div
-that isn't `.grid`/a gap stack — that silently opts out of the shared rule.
-This bit Connectors → Accounts and Harness → Gates.
+`.card` has no margin by design. Sibling cards at page level (direct children of
+`.wrap`) get their 1.25rem gap from the shared `.wrap > .card + *` rule; cards inside a
+container go in `.grid` or a flex stack that sets `gap`. Never add per-page margin
+hacks, and never wrap a new view's cards in an extra div that isn't `.grid`/a gap
+stack — that silently opts out of the shared rule. This bit Connectors → Accounts and
+Harness → Gates.
 
 ## A bare `bundle exec rubocop` lint_cmd silently breaks under `worktree_root`
 

@@ -9,7 +9,7 @@ keep coming back are flagged so flaky tests and chronic breakage stand out.
 
 ## How it runs
 
-- Plugin: `bin/loop_plugins/pipeline_doctor.py` on LoopKit (`bin/loopkit.py`);
+- Plugin: `crates/core/src/loop_plugins/pipeline_doctor.rs` on LoopKit (`crates/core/src/loopkit.rs`);
   definition `loops/pipeline-doctor/loop.yaml`, prompt
   `loops/pipeline-doctor/prompt.md`.
 - Schedule: hourly from its `loops.json` entry (disabled by default;

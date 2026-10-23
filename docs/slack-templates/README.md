@@ -30,4 +30,4 @@ Reload Settings → Notifications and the template appears in the Block Kit
 Builder's "Template" dropdown, already bound if it has a `notification_key`.
 `{{message}}` in any text field is replaced with the real alert text (or
 `(test message)` when using "Send test message") — see
-`bin/slack_notify.py`'s `substitute_message`.
+`crates/core/src/slack.rs`'s `substitute_message`.

@@ -10,11 +10,9 @@
 
 # Loop X Engineering
 
-![CI](https://github.com/encoreshao/loop-engineering/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/encoreshao/loop-engineering/actions/workflows/rust.yml/badge.svg)
 ![License](https://img.shields.io/github/license/encoreshao/loop-engineering)
-![Python](https://img.shields.io/badge/python-3.12%2B-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
-![Dependencies](https://img.shields.io/badge/dependencies-stdlib%20only-green)
 ![Shell](https://img.shields.io/badge/shell-bash-4EAA25)
 
 Loop X Engineering's mission is to give you back the time issue triage
@@ -50,10 +48,10 @@ projects you've explicitly told it about.
 
 ## How it works
 
-Each scheduled run (`run-loop-now.sh gitlab-loop`):
+Each scheduled run (`loopx run gitlab-loop`):
 
 1. Lists every open GitLab issue assigned to your configured username, across every project alias in your config.
-2. Processes them **one at a time, never in parallel**, following the step-by-step decision procedure in [`instructions/gitlab-issue.md`](https://github.com/encoreshao/loop-engineering/blob/main/instructions/gitlab-issue.md).
+2. Processes them **one at a time, never in parallel**, following the step-by-step decision procedure in [`instructions/loopx/gitlab-issue.md`](https://github.com/encoreshao/loop-engineering/blob/main/instructions/loopx/gitlab-issue.md).
 3. For each issue, does exactly one of:
   - **Fix it** — in an isolated git worktree, on a `loop/issue-<iid>` branch, only opening a merge request once the project's own lint/test commands pass.
   - **Answer it** — post a GitLab comment when the ask needs no code change (a question, a status check).
@@ -61,11 +59,11 @@ Each scheduled run (`run-loop-now.sh gitlab-loop`):
 4. Sends a Slack message per issue plus one end-of-run digest (every run, even mornings with nothing assigned).
 5. Updates [`PROGRESS.md`](https://github.com/encoreshao/loop-engineering/blob/main/PROGRESS.md) and `outputs/daily-review.md` so the next run — and you — know what happened.
 
-Reusable, cross-run lessons (fix patterns, gotchas) get recorded per issue as markdown task-memory files via `bin/memory_store.py` (entries recorded before this format existed are still read via `bin/project_memory.py`), so later runs start smarter than the last.
+Reusable, cross-run lessons (fix patterns, gotchas) get recorded per issue as markdown task-memory files via `loopx memory-store` (entries recorded before this format existed are still read via `loopx memory`), so later runs start smarter than the last.
 
-A second, independent loop (`run-loop-now.sh topic-loop`) watches arbitrary topics on the wider web instead of GitLab — see [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md).
+A second, independent loop (`loopx run topic-loop`) watches arbitrary topics on the wider web instead of GitLab — see [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md).
 
-A third loop (`run-loop-now.sh inbox-triage-loop`) triages Gmail and Outlook inboxes: it categorises each new unread message into a `Loop/*` label, drafts (never sends) a threaded reply to anything urgent, and reports via a Slack digest and the dashboard's **Loops → Inbox Triage** page — see [`docs/tasks/inbox-triage-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/inbox-triage-loop.md).
+A third loop (`loopx run inbox-triage-loop`) triages Gmail and Outlook inboxes: it categorises each new unread message into a `Loop/*` label, drafts (never sends) a threaded reply to anything urgent, and reports via a Slack digest and the dashboard's **Loops → Inbox Triage** page — see [`docs/tasks/inbox-triage-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/inbox-triage-loop.md).
 
 ## Loops
 
@@ -80,28 +78,27 @@ Seven loops ship in `config/loops.json.template`; each has its own page under **
 | MR Review | Pre-reviews merge requests where you are a reviewer (disabled by default) | `merge_requests` connector (GitLab) | Every 2 hours | GitLab draft notes only; never publishes, approves or posts a normal note |
 | Pipeline Doctor | Diagnoses failed CI pipelines on tracked projects and your open MRs, and flags recurring failures (disabled by default) | `pipelines` connector (GitLab) | Hourly | Notifications only |
 | RSS Watch | Ranks new feed entries against your interests and sends a short digest (disabled by default) | `feed` connector (RSS) | Daily 08:00 | Notifications only |
-| LinkedIn Autopilot | Browses your own signed-in LinkedIn session at a human pace and summarizes what is worth your attention: posts, people, messages (read-only; disabled by default). Needs `python3 -m pip install playwright` and Google Chrome. LinkedIn offers no API for this and its terms prohibit automation, so the account can be restricted | `social` connector (LinkedIn) | Daily 09:00 | Content tab + notifications only |
+| LinkedIn Autopilot | Browses your own signed-in LinkedIn session at a human pace and summarizes what is worth your attention: posts, people, messages (read-only; disabled by default). Needs Google Chrome. LinkedIn offers no API for this and its terms prohibit automation, so the account can be restricted | `social` connector (LinkedIn) | Daily 09:00 | Content tab + notifications only |
 | Meeting Prep | A prep brief before each meeting: agenda, linked GitLab work, recent mail with the attendees, follow-ups from last time (disabled by default) | `calendar` connector (Google Calendar); optional GitLab and mailbox | Every 15 minutes | Notifications only |
 | Release Notes | When a tracked project gets a new tag, writes release notes from the MRs merged since the previous tag (disabled by default) | `merge_requests` connector (GitLab) | Hourly | Local markdown file + notification |
 | Stale Work Sweeper | Every Monday, lists your GitLab issues and MRs that have gone quiet and reviews waiting on you; no model call (disabled by default) | `issues` connector (GitLab) | Mondays 09:00 | Notifications only |
 
-The last four are LoopKit plugins (`bin/loopkit.py`, `bin/loop_plugins/`): they run the model sealed (no tools, no MCP servers), isolate each item so one failure never stops the run, and send through the loop's **Notify via** connectors. See [`docs/architecture.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/architecture.md#loopkit).
+The last four are LoopKit plugins (`crates/core/src/loopkit.rs`, `crates/core/src/loop_plugins/`): they run the model sealed (no tools, no MCP servers), isolate each item so one failure never stops the run, and send through the loop's **Notify via** connectors. See [`docs/architecture.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/architecture.md#loopkit).
 
 ## Requirements
 
 - macOS (the schedule and the dashboard both run as `launchd` agents)
-- Python 3.12+ — this repo's own code is **stdlib-only**, no `pip install` needed to run it
 - `git` 2.42+ (worktrees, push-options)
 - A GitLab account + personal access token for the projects you want tracked
 - (optional) A Slack incoming webhook, for run notifications
 - The `[gitlab-config](https://github.com/encoreshao/encore-skills/tree/main/skills/gitlab-config)` skill from `[encore-skills](https://github.com/encoreshao/encore-skills)` — this loop's one external dependency, deployed to `~/.encore-skills` by `setup.sh`. Check it's actually present any time from the dashboard's **Settings → Skills** page.
-- `pytest` — dev-only, for running this repo's own test suite
+- (build from source only) the Rust toolchain pinned in `rust-toolchain.toml`
 
 
 
 ## Quick start
 
-**New: install the `loopx` binary (no clone, no Python).** Downloads the prebuilt `loopx` for your Mac from the latest GitHub Release, verifies its SHA-256, installs it to `~/.loopx/bin/loopx` and scaffolds `projects.json`/`topics.json`/`loops.json` from the templates:
+**New: install the `loopx` binary (no clone).** Downloads the prebuilt `loopx` for your Mac from the latest GitHub Release, verifies its SHA-256, installs it to `~/.loopx/bin/loopx` and scaffolds `projects.json`/`topics.json`/`loops.json` from the templates:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install-loopx.sh | bash
@@ -110,77 +107,44 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 
 Add `--upgrade` to update later: it keeps your config, replaces only the program, and restarts the launchd agents that are already loaded (dashboard restarted, scheduler re-registered, never kicked). Pass `--load-agents` to also start the dashboard agent on a fresh install. Prefer Homebrew? `brew install encoreshao/tap/loopx` (then `brew services start loopx`), or install the signed `LoopX.app` from the release's DMG. First-launch check of the AI CLIs, credentials and config: `loopx doctor` (`--json` for the app). Uninstall either mode: `bin/scripts/uninstall-loopx.sh --project-dir ~/.loopx` (`--keep-config`, `--remove-app`). Release procedure: [`docs/RELEASING.md`](docs/RELEASING.md).
 
-**Legacy installer** (clones this repo and runs the Python code; still supported while the migration finishes):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install.sh | bash
-```
-
-Clones this repo into `~/.loopx` (pass `--dir <path>` for somewhere else) and runs `bin/scripts/setup.sh`, which installs the `gitlab-config` skill and scaffolds `projects.json`/`topics.json` from their templates. It then sets up the local nginx reverse proxy and starts the dashboard as an always-on `launchd` agent, so this one command ends with the dashboard actually reachable and running — pass `--skip-nginx` and/or `--skip-launchd-daemons` to opt out of either. (The scheduled GitLab loop and topic monitor are *not* auto-started, since they'd act on `projects.json`/`topics.json` before you've filled them in — start those yourself, once configured, from the dashboard's **Settings → Daemons** page.) Re-running the same command later just pulls the latest `main` instead of re-cloning.
-
-Already installed and just want to update? Add `--upgrade`:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install.sh | bash -s -- --upgrade
-```
-
-Same steps as above, but fails fast if nothing's installed at `--dir` yet instead of silently cloning fresh, and refreshes every one of this project's launchd agents that's currently loaded — not just the dashboard. The dashboard (an always-on server) gets an actual restart (`launchctl kickstart -k`), unlike a bare `launchctl load`, which is a no-op on an already-running agent. `com.hermes.loop-engineering` — the single scheduler that runs every loop registered in `loops.json`, if you've enabled it from the **Settings → Daemons** page — just gets its registration reloaded (`unload` + `load -w`) — never kickstarted, since that would trigger a real, out-of-schedule run against live GitLab/Slack right now rather than waiting for the scheduler's own next poll. `--upgrade` also migrates a pre-existing rendered plist left over from before the unified scheduler (one that still points at the now-deleted `run-loop.sh`) and removes the now-orphaned `com.hermes.loop-engineering-topic-monitor` daemon if it's still installed from before that migration.
-
-Prefer to see the clone happen yourself first?
-
-```bash
-git clone https://github.com/encoreshao/loop-engineering.git
-cd loop-engineering
-bin/scripts/setup.sh
-```
-
-Already have the skill installed and just want the config scaffolds?
-
-```bash
-bin/scripts/setup.sh --skip-skills-install
-```
-
-Once it's done, open the dashboard's **Settings → Skills** page to confirm everything needed is actually installed — it checks live, no guesswork.
-
 **Working in Claude Code already?** Paste this instead of running the commands yourself:
 
-> Clone and set up [https://github.com/encoreshao/loop-engineering](https://github.com/encoreshao/loop-engineering) for me: run its online installer
-> (`curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install.sh | bash`),
+> Set up [https://github.com/encoreshao/loop-engineering](https://github.com/encoreshao/loop-engineering) for me: run its online installer
+> (`curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install-loopx.sh | bash`),
 > then help me fill in `~/.loopx/projects.json` with my own GitLab project(s), and `~/.gitlab/config.json` with my GitLab token.
 
+The `gitlab-config` skill (see Requirements) is installed from the dashboard's **Settings → Skills** page, which runs `bin/scripts/setup.sh`; you can run that script by hand instead.
 
-
-### macOS app
+### Build from source
 
 ```bash
-bin/scripts/build_macos_app.sh      # -> dist/Loop X.app (own venv with pywebview + PyYAML)
-open "dist/Loop X.app"
-bin/scripts/build_macos_app.sh --dmg                # also pack dist/Loop X.dmg (drag to Applications)
-bin/scripts/rebuild_macos_app.sh                    # git pull --ff-only, rebuild app + DMG, relaunch
+cargo build --release -p loopx                        # -> target/release/loopx (toolchain pinned in rust-toolchain.toml)
+bin/scripts/build_loopx_app.sh target/release/loopx   # -> dist/LoopX.app, the Swift app around that binary (--install copies it to /Applications)
 ```
 
-A native window around the dashboard. It attaches to the running dashboard daemon, or serves the dashboard itself if none is running. The bundle launches this checkout's `bin/desktop_app.py`, so keep the checkout in place; config and run state stay in `~/.loopx` and `outputs/`.
+`LoopX.app` (sources in [`macos/LoopX`](https://github.com/encoreshao/loop-engineering/tree/main/macos/LoopX)) embeds the `loopx` binary and registers it as a background agent (`com.hermes.loopx.backend`) so the backend outlives the app; if a `loopx serve` is already running (see `loopx.lock`), the app attaches to it instead. Build details: [`docs/building.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/building.md).
 
-**Updates.** The app and dashboard check `origin` every 6 hours (and on **Check now**). When there are new commits or a newer release, a topbar chip, a banner and a native notification say so. **Upgrade now** opens the progress screen (`/update`) and runs, automatically and in order: fetch, `git pull --ff-only`, build the app and DMG, replace the installed app (the one you are running, or `dist/Loop X.app` when run from the checkout), restart the dashboard daemon (never the scheduler) and relaunch. It refuses, and tells you why, if tracked files have local changes (`PROGRESS.md` is ignored) or the checkout has diverged from `origin`; on a failed step the old app stays in place and Retry is offered. State lives in `outputs/update/`.
+**Updates.** The app updates itself through Sparkle (only in builds that were given a Sparkle feed URL and public key); the binary updates through `brew upgrade loopx` or `install-loopx.sh --upgrade`. The dashboard still shows an *Update available* notice when this checkout is behind `origin`, but it no longer upgrades itself — pull and rebuild by hand.
 
 ### Uninstalling
 
 ```bash
-bin/scripts/uninstall.sh                 # or: curl -fsSL .../uninstall.sh | bash
+bin/scripts/uninstall-loopx.sh --keep-config   # omit --keep-config to remove everything
 ```
 
-Unloads and removes this repo's `launchd` agents, reverses `setup-nginx.sh` if you ran it, and removes the whole `~/.loopx` folder — code, config, and run history together — pass `--keep-config` to leave it all in place instead (e.g. you're about to reinstall). Safe to re-run.
+Removes the install's `launchd` agents, stops the running backend (`loopx.lock`), and deletes the `loop-engineering.*` Keychain items and the install directory (`~/.loop-engineering` by default; pass `--project-dir` for another). `--keep-config` keeps `projects.json`, `topics.json`, `loops.json` and `ai_cli.json`; `--remove-app` also deletes `LoopX.app`; `--keep-keychain` leaves the Keychain alone. Safe to re-run; finish a Homebrew install with `brew uninstall loopx`.
+
 
 ## Directory layout
 
 Using the default install path, everything lands under one folder:
 
 ```
-~/.loopx/            # install.sh's clone target
-├── bin/, docs/, tests/, ...    # this repo's own code (tracked in git)
+~/.loopx/            # the install directory (loopx binary, config, run state)
+├── bin/loopx                   # the loopx binary (install-loopx.sh)
 ├── projects.json                # your config: GitLab projects to track  ┐
 ├── topics.json                  # your config: topics to monitor         │
-├── loops.json                   # your config: scheduled-loop registry   ├─ gitignored, yours
+├── loops.json                   # your config: scheduled-loop registry   ├─ yours
 ├── instructions.md              # your free-text instructions            │
 ├── connectors.json              # your config: connector accounts        │
 ├── ai_cli.json                  # your config: Claude Code vs Codex CLI   ┘
@@ -197,7 +161,7 @@ Using the default install path, everything lands under one folder:
     └── <project>-issue-<iid>/    #   that project's own checkout, on branch loop/issue-<iid>
 ```
 
-`projects.json`, `topics.json`, `loops.json`, `instructions.md`, and `ai_cli.json` always resolve to `~/.loopx/…` regardless of where you clone the code — they only end up *inside* the repo folder above because `install.sh`'s default clone target happens to be that same path. If you clone somewhere else by hand, those five files still live at `~/.loopx/`, separate from the code. `projects.json`'s scaffolded `worktree_root` defaults to `~/.loopx/worktrees` too, for the same reason.
+`projects.json`, `topics.json`, `loops.json`, `instructions.md`, and `ai_cli.json` always resolve to `~/.loopx/…` regardless of where this repo is checked out. `projects.json`'s scaffolded `worktree_root` defaults to `~/.loopx/worktrees` too.
 
 Two more config files live outside this tree entirely, editable from the dashboard's **Loops → GitLab Issues → Projects** and **Settings → Notifications** pages instead of by hand: `~/.gitlab/config.json` and `~/.slack/config.json`.
 
@@ -206,29 +170,31 @@ Two more config files live outside this tree entirely, editable from the dashboa
 
 | File                                  | Holds                                                                                                                                                                                                                   | Managed via                                                                                                                                                                   |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `~/.loopx/projects.json`   | Which projects to track, their local checkout paths, target branch, install/lint/test commands, your GitLab username, and the worktree scratch directory (`worktree_root`, defaults to `~/.loopx/worktrees`) | Dashboard **Loops → GitLab Issues → Projects** page's "Tracked Projects" section, or copy [`config/projects.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/projects.json.template) by hand, or let `bin/scripts/setup.sh` do it |
+| `~/.loopx/projects.json`   | Which projects to track, their local checkout paths, target branch, install/lint/test commands, your GitLab username, and the worktree scratch directory (`worktree_root`, defaults to `~/.loopx/worktrees`) | Dashboard **Loops → GitLab Issues → Projects** page's "Tracked Projects" section, or copy [`config/projects.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/projects.json.template) by hand, or let `install-loopx.sh` do it |
 | ↳ per-project `instance` (optional)   | Overrides the top-level `gitlab_instance` for one project — set this when your projects span more than one GitLab instance. Falls back to `gitlab_instance` when omitted.                                               | Same file, per project entry — see the template's `harbor` example                                                                                                            |
-| `~/.loopx/topics.json`     | Which topics to monitor and what counts as notable for each one (topic monitor loop only)                                                                                                                               | Copy [`config/topics.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/topics.json.template) by hand, or let `bin/scripts/setup.sh` do it                                                                |
-| `~/.loopx/inboxes.json`    | Which mailboxes to triage (provider, account, categories, VIP/excluded senders, Slack bundle) and the shared default category set (Inbox Triage loop only)                                                              | Dashboard's **Loops → Inbox Triage → Setup** (`/loops/inbox-triage-loop?view=setup`), or let `bin/scripts/setup.sh` scaffold it from [`config/inboxes.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/inboxes.json.template)               |
+| `~/.loopx/topics.json`     | Which topics to monitor and what counts as notable for each one (topic monitor loop only)                                                                                                                               | Copy [`config/topics.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/topics.json.template) by hand, or let `install-loopx.sh` do it                                                                |
+| `~/.loopx/inboxes.json`    | Which mailboxes to triage (provider, account, categories, VIP/excluded senders, Slack bundle) and the shared default category set (Inbox Triage loop only)                                                              | Dashboard's **Loops → Inbox Triage → Setup** (`/loops/inbox-triage-loop?view=setup`), or let `install-loopx.sh` scaffold it from [`config/inboxes.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/inboxes.json.template)               |
 | `~/.loopx/mail_oauth.json` | The Gmail/Outlook OAuth app's own client ID (and, for Google, client secret) — a one-time app-registration step, not a per-mailbox credential                                                                           | Dashboard's **Loops → Inbox Triage → Setup** page                                                                                                                                                     |
-| `~/.loopx/loops.json`      | The registry of scheduled loops: each entry's name, schedule (weekdays/hour/minute), entry point module, timeout, and per-loop knobs — read by `bin/loops_config.py`, polled by `bin/loop_scheduler.py`                 | Copy [`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template) by hand, or let `bin/scripts/setup.sh` do it                                                                  |
-| `~/.loopx/loop_scheduler_state.json` | Per-loop last-attempted date, so the scheduler never runs the same loop twice in a day — not something you hand-edit                                                                                            | Written automatically by `bin/loop_scheduler.py`; seeded with today's date for every registered loop by `bin/scripts/setup.sh` so enabling the scheduler doesn't fire an immediate run |
+| `~/.loopx/loops.json`      | The registry of scheduled loops: each entry's name, schedule (weekdays/hour/minute), entry point module, timeout, and per-loop knobs — read by `loopx loops`, polled by `loopx scheduler`                 | Copy [`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template) by hand, or let `install-loopx.sh` do it                                                                  |
+| `~/.loopx/loop_scheduler_state.json` | Per-loop last-attempted date, so the scheduler never runs the same loop twice in a day — not something you hand-edit                                                                                            | Written automatically by `loopx scheduler`; seeded with today's date for every registered loop by `install-loopx.sh` so enabling the scheduler doesn't fire an immediate run |
 | `~/.loopx/instructions.md` (+ `instructions/<loop>.md`) | Your own free-text instructions, global and per loop, read at the start of every run                                                                                                                                             | Dashboard **Settings** page's Instructions tab                                                                                                                               |
-| `~/.loopx/ai_cli.json`     | Which AI CLI (Claude Code or Codex CLI) `run-loop-now.sh` invokes for every registered loop; defaults to `claude`                                                                                                        | Dashboard **Settings** page's AI CLI tab, or let `bin/scripts/setup.sh` do it                                                                                                                |
+| `~/.loopx/ai_cli.json`     | Which AI CLI (Claude Code or Codex CLI) `loopx run` invokes for every registered loop; defaults to `claude`                                                                                                        | Dashboard **Settings** page's AI CLI tab, or let `install-loopx.sh` do it                                                                                                                |
 | `~/.gitlab/config.json`               | GitLab instance URLs, tokens, and project-alias → project-ID mappings (read by the `gitlab-config` skill)                                                                                                               | Dashboard **Loops → GitLab Issues → Projects** page                                                                                                                                                     |
 | `~/.slack/config.json`                | Your Slack incoming webhook URL (and any per-bundle overrides)                                                                                                                                                          | Dashboard **Settings** page's Notifications tab (the default webhook) / **Loops → GitLab Issues → Projects** page's Access bundles section (per-bundle overrides)                                                              |
 
 
-`bin/loop_config.py` is the only code that reads `projects.json` — use it to sanity-check your config from a terminal:
+`loopx config` is the only code that reads `projects.json` — use it to sanity-check your config from a terminal:
 
 ```bash
-python3 bin/loop_config.py aliases                # every configured project alias
-python3 bin/loop_config.py project <alias>         # that alias's full config, incl. resolved GitLab instance
-python3 bin/loop_config.py assignee                # the GitLab username being tracked
-python3 bin/loop_config.py worktree-root           # where per-issue worktrees get created
+loopx config aliases                # every configured project alias
+loopx config project <alias>        # that alias's full config, incl. resolved GitLab instance
+loopx config assignee               # the GitLab username being tracked
+loopx config worktree-root          # where per-issue worktrees get created
 ```
 
-If `~/.loopx/projects.json` doesn't exist yet, every script that needs it fails fast with a message telling you to run `bin/scripts/setup.sh` — nothing silently guesses paths.
+If `~/.loopx/projects.json` doesn't exist yet, every command that needs it fails fast with a message saying so — nothing silently guesses paths. Save a project from the dashboard's **Loops → GitLab Issues → Projects** page, or copy `config/projects.json.template`.
+
+Note: until the code is switched over, the on-disk default directory is still `~/.loop-engineering`; this document writes `~/.loopx` throughout. Set `LOOP_ENGINEERING_HOME` to make loopx use a different directory.
 
 **Access bundles** — per-project token/webhook overrides
 
@@ -248,32 +214,30 @@ Bundles live in `~/.gitlab/config.json`'s `bundles` key and, if a webhook overri
 **Manually**, once, to see it work before trusting it with a schedule:
 
 ```bash
-bash run-loop-now.sh gitlab-loop   # the daily GitLab issue loop
-bash run-loop-now.sh topic-loop    # the topic monitor loop
+loopx run gitlab-loop   # the daily GitLab issue loop
+loopx run topic-loop    # the topic monitor loop
 ```
 
 Both log to `outputs/history/`, and both also append every `claude` CLI invocation's output to `logs/loop-engineering.log` (viewable on the dashboard's **Runs → Logs** page); you can also trigger the GitLab loop from the dashboard's **Run now** button (Dashboard → Overview) without a terminal.
 
-**On a schedule**, via `launchd` — install the two agents under [`launchd/`](https://github.com/encoreshao/loop-engineering/tree/main/launchd), most easily with a click each from the dashboard's **Settings → Daemons** page (which also shows whether each is currently loaded and its PID), or by hand:
+**On a schedule** — three ways:
 
-```bash
-cp launchd/com.hermes.loop-engineering*.plist ~/Library/LaunchAgents/
-launchctl load -w ~/Library/LaunchAgents/com.hermes.loop-engineering.plist
-launchctl load -w ~/Library/LaunchAgents/com.hermes.loop-engineering-dashboard.plist
-```
-
+- the LoopX app's built-in scheduler: while the app is open and **Settings → Run scheduled loops while LoopX is open** is on, it runs `loopx scheduler` every 15 minutes;
+- launchd agents: `install-loopx.sh` renders the templates under [`launchd/loopx/`](https://github.com/encoreshao/loop-engineering/tree/main/launchd/loopx) into `<install dir>/launchd/` once, and you load them with a click each from the dashboard's **Settings → Daemons** page (which also shows whether each is currently loaded and its PID), or by hand with `launchctl load -w`;
+- or run `loopx scheduler` from any scheduler of your own.
 
 | Agent                                   | Runs                                                                                                                                             |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------|
-| `com.hermes.loop-engineering`           | The single scheduler poll loop (`bin/loop_scheduler.py`), every 15 minutes (`StartInterval`) — runs whichever loop(s) registered in `~/.loopx/loops.json` are due, via `run-loop-now.sh` |
-| `com.hermes.loop-engineering-dashboard` | The web dashboard, always-on (`RunAtLoad` + `KeepAlive`)                                                                                          |
+| `com.hermes.loop-engineering`           | `loopx scheduler`, every 15 minutes (`StartInterval`) — runs whichever loop(s) registered in `~/.loopx/loops.json` are due |
+| `com.hermes.loop-engineering-dashboard` | The web dashboard (`loopx serve`), always-on (`RunAtLoad` + `KeepAlive`)                                                                          |
+| `com.hermes.loopx.backend`              | The backend bundled in `LoopX.app`, registered by the app itself (not a template in this repo)                                                    |
 
+Which loops run and on what schedule is config, not code — edit `~/.loopx/loops.json` (see [`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template)) to add a loop or change when it's due; adding a loop needs a new `loops.json` entry, not a new plist. The **Settings → Daemons** page's per-agent schedule editor only applies to a plist's own `StartCalendarInterval`, which `com.hermes.loop-engineering` does not have (it polls every 15 minutes on a fixed `StartInterval` and defers to `loops.json` for which loop is actually due) — editing a loop's own schedule is done in the **Loops** pages or by hand in `loops.json`.
 
-Which loops run and on what schedule is config, not code — edit `~/.loopx/loops.json` (see [`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template)) to add a loop or change when it's due; adding a third loop needs a new `loops.json` entry, not a new plist. The **Settings → Daemons** page's per-agent schedule editor only applies to a plist's own `StartCalendarInterval`, which `com.hermes.loop-engineering` no longer has (it polls every 15 minutes on a fixed `StartInterval` and defers to `loops.json` for which loop is actually due) — editing a loop's own schedule is a hand-edit of `loops.json` for now.
 
 ## The dashboard
 
-A localhost-only, dependency-free (stdlib Python, no JS framework) web UI, served by `bin/web/dashboard_server.py`. Running it directly for local dev (no arguments) uses its own default port, `8420`. `bin/scripts/install.sh` picks a random port in `48420`-`48620` the first time it installs the always-on `launchd` agent (overridable with `--port`, and never re-picked on a later `--upgrade`) — check `launchd/com.hermes.loop-engineering-dashboard.plist` for the port an existing install is actually running on.
+A localhost-only web UI (server-rendered pages, no JS framework) served by `loopx serve` — one Rust binary, also the API the Mac app talks to. `loopx serve --port N` picks the port (default `8420`; `--port 0` picks a free one). `install-loopx.sh` picks a random port in `48420`-`48620` the first time it renders the always-on `launchd` agent (overridable with `--port`, and never re-picked on a later `--upgrade`) — check `launchd/com.hermes.loop-engineering-dashboard.plist` in the install directory for the port an existing install is actually running on.
 
 
 | Sidebar entry | Shows |
@@ -292,18 +256,6 @@ A localhost-only, dependency-free (stdlib Python, no JS framework) web UI, serve
 
 Every older URL (`/activity`, `/gitlab`, `/topic-monitor`, `/inbox`, `/loop-runs`, `/history`, `/logs`, `/analytics`, `/cost`, `/budget`, `/memory`, `/audit`, `/settings/general`, `/daemons`, `/skills`, and so on) permanently redirects (301) to its new home, query string kept, so bookmarks keep working.
 
-
-**Optional: a friendly hostname via nginx**
-
-By default the dashboard is only reachable at `http://127.0.0.1:<port>` (see above for how `<port>` is chosen). `bin/scripts/setup-nginx.sh` sets up a local nginx reverse proxy so it's reachable at `http://loop.x/` (port 80) instead — installs nginx via Homebrew if needed, writes the proxy config, adds `loop.x` to `/etc/hosts`, and starts nginx as a system service. `install.sh` already passes it the installed port automatically; idempotent, safe to re-run standalone too:
-
-```bash
-bin/scripts/setup-nginx.sh
-# or, with no clone at all:
-curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/setup-nginx.sh | bash
-```
-
-Writing `/etc/hosts` and starting the nginx service both need `sudo` — macOS will prompt for your password at those two steps. Pass `--domain`/`--port` to use something other than `loop.x`/`8420`.
 
 ## Connectors
 
@@ -339,40 +291,34 @@ A connector is an account the loops can talk to: a GitLab or GitHub instance, a 
 
 **Test buttons.** Every account has a **Test** button (**Send test message** for Slack, Telegram and chat webhooks); the last result is kept in `outputs/connectors/test-results.json`.
 
-**Loops and notifications.** On **Loops**, a loop that needs a capability shows "Needs: …" chips, and it cannot be enabled (in the UI or by the server) until a connector with that capability exists. A loop whose `loops.json` entry declares `"routes_notifications": true` (its runner sends through `bin/notify.py`) also gets a **Notify via** selection, stored as `notify: [connector ids]`. `bin/notify.py` routes such a loop's notification to those connectors; with no `notify` set it posts to the default Slack webhook exactly as before. The built-in GitLab, Topic and Inbox loops don't declare it yet and still post to the Slack webhook directly; if one of them already has a `notify` list, Loops shows it read-only with a **Clear** button. You can try it from the CLI with `python3 bin/notify.py <loop> "<text>"`. The dashboard's AI panel can also list your connectors (chat tool `connector-list`). The chat can also call connector tools (GitLab and GitHub issues, pull requests and comments, RSS feeds, saved markdown documents), shows each call as a chip on the reply, and asks for an Approve click before any write.
+**Loops and notifications.** On **Loops**, a loop that needs a capability shows "Needs: …" chips, and it cannot be enabled (in the UI or by the server) until a connector with that capability exists. A loop whose `loops.json` entry declares `"routes_notifications": true` (its runner sends through `loopx notify-loop`) also gets a **Notify via** selection, stored as `notify: [connector ids]`. `loopx notify-loop` routes such a loop's notification to those connectors; with no `notify` set it posts to the default Slack webhook exactly as before. The built-in GitLab, Topic and Inbox loops don't declare it yet and still post to the Slack webhook directly; if one of them already has a `notify` list, Loops shows it read-only with a **Clear** button. You can try it from the CLI with `loopx notify-loop <loop> "<text>"`. The dashboard's AI panel can also list your connectors (chat tool `connector-list`). The chat can also call connector tools (GitLab and GitHub issues, pull requests and comments, RSS feeds, saved markdown documents), shows each call as a chip on the reply, and asks for an Approve click before any write.
 
 ## Scripts reference
 
 Expand for the full list
 
 
-| Script                              | Purpose                                                                                                                                                                                                                              |
+| Command / script | Purpose                                                                                                                                                                                                                              |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `run-loop-now.sh`                   | Generic entry point for one registered loop's run (looked up from `~/.loopx/loops.json` via `bin/loops_config.py`) — logs to `outputs/history/`, notifies Slack on failure. Invoked by `bin/loop_scheduler.py` (on schedule) or the dashboard (on demand) |
-| `bin/loop_scheduler.py`             | The single launchd-scheduled poll loop: reads `~/.loopx/loops.json` and runs whichever registered loop(s) are due, via `run-loop-now.sh`                                                                                  |
-| `bin/loops_config.py`               | Reads `~/.loopx/loops.json` — the registry of scheduled loops (name, schedule, entry point); no write path today, hand-edit the file (or copy the template) to change it                                                 |
-| `bin/gitlab_loop_runner.py`         | The per-issue orchestrator `run-loop-now.sh` delegates to when running `gitlab-loop`: discovers assigned issues, runs each one through its own `LoopRuntime` (one `LoopResult` per issue under `outputs/loop-runs/`), owns the `claude -p`/`codex exec` invocation and its `--allowedTools`/`--disallowedTools` safety boundary, then runs one unconditional end-of-run wrap-up for the whole batch |
-| `bin/scripts/build_run_prompt.sh`   | Builds the prompt string `bin/gitlab_loop_runner.py` hands to the AI CLI — a single-issue prompt for `<alias> <issue_iid>` (the dashboard's Dashboard → Activity chat scoped run), `--batch-issue <alias> <issue_iid>` for one issue inside a scheduled batch (no end-of-run), and `--batch-end-of-run` for the batch's one digest/daily-review wrap-up |
-| `bin/web/dashboard_server.py`       | The web dashboard; also a small CLI (`write-status`, `write-skills-install-status`, `read-messages`, `add-message`, `chat-tool`) used by `run-loop-now.sh`, `bin/loop_scheduler.py`, the dashboard's own actions, and the Dashboard → Activity view's embedded chat assistant |
-| `bin/loop_config.py`                | Reads `~/.loopx/projects.json`                                                                                                                                                                                            |
-| `bin/list_assigned_issues.py`       | Lists open GitLab issues assigned to the configured user across configured projects                                                                                                                                                  |
-| `bin/track_new_comments.py`         | Detects which notes on a cached issue are new since the loop last looked                                                                                                                                                             |
-| `bin/project_memory.py`             | Reads (legacy) durable per-project lessons learned, stored inline in the GitLab cache                                                                                                                                                |
-| `bin/memory_store.py`               | Reads/records durable per-issue task memory as markdown files (one per issue, plus a per-project MEMORY.md index)                                                                                                                    |
-| `bin/ai_cli_config.py`              | Reads/writes `~/.loopx/ai_cli.json` — which AI CLI (`claude` or `codex`) `run-loop-now.sh` invokes for every registered loop                                                                                              |
-| `bin/topic_monitor_runner.py`       | The per-topic orchestrator `run-loop-now.sh` delegates to when running `topic-loop`: runs each configured topic through its own `LoopRuntime` (one `LoopResult` per topic under `outputs/loop-runs/`), owns the `claude -p`/`codex exec` invocation and its safety boundary — same role for the topic monitor loop as `bin/gitlab_loop_runner.py` plays for the GitLab loop |
-| `bin/scripts/build_topic_prompt.sh` | Builds the prompt string for one configured topic, same role as `build_run_prompt.sh` above; kept as a documented manual escape hatch even though `topic_monitor_runner.py` no longer calls it                                       |
-| `bin/topic_config.py`               | Reads `~/.loopx/topics.json`                                                                                                                                                                                              |
-| `bin/topic_seen.py`                 | Rolling 7-day dedup window per topic, so briefings don't repeat the same story two days running                                                                                                                                      |
-| `bin/slack_notify.py`               | Posts a message to the configured Slack incoming webhook                                                                                                                                                                             |
-| `bin/scripts/new_worktree.sh`       | Creates (or reuses) an isolated git worktree on a `loop/issue-<iid>` branch                                                                                                                                                          |
-| `bin/scripts/open_merge_request.sh` | Pushes an issue branch and opens its MR — refuses anything not named `loop/issue-*`                                                                                                                                                  |
-| `bin/scripts/install.sh`            | Online installer — clones (or updates) this repo, then runs `setup.sh` (forwarding `--config-path`/`--topics-config-path`/`--ai-cli-config-path`/`--loops-config-path`/`--state-path` through to it); `--upgrade` for an existing install, refreshing every currently-loaded launchd agent (dashboard restarted, scheduler daemon just re-registered) so they pick up the new code; also migrates a stale pre-unified-scheduler `com.hermes.loop-engineering.plist` in place and removes the old, now-orphaned `com.hermes.loop-engineering-topic-monitor` daemon if still installed from before the unified scheduler; safe to pipe from `curl`                                          |
-| `bin/scripts/setup.sh`              | One-command install: the `gitlab-config` skill + the `projects.json`/`topics.json`/`ai_cli.json`/`loops.json` scaffolds, plus a `loop_scheduler_state.json` seeded with today's date for every registered loop so enabling the scheduler right after install doesn't fire an immediate run |
-| `bin/scripts/setup-nginx.sh`        | Optional local nginx reverse proxy (`http://loop.x/` → the dashboard)                                                                                                                                                            |
-| `bin/scripts/uninstall.sh`          | Reverses `setup.sh`/`setup-nginx.sh`/`install.sh`; safe to pipe from `curl`                                                                                                                                                          |
-| `bin/scripts/install-loopx.sh`      | Clone-free installer for the `loopx` binary: downloads the release build for this Mac, verifies it against `SHA256SUMS`, scaffolds the config, renders `launchd/loopx/*.plist.template`; `--upgrade` keeps config and replaces only the program; `--load-agents`, `--skip-service`, `--release-base` |
-| `bin/scripts/uninstall-loopx.sh`    | Removes a loopx install of either mode (LaunchAgents, `loopx.lock`, Keychain entries, `--remove-app`, `--keep-config`) |
+| `loopx run <loop>` | Runs one registered loop now (looked up from `~/.loopx/loops.json`) — logs to `outputs/history/`, records events, notifies Slack on failure; `loopx run gitlab-loop <alias> <issue_iid>` works a single issue. Invoked by `loopx scheduler` (on schedule) or the dashboard (on demand) |
+| `loopx scheduler` | The poll loop launchd (or the app) runs every 15 minutes: reads `~/.loopx/loops.json` and starts whichever registered loop(s) are due |
+| `loopx loops`, `loopx ai-cli` | The loops registry (`loops.json`: name, schedule, entry point) and which AI CLI (`claude` or `codex`) every loop invokes (`ai_cli.json`) |
+| `loopx config` | Reads `~/.loopx/projects.json` (aliases, assignee, worktree root, per-project config) |
+| `loopx issues list`, `loopx issues comments` | Lists open GitLab issues assigned to the configured user across configured projects; detects which notes on a cached issue are new since the loop last looked |
+| `loopx memory`, `loopx memory-store` | Reads (legacy) per-project lessons stored in the GitLab cache; reads/records per-issue task memory as markdown files (one per issue, plus a per-project MEMORY.md index) |
+| `loopx topic` | Topic registry (`topics.json`), the rolling 7-day dedup window per topic, and the topic monitor run (`loopx topic run`) |
+| `loopx inbox run`, `loopx loopkit` | The Inbox Triage runner; runs a LoopKit plugin |
+| `loopx notify`, `loopx notify-loop` | Posts a message to the configured Slack incoming webhook; routes a loop's notification to its connectors |
+| `loopx worktree new`, `loopx mr open` | Creates (or reuses) an isolated git worktree on a `loop/issue-<iid>` branch; pushes an issue branch and opens its MR — refuses anything not named `loop/issue-*` |
+| `loopx gitlab`, `loopx secrets`, `loopx auth` | GitLab REST helpers and cache; connector secrets in the Keychain; Google/LinkedIn OAuth sign-ins |
+| `loopx serve`, `loopx chat-tool` | The dashboard backend and the Mac app's API; the one command the dashboard chat assistant may run |
+| `loopx loop`, `loopx events`, `loopx ledger`, `loopx metrics`, `loopx cost`, `loopx risk`, `loopx learning` | Loop definitions (init, validate, audit, eval, ...), the event ledger and the reports built from it |
+| `loopx doctor`, `loopx update`, `loopx status`, `loopx messages`, `loopx approvals` | First-launch checks; the update check; run status files; the dashboard chat inbox; pending approvals |
+| `bin/scripts/install-loopx.sh` | Clone-free installer for the `loopx` binary: downloads the release build for this Mac, verifies it against `SHA256SUMS`, scaffolds the config, renders `launchd/loopx/*.plist.template`; `--upgrade` keeps config and replaces only the program; `--load-agents`, `--skip-service`, `--release-base` |
+| `bin/scripts/uninstall-loopx.sh` | Removes a loopx install of either mode (LaunchAgents, `loopx.lock`, Keychain entries, `--remove-app`, `--keep-config`) |
+| `bin/scripts/build_loopx_app.sh` | Builds the universal `LoopX.app` (Swift, `macos/LoopX`) around a given `loopx` binary |
+| `install-loopx.sh` | Installs the `gitlab-config` skill (the Settings → Skills install button runs it) |
+| `bin/scripts/release_notes.sh` | Prints a version's section of `CHANGELOG.md` for the release notes |
 
 
 
@@ -384,7 +330,7 @@ Fixed, and does not loosen with time or repeated success (see [`docs/tasks/gitla
 - **Never merges a merge request.** The loop's job ends at "MR opened, verification passing" — merging is always a manual human step.
 - Every code change happens in its own git worktree, on a `loop/issue-<iid>` branch, never on the target branch directly.
 - An MR only opens if the project's own configured `test_cmd`/`lint_cmd` pass, and the diff only touches files relevant to the issue.
-- No arbitrary shell, no dependency upgrades, no reading `.env`/credentials/SSH keys — only the command allow-list in `instructions/gitlab-issue.md`.
+- No arbitrary shell, no dependency upgrades, no reading `.env`/credentials/SSH keys — only the command allow-list in `instructions/loopx/gitlab-issue.md`.
 - Issues are processed one at a time, sequentially, never in parallel.
 - A verification failure on the same issue is never retried within a run — it escalates via a GitLab comment instead. (With `verification.mode: gate` the loop itself re-runs the project's checks and allows one bounded retry with the failing output as feedback; it never opens an MR whose tests/lint fail, and escalates with the `loop:needs-human` label instead.)
 
@@ -402,10 +348,11 @@ The Inbox Triage loop has its own fixed safety boundary (see [`docs/tasks/inbox-
 ## Testing
 
 ```bash
-python3 -m pytest tests/
+cargo test --workspace
+cargo build -p loopx && LOOPX_BIN=target/debug/loopx python3 -m pytest tests/
 ```
 
-Every script under `bin/` (Python or shell, whichever folder it lives in) has a matching `tests/test_*.py`, exercised against real subprocesses/tmp dirs rather than mocks wherever practical (see `tests/test_new_worktree.py` for an example using a real local git repo).
+Rust unit tests live next to the code. The `pytest` suite only drives the built `loopx` binary as a black box (CLI contracts, end-to-end runs, installers, packaging), against real subprocesses/tmp dirs rather than mocks wherever practical; `tests/golden_ui/` holds the rendered HTML of every dashboard page in four languages, which `cargo test` compares byte for byte.
 
 `loop eval` runs the scripted evaluation cases (free) and writes `outputs/evals/last.json`. `loop eval --golden [--budget-usd N] [--case NAME]` runs the real agent on synthetic fixture repos (paid: the budget defaults to 10 USD and no new case starts once it is spent) and writes `outputs/evals/golden-last.json`. Both results show under Harness → Evals. `loop ledger backfill` rebuilds ledger records from older `result.json` files.
 
@@ -419,8 +366,8 @@ Every script under `bin/` (Python or shell, whichever folder it lives in) has a 
 | [`TASK.md`](https://github.com/encoreshao/loop-engineering/blob/main/TASK.md)                                                   | Index of every scheduled task this repo runs, each pointing at its own spec under `docs/tasks/`        |
 | [`docs/tasks/gitlab-issue-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/gitlab-issue-loop.md)   | The GitLab issue loop's human-facing spec: goal, scope, safety boundaries                              |
 | [`docs/tasks/topic-monitor-loop.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/tasks/topic-monitor-loop.md) | The topic monitor loop's human-facing spec: goal, scope, safety boundaries                             |
-| [`instructions/gitlab-issue.md`](https://github.com/encoreshao/loop-engineering/blob/main/instructions/gitlab-issue.md)                         | The step-by-step procedure the GitLab issue loop itself follows each run                               |
-| [`instructions/topic-monitor.md`](https://github.com/encoreshao/loop-engineering/blob/main/instructions/topic-monitor.md)       | The step-by-step procedure the topic monitor loop itself follows each run                              |
+| [`instructions/loopx/gitlab-issue.md`](https://github.com/encoreshao/loop-engineering/blob/main/instructions/loopx/gitlab-issue.md)                         | The step-by-step procedure the GitLab issue loop itself follows each run                               |
+| [`instructions/loopx/topic-monitor.md`](https://github.com/encoreshao/loop-engineering/blob/main/instructions/loopx/topic-monitor.md)       | The step-by-step procedure the topic monitor loop itself follows each run                              |
 | [`PROGRESS.md`](https://github.com/encoreshao/loop-engineering/blob/main/PROGRESS.md)                                           | Live state the loop reads and updates every run — last run's summary, open escalations, decisions made |
 | [`docs/troubleshooting/crash-looping-launchd-agent.md`](https://github.com/encoreshao/loop-engineering/blob/main/docs/troubleshooting/crash-looping-launchd-agent.md) | Diagnose and fix a `com.hermes.loop-engineering*` launchd agent stuck crash-looping and flooding its log |
 
