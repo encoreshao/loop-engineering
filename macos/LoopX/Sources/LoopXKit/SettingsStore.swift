@@ -25,7 +25,7 @@ public struct HotkeyPreset: Codable, Equatable, Hashable, Sendable, Identifiable
 
 /// How the dashboard window opens the first time it is shown in a session.
 public enum DashboardWindowMode: String, CaseIterable, Sendable {
-    case fullScreen, maximized, standard
+    case maximized, fullScreen, standard
 }
 
 /// UserDefaults-backed preferences. The defaults object is injected so tests use a private suite.
@@ -39,7 +39,7 @@ public final class SettingsStore: @unchecked Sendable {
     }
 
     public var dashboardWindow: DashboardWindowMode {
-        get { defaults.string(forKey: "dashboardWindow").flatMap(DashboardWindowMode.init(rawValue:)) ?? .fullScreen }
+        get { defaults.string(forKey: "dashboardWindow").flatMap(DashboardWindowMode.init(rawValue:)) ?? .maximized }
         set { defaults.set(newValue.rawValue, forKey: "dashboardWindow") }
     }
 

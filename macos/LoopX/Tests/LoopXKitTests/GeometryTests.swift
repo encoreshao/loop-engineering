@@ -153,13 +153,13 @@ let plainScreen = ScreenInfo(
     @Test func defaultsAndPersistence() {
         let (s, d, name) = store(); defer { d.removePersistentDomain(forName: name) }
         #expect(s.displayMode == .notch)
-        #expect(s.dashboardWindow == .fullScreen)
+        #expect(s.dashboardWindow == .maximized)
         #expect(s.hotkey == HotkeyPreset.presets[0])
         #expect(s.hudAnchor == nil)
-        s.dashboardWindow = .maximized
-        #expect(SettingsStore(defaults: d).dashboardWindow == .maximized)
+        s.dashboardWindow = .fullScreen
+        #expect(SettingsStore(defaults: d).dashboardWindow == .fullScreen)
         d.set("tiny", forKey: "dashboardWindow")
-        #expect(s.dashboardWindow == .fullScreen)
+        #expect(s.dashboardWindow == .maximized)
         s.displayMode = .hud
         s.hotkey = HotkeyPreset.presets[2]
         s.hudAnchor = CGPoint(x: 0.25, y: 0.5)

@@ -79,8 +79,8 @@ struct SettingsView: View {
             }
             Section("Display") {
                 Picker("Dashboard window opens", selection: $settings.dashboardWindow) {
+                    Text("Fit the screen").tag(DashboardWindowMode.maximized)
                     Text("Full screen").tag(DashboardWindowMode.fullScreen)
-                    Text("Maximized").tag(DashboardWindowMode.maximized)
                     Text("Standard window").tag(DashboardWindowMode.standard)
                 }
                 Picker("Show status as", selection: $settings.displayMode) {

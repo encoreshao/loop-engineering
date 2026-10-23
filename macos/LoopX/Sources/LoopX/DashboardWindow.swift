@@ -10,7 +10,7 @@ final class DashboardWindowController: NSObject, WKNavigationDelegate, WKUIDeleg
     private(set) var webView: WKWebView?
     private var loadedBase: URL?
     var baseURLProvider: () -> URL? = { nil }
-    var modeProvider: () -> DashboardWindowMode = { .fullScreen }
+    var modeProvider: () -> DashboardWindowMode = { .maximized }
     private var sizedThisSession = false
     /// Why there is no backend yet ("Starting…" or the failure), shown in place of the page.
     var statusProvider: () -> (text: String, failed: Bool) = { ("Starting the backend…", false) }
@@ -48,8 +48,8 @@ final class DashboardWindowController: NSObject, WKNavigationDelegate, WKUIDeleg
         applyModeOnce()
     }
 
-    /// The first time the window is shown in a session it opens full screen (or maximized, or as
-    /// the remembered standard window, per Settings); after that the user's own sizing is left alone.
+    /// The first time the window is shown in a session it fills the screen's visible area (or goes
+    /// native full screen, or stays the remembered standard window, per Settings); after that the user's own sizing is left alone.
     private func applyModeOnce() {
         guard !sizedThisSession, let w = window else { return }
         sizedThisSession = true

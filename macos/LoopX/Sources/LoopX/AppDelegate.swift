@@ -27,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func wire() {
         dashboard.baseURLProvider = { [weak self] in self?.model.lock?.baseURL }
-        dashboard.modeProvider = { [weak self] in self?.settingsModel.dashboardWindow ?? .fullScreen }
+        dashboard.modeProvider = { [weak self] in self?.settingsModel.dashboardWindow ?? .maximized }
         dashboard.statusProvider = { [weak self] in
             switch self?.model.connection {
             case .failed(let m)?: return (m, true)

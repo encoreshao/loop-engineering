@@ -13,7 +13,7 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Changed
 
-- The Mac app's dashboard window now opens full screen the first time it is shown in a session; Settings > Display > "Dashboard window opens" switches it to maximized or the standard window.
+- The Mac app's dashboard window now opens filling the screen's visible area (menu bar and Dock stay visible) the first time it is shown in a session; Settings > Display > "Dashboard window opens" switches it to native full screen or the standard window.
 
 ### Fixed
 
