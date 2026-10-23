@@ -24,7 +24,11 @@ use std::path::{Path, PathBuf};
 
 pub fn register(r: &mut Registry) {
     r.get("/loops", catalog_page);
-    r.get("/loops/:name", loop_page);
+    // The Topic Monitor and Inbox Triage pages are not ported yet: those two names
+    // fall through to the legacy dashboard instead of answering 404.
+    r.get_guarded("/loops/:name", loop_page, |p| {
+        p.get("name").is_none_or(|n| !is_builtin(n) || n == "gitlab-loop")
+    });
     r.get("/loops/:name/history/:file", history_file);
     r.post("/loops/:name/settings", settings);
     r.post("/loops/:name/notify", notify);

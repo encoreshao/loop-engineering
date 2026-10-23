@@ -9,8 +9,9 @@ use crate::ui::template::{Scope, Template};
 use loopx_core::settings_store as store;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn render(name: &str, scope: &Scope) -> String {
     Template::named(name)
@@ -26,28 +27,78 @@ fn display_name(cli: &str) -> String {
         .to_string()
 }
 
-static CLI_CACHE: Mutex<Option<HashMap<String, (Instant, bool)>>> = Mutex::new(None);
-const CLI_TTL: Duration = Duration::from_secs(300);
+const CLI_TTL_SECS: u64 = 3600;
+static CLI_PROBING: AtomicBool = AtomicBool::new(false);
 
-/// `_cli_available`: does `name` resolve in a real login shell (cached five minutes)?
-pub fn cli_available(ctx: &UiCtx, name: &str) -> bool {
+fn cli_flags_path(ctx: &UiCtx) -> PathBuf {
+    ctx.state.home_dir.join("cli_status.json")
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Is `name` installed, as last recorded in `cli_status.json`? Never runs a shell
+/// on the page's path: `None` means not checked yet. A missing or stale flag starts
+/// one background probe, so the next page view sees the refreshed answer.
+pub fn cli_available(ctx: &UiCtx, names: &[&str]) -> HashMap<String, Option<bool>> {
     if let Some(pinned) = &ctx.state.cli_pinned {
-        return pinned.iter().any(|p| p == name);
+        return names
+            .iter()
+            .map(|n| (n.to_string(), Some(pinned.iter().any(|p| p == n))))
+            .collect();
     }
-    let mut guard = CLI_CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    let cache = guard.get_or_insert_with(HashMap::new);
-    if let Some((at, found)) = cache.get(name) {
-        if at.elapsed() < CLI_TTL {
-            return *found;
+    let path = cli_flags_path(ctx);
+    let saved = store::read_object(&path);
+    let now = now_secs();
+    let mut stale = false;
+    let flags = names
+        .iter()
+        .map(|n| {
+            let entry = saved.get(*n).and_then(Value::as_object);
+            let found = entry.and_then(|e| e.get("found")).and_then(Value::as_bool);
+            let at = entry.and_then(|e| e.get("at")).and_then(Value::as_u64).unwrap_or(0);
+            stale |= found.is_none() || now.saturating_sub(at) > CLI_TTL_SECS;
+            (n.to_string(), found)
+        })
+        .collect();
+    if stale {
+        refresh_cli_flags(path, names.iter().map(|n| n.to_string()).collect());
+    }
+    flags
+}
+
+/// Resolve `names` in one interactive login shell on a background thread and write
+/// the flags to `path`. A zshrc that takes seconds to load costs the page nothing.
+fn refresh_cli_flags(path: PathBuf, names: Vec<String>) {
+    if CLI_PROBING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(move || {
+        let script: String = names
+            .iter()
+            .map(|n| format!("command -v {n} >/dev/null 2>&1 && echo FOUND:{n}; "))
+            .collect();
+        let mut cmd = std::process::Command::new("zsh");
+        cmd.args(["-i", "-l", "-c", &script]);
+        let out = loopx_core::proc::run(&mut cmd, None, Some(Duration::from_secs(10))).ok();
+        let at = now_secs();
+        let mut flags = Map::new();
+        for n in &names {
+            let found = out
+                .as_ref()
+                .is_some_and(|o| o.stdout.lines().any(|l| l.trim() == format!("FOUND:{n}")));
+            flags.insert(n.clone(), serde_json::json!({"found": found, "at": at}));
         }
-    }
-    let mut cmd = std::process::Command::new("zsh");
-    cmd.args(["-i", "-l", "-c", &format!("command -v {name}")]);
-    let found = loopx_core::proc::run(&mut cmd, None, Some(Duration::from_secs(5)))
-        .map(|o| o.success() && !o.stdout.trim().is_empty())
-        .unwrap_or(false);
-    cache.insert(name.to_string(), (Instant::now(), found));
-    found
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&path, Value::Object(flags).to_string());
+        CLI_PROBING.store(false, Ordering::SeqCst);
+    });
 }
 
 fn notifications_panel(ctx: &UiCtx, csrf: &str) -> String {
@@ -103,16 +154,15 @@ and Save to make it your own (Delete is disabled until then).",
 }
 
 fn ai_cli_panel(ctx: &UiCtx, csrf: &str, current: &str) -> String {
-    let availability = |cli: &str| {
-        if cli_available(ctx, cli) {
-            ctx.t("installed")
-        } else {
-            ctx.t("not found on PATH")
-        }
+    let flags = cli_available(ctx, &loopx_core::ai_cli_config::VALID_CLIS);
+    let availability = |cli: &str| match flags.get(cli).copied().flatten() {
+        Some(true) => format!(" ({})", ctx.t("installed")),
+        Some(false) => format!(" ({})", ctx.t("not found on PATH")),
+        None => String::new(),
     };
     let labels: Vec<(String, String)> = loopx_core::ai_cli_config::VALID_CLIS
         .iter()
-        .map(|cli| (cli.to_string(), format!("{} ({})", display_name(cli), availability(cli))))
+        .map(|cli| (cli.to_string(), format!("{}{}", display_name(cli), availability(cli))))
         .collect();
     let select = custom_select("cli", &labels, Some(current), None);
     let current_label = scope_label(&labels, current);
