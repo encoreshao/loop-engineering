@@ -131,6 +131,29 @@ pub fn update(path: &Path, info: &LockInfo) -> std::io::Result<()> {
     write_private(path, info)
 }
 
+/// True when the lock file should be written again for `info`: it is gone (something
+/// removed the data directory under a running backend) or points at a dead process.
+/// A lock owned by another live process is never taken over.
+pub fn needs_rewrite(path: &Path, info: &LockInfo) -> bool {
+    match read(path) {
+        None => true,
+        Some(l) => l.pid != info.pid && !pid_alive(l.pid),
+    }
+}
+
+/// Keep `loopx.lock` in place for as long as this backend lives, so the Mac app
+/// can always find a backend that is still serving.
+pub fn spawn_keeper(path: PathBuf, info: LockInfo) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            if needs_rewrite(&path, &info) {
+                let _ = update(&path, &info);
+            }
+        }
+    });
+}
+
 /// 256 bits of randomness as hex.
 pub fn new_token() -> String {
     format!(
@@ -159,6 +182,24 @@ mod tests {
                 0o600
             );
         }
+    }
+
+    #[test]
+    fn rewrites_a_lock_that_vanished_or_is_dead_but_not_a_live_foreign_one() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("loopx.lock");
+        let info = LockInfo::new(8420, "0.4.0", "tok");
+        assert!(needs_rewrite(&p, &info), "missing");
+        let _g = acquire(&p, &info).unwrap();
+        assert!(!needs_rewrite(&p, &info), "ours");
+        let mut dead = info.clone();
+        dead.pid = 4_000_000;
+        write_private(&p, &dead).unwrap();
+        assert!(needs_rewrite(&p, &info), "dead owner");
+        let mut live = info.clone();
+        live.pid = 1;
+        write_private(&p, &live).unwrap();
+        assert!(!needs_rewrite(&p, &info), "live foreign owner");
     }
 
     #[test]

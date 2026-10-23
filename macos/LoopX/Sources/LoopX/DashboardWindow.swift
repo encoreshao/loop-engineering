@@ -11,14 +11,14 @@ final class DashboardWindowController: NSObject, WKNavigationDelegate, WKUIDeleg
     private var loadedBase: URL?
     var baseURLProvider: () -> URL? = { nil }
     /// Why there is no backend yet ("Starting…" or the failure), shown in place of the page.
-    var statusProvider: () -> String = { "Starting LoopX…" }
+    var statusProvider: () -> (text: String, failed: Bool) = { ("Starting the backend…", false) }
     /// Asked to bring a backend up when the window opens without one.
     var onNeedsBackend: () -> Void = {}
 
     func show() {
         ensureWindow()
         guard let base = baseURLProvider() else {
-            webView?.loadHTMLString(Self.placeholder(statusProvider()), baseURL: nil)
+            showPlaceholder()
             loadedBase = nil
             onNeedsBackend()
             present(); return
@@ -27,6 +27,17 @@ final class DashboardWindowController: NSObject, WKNavigationDelegate, WKUIDeleg
             webView?.load(URLRequest(url: base)); loadedBase = base
         }
         present()
+    }
+
+    private func showPlaceholder() {
+        let s = statusProvider()
+        webView?.loadHTMLString(Self.placeholder(s.text, failed: s.failed), baseURL: nil)
+    }
+
+    /// The backend's state changed while the placeholder is up (starting -> failed): redraw it.
+    func refreshPlaceholder() {
+        guard window != nil, loadedBase == nil, baseURLProvider() == nil else { return }
+        showPlaceholder()
     }
 
     private func present() {
@@ -62,6 +73,11 @@ final class DashboardWindowController: NSObject, WKNavigationDelegate, WKUIDeleg
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         let url = action.request.url
+        if url?.scheme == "loopx-retry" {
+            decisionHandler(.cancel)
+            onNeedsBackend(); showPlaceholder()
+            return
+        }
         let local = url?.host == "127.0.0.1" || url?.host == "localhost" || url?.scheme == "about"
         if local { decisionHandler(.allow); return }
         if let url, ["http", "https"].contains(url.scheme?.lowercased()) { NSWorkspace.shared.open(url) }
@@ -74,10 +90,29 @@ final class DashboardWindowController: NSObject, WKNavigationDelegate, WKUIDeleg
         return nil
     }
 
-    static func placeholder(_ text: String) -> String {
+    /// The page shown until a backend answers: logo, name and one status line (a spinner while
+    /// starting, the reason and a Retry link when it failed). Follows the system appearance.
+    static func placeholder(_ text: String, failed: Bool) -> String {
         let safe = text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
-        return "<html><body style='font:14px -apple-system;color:#888;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0'>"
-            + "<div style='font-size:22px;font-weight:600;color:#555;margin-bottom:8px'>LoopX</div>"
-            + "<div>\(safe)</div><div style='font-size:12px;margin-top:6px'>This window opens the dashboard by itself once the backend is ready.</div></body></html>"
+        let status = failed
+            ? "<div class='msg err'>\(safe)</div><a class='retry' href='loopx-retry://now'>Try again</a>"
+            : "<div class='row'><span class='spin'></span><span class='msg'>\(safe)</span></div>"
+        return """
+        <html><head><meta name='color-scheme' content='light dark'><style>
+        :root{--fg:#1d1d1f;--sub:#6e6e73;--err:#c0392b;--bg:#fff;--accent:#4f6df5}
+        @media(prefers-color-scheme:dark){:root{--fg:#f5f5f7;--sub:#98989d;--err:#ff6b5e;--bg:#1e1e1e;--accent:#7aa2ff}}
+        html,body{height:100%;margin:0;background:var(--bg)}
+        body{font:14px -apple-system,system-ui;color:var(--sub);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+        .logo svg{width:96px;height:96px;display:block}
+        h1{margin:0;font-size:26px;font-weight:650;color:var(--fg);letter-spacing:.2px}
+        .row{display:flex;align-items:center;gap:10px}
+        .spin{width:14px;height:14px;border:2px solid var(--sub);border-top-color:var(--accent);border-radius:50%;animation:s 0.9s linear infinite}
+        @keyframes s{to{transform:rotate(360deg)}}
+        .err{color:var(--err);max-width:420px;text-align:center;line-height:1.4}
+        .retry{color:var(--accent);text-decoration:none;font-weight:600;padding:6px 14px;border:1px solid var(--accent);border-radius:8px}
+        </style></head><body>
+        <div class='logo'>\(LogoSVG.markup)</div><h1>LoopX</h1>\(status)
+        </body></html>
+        """
     }
 }

@@ -13,11 +13,15 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Fixed
 
+- A running `loopx serve` rewrites `loopx.lock` within a few seconds if it disappears (for example when the data directory is removed under it), so the Mac app finds the backend instead of retrying forever against a port that is already in use.
+- The Mac app's waiting screen shows the LoopX logo and name with a spinner and the backend's status, or the failure reason with a Try again link, and follows the system appearance.
 - `loopx serve` keeps running when the legacy Python dashboard cannot start (no checkout, a missing module) and serves the ported pages, instead of exiting and leaving the Mac app without a backend. The app's dashboard window shows "LoopX" with the backend's status and opens by itself once it is ready.
 - The Mac app starts the bundled `loopx serve` itself when launchd refuses to run its bundled agent (an ad-hoc signed build), instead of showing nothing.
 
 ### Added
 
+- `build_loopx_app.sh --install [DIR]` copies the built LoopX.app to `/Applications` (or DIR) after quitting a running copy.
+- LoopX.app has an icon (`assets/app-icon.png`, turned into `AppIcon.icns` by `build_loopx_app.sh`).
 - The Mac app can run the scheduler itself: Settings > "Run scheduled loops while LoopX is open" (off by default) runs `loopx scheduler` on launch and every 15 minutes, and stands down when the installed `com.hermes.loop-engineering` launchd job is loaded.
 - The Mac app embeds Sparkle and adds a "Check for Updates…" menu item; it is enabled only when `build_loopx_app.sh` is given both `SPARKLE_FEED_URL` and `SPARKLE_PUBLIC_ED_KEY`.
 - The Mac app's Settings has an Accounts section that signs in to Google and LinkedIn inside the app (`ASWebAuthenticationSession`), using the backend's OAuth routes.

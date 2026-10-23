@@ -31,6 +31,8 @@ bin/scripts/build_loopx_app.sh target/release/loopx --arch arm64 --out dist/Loop
 open dist/LoopX.app
 ```
 
+- `--install [DIR]` also copies the app to `/Applications` (or DIR) after quitting a running LoopX,
+  so Launchpad and Spotlight find it; it does not open it.
 - `--arch universal` needs a universal `loopx` (`lipo -create` the two cargo targets).
 - Auto-update is on only when both `SPARKLE_FEED_URL` (https) and
   `SPARKLE_PUBLIC_ED_KEY` (base64 Ed25519 public key) are set at build time;

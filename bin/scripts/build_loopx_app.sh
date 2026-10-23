@@ -3,13 +3,16 @@ set -euo pipefail
 
 # Builds the native LoopX.app (macos/LoopX, Swift) as a universal bundle:
 #
-#   bin/scripts/build_loopx_app.sh <path-to-loopx-binary> [--out dist/LoopX.app] [--arch universal|arm64|x86_64]
+#   bin/scripts/build_loopx_app.sh <path-to-loopx-binary> [--out dist/LoopX.app] [--arch universal|arm64|x86_64] [--install [DIR]]
 #
 # The bundle embeds <path-to-loopx-binary> as Contents/Helpers/loopx plus a LaunchAgent plist under
 # Contents/Library/LaunchAgents, which the app registers with SMAppService so the backend outlives
 # the app. It is ad-hoc signed (`codesign -s -`); Developer ID signing and notarization are P5.
 # Nothing here registers a login item or touches ~/Library/LaunchAgents: the app does that itself,
 # on the machine that runs it.
+#
+# --install copies the finished bundle to DIR (default /Applications), after quitting a running
+# LoopX and its backend, so the app is found by Launchpad and Spotlight. It does not launch it.
 #
 # Sparkle: the app embeds Sparkle.framework and starts the updater only when both SPARKLE_FEED_URL
 # (https) and SPARKLE_PUBLIC_ED_KEY (base64 Ed25519 public key, `generate_keys`) are set in the
@@ -22,6 +25,7 @@ LOOP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PKG="$LOOP_DIR/macos/LoopX"
 OUT="$LOOP_DIR/dist/LoopX.app"
 ARCH="universal"
+INSTALL_DIR=""
 LOOPX_BIN=""
 BUNDLE_ID="com.hermes.loopx"
 AGENT_LABEL="com.hermes.loopx.backend"
@@ -32,6 +36,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
     --arch) ARCH="$2"; shift 2 ;;
+    --install)
+      if [ $# -gt 1 ] && [ "${2#-}" = "$2" ] && [ -d "$2" ]; then INSTALL_DIR="$2"; shift 2; else INSTALL_DIR="/Applications"; shift; fi ;;
     -h|--help) usage 0 ;;
     -*) echo "unknown option: $1" >&2; usage ;;
     *) [ -z "$LOOPX_BIN" ] && LOOPX_BIN="$1" || { echo "unexpected argument: $1" >&2; usage; }; shift ;;
@@ -71,6 +77,21 @@ ditto "$SPARKLE_FW" "$OUT/Contents/Frameworks/Sparkle.framework"
 cp "$LOOPX_BIN" "$OUT/Contents/Helpers/loopx"
 chmod 755 "$OUT/Contents/MacOS/LoopX" "$OUT/Contents/Helpers/loopx"
 
+# App icon: assets/app-icon.png (1024px) -> AppIcon.icns, via sips + iconutil (both ship with macOS).
+ICON_SRC="$LOOP_DIR/assets/app-icon.png"
+ICON_KEY=""
+if [ -f "$ICON_SRC" ]; then
+  ICONSET="$(mktemp -d)/AppIcon.iconset"
+  mkdir -p "$ICONSET"
+  for size in 16 32 128 256 512; do
+    sips -z "$size" "$size" "$ICON_SRC" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+    sips -z "$((size * 2))" "$((size * 2))" "$ICON_SRC" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+  done
+  iconutil -c icns "$ICONSET" -o "$OUT/Contents/Resources/AppIcon.icns"
+  rm -rf "$(dirname "$ICONSET")"
+  ICON_KEY="  <key>CFBundleIconFile</key><string>AppIcon</string>"
+fi
+
 SPARKLE_KEYS=""
 if [ -n "${SPARKLE_FEED_URL:-}" ] && [ -n "${SPARKLE_PUBLIC_ED_KEY:-}" ]; then
   case "$SPARKLE_FEED_URL" in https://*) ;; *) echo "error: SPARKLE_FEED_URL must be https" >&2; exit 2 ;; esac
@@ -90,6 +111,7 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>LoopX</string>
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
   <key>CFBundleExecutable</key><string>LoopX</string>
+$ICON_KEY
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>
@@ -135,6 +157,18 @@ plutil -lint "$OUT/Contents/Info.plist" "$OUT/Contents/Library/LaunchAgents/$AGE
 echo "==> ad-hoc signing"
 codesign --force --deep -s - "$OUT"
 codesign --verify --deep --strict "$OUT"
+
+if [ -n "$INSTALL_DIR" ]; then
+  [ -d "$INSTALL_DIR" ] || { echo "error: install dir $INSTALL_DIR does not exist" >&2; exit 1; }
+  TARGET="$INSTALL_DIR/LoopX.app"
+  echo "==> installing to $TARGET"
+  pkill -x LoopX 2>/dev/null || true
+  pkill -f "$TARGET/Contents/Helpers/loopx serve" 2>/dev/null || true
+  rm -rf "$TARGET"
+  ditto "$OUT" "$TARGET"
+  codesign --verify --deep --strict "$TARGET"
+  echo "    installed: $TARGET (open it from Launchpad, Spotlight, or: open \"$TARGET\")"
+fi
 
 # Keep build output out of git without touching the repo's own .gitignore.
 case "$OUT" in "$LOOP_DIR/dist/"*) printf '*\n' > "$LOOP_DIR/dist/.gitignore" ;; esac

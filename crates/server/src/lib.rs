@@ -156,6 +156,7 @@ pub async fn serve(opts: ServeOptions, on_ready: impl FnOnce(u16)) -> Result<(),
     let token = lock::new_token();
     let info = lock::LockInfo::new(port, loopx_core::VERSION, &token);
     let _lock = lock::acquire(&opts.lock_path, &info)?;
+    lock::spawn_keeper(opts.lock_path.clone(), info.clone());
 
     let legacy = start_legacy(&opts).await;
     let proxy = legacy.as_ref().map(|l| Proxy::new(l.port));

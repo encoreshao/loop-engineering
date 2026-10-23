@@ -29,8 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dashboard.baseURLProvider = { [weak self] in self?.model.lock?.baseURL }
         dashboard.statusProvider = { [weak self] in
             switch self?.model.connection {
-            case .failed(let m)?: return m
-            default: return "Starting the backend…"
+            case .failed(let m)?: return (m, true)
+            default: return ("Starting the backend…", false)
             }
         }
         dashboard.onNeedsBackend = { [weak self] in
@@ -74,6 +74,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         Task { @MainActor in
             for await _ in model.$lock.values { dashboard.backendChanged() }
+        }
+        Task { @MainActor in
+            for await _ in model.$connection.values { dashboard.refreshPlaceholder() }
         }
     }
 
