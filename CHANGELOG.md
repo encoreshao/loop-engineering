@@ -17,7 +17,8 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Fixed
 
-- Loops → Topic Monitor now works in the Mac app (Live and Topics views are served by loopx itself); it showed "Not found" because the page had not been ported and the legacy dashboard is off. Inbox Triage still needs the legacy dashboard.
+- Loops → Topic Monitor now works in the Mac app (Live and Topics views are served by loopx itself); it showed "Not found" because the page had not been ported and the legacy dashboard is off.
+- Loops → Inbox Triage now works in the Mac app (Live, Drafts and Setup views, saving inboxes and OAuth clients, pause, delete, disconnect, test connection). Connect (the Google and Microsoft sign-in) is not available there yet and says so.
 - Settings → General opens instantly: AI CLI availability is read from a saved flag (`cli_status.json`) and refreshed in the background instead of starting a login shell on every page view.
 - Settings → Daemons: a fresh install now seeds `loops.json` from the template, so the registered loops list is no longer empty.
 - The Mac app has a main menu, so ⌘Q quits LoopX and ⌘W, ⌘, ⌘H and the copy/paste shortcuts work.

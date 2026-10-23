@@ -1031,5 +1031,6 @@
   "No people collected yet. They appear here after the next run.": "Aucune personne collectée pour l'instant. Elles apparaîtront ici après la prochaine exécution.",
   "{count} people": "{count} personnes",
   "Could not save": "Impossible d'enregistrer",
-  "No launchd agents are installed. In the LoopX app, scheduled loops run from the app itself while it is open (LoopX Settings → Run scheduled loops while LoopX is open), checking every 15 minutes; the schedules are in Registered Loops below.": "Aucun agent launchd n'est installé. Dans l'application LoopX, les boucles planifiées s'exécutent depuis l'application elle-même tant qu'elle est ouverte (Réglages LoopX → Exécuter les boucles planifiées tant que LoopX est ouvert), avec une vérification toutes les 15 minutes ; les horaires figurent dans les boucles enregistrées ci-dessous."
+  "No launchd agents are installed. In the LoopX app, scheduled loops run from the app itself while it is open (LoopX Settings → Run scheduled loops while LoopX is open), checking every 15 minutes; the schedules are in Registered Loops below.": "Aucun agent launchd n'est installé. Dans l'application LoopX, les boucles planifiées s'exécutent depuis l'application elle-même tant qu'elle est ouverte (Réglages LoopX → Exécuter les boucles planifiées tant que LoopX est ouvert), avec une vérification toutes les 15 minutes ; les horaires figurent dans les boucles enregistrées ci-dessous.",
+  "{label}: signing in is not available in the Mac app yet": "{label} : la connexion n'est pas encore disponible dans l'app Mac"
 }

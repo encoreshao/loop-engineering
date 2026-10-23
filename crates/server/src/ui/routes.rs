@@ -248,9 +248,6 @@ pub struct Route {
     segs: Vec<Seg>,
     handler: Handler,
     csrf: bool,
-    /// When set and false for the matched params, the route does not claim the
-    /// request, so it falls through to the legacy dashboard.
-    guard: Option<fn(&HashMap<String, String>) -> bool>,
 }
 
 fn parse_pattern(pattern: &'static str) -> Vec<Seg> {
@@ -338,25 +335,11 @@ impl Registry {
             segs: parse_pattern(pattern),
             handler,
             csrf,
-            guard: None,
         });
     }
 
     pub fn get(&mut self, pattern: &'static str, handler: Handler) {
         self.add(Method::GET, pattern, handler, false);
-    }
-
-    /// A GET route that only claims requests whose params pass `guard`.
-    pub fn get_guarded(
-        &mut self,
-        pattern: &'static str,
-        handler: Handler,
-        guard: fn(&HashMap<String, String>) -> bool,
-    ) {
-        self.add(Method::GET, pattern, handler, false);
-        if let Some(route) = self.routes.last_mut() {
-            route.guard = Some(guard);
-        }
     }
 
     /// A POST route; the CSRF token is checked before `handler` runs, and a
@@ -380,9 +363,6 @@ impl Registry {
         let mut best: Option<(u32, &Route, HashMap<String, String>)> = None;
         for route in self.routes.iter().filter(|r| r.method == *method) {
             if let Some((score, params)) = route.matches(&segments) {
-                if route.guard.is_some_and(|g| !g(&params)) {
-                    continue;
-                }
                 if best.as_ref().is_none_or(|(s, _, _)| score > *s) {
                     best = Some((score, route, params));
                 }
