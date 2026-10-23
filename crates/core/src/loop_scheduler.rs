@@ -19,6 +19,38 @@ pub fn default_state_path() -> PathBuf {
     home_dir().join("loop_scheduler_state.json")
 }
 
+/// Where the scheduler's single-poller lock lives.
+pub fn default_lock_path() -> PathBuf {
+    home_dir().join("scheduler.lock")
+}
+
+/// Held for the whole poll (the poll waits for the loops it starts), so the app's
+/// built-in scheduler and a launchd `loopx scheduler` can never both start the
+/// same due loop. The lock is released when the guard drops or the process dies.
+#[derive(Debug)]
+pub struct PollLock {
+    _file: std::fs::File,
+}
+
+/// `Some(guard)` when this process now owns the poll, `None` when another
+/// scheduler holds it. A lock file that cannot be opened counts as held: skipping
+/// one poll is safe, starting a loop twice is not.
+pub fn try_lock_poll(path: &Path) -> Option<PollLock> {
+    use std::os::unix::io::AsRawFd;
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)
+        .ok()?;
+    // SAFETY: plain flock(2) on a descriptor we own.
+    let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    (rc == 0).then_some(PollLock { _file: file })
+}
+
 /// `<LOOP_ENGINEERING_HOME>/outputs/status.json` for `gitlab-loop`, else
 /// `<..>/outputs/status/<loop>.json`. (Python resolves against the checkout
 /// root; the other Rust modules use `home_dir()` for `outputs/`, so this does
@@ -237,6 +269,23 @@ pub fn spawn_and_wait(argv: &[String]) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_second_poller_cannot_take_the_lock_until_the_first_lets_go() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("sub").join("scheduler.lock");
+        let first = try_lock_poll(&path).expect("first poller gets the lock");
+        assert!(try_lock_poll(&path).is_none());
+        drop(first);
+        assert!(try_lock_poll(&path).is_some());
+    }
+
+    #[test]
+    fn an_unopenable_lock_file_counts_as_held() {
+        let d = tempfile::tempdir().unwrap();
+        // The lock path is a directory: it cannot be opened for writing.
+        assert!(try_lock_poll(d.path()).is_none());
+    }
+
     use super::*;
     use chrono::NaiveDate;
 

@@ -30,6 +30,7 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Fixed
 
+- `loopx scheduler` takes a lock (`scheduler.lock`) for the whole poll, so the LoopX app's built-in scheduler and a launchd scheduler running together can no longer start the same due loop twice.
 - Loops → Topic Monitor now works in the Mac app (Live and Topics views are served by loopx itself); it showed "Not found" because the page had not been ported and the legacy dashboard is off.
 - Loops → Inbox Triage now works in the Mac app (Live, Drafts and Setup views, saving inboxes and OAuth clients, pause, delete, disconnect, test connection). Connect (the Google and Microsoft sign-in) is not available there yet and says so.
 - Loops → GitLab → Live shows the same empty view as Topic Monitor (message plus a Set up a project button) when no project is configured and nothing has run, instead of a disabled Run now over empty cards.

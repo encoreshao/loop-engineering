@@ -46,6 +46,12 @@ pub fn entry(args: &[String]) -> ExitCode {
 /// `loopx scheduler`: what launchd runs every 15 minutes. Starts every loop
 /// that is due and not already running, one after another.
 pub fn scheduler(_args: &[String]) -> ExitCode {
+    // One poller at a time: the LoopX app and a launchd `loopx scheduler` may both
+    // be on, and both would otherwise start the same due loop.
+    let Some(_poll) = loop_scheduler::try_lock_poll(&loop_scheduler::default_lock_path()) else {
+        println!("loop_scheduler: another scheduler is already polling; skipping");
+        return ExitCode::SUCCESS;
+    };
     // Best-effort, idempotent: catches runs that predate loop.result events.
     ledger::run_startup_backfill(None, None);
     // Throttled to every few hours; never fails the poll.
