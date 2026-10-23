@@ -9,6 +9,9 @@ final class SettingsModel: ObservableObject {
     @Published var launchAtLogin: Bool
     @Published var loginNeedsApproval: Bool
     @Published var error: String?
+    @Published var accountStatus: [OAuthProvider: String] = [:]
+    @Published var signingIn: OAuthProvider?
+    private let oauth = OAuthSession()
     private let store: SettingsStore
     private let login: LaunchAtLogin
     var onChange: () -> Void = {}
@@ -17,6 +20,31 @@ final class SettingsModel: ObservableObject {
         self.store = store; self.login = login
         displayMode = store.displayMode; hotkey = store.hotkey
         launchAtLogin = login.isEnabled; loginNeedsApproval = login.needsApproval
+    }
+
+    func signIn(_ provider: OAuthProvider, lock: LockFile?) {
+        guard let lock else { accountStatus[provider] = "Backend is not running."; return }
+        signingIn = provider
+        Task {
+            defer { signingIn = nil }
+            do {
+                try await oauth.signIn(provider, api: OAuthAPI(lock: lock))
+                accountStatus[provider] = "Connected"
+            } catch let e as OAuthError {
+                accountStatus[provider] = e == .cancelled ? nil : e.message
+            } catch { accountStatus[provider] = error.localizedDescription }
+        }
+    }
+
+    func refreshAccounts(lock: LockFile?) {
+        guard let lock else { return }
+        Task {
+            for p in OAuthProvider.allCases {
+                if let s = try? await OAuthAPI(lock: lock).status(p) {
+                    accountStatus[p] = s.connected ? (s.expired ? "Expired" : "Connected") : nil
+                }
+            }
+        }
     }
 
     func setLaunchAtLogin(_ on: Bool) {
@@ -52,6 +80,18 @@ struct SettingsView: View {
                     Text("None").tag(HotkeyPreset.none)
                 }
             }
+            Section("Accounts") {
+                ForEach(OAuthProvider.allCases, id: \.self) { p in
+                    LabeledContent(p.title) {
+                        HStack {
+                            if let t = settings.accountStatus[p] { Text(t).font(.caption).foregroundStyle(.secondary) }
+                            Button(settings.accountStatus[p] == "Connected" ? "Reconnect" : "Connect") {
+                                settings.signIn(p, lock: app.lock)
+                            }.disabled(settings.signingIn != nil)
+                        }
+                    }
+                }
+            }
             Section("Backend") {
                 LabeledContent("Status", value: app.connection.text)
                 if let l = app.lock { LabeledContent("Address", value: "127.0.0.1:\(l.port)  (v\(l.version), pid \(l.pid))") }
@@ -65,6 +105,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 440, height: 430)
+        .frame(width: 440, height: 520)
+        .onAppear { settings.refreshAccounts(lock: app.lock) }
     }
 }
