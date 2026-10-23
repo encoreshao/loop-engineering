@@ -1,19 +1,14 @@
 //! HTTP server for LoopX (`loopx serve`): the dashboard backend and the API the
-//! Mac app talks to. Pages not ported yet are served by the legacy Python
-//! dashboard through [`proxy`].
+//! Mac app talks to.
 
 pub mod api;
 pub mod chat_tool;
-pub mod legacy;
 pub mod lock;
 pub mod oauth_routes;
-pub mod proxy;
 pub mod snapshot;
 pub mod ui;
 
 use api::{router, AppState};
-use legacy::LegacyDashboard;
-use proxy::Proxy;
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -24,22 +19,16 @@ pub struct ServeOptions {
     pub root: PathBuf,
     /// 0 picks a free port.
     pub port: u16,
-    /// Run the legacy Python dashboard behind this server for unported pages.
-    pub legacy: bool,
     /// Where `loopx.lock` goes (default: next to the config).
     pub lock_path: PathBuf,
-    /// Checkout holding `bin/web/dashboard_server.py` (default: `root`).
-    pub legacy_root: Option<PathBuf>,
 }
 
 impl ServeOptions {
-    pub fn new(root: PathBuf, port: u16, legacy: bool) -> Self {
+    pub fn new(root: PathBuf, port: u16) -> Self {
         Self {
             root,
             port,
-            legacy,
             lock_path: lock::default_path(),
-            legacy_root: None,
         }
     }
 }
@@ -50,8 +39,6 @@ pub enum ServeError {
     Bind(u16, std::io::Error),
     #[error("{0}")]
     Lock(#[from] lock::AcquireError),
-    #[error("{0}")]
-    Legacy(#[from] legacy::LegacyError),
     #[error("could not watch {0}: {1}")]
     Watch(PathBuf, notify::Error),
     #[error("server error: {0}")]
@@ -124,31 +111,7 @@ async fn termination() {
     }
 }
 
-/// The legacy Python dashboard behind unported pages, when wanted. It is optional:
-/// if it cannot start (no Python checkout, a missing module), say so and serve the
-/// ported pages anyway rather than leaving the Mac app with no backend at all.
-async fn start_legacy(opts: &ServeOptions) -> Option<LegacyDashboard> {
-    if !opts.legacy {
-        return None;
-    }
-    let root = opts
-        .legacy_root
-        .clone()
-        .unwrap_or_else(|| opts.root.clone());
-    match tokio::task::spawn_blocking(move || LegacyDashboard::start(&root))
-        .await
-        .expect("join")
-    {
-        Ok(l) => Some(l),
-        Err(e) => {
-            eprintln!("loopx: legacy dashboard unavailable ({e}); serving the ported pages only");
-            None
-        }
-    }
-}
-
-/// `loopx serve`: take the lock, start the legacy dashboard (if wanted), and
-/// serve until interrupted. `on_ready` receives the bound port.
+/// `loopx serve`: take the lock and serve until interrupted. `on_ready` receives the bound port.
 pub async fn serve(opts: ServeOptions, on_ready: impl FnOnce(u16)) -> Result<(), ServeError> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", opts.port))
         .await
@@ -159,9 +122,7 @@ pub async fn serve(opts: ServeOptions, on_ready: impl FnOnce(u16)) -> Result<(),
     let _lock = lock::acquire(&opts.lock_path, &info)?;
     lock::spawn_keeper(opts.lock_path.clone(), info.clone());
 
-    let legacy = start_legacy(&opts).await;
-    let proxy = legacy.as_ref().map(|l| Proxy::new(l.port));
-    let state = AppState::new(opts.root.clone(), token, proxy);
+    let state = AppState::new(opts.root.clone(), token);
     on_ready(port);
     run_on(listener, state, termination()).await
 }
@@ -174,14 +135,6 @@ pub fn crate_name() -> &'static str {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn a_legacy_dashboard_that_cannot_start_is_not_fatal() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut opts = ServeOptions::new(dir.path().to_path_buf(), 0, true);
-        opts.legacy_root = Some(dir.path().join("no-checkout"));
-        assert!(start_legacy(&opts).await.is_none());
-    }
-
     #[test]
     fn crate_name_is_stable() {
         assert_eq!(super::crate_name(), "loopx-server");
@@ -190,7 +143,7 @@ mod tests {
     #[tokio::test]
     async fn a_status_change_reaches_an_open_event_stream() {
         let d = tempfile::tempdir().unwrap();
-        let state = AppState::new(d.path().to_path_buf(), "t".into(), None);
+        let state = AppState::new(d.path().to_path_buf(), "t".into());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();

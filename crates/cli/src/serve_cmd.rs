@@ -4,13 +4,12 @@ use loopx_core::runner_util::repo_root;
 use loopx_server::{lock, serve, ServeError, ServeOptions};
 use std::process::ExitCode;
 
-const USAGE: &str = "Usage: loopx serve [--port N] [--no-legacy]\n\n  --port N      listen on 127.0.0.1:N (default 8420; 0 picks a free port)\n  --no-legacy   do not start the legacy Python dashboard for unported pages";
+const USAGE: &str = "Usage: loopx serve [--port N]\n\n  --port N      listen on 127.0.0.1:N (default 8420; 0 picks a free port)";
 
 const DEFAULT_PORT: u16 = 8420;
 
 pub fn run(args: &[String]) -> ExitCode {
     let mut port = DEFAULT_PORT;
-    let mut legacy = true;
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -18,7 +17,8 @@ pub fn run(args: &[String]) -> ExitCode {
                 Some(p) => port = p,
                 None => return fail("--port needs a number"),
             },
-            "--no-legacy" => legacy = false,
+            // Accepted and ignored: the legacy Python dashboard is gone.
+            "--no-legacy" => {}
             "-h" | "--help" => {
                 println!("{USAGE}");
                 return ExitCode::SUCCESS;
@@ -33,11 +33,7 @@ pub fn run(args: &[String]) -> ExitCode {
         Ok(r) => r,
         Err(e) => return fail(&format!("cannot start the async runtime: {e}")),
     };
-    let mut opts = ServeOptions::new(repo_root(), port, legacy);
-    // The checkout holding the legacy Python dashboard, when it is not the root.
-    opts.legacy_root = std::env::var_os("LOOPX_LEGACY_ROOT")
-        .filter(|v| !v.is_empty())
-        .map(std::path::PathBuf::from);
+    let opts = ServeOptions::new(repo_root(), port);
     let lock_path = opts.lock_path.clone();
     let result = runtime.block_on(serve(opts, |bound| {
         println!(

@@ -79,7 +79,6 @@ pub mod topic_runner;
 pub mod topic_seen;
 pub mod topics;
 pub mod update_check;
-pub mod update_runner;
 pub mod worktree;
 
 /// The version of the `loopx` binary, taken from the workspace package version.

@@ -85,9 +85,6 @@ pub struct UiState {
     pub csrf_token: String,
     pub policy: RoutePolicy,
     pub fixed_now: Option<DateTime<Utc>>,
-    /// Command prefix that launches the upgrade runner (`python3 <repo>/bin/update_runner.py`);
-    /// empty means "record progress but start nothing".
-    pub update_runner: Vec<String>,
     /// Does `POST /update/check` run a real `git fetch`?
     pub update_fetch: bool,
     /// Command prefix that starts one loop run (`<loopx> run`, the loop name is
@@ -150,14 +147,6 @@ impl UiState {
                 .ok()
                 .and_then(|v| DateTime::parse_from_rfc3339(&v).ok())
                 .map(|d| d.with_timezone(&Utc)),
-            update_runner: vec![
-                "python3".to_string(),
-                repo_root
-                    .join("bin")
-                    .join("update_runner.py")
-                    .display()
-                    .to_string(),
-            ],
             update_fetch: true,
             run_cmd: vec![
                 std::env::current_exe()
@@ -194,7 +183,6 @@ impl UiState {
             csrf_token: csrf_token.to_string(),
             policy: RoutePolicy::default(),
             fixed_now,
-            update_runner: Vec::new(),
             update_fetch: false,
             run_cmd: Vec::new(),
             launchctl: Vec::new(),

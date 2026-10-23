@@ -1,6 +1,6 @@
 //! The routes native clients (the Mac app) and the web UI rely on:
 //! `/api/version`, `/api/snapshot`, `/api/events` (SSE), `/api/approvals`.
-//! Everything else falls through to the legacy dashboard (see [`crate::proxy`]).
+//! Everything else is a plain 404.
 //!
 //! Auth: the server only listens on loopback and rejects any `Host` that is not
 //! a loopback name (DNS rebinding). Reads need nothing more. Writes need either
@@ -8,7 +8,6 @@
 //! same-origin browser request (`Origin` equal to our own origin, which a
 //! cross-site page cannot forge).
 
-use crate::proxy::Proxy;
 use crate::snapshot::{build_snapshot, Paths};
 use axum::body::Body;
 use axum::extract::{Path as UrlPath, Request, State};
@@ -34,7 +33,6 @@ pub struct AppState {
     pub token: String,
     pub version: String,
     pub started_at: String,
-    pub proxy: Option<Proxy>,
     /// Server-rendered pages (see [`crate::ui`]); anything they do not claim is proxied.
     pub ui: Arc<crate::ui::UiState>,
     /// Serialised snapshots; one per change.
@@ -44,7 +42,7 @@ pub struct AppState {
 pub type Shared = Arc<AppState>;
 
 impl AppState {
-    pub fn new(root: PathBuf, token: String, proxy: Option<Proxy>) -> Shared {
+    pub fn new(root: PathBuf, token: String) -> Shared {
         let (tx, _) = broadcast::channel(16);
         let root_for_ui = root.clone();
         Arc::new(Self {
@@ -53,7 +51,6 @@ impl AppState {
             token,
             version: loopx_core::VERSION.to_string(),
             started_at: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
-            proxy,
             ui: Arc::new(crate::ui::UiState::from_env(&root_for_ui)),
             tx,
         })
@@ -139,7 +136,6 @@ async fn version(State(s): State<Shared>, headers: HeaderMap) -> Response {
         "pid": std::process::id(),
         "started_at": s.started_at,
         "root": s.root.display().to_string(),
-        "legacy_dashboard": s.proxy.is_some(),
     }))
     .into_response()
 }
@@ -273,21 +269,17 @@ async fn inject_notify(resp: Response) -> Response {
     Response::from_parts(parts, Body::from(out))
 }
 
-/// Everything not handled above: the legacy dashboard, or a plain 404.
+/// Everything not handled above: a server-rendered page, or a plain 404.
 pub(crate) async fn fallback(State(s): State<Shared>, req: Request<Body>) -> Response {
-    let req = match crate::ui::glue::try_serve(&s.ui, req).await {
-        Ok(resp) => return inject_notify(resp).await,
-        Err(req) => req,
-    };
-    match &s.proxy {
-        Some(proxy) => proxy.forward(req).await,
-        None => (
-            StatusCode::NOT_FOUND,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "not found (this page has not been ported to loopx yet, and the legacy dashboard is off)",
-        )
-            .into_response(),
+    if let Ok(resp) = crate::ui::glue::try_serve(&s.ui, req).await {
+        return inject_notify(resp).await;
     }
+    (
+        StatusCode::NOT_FOUND,
+        [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        "not found",
+    )
+        .into_response()
 }
 
 #[cfg(test)]
@@ -299,7 +291,7 @@ mod tests {
     use tower::ServiceExt;
 
     fn state(dir: &std::path::Path) -> Shared {
-        AppState::new(dir.to_path_buf(), "secret-token".into(), None)
+        AppState::new(dir.to_path_buf(), "secret-token".into())
     }
 
     async fn call(app: Router, req: Request<Body>) -> (StatusCode, Value, HeaderMap) {
@@ -390,7 +382,6 @@ mod tests {
         assert_eq!(v["name"], "loopx");
         assert_eq!(v["version"], loopx_core::VERSION);
         assert_eq!(v["pid"], std::process::id());
-        assert_eq!(v["legacy_dashboard"], false);
     }
 
     #[tokio::test]
@@ -523,7 +514,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unknown_paths_are_404_without_a_legacy_dashboard() {
+    async fn unknown_paths_are_404() {
         let d = tempfile::tempdir().unwrap();
         let (code, _, _) = call(router(state(d.path())), get_req("/no-such-page")).await;
         assert_eq!(code, 404);

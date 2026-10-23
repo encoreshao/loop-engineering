@@ -47,7 +47,7 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    /// Self-update: `run|check|status|start|notification` (replaces bin/update_check.py, bin/update_runner.py)
+    /// Update check: `check|status|notification`
     Update {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,

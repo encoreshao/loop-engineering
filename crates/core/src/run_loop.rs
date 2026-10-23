@@ -297,8 +297,7 @@ fn terminate_tree(child: &mut std::process::Child) {
 
 // ---- entry dispatch ---------------------------------------------------------
 
-/// Registry entry points that run in this binary. Legacy Python entry points
-/// still run through `python3` until their loops are ported.
+/// Registry entry points that run in this binary.
 pub fn run_entry(entry_point: &str, argv: &[String]) -> i32 {
     let root = repo_root();
     match entry_point {
@@ -315,32 +314,11 @@ pub fn run_entry(entry_point: &str, argv: &[String]) -> i32 {
         }
         other => match crate::loop_plugins::run_entry(other, argv) {
             Some(code) => code,
-            None => legacy_entry(&root, other, argv),
+            None => {
+                eprintln!("loopx: entry point '{other}' has no runner in this binary");
+                1
+            }
         },
-    }
-}
-
-/// `python3 <root>/<entry with . as />.py <args>`: loops not yet ported.
-fn legacy_entry(root: &Path, entry_point: &str, argv: &[String]) -> i32 {
-    let script = root.join(format!("{}.py", entry_point.replace('.', "/")));
-    if !script.exists() {
-        eprintln!(
-            "loopx: entry point '{entry_point}' has no Rust runner and no legacy script at {}",
-            script.display()
-        );
-        return 1;
-    }
-    match Command::new("python3")
-        .arg(&script)
-        .args(argv)
-        .current_dir(root)
-        .status()
-    {
-        Ok(s) => exit_code(s),
-        Err(e) => {
-            eprintln!("loopx: could not run python3: {e}");
-            1
-        }
     }
 }
 

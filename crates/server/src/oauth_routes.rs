@@ -6,9 +6,8 @@
 //! single-use, 10-minute `state` that only an authorised `start` can mint. `start` and
 //! `logout` use the same authorisation as `POST /api/approvals/{id}`.
 
-use crate::api::{authorized_to_write, fallback, host_allowed, json_error, Shared};
-use axum::body::Body;
-use axum::extract::{Path as UrlPath, Query, Request, State};
+use crate::api::{authorized_to_write, host_allowed, json_error, Shared};
+use axum::extract::{Path as UrlPath, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -99,9 +98,8 @@ async fn google_callback(
     ctx: Ctx,
     headers: HeaderMap,
     q: Query<HashMap<String, String>>,
-    req: Request<Body>,
 ) -> Response {
-    callback(Provider::Google, s, ctx, headers, q, req).await
+    callback(Provider::Google, s, ctx, headers, q).await
 }
 
 async fn linkedin_callback(
@@ -109,9 +107,8 @@ async fn linkedin_callback(
     ctx: Ctx,
     headers: HeaderMap,
     q: Query<HashMap<String, String>>,
-    req: Request<Body>,
 ) -> Response {
-    callback(Provider::Linkedin, s, ctx, headers, q, req).await
+    callback(Provider::Linkedin, s, ctx, headers, q).await
 }
 
 async fn callback(
@@ -120,7 +117,6 @@ async fn callback(
     Extension(ctx): Ctx,
     headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
-    req: Request<Body>,
 ) -> Response {
     if !host_allowed(&headers) {
         return json_error(StatusCode::FORBIDDEN, "forbidden host");
@@ -158,13 +154,6 @@ async fn callback(
             &message,
             "/connectors",
         ));
-    }
-    // A flow the legacy Python dashboard started has its state in that process's memory.
-    if provider == Provider::Google
-        && s.proxy.is_some()
-        && oauth::peek_pending(&ctx.dir, &state, now, true).is_none()
-    {
-        return fallback(State(s), req).await;
     }
     let code = q.get("code").cloned();
     let error = q.get("error").cloned();
@@ -352,6 +341,7 @@ async fn status(
 mod tests {
     use super::*;
     use crate::api::AppState;
+    use axum::body::Body;
     use axum::http::Request as HttpRequest;
     use http_body_util::BodyExt;
     use loopx_core::keychain::MemoryStore;
@@ -368,7 +358,7 @@ mod tests {
             Arc::new(MemoryStore::new("t")),
             &dir.join("mail_oauth.json"),
         ));
-        let state = AppState::new(dir.to_path_buf(), "tok".into(), None);
+        let state = AppState::new(dir.to_path_buf(), "tok".into());
         (routes(ctx.clone()).with_state(state), ctx)
     }
 

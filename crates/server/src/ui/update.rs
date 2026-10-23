@@ -1,4 +1,4 @@
-//! Self-update state and UI (`bin/update_check.py`, `bin/update_runner.py`'s read
+//! Self-update state and UI (the update check's
 //! side, and `bin/web/update_pages.py`): the topbar chip, the banner above every
 //! page, the `/update` body, and the `git fetch` check behind `POST /update/check`.
 //!
@@ -131,14 +131,6 @@ fn summary(lang: Lang, status: &Value) -> String {
     )
 }
 
-fn start_form(lang: Lang, csrf_input: &str, label: &str) -> String {
-    let _ = lang;
-    format!(
-        "<form method='post' action='/update/start'>{csrf_input}<button type='submit' class='btn'>{}</button></form>",
-        pyfmt::escape(label)
-    )
-}
-
 /// `render_chip`: the topbar pill, only while origin is ahead.
 pub fn render_chip(lang: Lang, status: &Value) -> String {
     if !truthy(status, "behind") {
@@ -198,7 +190,7 @@ pub fn render_banner(lang: Lang, status: &Value, progress: &Value, csrf_input: &
         .collect();
     let action = match blocker(lang, status) {
         Some(b) => format!("<p>{}</p>", pyfmt::escape(&b)),
-        None => start_form(lang, csrf_input, &i18n::t(lang, "Upgrade now", &[])),
+        None => String::new(),
     };
     let check = format!(
         "<form method='post' action='/update/check'>{csrf_input}<button type='submit' class='btn btn-neutral'>{}</button></form>",
@@ -263,12 +255,7 @@ fn poll_script() -> String {
 }
 
 /// `render_update_body`.
-pub fn render_update_body(
-    lang: Lang,
-    status: &Value,
-    progress: &Value,
-    csrf_input: &str,
-) -> String {
+pub fn render_update_body(lang: Lang, status: &Value, progress: &Value) -> String {
     let state = progress.get("state").and_then(Value::as_str).unwrap_or("");
     let mut out = format!("<div class='card'><h1>{}</h1>", esc_t(lang, "Update"));
     if state == "done" && !truthy(status, "behind") {
@@ -287,7 +274,6 @@ pub fn render_update_body(
             "<p class='flash flash-danger'>{}</p>",
             pyfmt::escape(&error)
         ));
-        out.push_str(&start_form(lang, csrf_input, &i18n::t(lang, "Retry", &[])));
     } else if IN_FLIGHT.contains(&state) {
         out.push_str(&format!(
             "<p>{}</p>",
@@ -298,13 +284,8 @@ pub fn render_update_body(
         ));
     } else if truthy(status, "behind") {
         out.push_str(&format!("<p>{}</p>", summary(lang, status)));
-        match blocker(lang, status) {
-            Some(b) => out.push_str(&format!("<p>{}</p>", pyfmt::escape(&b))),
-            None => out.push_str(&start_form(
-                lang,
-                csrf_input,
-                &i18n::t(lang, "Upgrade now", &[]),
-            )),
+        if let Some(b) = blocker(lang, status) {
+            out.push_str(&format!("<p>{}</p>", pyfmt::escape(&b)));
         }
     } else {
         out.push_str(&format!("<p>{}</p>", esc_t(lang, "Loop X is up to date.")));
@@ -476,68 +457,6 @@ pub fn check(repo: &Path, dir: &Path, fetch: bool, now: DateTime<Utc>) -> Value 
     status
 }
 
-fn lock_is_live(dir: &Path) -> bool {
-    std::fs::read_to_string(dir.join("upgrade.lock"))
-        .ok()
-        .and_then(|t| t.trim().parse::<i64>().ok())
-        .is_some_and(|p| pid_alive(&json!(p)))
-}
-
-fn fresh_progress(state: &str, pid: u32, now: DateTime<Utc>) -> Value {
-    let steps: Vec<Value> = STEP_ORDER
-        .iter()
-        .map(|n| json!({"name": n, "status": "pending", "started": null, "finished": null, "log": ""}))
-        .collect();
-    json!({
-        "state": state, "pid": pid, "started": now_secs(now), "finished": null, "error": null,
-        "from": "", "to": "", "steps": steps
-    })
-}
-
-/// `update_runner.start_detached`: record a `starting` progress file and launch
-/// the upgrade runner in its own session so it outlives this server. `runner`
-/// is the command prefix (default `python3 <repo>/bin/update_runner.py`).
-pub fn start_detached(repo: &Path, dir: &Path, runner: &[String], now: DateTime<Utc>) -> Value {
-    if lock_is_live(dir) {
-        let mut progress = read_progress(dir);
-        if progress.as_object().is_none_or(|o| o.is_empty()) {
-            progress = fresh_progress("starting", std::process::id(), now);
-        }
-        progress["state"] = json!("refused");
-        progress["error"] = json!("An upgrade is already running");
-        return progress;
-    }
-    let mut progress = fresh_progress("starting", std::process::id(), now);
-    let _ = write_json(dir, "progress.json", &progress);
-    if let Some((program, args)) = runner.split_first() {
-        let mut cmd = Command::new(program);
-        cmd.args(args)
-            .args(["run", "--repo"])
-            .arg(repo)
-            .arg("--state-dir")
-            .arg(dir)
-            .current_dir(repo)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            unsafe {
-                cmd.pre_exec(|| {
-                    libc::setsid();
-                    Ok(())
-                });
-            }
-        }
-        if let Ok(child) = cmd.spawn() {
-            progress["pid"] = json!(child.id());
-            let _ = write_json(dir, "progress.json", &progress);
-        }
-    }
-    progress
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -554,7 +473,7 @@ mod tests {
         let banner = render_banner(Lang::En, &status(2), &json!({}), "<csrf>");
         assert!(banner.contains("2 new change(s) on main"));
         assert!(banner.contains("<code>abc123</code> Fix &lt;it&gt;"));
-        assert!(banner.contains("action='/update/start'><csrf>"));
+        assert!(banner.contains("action='/update/check'><csrf>"));
         let dirty = render_banner(
             Lang::En,
             &json!({"behind": 1, "clean": false}),
@@ -586,20 +505,15 @@ mod tests {
 
     #[test]
     fn body_states() {
-        let up = render_update_body(Lang::En, &json!({}), &json!({}), "");
+        let up = render_update_body(Lang::En, &json!({}), &json!({}));
         assert!(up.contains("Loop X is up to date.") && !up.contains("update-steps"));
         let failed = render_update_body(
             Lang::En,
             &json!({}),
             &json!({"state": "failed", "error": "boom"}),
-            "<c>",
         );
-        assert!(
-            failed.contains("flash flash-danger'>boom")
-                && failed.contains("Retry")
-                && failed.contains("update-steps")
-        );
-        let running = render_update_body(Lang::En, &json!({}), &json!({"state": "running"}), "");
+        assert!(failed.contains("flash flash-danger'>boom") && failed.contains("update-steps"));
+        let running = render_update_body(Lang::En, &json!({}), &json!({"state": "running"}));
         assert!(running
             .contains("<script>(function(){var terminal=[\"done\", \"failed\", \"refused\"];"));
     }
@@ -633,21 +547,5 @@ mod tests {
         assert_eq!(s["behind"], 0);
         assert!(s["error"].as_str().unwrap().starts_with("no origin/"));
         assert_eq!(read_status(dir.path())["error"], s["error"]);
-    }
-
-    #[test]
-    fn start_detached_writes_progress_and_spawns_the_runner() {
-        let repo = tempfile::tempdir().unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let p = start_detached(repo.path(), dir.path(), &["true".to_string()], Utc::now());
-        assert_eq!(p["state"], "starting");
-        assert!(dir.path().join("progress.json").exists());
-        std::fs::write(
-            dir.path().join("upgrade.lock"),
-            std::process::id().to_string(),
-        )
-        .unwrap();
-        let again = start_detached(repo.path(), dir.path(), &["true".to_string()], Utc::now());
-        assert_eq!(again["state"], "refused");
     }
 }

@@ -1,17 +1,17 @@
-//! `loopx update` (replaces `bin/update_check.py` and `bin/update_runner.py`):
-//! the self-update of this checkout and the macOS app.
+//! `loopx update`: the update check for this checkout (the app updates through
+//! Sparkle, the binary through Homebrew or `install-loopx.sh --upgrade`).
 //!
 //! State lives in `$LOOP_UPDATE_DIR` (else `<repo root>/outputs/update`):
 //! `status.json`, `progress.json`, `notified.json`, `app_path.txt`,
 //! `upgrade.lock` (see docs/contract/json-files.md).
 
 use loopx_core::pyjson;
-use loopx_core::{update_check, update_runner};
+use loopx_core::update_check;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-const USAGE: &str = "Usage: loopx update run [--repo DIR] [--state-dir DIR] [--install-target APP]\n       loopx update check [--repo DIR] [--state-dir DIR] [--no-fetch]\n       loopx update status [--state-dir DIR]\n       loopx update start [--repo DIR] [--state-dir DIR]\n       loopx update notification [--state-dir DIR]";
+const USAGE: &str = "Usage: loopx update check [--repo DIR] [--state-dir DIR] [--no-fetch]\n       loopx update status [--state-dir DIR]\n       loopx update notification [--state-dir DIR]";
 
 /// `--name VALUE` or `--name=VALUE` anywhere in `args`.
 fn flag(args: &[String], name: &str) -> Option<String> {
@@ -40,12 +40,6 @@ pub fn run(args: &[String]) -> ExitCode {
     let repo = flag(rest, "--repo").map(PathBuf::from);
     let state = flag(rest, "--state-dir").map(PathBuf::from);
     match cmd.as_str() {
-        "run" => {
-            let target = flag(rest, "--install-target").map(PathBuf::from);
-            let progress =
-                update_runner::run(repo.as_deref(), state.as_deref(), target.as_deref(), None);
-            ExitCode::from(u8::from(!update_runner::is_done(&progress)))
-        }
         "check" => {
             let fetch = !rest.iter().any(|a| a == "--no-fetch");
             let status = update_check::check(repo.as_deref(), state.as_deref(), fetch);
@@ -54,15 +48,13 @@ pub fn run(args: &[String]) -> ExitCode {
         }
         "status" => {
             let status = update_check::read_status(state.as_deref());
-            let progress = update_runner::read_progress(state.as_deref());
+            let progress = loopx_server::ui::update::read_progress(
+                &state
+                    .clone()
+                    .unwrap_or_else(update_check::default_state_dir),
+            );
             print_json(&json!({"status": status, "progress": progress}));
             ExitCode::SUCCESS
-        }
-        "start" => {
-            let progress = update_runner::start_detached(repo.as_deref(), state.as_deref(), None);
-            let refused = progress.get("state") == Some(&json!("refused"));
-            print_json(&Value::Object(progress));
-            ExitCode::from(u8::from(refused))
         }
         "notification" => {
             if let Some(text) = update_check::take_notification(state.as_deref()) {

@@ -1,5 +1,5 @@
 //! `/update` and its fragments: the self-update progress page, the JSON the page
-//! polls, and the two POST routes (`bin/web/update_pages.py`).
+//! polls, and the POST route (`bin/web/update_pages.py`).
 
 use crate::ui::badge::default_badge;
 use crate::ui::routes::{Registry, UiCtx, UiResponse};
@@ -10,13 +10,12 @@ use serde_json::json;
 pub fn register(r: &mut Registry) {
     r.get("/update", page);
     r.get("/update/progress", progress);
-    r.post("/update/start", start);
     r.post("/update/check", check);
 }
 
 fn page(ctx: &UiCtx) -> UiResponse {
     let (status, progress) = update::read_both(&ctx.state.update_dir);
-    let body = update::render_update_body(ctx.lang, &status, &progress, &ctx.csrf_input());
+    let body = update::render_update_body(ctx.lang, &status, &progress);
     UiResponse::html(render_shell(
         ctx,
         "Update · Loop X Engineering",
@@ -30,16 +29,6 @@ fn page(ctx: &UiCtx) -> UiResponse {
 fn progress(ctx: &UiCtx) -> UiResponse {
     let (status, progress) = update::read_both(&ctx.state.update_dir);
     UiResponse::json(200, &json!({"progress": progress, "status": status}))
-}
-
-fn start(ctx: &UiCtx) -> UiResponse {
-    update::start_detached(
-        &ctx.state.repo_root,
-        &ctx.state.update_dir,
-        &ctx.state.update_runner,
-        ctx.state.now(),
-    );
-    UiResponse::redirect(303, "/update")
 }
 
 fn check(ctx: &UiCtx) -> UiResponse {

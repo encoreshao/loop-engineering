@@ -1,6 +1,5 @@
-//! UI translations, mirroring `bin/i18n.py`: the English text is the lookup key,
-//! the catalogs are the very `bin/locales/{ja,zh,fr}.json` files the Python
-//! dashboard reads (embedded at build time), a missing entry falls back to the
+//! UI translations, the English text is the lookup key,
+//! the catalogs are `crates/server/locales/{ja,zh,fr}.json` (embedded at build time), a missing entry falls back to the
 //! English text, and `{placeholder}` fields are filled after the lookup.
 //!
 //! Unlike Python there is no per-thread language: every render function gets the
@@ -79,7 +78,7 @@ fn catalog(lang: Lang) -> &'static Catalog {
             $cell.get_or_init(|| {
                 parse_catalog(include_str!(concat!(
                     env!("CARGO_MANIFEST_DIR"),
-                    "/../../bin/locales/",
+                    "/locales/",
                     $file
                 )))
             })
