@@ -14895,9 +14895,22 @@ def test_gitlab_last_run_activity_reports_latest_run_outcomes(tmp_path):
 def test_gitlab_live_body_never_run(tmp_path, monkeypatch):
     monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
     monkeypatch.setattr(ds.events_store, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+    monkeypatch.setattr(ds, "read_loop_projects_config", lambda *a, **k: {"projects": {"harbor": {}}})
     body = ds._gitlab_live_body()
     assert "No runs recorded yet." in body
     assert "Run now" in body
+
+
+def test_gitlab_live_body_without_projects_is_the_empty_state(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "STATUS_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(ds.events_store, "DEFAULT_EVENTS_DIR", tmp_path / "events")
+    monkeypatch.setattr(ds, "read_loop_projects_config", lambda *a, **k: {})
+    body = ds._gitlab_live_body()
+    assert "empty-state" in body
+    assert "No projects configured yet, so there&#x27;s nothing to check" in body or "nothing to check for issues or MRs" in body
+    assert "/loops/gitlab-loop?view=projects" in body
+    assert "Run now" not in body
+    assert "Last run results" not in body
 
 
 def test_gitlab_live_body_shows_status_and_last_run(tmp_path, monkeypatch):

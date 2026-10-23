@@ -10993,6 +10993,16 @@ def _gitlab_live_body(flash=None, flash_ok=True):
     csrf_input = f"<input type='hidden' name='csrf_token' value=\"{html.escape(_CSRF_TOKEN)}\">"
     status = read_status(STATUS_PATH)
     activity = gitlab_last_run_activity()
+    if activity is None and not read_loop_projects_config().get("projects"):
+        # Nothing configured and nothing ever run: the same empty view as the
+        # Topic Monitor page, instead of a disabled Run now over empty cards.
+        return (_flash_html(flash, flash_ok)
+                + f"<section class='card'><div class='section-header'><h2>{html.escape(_t('Status'))}</h2>"
+                f"{_status_badge_markup(status)}</div>"
+                + _empty_state_html(
+                    html.escape(_t("No projects configured yet, so there's nothing to check for issues or MRs."), quote=False),
+                    "/loops/gitlab-loop?view=projects", html.escape(_t("Set up a project")))
+                + "</section>")
     return (_flash_html(flash, flash_ok) + _gitlab_status_card(status, activity, csrf_input)
             + _gitlab_last_run_card(activity))
 

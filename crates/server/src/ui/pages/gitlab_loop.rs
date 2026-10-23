@@ -484,6 +484,22 @@ fn live_body(ctx: &UiCtx, flash: Option<&str>, flash_ok: bool) -> String {
     let csrf = ctx.csrf_input();
     let status = status::read_status(&ctx.state.status_path());
     let activity = last_run_activity(ctx);
+    let has_projects = read_json_or_empty(&projects_path(ctx))
+        .get("projects")
+        .is_some_and(py_truthy);
+    if !has_projects && activity.is_none() {
+        return format!(
+            "{}<section class='card'><div class='section-header'><h2>{}</h2>{}</div>{}</section>",
+            flash_html(flash, flash_ok),
+            esc_t(ctx, "Status"),
+            status_badge_markup(ctx.lang, &status),
+            empty_state_html(
+                &pyfmt::escape_text(&ctx.t("No projects configured yet, so there's nothing to check for issues or MRs.")),
+                PROJECTS_URL,
+                &esc_t(ctx, "Set up a project"),
+            )
+        );
+    }
     format!(
         "{}{}{}",
         flash_html(flash, flash_ok),
