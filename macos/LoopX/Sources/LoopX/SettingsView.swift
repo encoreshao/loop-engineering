@@ -5,6 +5,7 @@ import LoopXKit
 @MainActor
 final class SettingsModel: ObservableObject {
     @Published var displayMode: DisplayMode { didSet { store.displayMode = displayMode; onChange() } }
+    @Published var dashboardWindow: DashboardWindowMode { didSet { store.dashboardWindow = dashboardWindow } }
     @Published var hotkey: HotkeyPreset { didSet { store.hotkey = hotkey; onChange() } }
     @Published var runScheduler: Bool { didSet { store.runScheduler = runScheduler; onChange() } }
     @Published var launchAtLogin: Bool
@@ -20,7 +21,7 @@ final class SettingsModel: ObservableObject {
 
     init(store: SettingsStore, login: LaunchAtLogin) {
         self.store = store; self.login = login
-        displayMode = store.displayMode; hotkey = store.hotkey; runScheduler = store.runScheduler
+        displayMode = store.displayMode; hotkey = store.hotkey; dashboardWindow = store.dashboardWindow; runScheduler = store.runScheduler
         launchAtLogin = login.isEnabled; loginNeedsApproval = login.needsApproval
     }
 
@@ -77,6 +78,11 @@ struct SettingsView: View {
                 }
             }
             Section("Display") {
+                Picker("Dashboard window opens", selection: $settings.dashboardWindow) {
+                    Text("Full screen").tag(DashboardWindowMode.fullScreen)
+                    Text("Maximized").tag(DashboardWindowMode.maximized)
+                    Text("Standard window").tag(DashboardWindowMode.standard)
+                }
                 Picker("Show status as", selection: $settings.displayMode) {
                     Text("Notch").tag(DisplayMode.notch)
                     Text("Floating HUD").tag(DisplayMode.hud)
@@ -114,7 +120,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 440, height: 600)
+        .frame(width: 440, height: 640)
         .onAppear {
             settings.refreshAccounts(lock: app.lock)
             settings.legacyScheduler = SchedulerRunner.legacyJobLoaded()

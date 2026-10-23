@@ -11,6 +11,10 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ## [Unreleased]
 
+### Changed
+
+- The Mac app's dashboard window now opens full screen the first time it is shown in a session; Settings > Display > "Dashboard window opens" switches it to maximized or the standard window.
+
 ### Fixed
 
 - A running `loopx serve` rewrites `loopx.lock` within a few seconds if it disappears (for example when the data directory is removed under it), so the Mac app finds the backend instead of retrying forever against a port that is already in use.

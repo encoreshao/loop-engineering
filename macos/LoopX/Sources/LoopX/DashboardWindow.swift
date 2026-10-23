@@ -10,6 +10,8 @@ final class DashboardWindowController: NSObject, WKNavigationDelegate, WKUIDeleg
     private(set) var webView: WKWebView?
     private var loadedBase: URL?
     var baseURLProvider: () -> URL? = { nil }
+    var modeProvider: () -> DashboardWindowMode = { .fullScreen }
+    private var sizedThisSession = false
     /// Why there is no backend yet ("Starting…" or the failure), shown in place of the page.
     var statusProvider: () -> (text: String, failed: Bool) = { ("Starting the backend…", false) }
     /// Asked to bring a backend up when the window opens without one.
@@ -43,6 +45,22 @@ final class DashboardWindowController: NSObject, WKNavigationDelegate, WKUIDeleg
     private func present() {
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+        applyModeOnce()
+    }
+
+    /// The first time the window is shown in a session it opens full screen (or maximized, or as
+    /// the remembered standard window, per Settings); after that the user's own sizing is left alone.
+    private func applyModeOnce() {
+        guard !sizedThisSession, let w = window else { return }
+        sizedThisSession = true
+        switch modeProvider() {
+        case .fullScreen:
+            if !w.styleMask.contains(.fullScreen) { w.toggleFullScreen(nil) }
+        case .maximized:
+            if let f = (w.screen ?? NSScreen.main)?.visibleFrame { w.setFrame(f, display: true, animate: false) }
+        case .standard:
+            break
+        }
     }
 
     func ensureWindow() {
@@ -56,6 +74,7 @@ final class DashboardWindowController: NSObject, WKNavigationDelegate, WKUIDeleg
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 780),
                          styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         w.title = "LoopX"
+        w.collectionBehavior.insert(.fullScreenPrimary)
         w.contentView = wv
         w.isReleasedWhenClosed = false
         w.setFrameAutosaveName("LoopXDashboard")
