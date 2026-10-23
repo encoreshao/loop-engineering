@@ -55,9 +55,9 @@ import Testing
 
     @Test func defaultURLHonoursLoopEngineeringHomeThenHome() {
         #expect(LockFile.defaultURL(environment: ["LOOP_ENGINEERING_HOME": "/tmp/x"]).path == "/tmp/x/loopx.lock")
-        #expect(LockFile.defaultURL(environment: ["HOME": "/Users/u"]).path == "/Users/u/.loop-engineering/loopx.lock")
+        #expect(LockFile.defaultURL(environment: ["HOME": "/Users/u"]).path == "/Users/u/.loopx/loopx.lock")
         #expect(LockFile.defaultURL(environment: ["LOOP_ENGINEERING_HOME": "", "HOME": "/Users/u"]).path
-                == "/Users/u/.loop-engineering/loopx.lock")
+                == "/Users/u/.loopx/loopx.lock")
     }
 }
 

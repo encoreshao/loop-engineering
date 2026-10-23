@@ -40,7 +40,7 @@ docs/superpowers/
 
 # Personal config, written by bin/scripts/setup.sh and the dashboard's
 # Instructions page into this same directory when it doubles as the
-# install target (~/.loop-engineering) - never project source.
+# install target (~/.loopx) - never project source.
 /projects.json
 /topics.json
 /instructions.md
@@ -50,7 +50,7 @@ docs/superpowers/
 launchd/*.plist
 
 # Per-issue git worktrees for tracked projects, created under the default
-# worktree_root (~/.loop-engineering/worktrees) - other repos' own
+# worktree_root (~/.loopx/worktrees) - other repos' own
 # checkouts (each with its own .git), never this repo's source.
 /worktrees/
 

@@ -544,7 +544,7 @@
   "Theme": "主题",
   "Thinking…": "思考中…",
   "Analyzing results…": "正在分析结果…",
-  "This loop's own ~/.loop-engineering/projects.json - where each project lives locally, its target branch and install/lint/test commands, and (if it differs from the default instance above) which GitLab instance it's on. Different from \"Project aliases\" above, which is only about GitLab API auth routing.": "此循环自身的 ~/.loop-engineering/projects.json —— 包括每个项目的本地位置、目标分支、install/lint/test 命令，以及（若与上方默认实例不同）所在的 GitLab 实例。它不同于上方的“项目别名”，后者仅用于 GitLab API 认证路由。",
+  "This loop's own ~/.loopx/projects.json - where each project lives locally, its target branch and install/lint/test commands, and (if it differs from the default instance above) which GitLab instance it's on. Different from \"Project aliases\" above, which is only about GitLab API auth routing.": "此循环自身的 ~/.loopx/projects.json —— 包括每个项目的本地位置、目标分支、install/lint/test 命令，以及（若与上方默认实例不同）所在的 GitLab 实例。它不同于上方的“项目别名”，后者仅用于 GitLab API 认证路由。",
   "This project's README, rendered here for reference.": "本项目的 README，在此呈现以供参考。",
   "Title": "标题",
   "Today": "今天",

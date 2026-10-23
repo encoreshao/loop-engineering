@@ -1,4 +1,4 @@
-//! Per-machine topic configuration: `~/.loop-engineering/topics.json`, a JSON
+//! Per-machine topic configuration: `~/.loopx/topics.json`, a JSON
 //! array of topics. Mirrors the read side of `bin/topic_config.py`.
 
 use crate::config::home_dir;

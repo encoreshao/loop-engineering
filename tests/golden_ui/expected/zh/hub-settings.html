@@ -178,7 +178,7 @@
 </div><div data-tab-panel='instructions' hidden>
 <section class="card">
 <div class="section-header"><span class='material-symbols-outlined' aria-hidden='true'>edit_note</span><h2>你的指令</h2></div>
-<p class="section-subtitle">每次循环运行时加入 Codex CLI 系统提示词的特定指令。保存在 <code>~/.loop-engineering/instructions.md</code>——在每次运行开始时读取,作为 <code>instructions/</code> 现有内容之外的补充。 若只针对某个循环，请在 <code>~/.loop-engineering/instructions/</code> 下添加文件（gitlab-issue.md、topic-monitor.md 或 inbox-triage.md）。</p>
+<p class="section-subtitle">每次循环运行时加入 Codex CLI 系统提示词的特定指令。保存在 <code>~/.loopx/instructions.md</code>——在每次运行开始时读取,作为 <code>instructions/</code> 现有内容之外的补充。 若只针对某个循环，请在 <code>~/.loopx/instructions/</code> 下添加文件（gitlab-issue.md、topic-monitor.md 或 inbox-triage.md）。</p>
 <form method='post' action='/instructions' class='daemon-action-form'>
 <input type='hidden' name='csrf_token' value="golden-csrf-token">
 <textarea name='instructions' class='instructions-textarea' rows='24' placeholder="例如:使用描述性的提交信息。不要修改 vendor/ 下的文件。"></textarea>

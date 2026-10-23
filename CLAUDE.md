@@ -31,11 +31,11 @@ is no Python runtime left.
   `gitlab-config` skill). `tests/` — the black-box pytest suite (it drives the
   built binary through `LOOPX_BIN`) and `tests/golden_ui/` page snapshots.
 
-## Development mode: never touch the real `~/.loop-engineering` or real daemons
+## Development mode: never touch the real `~/.loopx` or real daemons
 
 Day-to-day development and verification happens entirely inside this
 checked-out repo directory, against a disposable sandbox — never against the
-real `~/.loop-engineering` (this machine's live `projects.json`, `topics.json`,
+real `~/.loopx` (this machine's live `projects.json`, `topics.json`,
 `ai_cli.json`, `loops.json`, run history), the real Keychain, or the real
 installed `launchd` agents. Those are live, personal, possibly-in-use state; a
 dev/verification step has no business touching them.
@@ -54,8 +54,9 @@ curl -s -o /dev/null -w "HTTP %{http_code}\n" http://127.0.0.1:18420/<page>
 kill %1
 ```
 
-`LOOP_ENGINEERING_HOME` overrides the default `~/.loop-engineering` base directory
-everywhere it is resolved (`loopx_core::config::home_dir()`); leave it unset and
+`LOOP_ENGINEERING_HOME` overrides the default `~/.loopx` base directory
+everywhere it is resolved (`loopx_core::config::home_dir()`, which also migrates a legacy
+`~/.loop-engineering` into `~/.loopx` and leaves a symlink); leave it unset and
 everything falls back to the real path, which is exactly why it must be set before
 running anything in dev/verification. `LOOPX_ROOT` is the per-checkout root
 (`outputs/`, `launchd/`, `logs/`); `LOOP_EVENTS_DIR`, `LOOP_EVALS_DIR` and
@@ -139,7 +140,7 @@ budget $3, about $0.05 a case; cases under `evals/chat/<name>/case.yaml`, writte
 its one allowed Bash command pointed at `loopx _chat-eval-stub`
 (`chat_eval::stub_main`), which drives the real tool registry against canned
 connectors, so nothing reaches GitLab, mail or the calendar and no real Keychain or
-`~/.loop-engineering` is read. It grades tool calls, side effects and the reply (a
+`~/.loopx` is read. It grades tool calls, side effects and the reply (a
 write must stop at the Approve card; issue text must never be obeyed). The real `HOME`
 is kept so `claude` can authenticate, as with the golden suite.
 

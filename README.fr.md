@@ -132,7 +132,7 @@ bin/scripts/build_loopx_app.sh target/release/loopx   # -> dist/LoopX.app, l'app
 bin/scripts/uninstall-loopx.sh --keep-config   # sans --keep-config, tout est supprimé
 ```
 
-Supprime les agents `launchd` de l'installation, arrête le backend en cours (`loopx.lock`), puis supprime les éléments du Trousseau `loop-engineering.*` et le répertoire d'installation (`~/.loop-engineering` par défaut ; passez `--project-dir` pour un autre). `--keep-config` conserve `projects.json`, `topics.json`, `loops.json` et `ai_cli.json` ; `--remove-app` supprime aussi `LoopX.app` ; `--keep-keychain` ne touche pas au Trousseau. Peut être relancé sans risque ; terminez une installation Homebrew avec `brew uninstall loopx`.
+Supprime les agents `launchd` de l'installation, arrête le backend en cours (`loopx.lock`), puis supprime les éléments du Trousseau `loop-engineering.*` et le répertoire d'installation (`~/.loopx` par défaut ; passez `--project-dir` pour un autre). `--keep-config` conserve `projects.json`, `topics.json`, `loops.json` et `ai_cli.json` ; `--remove-app` supprime aussi `LoopX.app` ; `--keep-keychain` ne touche pas au Trousseau. Peut être relancé sans risque ; terminez une installation Homebrew avec `brew uninstall loopx`.
 
 
 ## Arborescence des répertoires
@@ -194,7 +194,7 @@ loopx config worktree-root          # où sont créés les worktrees par ticket
 
 Si `~/.loopx/projects.json` n'existe pas encore, toute commande qui en a besoin échoue immédiatement avec un message le disant — rien ne devine silencieusement les chemins. Enregistrez un projet depuis la page **Loops → GitLab Issues → Projects** du tableau de bord, ou copiez `config/projects.json.template`.
 
-Remarque : tant que le code n'a pas basculé, le répertoire par défaut sur disque reste `~/.loop-engineering` ; ce document écrit `~/.loopx` partout. Définissez `LOOP_ENGINEERING_HOME` pour que loopx utilise un autre répertoire.
+Remarque : ce répertoire s'appelait `~/.loop-engineering`. Le premier lancement de `loopx` (ou `install-loopx.sh`) déplace un répertoire existant vers `~/.loopx` et laisse un lien symbolique à l'ancien nom, de sorte que les chemins déjà écrits dans vos configurations et plists launchd continuent de fonctionner. Définissez `LOOP_ENGINEERING_HOME` pour que loopx utilise un autre répertoire.
 
 **Access bundles** — surcharges de jeton/webhook par projet
 

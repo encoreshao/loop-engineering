@@ -18,7 +18,7 @@ set -euo pipefail
 #     LOOP_ENGINEERING_HOME is set (a sandboxed run), and then only the one
 #     for that home; without it, sandbox services are never touched.
 #     --keep-keychain leaves them all.
-#   - The project directory (default ~/.loop-engineering: the loopx binary,
+#   - The project directory (default ~/.loopx: the loopx binary,
 #     config, run history and, for a legacy install.sh install, the clone):
 #     removed, or with --keep-config everything is removed EXCEPT
 #     projects.json, topics.json, loops.json and ai_cli.json.
@@ -53,7 +53,8 @@ else
   LOOP_DIR=""
 fi
 
-DEFAULT_PROJECT_DIR="$HOME/.loop-engineering"
+DEFAULT_PROJECT_DIR="$HOME/.loopx"
+LEGACY_PROJECT_DIR="$HOME/.loop-engineering"
 DEFAULT_LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 PROJECT_DIR="$DEFAULT_PROJECT_DIR"
 PROJECT_DIR_GIVEN=0
@@ -86,6 +87,12 @@ SECURITY_CMD="${LOOPX_SECURITY_CMD:-}"
 
 # Refuse before touching anything when a different checkout's copy of this
 # script is run bare against the default (possibly real) install.
+# A pre-rename install still lives at ~/.loop-engineering (loopx moves it on first run).
+if [ "$PROJECT_DIR_GIVEN" -eq 0 ] && [ ! -e "$PROJECT_DIR" ] && [ -d "$LEGACY_PROJECT_DIR" ] && [ ! -L "$LEGACY_PROJECT_DIR" ]; then
+  PROJECT_DIR="$LEGACY_PROJECT_DIR"
+  DEFAULT_PROJECT_DIR="$LEGACY_PROJECT_DIR"
+fi
+
 if [ "$PROJECT_DIR_GIVEN" -eq 0 ] && [ -n "$LOOP_DIR" ] && [ "$LOOP_DIR" != "$PROJECT_DIR" ]; then
   echo "${C_RED}Refusing to uninstall $PROJECT_DIR: this uninstall-loopx.sh is running from $LOOP_DIR, a different directory.${C_RESET}" >&2
   echo "If you're really uninstalling that real install, pass --project-dir '$PROJECT_DIR' to confirm. If you're developing on a separate clone, pass --project-dir (and --launch-agents-dir) pointing at a scratch directory instead." >&2
@@ -242,6 +249,10 @@ elif [ "$KEEP_CONFIG" -eq 1 ]; then
 else
   rm -rf "$PROJECT_DIR"
   echo "${C_GREEN}    Removed $PROJECT_DIR${C_RESET}"
+  # The compatibility symlink the move left behind now dangles.
+  if [ "$PROJECT_DIR_GIVEN" -eq 0 ] && [ -L "$LEGACY_PROJECT_DIR" ] && [ ! -e "$LEGACY_PROJECT_DIR" ]; then
+    rm -f "$LEGACY_PROJECT_DIR"
+  fi
 fi
 
 cat <<EOF

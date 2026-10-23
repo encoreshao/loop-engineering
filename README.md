@@ -132,7 +132,7 @@ bin/scripts/build_loopx_app.sh target/release/loopx   # -> dist/LoopX.app, the S
 bin/scripts/uninstall-loopx.sh --keep-config   # omit --keep-config to remove everything
 ```
 
-Removes the install's `launchd` agents, stops the running backend (`loopx.lock`), and deletes the `loop-engineering.*` Keychain items and the install directory (`~/.loop-engineering` by default; pass `--project-dir` for another). `--keep-config` keeps `projects.json`, `topics.json`, `loops.json` and `ai_cli.json`; `--remove-app` also deletes `LoopX.app`; `--keep-keychain` leaves the Keychain alone. Safe to re-run; finish a Homebrew install with `brew uninstall loopx`.
+Removes the install's `launchd` agents, stops the running backend (`loopx.lock`), and deletes the `loop-engineering.*` Keychain items and the install directory (`~/.loopx` by default; pass `--project-dir` for another). `--keep-config` keeps `projects.json`, `topics.json`, `loops.json` and `ai_cli.json`; `--remove-app` also deletes `LoopX.app`; `--keep-keychain` leaves the Keychain alone. Safe to re-run; finish a Homebrew install with `brew uninstall loopx`.
 
 
 ## Directory layout
@@ -194,7 +194,7 @@ loopx config worktree-root          # where per-issue worktrees get created
 
 If `~/.loopx/projects.json` doesn't exist yet, every command that needs it fails fast with a message saying so — nothing silently guesses paths. Save a project from the dashboard's **Loops → GitLab Issues → Projects** page, or copy `config/projects.json.template`.
 
-Note: until the code is switched over, the on-disk default directory is still `~/.loop-engineering`; this document writes `~/.loopx` throughout. Set `LOOP_ENGINEERING_HOME` to make loopx use a different directory.
+Note: the directory used to be `~/.loop-engineering`. The first `loopx` run (or `install-loopx.sh`) moves an existing one to `~/.loopx` and leaves a symlink at the old name, so paths already written into your configs and launchd plists keep working. Set `LOOP_ENGINEERING_HOME` to make loopx use a different directory.
 
 **Access bundles** — per-project token/webhook overrides
 

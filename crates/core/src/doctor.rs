@@ -21,7 +21,7 @@ const VERSION_TIMEOUT: Duration = Duration::from_secs(3);
 pub struct Env {
     /// The user's home (`$HOME`): `~/.gitlab`, `~/.slack`, `~/.encore-skills`.
     pub home: PathBuf,
-    /// `$LOOP_ENGINEERING_HOME`, else `<home>/.loop-engineering`.
+    /// `$LOOP_ENGINEERING_HOME`, else `<home>/.loopx`.
     pub loop_home: PathBuf,
     /// A `PATH`-style, colon-separated list of directories.
     pub path: String,
@@ -32,7 +32,10 @@ impl Env {
         let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
         let loop_home = std::env::var_os("LOOP_ENGINEERING_HOME")
             .map(PathBuf::from)
-            .unwrap_or_else(|| home.join(".loop-engineering"));
+            .unwrap_or_else(|| {
+                crate::config::migrate_legacy_home(&home);
+                crate::config::default_home_under(&home)
+            });
         let path = std::env::var("PATH").unwrap_or_default();
         Self {
             home,
@@ -352,7 +355,7 @@ mod tests {
         std::fs::create_dir_all(&home).unwrap();
         std::fs::create_dir_all(&bin).unwrap();
         let env = Env {
-            loop_home: home.join(".loop-engineering"),
+            loop_home: home.join(".loopx"),
             home,
             path: bin.display().to_string(),
         };

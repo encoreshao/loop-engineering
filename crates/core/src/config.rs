@@ -1,4 +1,4 @@
-//! Per-machine project configuration: `~/.loop-engineering/projects.json`.
+//! Per-machine project configuration: `~/.loopx/projects.json`.
 //! Mirrors `bin/loop_config.py`; see docs/contract/json-files.md.
 
 use serde_json::{Map, Value};
@@ -21,13 +21,47 @@ pub enum ConfigError {
     UnknownAlias(String),
 }
 
-/// `$LOOP_ENGINEERING_HOME`, else `$HOME/.loop-engineering`.
+/// The name of the per-machine directory under `$HOME`.
+pub const HOME_DIR_NAME: &str = ".loopx";
+/// What it was called before the move; kept as a symlink to the new directory so
+/// absolute paths already written into configs and launchd plists keep working.
+pub const LEGACY_HOME_DIR_NAME: &str = ".loop-engineering";
+
+/// `$LOOP_ENGINEERING_HOME`, else `$HOME/.loopx` (migrating a legacy
+/// `$HOME/.loop-engineering` into it the first time, once per process).
 pub fn home_dir() -> PathBuf {
     if let Some(h) = std::env::var_os("LOOP_ENGINEERING_HOME") {
         return PathBuf::from(h);
     }
-    let home = std::env::var_os("HOME").unwrap_or_default();
-    PathBuf::from(home).join(".loop-engineering")
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    static MIGRATED: std::sync::Once = std::sync::Once::new();
+    MIGRATED.call_once(|| {
+        migrate_legacy_home(&home);
+    });
+    home.join(HOME_DIR_NAME)
+}
+
+/// The per-machine directory under `home`, without migrating anything.
+pub fn default_home_under(home: &Path) -> PathBuf {
+    home.join(HOME_DIR_NAME)
+}
+
+/// Moves `<home>/.loop-engineering` to `<home>/.loopx` and leaves a symlink at the
+/// old name, but only when the old one is a real directory and the new one does not
+/// exist. Never touches anything when both exist. Returns whether it moved.
+pub fn migrate_legacy_home(home: &Path) -> bool {
+    let old = home.join(LEGACY_HOME_DIR_NAME);
+    let new = home.join(HOME_DIR_NAME);
+    let old_is_real_dir = std::fs::symlink_metadata(&old).is_ok_and(|m| m.is_dir());
+    if !old_is_real_dir || std::fs::symlink_metadata(&new).is_ok() {
+        return false;
+    }
+    if std::fs::rename(&old, &new).is_err() {
+        return false;
+    }
+    // Best effort: without the symlink only configs that hard-code the old path break.
+    let _ = std::os::unix::fs::symlink(&new, &old);
+    true
 }
 
 pub fn default_config_path() -> PathBuf {
@@ -166,5 +200,43 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let err = Config::load(&d.path().join("projects.json")).err().unwrap();
         assert!(err.to_string().starts_with("No project config at"));
+    }
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use super::*;
+
+    #[test]
+    fn a_legacy_home_moves_and_leaves_a_symlink_behind() {
+        let d = tempfile::tempdir().unwrap();
+        let old = d.path().join(".loop-engineering");
+        std::fs::create_dir_all(old.join("worktrees")).unwrap();
+        std::fs::write(old.join("projects.json"), "{}").unwrap();
+        assert!(migrate_legacy_home(d.path()));
+        let new = d.path().join(".loopx");
+        assert_eq!(
+            std::fs::read_to_string(new.join("projects.json")).unwrap(),
+            "{}"
+        );
+        assert!(std::fs::symlink_metadata(&old)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        // Paths written under the old name still resolve.
+        assert!(old.join("projects.json").is_file());
+        // A second run is a no-op.
+        assert!(!migrate_legacy_home(d.path()));
+    }
+
+    #[test]
+    fn nothing_moves_when_both_exist_or_neither_does() {
+        let d = tempfile::tempdir().unwrap();
+        assert!(!migrate_legacy_home(d.path()));
+        std::fs::create_dir_all(d.path().join(".loop-engineering")).unwrap();
+        std::fs::create_dir_all(d.path().join(".loopx")).unwrap();
+        std::fs::write(d.path().join(".loop-engineering/keep"), "x").unwrap();
+        assert!(!migrate_legacy_home(d.path()));
+        assert!(d.path().join(".loop-engineering/keep").is_file());
     }
 }

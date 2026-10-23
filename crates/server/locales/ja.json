@@ -544,7 +544,7 @@
   "Theme": "テーマ",
   "Thinking…": "考え中…",
   "Analyzing results…": "結果を分析中…",
-  "This loop's own ~/.loop-engineering/projects.json - where each project lives locally, its target branch and install/lint/test commands, and (if it differs from the default instance above) which GitLab instance it's on. Different from \"Project aliases\" above, which is only about GitLab API auth routing.": "このループ専用の ~/.loop-engineering/projects.json です。各プロジェクトのローカルの場所、ターゲットブランチ、install/lint/test コマンド、そして（上記のデフォルトインスタンスと異なる場合は）どの GitLab インスタンス上にあるかを設定します。上の「プロジェクトエイリアス」は GitLab API の認証ルーティング専用なので、別物です。",
+  "This loop's own ~/.loopx/projects.json - where each project lives locally, its target branch and install/lint/test commands, and (if it differs from the default instance above) which GitLab instance it's on. Different from \"Project aliases\" above, which is only about GitLab API auth routing.": "このループ専用の ~/.loopx/projects.json です。各プロジェクトのローカルの場所、ターゲットブランチ、install/lint/test コマンド、そして（上記のデフォルトインスタンスと異なる場合は）どの GitLab インスタンス上にあるかを設定します。上の「プロジェクトエイリアス」は GitLab API の認証ルーティング専用なので、別物です。",
   "This project's README, rendered here for reference.": "このプロジェクトの README を参照用に表示しています。",
   "Title": "タイトル",
   "Today": "今日",

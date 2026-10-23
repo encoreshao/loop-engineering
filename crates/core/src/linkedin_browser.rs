@@ -471,7 +471,7 @@ pub struct Session {
 }
 
 impl Session {
-    /// Open the account's persistent profile (`~/.loop-engineering/linkedin/<id>/profile`).
+    /// Open the account's persistent profile (`~/.loopx/linkedin/<id>/profile`).
     pub fn open(account_id: &str, human: Arc<Humanizer>, opts: &SessionOptions) -> Result<Self, BrowserError> {
         let profile = linkedin_session::ensure_profile(account_id).map_err(|e| BrowserError::Other {
             class: "SessionError".into(),

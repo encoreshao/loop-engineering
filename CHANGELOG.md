@@ -17,6 +17,7 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Changed
 
+- The per-machine directory is now `~/.loopx` (was `~/.loop-engineering`). The first `loopx` run, `install-loopx.sh` or the Mac app's backend moves an existing one and leaves a symlink at the old name, so existing configs, worktree paths and launchd plists keep working; `uninstall-loopx.sh` finds either. `LOOP_ENGINEERING_HOME` still overrides it, and the Keychain service names are unchanged.
 - The Mac app no longer checks for a legacy `com.hermes.loop-engineering` launchd scheduler before running scheduled loops, and Settings no longer warns about one.
 - The Update page and banner only report that origin is ahead (and let you check again); upgrading is done by Sparkle (the app) or Homebrew / `install-loopx.sh --upgrade` (the binary).
 - `loopx serve --no-legacy` is accepted and ignored; the legacy Python dashboard no longer exists.

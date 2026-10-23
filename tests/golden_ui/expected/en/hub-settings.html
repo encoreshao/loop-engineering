@@ -178,7 +178,7 @@
 </div><div data-tab-panel='instructions' hidden>
 <section class="card">
 <div class="section-header"><span class='material-symbols-outlined' aria-hidden='true'>edit_note</span><h2>Your instructions</h2></div>
-<p class="section-subtitle">Include specific instructions in Codex CLI's system prompt whenever the loop runs. Saved to <code>~/.loop-engineering/instructions.md</code> - read at the start of every run, on top of everything already in <code>instructions/</code>. For one loop only, add a file under <code>~/.loop-engineering/instructions/</code> (gitlab-issue.md, topic-monitor.md or inbox-triage.md).</p>
+<p class="section-subtitle">Include specific instructions in Codex CLI's system prompt whenever the loop runs. Saved to <code>~/.loopx/instructions.md</code> - read at the start of every run, on top of everything already in <code>instructions/</code>. For one loop only, add a file under <code>~/.loopx/instructions/</code> (gitlab-issue.md, topic-monitor.md or inbox-triage.md).</p>
 <form method='post' action='/instructions' class='daemon-action-form'>
 <input type='hidden' name='csrf_token' value="golden-csrf-token">
 <textarea name='instructions' class='instructions-textarea' rows='24' placeholder="e.g. Prefer descriptive commit messages. Never touch files under vendor/."></textarea>

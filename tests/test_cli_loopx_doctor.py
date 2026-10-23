@@ -106,7 +106,7 @@ def test_credentials_are_checked_but_tokens_never_printed(machine):
 
 def test_skill_dir_and_loop_config_files(machine):
     (machine["home"] / ".encore-skills" / "skills" / "gitlab-config").mkdir(parents=True)
-    cfg = machine["home"] / ".loop-engineering"
+    cfg = machine["home"] / ".loopx"
     cfg.mkdir()
     for n in ("projects.json", "loops.json", "topics.json"):
         (cfg / n).write_text("{}")
@@ -116,7 +116,7 @@ def test_skill_dir_and_loop_config_files(machine):
 
 
 def test_live_and_stale_lock(machine):
-    cfg = machine["home"] / ".loop-engineering"
+    cfg = machine["home"] / ".loopx"
     cfg.mkdir()
     lock = cfg / "loopx.lock"
     body = lambda pid: json.dumps(

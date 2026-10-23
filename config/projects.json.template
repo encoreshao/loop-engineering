@@ -1,7 +1,7 @@
 {
   "gitlab_instance": "loop",
   "assignee_username": "YOUR_GITLAB_USERNAME",
-  "worktree_root": "{{HOME}}/.loop-engineering/worktrees",
+  "worktree_root": "{{HOME}}/.loopx/worktrees",
   "projects": {
     "brightleaf.web": {
       "project_id": "loop/brightleaf/brightleaf.web",

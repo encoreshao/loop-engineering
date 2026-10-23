@@ -5,7 +5,7 @@ use loopx_core::pyjson;
 use serde_json::{Map, Value};
 use std::process::ExitCode;
 
-const USAGE: &str = "Usage: loopx issues list [username] [project_alias...] (with no arguments, both default from ~/.loop-engineering/projects.json)";
+const USAGE: &str = "Usage: loopx issues list [username] [project_alias...] (with no arguments, both default from ~/.loopx/projects.json)";
 
 pub fn list(args: &[String]) -> ExitCode {
     match run_list(args) {

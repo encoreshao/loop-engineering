@@ -41,6 +41,8 @@ pub fn allowed_tools(exe: &str) -> String {
         "Read(**/docs/tasks/topic-monitor-loop.md)".into(),
         "Read(**/.loop-engineering/instructions.md)".into(),
         "Read(**/.loop-engineering/instructions/topic-monitor.md)".into(),
+        "Read(**/.loopx/instructions.md)".into(),
+        "Read(**/.loopx/instructions/topic-monitor.md)".into(),
         "WebSearch".into(),
         "WebFetch".into(),
         "Bash(cd *)".into(),

@@ -255,9 +255,9 @@ Saved to {path} - read at the start of every run, on top of everything already i
 For one loop only, add a file under {per_loop} (gitlab-issue.md, topic-monitor.md or inbox-triage.md).",
         &[
             ("cli", &pyfmt::escape(&display_name(current_cli))),
-            ("path", "<code>~/.loop-engineering/instructions.md</code>"),
+            ("path", "<code>~/.loopx/instructions.md</code>"),
             ("spec", "<code>instructions/</code>"),
-            ("per_loop", "<code>~/.loop-engineering/instructions/</code>"),
+            ("per_loop", "<code>~/.loopx/instructions/</code>"),
         ],
     );
     let mut scope = Scope::new(ctx.lang);

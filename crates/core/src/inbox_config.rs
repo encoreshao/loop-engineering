@@ -1,4 +1,4 @@
-//! The Inbox Triage loop's per-machine config: `~/.loop-engineering/inboxes.json`
+//! The Inbox Triage loop's per-machine config: `~/.loopx/inboxes.json`
 //! (which mailboxes to triage, and how) and `mail_oauth.json` (the one-time OAuth
 //! app credentials). Mirrors `bin/inbox_config.py`. Refresh tokens are NOT here:
 //! they live in the Keychain (see [`crate::mail_auth`]).

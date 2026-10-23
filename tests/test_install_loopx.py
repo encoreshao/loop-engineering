@@ -3,7 +3,7 @@
 Everything runs against a fake release laid out in a tmp dir (served over
 file://, and once over a local HTTP server), a scratch HOME, a scratch --dir and
 --launch-agents-dir, and a fake `launchctl` first on PATH - never the real
-~/.loop-engineering, ~/Library/LaunchAgents or launchd (see CLAUDE.md).
+~/.loopx, ~/Library/LaunchAgents or launchd (see CLAUDE.md).
 """
 import hashlib
 import http.server
@@ -162,7 +162,7 @@ def test_install_scaffolds_config_with_home_substituted(box):
         assert (box.dir / name).is_file(), name
     projects = (box.dir / "projects.json").read_text()
     assert "{{HOME}}" not in projects
-    assert json.loads(projects)["worktree_root"] == f"{box.home}/.loop-engineering/worktrees"
+    assert json.loads(projects)["worktree_root"] == f"{box.home}/.loopx/worktrees"
 
 
 def test_install_seeds_scheduler_state_for_every_loop_with_todays_date(box):
@@ -328,7 +328,7 @@ def test_default_dir_is_dot_loop_engineering_under_home(tmp_path):
     subprocess.run(
         ["bash", str(SCRIPT), "--skip-service"], check=True, capture_output=True, text=True, env=box.env(),
     )
-    assert (box.home / ".loop-engineering" / "bin" / "loopx").exists()
+    assert (box.home / ".loopx" / "bin" / "loopx").exists()
 
 
 def test_install_over_http_with_a_local_server(tmp_path):
@@ -474,3 +474,15 @@ def test_installs_the_real_loopx_binary(tmp_path):
     )
     report = json.loads(doctor.stdout)
     assert all(report["config"][k]["valid"] for k in ("projects", "loops", "topics"))
+
+
+def test_a_pre_rename_install_dir_is_moved_and_leaves_a_symlink(box):
+    legacy = box.home / ".loop-engineering"
+    legacy.mkdir()
+    (legacy / "projects.json").write_text('{"mine": true}')
+    cmd = ["bash", str(SCRIPT), "--launch-agents-dir", str(box.agents)]  # default --dir
+    subprocess.run(cmd, check=True, capture_output=True, text=True, env=box.env())
+    new = box.home / ".loopx"
+    assert json.loads((new / "projects.json").read_text()) == {"mine": True}
+    assert legacy.is_symlink() and legacy.resolve() == new.resolve()
+    assert (new / "bin" / "loopx").exists()

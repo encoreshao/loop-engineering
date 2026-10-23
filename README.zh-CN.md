@@ -128,7 +128,7 @@ bin/scripts/build_loopx_app.sh target/release/loopx   # -> dist/LoopX.app，包�
 bin/scripts/uninstall-loopx.sh --keep-config   # 去掉 --keep-config 则全部删除
 ```
 
-删除此安装的 `launchd` 代理，停止正在运行的后端（`loopx.lock`），并删除 `loop-engineering.*` 钥匙串条目和安装目录（默认 `~/.loop-engineering`；传入 `--project-dir` 可指定其他位置）。`--keep-config` 保留 `projects.json`、`topics.json`、`loops.json` 和 `ai_cli.json`；`--remove-app` 同时删除 `LoopX.app`；`--keep-keychain` 不动钥匙串。可安全地重复运行；通过 Homebrew 安装的，最后再运行 `brew uninstall loopx`。
+删除此安装的 `launchd` 代理，停止正在运行的后端（`loopx.lock`），并删除 `loop-engineering.*` 钥匙串条目和安装目录（默认 `~/.loopx`；传入 `--project-dir` 可指定其他位置）。`--keep-config` 保留 `projects.json`、`topics.json`、`loops.json` 和 `ai_cli.json`；`--remove-app` 同时删除 `LoopX.app`；`--keep-keychain` 不动钥匙串。可安全地重复运行；通过 Homebrew 安装的，最后再运行 `brew uninstall loopx`。
 
 
 ## 目录结构
@@ -190,7 +190,7 @@ loopx config worktree-root          # 每个 issue 的 worktree 创建位置
 
 如果 `~/.loopx/projects.json` 尚不存在，每个需要它的命令都会立即失败并给出提示——不会悄悄猜测路径。可以在仪表盘的 **Loops → GitLab Issues → Projects** 页面保存项目，或复制 `config/projects.json.template`。
 
-注意：在代码切换之前，磁盘上的默认目录仍然是 `~/.loop-engineering`；本文档统一写作 `~/.loopx`。设置 `LOOP_ENGINEERING_HOME` 可让 loopx 使用其他目录。
+注意：该目录以前是 `~/.loop-engineering`。首次运行 `loopx`（或 `install-loopx.sh`）会把已有目录移动到 `~/.loopx`，并在旧名称处留下符号链接，因此写入配置和 launchd plist 的旧路径仍然有效。设置 `LOOP_ENGINEERING_HOME` 可让 loopx 使用其他目录。
 
 **Access bundles（访问包）**——按项目覆盖令牌/webhook
 

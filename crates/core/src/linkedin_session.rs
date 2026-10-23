@@ -1,5 +1,5 @@
 //! Where the LinkedIn browser profile (the logged-in session) lives (mirrors
-//! `bin/linkedin_session.py`): `<LOOP_ENGINEERING_HOME or ~/.loop-engineering>/
+//! `bin/linkedin_session.py`): `<LOOP_ENGINEERING_HOME or ~/.loopx>/
 //! linkedin/<account_id>/profile/`, mode 0700, outside the repo. Resolved at
 //! call time so a sandboxed run never reaches the real profile. No password is
 //! ever stored - only the browser's own session cookies; the 0700 mode and

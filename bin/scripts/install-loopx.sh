@@ -54,7 +54,7 @@ else
   C_BLUE=""; C_GREEN=""; C_YELLOW=""; C_RED=""; C_RESET=""
 fi
 
-DIR="$HOME/.loop-engineering"
+DIR="$HOME/.loopx"
 REPO_SLUG="encoreshao/loop-engineering"
 VERSION=""
 RELEASE_BASE="${LOOPX_RELEASE_BASE:-}"
@@ -102,6 +102,15 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+# The directory used to be ~/.loop-engineering. Move an existing one into place and
+# leave a symlink at the old name, so paths already written into configs and launchd
+# plists keep working (loopx does the same on its first run).
+LEGACY_DIR="$HOME/.loop-engineering"
+if [ "$DIR" = "$HOME/.loopx" ] && [ -d "$LEGACY_DIR" ] && [ ! -L "$LEGACY_DIR" ] && [ ! -e "$DIR" ]; then
+  echo "${C_BLUE}==> Moving $LEGACY_DIR to $DIR (a symlink stays at the old path)${C_RESET}"
+  mv "$LEGACY_DIR" "$DIR" && ln -s "$DIR" "$LEGACY_DIR"
+fi
 
 : "${CONFIG_PATH:=$DIR/projects.json}"
 : "${TOPICS_CONFIG_PATH:=$DIR/topics.json}"

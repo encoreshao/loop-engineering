@@ -32,11 +32,11 @@ Build daily-review.md's seven sections from those events using the same judgment
 
 The `<alias> <issue_iid>` (no flag) dashboard mode described above is unaffected: it is a run of exactly one issue, so the "End of run" it does itself *is* that run's whole report.
 
-Then read any custom instructions the user has set, if present: `~/.loop-engineering/instructions.md` (global, applies to every loop; saved via the dashboard's **Settings** page's Instructions tab) and `~/.loop-engineering/instructions/gitlab-issue.md` (this loop only). Follow them for the rest of this run, on top of (never in place of) everything in this file, the per-loop file after the global one. It's fine, and expected, for either file to not exist or to be empty; that just means no additional instructions were set.
+Then read any custom instructions the user has set, if present: `~/.loopx/instructions.md` (global, applies to every loop; saved via the dashboard's **Settings** page's Instructions tab) and `~/.loopx/instructions/gitlab-issue.md` (this loop only). Follow them for the rest of this run, on top of (never in place of) everything in this file, the per-loop file after the global one. It's fine, and expected, for either file to not exist or to be empty; that just means no additional instructions were set.
 
 ## Configuration
 
-All project-specific facts — which projects to track, their GitLab project IDs, their local checkout paths, their target branch, their install/lint/test commands, which GitLab username to track, and the worktree scratch directory — live in `~/.loop-engineering/projects.json`, not in this file. This file is the same for every team member; the config file is per-machine.
+All project-specific facts — which projects to track, their GitLab project IDs, their local checkout paths, their target branch, their install/lint/test commands, which GitLab username to track, and the worktree scratch directory — live in `~/.loopx/projects.json`, not in this file. This file is the same for every team member; the config file is per-machine.
 
 ## `<loop_dir>`: always invoke this repo's scripts by absolute path
 
@@ -54,7 +54,7 @@ loopx config worktree-root            # where per-issue worktrees are created
 loopx memory get <instance> <project_id>  # legacy lessons learned on this project from prior runs
 loopx memory-store list <alias>                   # file-based task memory for prior issues on this project
 ```
-If `~/.loop-engineering/projects.json` does not exist, stop immediately and report that setup is incomplete — do not guess paths.
+If `~/.loopx/projects.json` does not exist, stop immediately and report that setup is incomplete — do not guess paths.
 
 ## Step 1: List today's issues
 
@@ -391,7 +391,7 @@ Claude's per-git-subcommand/per-glob allow list - the rules below become policy
 this document asks the agent to follow, not a technically enforced
 boundary. Switch to Codex only with that trade-off in mind.
 
-Allowed: `git status`, `git diff`, `git add`, and `git commit` scoped to the checkouts and worktrees listed in `~/.loop-engineering/projects.json`, plus `git push origin loop/issue-*` (issue branches only); the exact `install_cmd`/`lint_cmd`/`test_cmd` per project from that config; `cd`; the `loopx` helper subcommands this file names — `config`, `events`, `notify`, `gitlab` (and `gitlab cache`), `issues`, `memory`, `memory-store`, `risk`, `status`, `messages`, `worktree new` and `mr open` (never `loopx run`, `loopx serve` or any other subcommand); reading and editing files inside an issue's own worktree; reading/writing `PROGRESS.md` and `outputs/`.
+Allowed: `git status`, `git diff`, `git add`, and `git commit` scoped to the checkouts and worktrees listed in `~/.loopx/projects.json`, plus `git push origin loop/issue-*` (issue branches only); the exact `install_cmd`/`lint_cmd`/`test_cmd` per project from that config; `cd`; the `loopx` helper subcommands this file names — `config`, `events`, `notify`, `gitlab` (and `gitlab cache`), `issues`, `memory`, `memory-store`, `risk`, `status`, `messages`, `worktree new` and `mr open` (never `loopx run`, `loopx serve` or any other subcommand); reading and editing files inside an issue's own worktree; reading/writing `PROGRESS.md` and `outputs/`.
 
 When the harness gate is ON (`verification.mode: gate`), `loopx mr open` and `git push origin loop/issue-*` are removed from the allowlist and explicitly denied (the runner pushes and opens the MR itself after verification passes), and the agent may write its handoff JSON under `outputs/handoffs/`. On Codex this gate enforcement is prompt-only: Codex still receives the gate override and `LOOP_HANDOFF_PATH`, but has no per-command allowlist to technically block the script or the push.
 

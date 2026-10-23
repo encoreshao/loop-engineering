@@ -131,7 +131,7 @@ bin/scripts/build_loopx_app.sh target/release/loopx   # -> dist/LoopX.app（そ�
 bin/scripts/uninstall-loopx.sh --keep-config   # すべて削除するには --keep-config を外します
 ```
 
-インストールの `launchd` エージェントを削除し、実行中のバックエンドを停止（`loopx.lock`）し、`loop-engineering.*` のキーチェーン項目とインストールディレクトリ（既定は `~/.loop-engineering`。別の場所は `--project-dir` で指定）を削除します。`--keep-config` は `projects.json`・`topics.json`・`loops.json`・`ai_cli.json` を残し、`--remove-app` は `LoopX.app` も削除し、`--keep-keychain` はキーチェーンに触れません。再実行しても安全です。Homebrew でインストールした場合は `brew uninstall loopx` で仕上げてください。
+インストールの `launchd` エージェントを削除し、実行中のバックエンドを停止（`loopx.lock`）し、`loop-engineering.*` のキーチェーン項目とインストールディレクトリ（既定は `~/.loopx`。別の場所は `--project-dir` で指定）を削除します。`--keep-config` は `projects.json`・`topics.json`・`loops.json`・`ai_cli.json` を残し、`--remove-app` は `LoopX.app` も削除し、`--keep-keychain` はキーチェーンに触れません。再実行しても安全です。Homebrew でインストールした場合は `brew uninstall loopx` で仕上げてください。
 
 
 ## ディレクトリ構成
@@ -193,7 +193,7 @@ loopx config worktree-root          # issue ごとの worktree が作られる�
 
 `~/.loopx/projects.json` がまだ存在しない場合、それを必要とするコマンドはその旨のメッセージとともにすぐに失敗します。パスを黙って推測することはありません。ダッシュボードの **Loops → GitLab Issues → Projects** ページからプロジェクトを保存するか、`config/projects.json.template` をコピーしてください。
 
-注: コードが切り替わるまで、ディスク上の既定ディレクトリは引き続き `~/.loop-engineering` です。このドキュメントでは全体を通して `~/.loopx` と記載しています。別のディレクトリを使うには `LOOP_ENGINEERING_HOME` を設定してください。
+注: このディレクトリは以前 `~/.loop-engineering` でした。最初の `loopx` 実行（または `install-loopx.sh`）が既存のディレクトリを `~/.loopx` へ移動し、旧名のシンボリックリンクを残すため、設定や launchd plist に書かれた既存のパスはそのまま使えます。別のディレクトリを使うには `LOOP_ENGINEERING_HOME` を設定してください。
 
 **Access bundles** — プロジェクトごとのトークン/webhook の上書き
 

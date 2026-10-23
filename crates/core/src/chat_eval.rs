@@ -279,7 +279,7 @@ pub fn prepare_sandbox(case: &ChatCase, root: &Path) -> Result<Sandbox, String> 
     let log = root.join("calls.jsonl");
     let s = |p: PathBuf| p.display().to_string();
     let env = vec![
-        // Never the real ~/.loop-engineering.
+        // Never the real ~/.loopx.
         ("LOOP_ENGINEERING_HOME".into(), s(root.join("home"))),
         ("LOOP_EVENTS_DIR".into(), s(root.join("events"))),
         ("LOOP_CHAT_EVAL_DIR".into(), s(root.to_path_buf())),

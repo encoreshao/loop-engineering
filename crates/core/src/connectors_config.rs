@@ -1,5 +1,5 @@
 //! Connector account registry (mirrors `bin/connectors_config.py`):
-//! `~/.loop-engineering/connectors.json` holds the native accounts (no secrets -
+//! `~/.loopx/connectors.json` holds the native accounts (no secrets -
 //! those live in the Keychain via [`SecretStore`], keyed by the connector id).
 //! GitLab instances (`~/.gitlab/config.json`), Slack webhooks
 //! (`~/.slack/config.json`) and mailboxes (`inboxes.json`) are read through as

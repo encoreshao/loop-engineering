@@ -1096,7 +1096,7 @@ fn settings_fragment_html(ctx: &UiCtx) -> String {
         .var("add_bundle_form", add_bundle_form)
         .var(
             "tracked_subtitle",
-            pyfmt::escape_text(&t("This loop's own ~/.loop-engineering/projects.json - where each project lives locally, its target branch and install/lint/test commands, and (if it differs from the default instance above) which GitLab instance it's on. Different from \"Project aliases\" above, which is only about GitLab API auth routing.")),
+            pyfmt::escape_text(&t("This loop's own ~/.loopx/projects.json - where each project lives locally, its target branch and install/lint/test commands, and (if it differs from the default instance above) which GitLab instance it's on. Different from \"Project aliases\" above, which is only about GitLab API auth routing.")),
         )
         .var("loop_settings_form", loop_settings_form)
         .var("tracked_projects_html", tracked_projects_html)

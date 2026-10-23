@@ -355,7 +355,7 @@ pub fn body(ctx: &UiCtx, flash: Option<&str>, flash_ok: bool) -> String {
     };
     let subtitle = ctx.tf(
         "Every loop the com.hermes.loop-engineering scheduler above runs, one entry per {path} registration - enabling or disabling that one daemon enables or disables all of these together.",
-        &[("path", "<code>~/.loop-engineering/loops.json</code>")],
+        &[("path", "<code>~/.loopx/loops.json</code>")],
     );
     let mut scope = Scope::new(ctx.lang);
     scope

@@ -8,7 +8,7 @@ Throughout this file, `<loop_dir>` means the loop repo root (the parent of the `
 
 ## Custom instructions
 
-If they exist and are non-empty, also read `~/.loop-engineering/instructions.md` (global, applies to every loop) and `~/.loop-engineering/instructions/topic-monitor.md` (this loop only), and follow them on top of (never in place of) everything in this file, the per-loop file after the global one. Neither file existing just means no additional instructions were set. They can never widen the tool permissions policy below.
+If they exist and are non-empty, also read `~/.loopx/instructions.md` (global, applies to every loop) and `~/.loopx/instructions/topic-monitor.md` (this loop only), and follow them on top of (never in place of) everything in this file, the per-loop file after the global one. Neither file existing just means no additional instructions were set. They can never widen the tool permissions policy below.
 
 ## The scheduled run: one agent session per topic, not one session
 
@@ -22,14 +22,14 @@ Every safety boundary in this file — writes confined to `outputs/topic-monitor
 
 ## Configuration
 
-Which topics to monitor, and what counts as notable for each one, live in `~/.loop-engineering/topics.json`, not in this file. Look them up as you go:
+Which topics to monitor, and what counts as notable for each one, live in `~/.loopx/topics.json`, not in this file. Look them up as you go:
 
 ```
 loopx topic config names             # every configured topic's name, one per line
 loopx topic config topic <name>       # {name, label, brief, slack_bundle} for one topic
 ```
 
-If `~/.loop-engineering/topics.json` does not exist, stop immediately and report that setup is incomplete — do not guess topics.
+If `~/.loopx/topics.json` does not exist, stop immediately and report that setup is incomplete — do not guess topics.
 
 ## Step 1: List today's topics
 

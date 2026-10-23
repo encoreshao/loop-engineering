@@ -178,7 +178,7 @@
 </div><div data-tab-panel='instructions' hidden>
 <section class="card">
 <div class="section-header"><span class='material-symbols-outlined' aria-hidden='true'>edit_note</span><h2>あなたの指示</h2></div>
-<p class="section-subtitle">ループ実行時に Codex CLI のシステムプロンプトへ含める指示です。<code>~/.loop-engineering/instructions.md</code> に保存され、毎回の実行開始時に <code>instructions/</code> の内容に加えて読み込まれます。 特定のループだけに適用するには、<code>~/.loop-engineering/instructions/</code> の下にファイル（gitlab-issue.md、topic-monitor.md、inbox-triage.md）を追加してください。</p>
+<p class="section-subtitle">ループ実行時に Codex CLI のシステムプロンプトへ含める指示です。<code>~/.loopx/instructions.md</code> に保存され、毎回の実行開始時に <code>instructions/</code> の内容に加えて読み込まれます。 特定のループだけに適用するには、<code>~/.loopx/instructions/</code> の下にファイル（gitlab-issue.md、topic-monitor.md、inbox-triage.md）を追加してください。</p>
 <form method='post' action='/instructions' class='daemon-action-form'>
 <input type='hidden' name='csrf_token' value="golden-csrf-token">
 <textarea name='instructions' class='instructions-textarea' rows='24' placeholder="例: 説明的なコミットメッセージにする。vendor/ 以下のファイルには触れない。"></textarea>

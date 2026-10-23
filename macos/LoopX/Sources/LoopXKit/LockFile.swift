@@ -50,14 +50,14 @@ public struct LockFile: Codable, Equatable, Sendable {
         return errno == EPERM  // exists, owned by someone else
     }
 
-    /// `$LOOP_ENGINEERING_HOME/loopx.lock`, defaulting to `~/.loop-engineering/loopx.lock`.
+    /// `$LOOP_ENGINEERING_HOME/loopx.lock`, defaulting to `~/.loopx/loopx.lock`.
     public static func defaultURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
         let base: URL
         if let home = environment["LOOP_ENGINEERING_HOME"], !home.isEmpty {
             base = URL(fileURLWithPath: home, isDirectory: true)
         } else {
             let h = environment["HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory()
-            base = URL(fileURLWithPath: h, isDirectory: true).appendingPathComponent(".loop-engineering", isDirectory: true)
+            base = URL(fileURLWithPath: h, isDirectory: true).appendingPathComponent(".loopx", isDirectory: true)
         }
         return base.appendingPathComponent("loopx.lock")
     }

@@ -38,9 +38,9 @@ class Loopx < Formula
     <<~EOS
       First run: create your config skeleton (existing files are kept):
 
-        mkdir -p ~/.loop-engineering
+        mkdir -p ~/.loopx
         for f in projects topics loops ai_cli; do
-          [ -f ~/.loop-engineering/$f.json ] || sed "s|{{HOME}}|$HOME|g" #{pkgshare}/config/$f.json.template > ~/.loop-engineering/$f.json
+          [ -f ~/.loopx/$f.json ] || sed "s|{{HOME}}|$HOME|g" #{pkgshare}/config/$f.json.template > ~/.loopx/$f.json
         done
 
       Then check what is left to set up (AI CLI, GitLab/Slack credentials):

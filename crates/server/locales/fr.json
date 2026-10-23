@@ -544,7 +544,7 @@
   "Theme": "Thème",
   "Thinking…": "Réflexion…",
   "Analyzing results…": "Analyse des résultats…",
-  "This loop's own ~/.loop-engineering/projects.json - where each project lives locally, its target branch and install/lint/test commands, and (if it differs from the default instance above) which GitLab instance it's on. Different from \"Project aliases\" above, which is only about GitLab API auth routing.": "Le fichier ~/.loop-engineering/projects.json propre à cette boucle : l'emplacement local de chaque projet, sa branche cible, ses commandes install/lint/test et (s'il diffère de l'instance par défaut ci-dessus) l'instance GitLab qui l'héberge. À distinguer des « Alias de projet » ci-dessus, qui ne concernent que le routage de l'authentification de l'API GitLab.",
+  "This loop's own ~/.loopx/projects.json - where each project lives locally, its target branch and install/lint/test commands, and (if it differs from the default instance above) which GitLab instance it's on. Different from \"Project aliases\" above, which is only about GitLab API auth routing.": "Le fichier ~/.loopx/projects.json propre à cette boucle : l'emplacement local de chaque projet, sa branche cible, ses commandes install/lint/test et (s'il diffère de l'instance par défaut ci-dessus) l'instance GitLab qui l'héberge. À distinguer des « Alias de projet » ci-dessus, qui ne concernent que le routage de l'authentification de l'API GitLab.",
   "This project's README, rendered here for reference.": "Le README de ce projet, affiché ici pour référence.",
   "Title": "Titre",
   "Today": "Aujourd'hui",

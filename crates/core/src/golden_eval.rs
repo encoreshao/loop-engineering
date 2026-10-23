@@ -692,7 +692,7 @@ pub struct AttemptRequest<'a> {
 
 /// One agent attempt in a child process whose environment points at the
 /// sandbox (the hidden `loopx loop eval-agent`). A child so that nothing in
-/// it can ever read the real `~/.loop-engineering`.
+/// it can ever read the real `~/.loopx`.
 pub fn run_agent_subprocess(req: &AttemptRequest) -> AgentAttempt {
     let result_file = req.sandbox.root.join(format!(
         "agent-result-{}.json",

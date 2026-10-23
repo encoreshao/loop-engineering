@@ -294,3 +294,26 @@ def test_works_piped_through_bash_with_no_local_clone(box):
         input=SCRIPT.read_text(), capture_output=True, text=True, env=box.env(), check=True,
     )
     assert not box.project.exists() and "Uninstall done" in r.stdout
+
+
+def test_an_unmigrated_legacy_install_is_found_and_removed_by_default(box):
+    legacy = box.home / ".loop-engineering"
+    legacy.mkdir()
+    (legacy / "projects.json").write_text("{}")
+    r = subprocess.run(
+        ["bash", "-s", "--", "--launch-agents-dir", str(box.agents)],
+        input=SCRIPT.read_text(), capture_output=True, text=True, env=box.env(), check=True,
+    )
+    assert not legacy.exists() and "Uninstall done" in r.stdout
+
+
+def test_the_migration_symlink_is_removed_with_the_new_default_dir(box):
+    new = box.home / ".loopx"
+    new.mkdir()
+    (new / "projects.json").write_text("{}")
+    (box.home / ".loop-engineering").symlink_to(new)
+    subprocess.run(
+        ["bash", "-s", "--", "--launch-agents-dir", str(box.agents)],
+        input=SCRIPT.read_text(), capture_output=True, text=True, env=box.env(), check=True,
+    )
+    assert not new.exists() and not (box.home / ".loop-engineering").is_symlink()
