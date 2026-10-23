@@ -193,16 +193,22 @@ public final class Supervisor: @unchecked Sendable {
 
     let discovery: BackendDiscovery
     let starter: BackendStarter
+    /// Tried once when `starter` fails or its backend never comes up, e.g. launchd refuses to
+    /// run an ad-hoc signed bundled agent. The backend it spawns does not outlive the app.
+    let fallback: BackendStarter?
+    let primaryTimeout: TimeInterval
     let terminator: Terminator
     let sleeper: Sleeper
     let startTimeout: TimeInterval
     let pollInterval: TimeInterval
 
-    public init(discovery: BackendDiscovery, starter: BackendStarter,
+    public init(discovery: BackendDiscovery, starter: BackendStarter, fallback: BackendStarter? = nil,
+                primaryTimeout: TimeInterval = 6,
                 terminator: @escaping Terminator = Supervisor.terminateProcess,
                 startTimeout: TimeInterval = 15, pollInterval: TimeInterval = 0.2,
                 sleeper: @escaping Sleeper = { try? await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }) {
-        self.discovery = discovery; self.starter = starter; self.terminator = terminator
+        self.discovery = discovery; self.starter = starter; self.fallback = fallback
+        self.primaryTimeout = primaryTimeout; self.terminator = terminator
         self.startTimeout = startTimeout; self.pollInterval = pollInterval; self.sleeper = sleeper
     }
 
@@ -223,23 +229,43 @@ public final class Supervisor: @unchecked Sendable {
     }
 
     private func startAndWait() async -> SupervisorResult {
-        do { try await starter.start() }
-        catch let e as BackendError {
-            switch e {
-            case .needsApproval: return .failed("Allow LoopX in System Settings > General > Login Items, then try again.")
-            case .binaryNotFound(let p): return .failed("The loopx backend was not found at \(p).")
-            case .launchFailed(let m): return .failed("Could not start the backend: \(m)")
-            case .timedOut: return .failed("Timed out starting the backend.")
+        var failure: String
+        do {
+            try await starter.start()
+            if let lock = await waitForBackend(timeout: fallback == nil ? startTimeout : min(startTimeout, primaryTimeout)) {
+                return .ready(lock, startedBundled: true)
             }
-        } catch { return .failed("Could not start the backend: \(error.localizedDescription)") }
+            failure = "The backend did not come up within \(Int(startTimeout)) seconds."
+        } catch let e as BackendError {
+            if e == .needsApproval { return .failed(Self.message(e)) }
+            failure = Self.message(e)
+        } catch { failure = "Could not start the backend: \(error.localizedDescription)" }
 
+        guard let fallback else { return .failed(failure) }
+        do { try await fallback.start() }
+        catch let e as BackendError { return .failed("\(failure) Fallback: \(Self.message(e))") }
+        catch { return .failed("\(failure) Fallback: \(error.localizedDescription)") }
+        if let lock = await waitForBackend(timeout: startTimeout) { return .ready(lock, startedBundled: true) }
+        return .failed(failure)
+    }
+
+    private func waitForBackend(timeout: TimeInterval) async -> LockFile? {
         var waited: TimeInterval = 0
-        while waited <= startTimeout {
-            if case .reuse(let lock, _) = await discovery.discover() { return .ready(lock, startedBundled: true) }
+        while waited <= timeout {
+            if case .reuse(let lock, _) = await discovery.discover() { return lock }
             await sleeper(pollInterval)
             waited += pollInterval
         }
-        return .failed("The backend did not come up within \(Int(startTimeout)) seconds.")
+        return nil
+    }
+
+    private static func message(_ e: BackendError) -> String {
+        switch e {
+        case .needsApproval: return "Allow LoopX in System Settings > General > Login Items, then try again."
+        case .binaryNotFound(let p): return "The loopx backend was not found at \(p)."
+        case .launchFailed(let m): return "Could not start the backend: \(m)"
+        case .timedOut: return "Timed out starting the backend."
+        }
     }
 
     public static let terminateProcess: Terminator = { pid in

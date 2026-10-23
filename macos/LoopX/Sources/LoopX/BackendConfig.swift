@@ -8,8 +8,9 @@ struct BackendConfig {
 
     var discovery: BackendDiscovery
     var starter: BackendStarter
+    var fallback: BackendStarter?
 
-    func makeSupervisor() -> Supervisor { Supervisor(discovery: discovery, starter: starter) }
+    func makeSupervisor() -> Supervisor { Supervisor(discovery: discovery, starter: starter, fallback: fallback) }
 
     static func detect(environment: [String: String] = ProcessInfo.processInfo.environment,
                        bundle: Bundle = .main) -> BackendConfig {
@@ -19,8 +20,12 @@ struct BackendConfig {
         if FileManager.default.fileExists(atPath: agent.path), FileManager.default.isExecutableFile(atPath: helper.path) {
             let version = (bundle.object(forInfoDictionaryKey: "LoopXBundledVersion") as? String)
                 ?? binaryVersion(helper) ?? "0.0.0"
+            let log = lockURL.deletingLastPathComponent().appendingPathComponent("outputs/loopx-serve.log")
+            var env = environment
+            env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
             return BackendConfig(discovery: BackendDiscovery(lockURL: lockURL, bundledVersion: version),
-                                 starter: SMAppServiceStarter(service: SMAppServiceAdapter(.agent(plistName: agentPlistName))))
+                                 starter: SMAppServiceStarter(service: SMAppServiceAdapter(.agent(plistName: agentPlistName))),
+                                 fallback: ProcessStarter(binary: helper, arguments: ["serve"], environment: env, logURL: log))
         }
         let binary = findBinary(environment: environment)
         let version = binary.flatMap(binaryVersion) ?? "0.0.0"

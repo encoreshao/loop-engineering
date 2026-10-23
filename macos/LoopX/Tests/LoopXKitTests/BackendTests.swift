@@ -174,11 +174,13 @@ final class FakeStarter: BackendStarter, @unchecked Sendable {
 
 @Suite struct SupervisorTests {
     func make(_ dir: URL, bundled: String = "0.4.0", running: VersionInfo?, alive: @escaping @Sendable (Int32) -> Bool = { _ in true },
-              starter: BackendStarter, terminator: @escaping Supervisor.Terminator = { _ in true },
+              starter: BackendStarter, fallback: BackendStarter? = nil,
+              terminator: @escaping Supervisor.Terminator = { _ in true },
               timeout: TimeInterval = 1) -> Supervisor {
         let url = dir.appendingPathComponent("loopx.lock")
         let d = BackendDiscovery(lockURL: url, bundledVersion: bundled, pidAlive: alive, fetchVersion: { _ in running })
-        return Supervisor(discovery: d, starter: starter, terminator: terminator, startTimeout: timeout,
+        return Supervisor(discovery: d, starter: starter, fallback: fallback, primaryTimeout: 0.3,
+                          terminator: terminator, startTimeout: timeout,
                           pollInterval: 0.1, sleeper: { _ in })
     }
 
@@ -207,6 +209,46 @@ final class FakeStarter: BackendStarter, @unchecked Sendable {
         let r = await make(dir, running: nil, starter: starter, timeout: 0.5).ensureBackend()
         guard case .failed(let m) = r else { Issue.record("\(r)"); return }
         #expect(m.contains("did not come up"))
+    }
+
+    @Test func fallsBackToSpawningWhenTheAgentNeverServes() async throws {
+        let dir = tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        let lock = dir.appendingPathComponent("loopx.lock")
+        let agent = FakeStarter(lockURL: lock, version: "0.4.0"); agent.writeLock = false
+        let spawn = FakeStarter(lockURL: lock, version: "0.4.0")
+        let r = await make(dir, running: VersionInfo(version: "0.4.0"), starter: agent, fallback: spawn, timeout: 1).ensureBackend()
+        guard case .ready = r else { Issue.record("\(r)"); return }
+        #expect(agent.starts == 1); #expect(spawn.starts == 1)
+    }
+
+    @Test func fallsBackWhenRegisteringTheAgentFails() async throws {
+        let dir = tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        let lock = dir.appendingPathComponent("loopx.lock")
+        let agent = FakeStarter(lockURL: lock, version: "0.4.0"); agent.error = BackendError.launchFailed("denied")
+        let spawn = FakeStarter(lockURL: lock, version: "0.4.0")
+        let r = await make(dir, running: VersionInfo(version: "0.4.0"), starter: agent, fallback: spawn).ensureBackend()
+        guard case .ready = r else { Issue.record("\(r)"); return }
+        #expect(spawn.starts == 1)
+    }
+
+    @Test func doesNotFallBackWhenTheUserMustApproveTheLoginItem() async throws {
+        let dir = tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        let lock = dir.appendingPathComponent("loopx.lock")
+        let agent = FakeStarter(lockURL: lock, version: "0.4.0"); agent.error = BackendError.needsApproval
+        let spawn = FakeStarter(lockURL: lock, version: "0.4.0")
+        let r = await make(dir, running: nil, starter: agent, fallback: spawn).ensureBackend()
+        guard case .failed(let m) = r else { Issue.record("\(r)"); return }
+        #expect(m.contains("Login Items")); #expect(spawn.starts == 0)
+    }
+
+    @Test func reportsBothFailuresWhenTheFallbackAlsoFails() async throws {
+        let dir = tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        let lock = dir.appendingPathComponent("loopx.lock")
+        let agent = FakeStarter(lockURL: lock, version: "0.4.0"); agent.writeLock = false
+        let spawn = FakeStarter(lockURL: lock, version: "0.4.0"); spawn.error = BackendError.binaryNotFound("/x")
+        let r = await make(dir, running: nil, starter: agent, fallback: spawn).ensureBackend()
+        guard case .failed(let m) = r else { Issue.record("\(r)"); return }
+        #expect(m.contains("did not come up") && m.contains("Fallback"))
     }
 
     @Test func offersTakeoverForOlderBackendAndNeverKillsUninvited() async throws {
