@@ -28,7 +28,7 @@ and sending connection requests come in Stage 2.
 ## Settings
 
 `headless` (default off: a visible Chrome window), `active_hours` (default `9-21`),
-`topics`. The session lives in `~/.loop-engineering/linkedin/<account>/profile/`
+`topics`. The session lives in `~/.loopx/linkedin/<account>/profile/`
 (mode 0700; no password stored; Disconnect wipes it).
 
 ## Safety boundary

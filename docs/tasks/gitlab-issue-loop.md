@@ -6,11 +6,11 @@ Every weekday, check GitLab issues already assigned to the configured user on th
 
 ## Setup
 
-New to this loop? Run `bin/scripts/setup.sh` once — it installs the `gitlab-config` skill this loop depends on (from [encore-skills](https://github.com/encoreshao/encore-skills)) and scaffolds `~/.loop-engineering/projects.json` from the template if you don't have one yet. The dashboard's Settings → Skills view (`/settings?view=skills`) shows a live view of what's installed.
+New to this loop? Run `bin/scripts/setup.sh` once — it installs the `gitlab-config` skill this loop depends on (from [encore-skills](https://github.com/encoreshao/encore-skills)) and scaffolds `~/.loopx/projects.json` from the template if you don't have one yet. The dashboard's Settings → Skills view (`/settings?view=skills`) shows a live view of what's installed.
 
 ## Scope
 
-Which GitLab projects to track, their local checkout paths, target branches, GitLab username, worktree scratch directory, and per-project install/lint/test commands are **not** hardcoded in this repo — they live in `~/.loop-engineering/projects.json`, since every team member running this loop has their own local checkout paths. See `config/projects.json.template` for the exact format, and `bin/loop_config.py` for how the loop reads it.
+Which GitLab projects to track, their local checkout paths, target branches, GitLab username, worktree scratch directory, and per-project install/lint/test commands are **not** hardcoded in this repo — they live in `~/.loopx/projects.json`, since every team member running this loop has their own local checkout paths. See `config/projects.json.template` for the exact format, and `bin/loop_config.py` for how the loop reads it.
 
 The loop never self-assigns issues — it only tracks issues already assigned to the configured `assignee_username`, on the projects listed in that config file.
 
@@ -30,7 +30,7 @@ Each run produces or updates:
 - Only the command allow-list in `instructions/gitlab-issue.md` may run — no arbitrary shell, no dependency upgrades, no reading `.env`/credentials/SSH keys.
 - Issues are processed one at a time, sequentially — never multiple worktrees/fixes in parallel in the same run.
 - In `observe` mode (the default) the same verification failure on the same issue is not retried within a run — it escalates via a GitLab comment instead. In `gate` mode the loop retries at most `stop_conditions.max_iterations` times (see below); it never opens an MR whose tests/lint fail.
-- The loop only touches: issues/comments/MRs on the projects listed in `~/.loop-engineering/projects.json`, its own git worktrees (under the configured `worktree_root`), and its own state files (`PROGRESS.md`, `outputs/`).
+- The loop only touches: issues/comments/MRs on the projects listed in `~/.loopx/projects.json`, its own git worktrees (under the configured `worktree_root`), and its own state files (`PROGRESS.md`, `outputs/`).
 
 ## Verification gate (observe vs gate)
 
@@ -48,7 +48,7 @@ The Harness -> Gates view (`/harness?view=gates`) shows the observe-mode agreeme
 1. Ship with `mode: observe`.
 2. After at least 5 weekday runs, open Harness -> Gates. If agreement is 90% or higher and no project shows a systematic false failure (flaky suite, lint baseline - see CLAUDE.md's rubocop notes), set `mode: gate` and raise CI `--min-score` to 80 in the same commit.
 3. If a project is systematically red for reasons unrelated to the fix, fix its `test_cmd`/`lint_cmd` in `projects.json` rather than weakening the gate.
-4. Gate mode multiplies the per-issue worst case to `max_iterations x (agent + test + lint)`, up to 6x `max_runtime_minutes`. `config/loops.json.template` now sets `gitlab-loop`'s `timeout_seconds` to 43200, but that only applies to new installs/backfill: an existing `~/.loop-engineering/loops.json` keeps its old 21600. The dashboard does not expose this field, so raise it by hand in that file before flipping to gate.
+4. Gate mode multiplies the per-issue worst case to `max_iterations x (agent + test + lint)`, up to 6x `max_runtime_minutes`. `config/loops.json.template` now sets `gitlab-loop`'s `timeout_seconds` to 43200, but that only applies to new installs/backfill: an existing `~/.loopx/loops.json` keeps its old 21600. The dashboard does not expose this field, so raise it by hand in that file before flipping to gate.
 
 ### Limitations
 

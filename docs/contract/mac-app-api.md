@@ -6,7 +6,7 @@ is refused with `403` (DNS-rebinding guard).
 
 ## Discovering the backend: `loopx.lock`
 
-`~/.loop-engineering/loopx.lock` (mode `0600`, or `$LOOP_ENGINEERING_HOME/loopx.lock`):
+`~/.loopx/loopx.lock` (mode `0600`, or `$LOOP_ENGINEERING_HOME/loopx.lock`):
 
 ```json
 {

@@ -118,7 +118,7 @@ fn skills_install(ctx: &UiCtx) -> UiResponse {
             )
         };
         let command = format!(
-            "{} >>{} 2>&1; ec=$?; if [ $ec -eq 0 ]; then {}; else {}; fi; launchctl kickstart -k gui/$(id -u)/com.hermes.loop-engineering-dashboard",
+            "{} >>{} 2>&1; ec=$?; if [ $ec -eq 0 ]; then {}; else {}; fi",
             q(&script.display().to_string()),
             q(&log.display().to_string()),
             write("done"),

@@ -2,7 +2,7 @@
 
 ## Symptom
 
-`~/.loop-engineering/outputs/history/*.log` (`dashboard.err.log`,
+`~/.loopx/outputs/history/*.log` (`dashboard.err.log`,
 `launchd.err.log`) keeps growing — new lines keep appearing even though you
 haven't touched the machine.
 
@@ -23,7 +23,7 @@ run. There are only two `com.hermes.loop-engineering*` daemons now — the
 always-on dashboard, and the unified scheduler
 (`bin/loop_scheduler.py`, see
 `docs/superpowers/specs/2026-09-14-unified-loop-scheduler-design.md`) that
-polls `~/.loop-engineering/loops.json` and runs whichever registered loop
+polls `~/.loopx/loops.json` and runs whichever registered loop
 (the GitLab issue loop, the topic monitor loop) is due. There is no
 separate per-loop daemon anymore. `com.hermes.loop-engineering-dashboard`
 is the one to watch closely: its plist sets `KeepAlive`, so if it exits at
@@ -37,16 +37,16 @@ To confirm which one is actively looping and see the real error, tail its
 stderr log and watch it grow, or inspect the job directly:
 
 ```bash
-tail -f ~/.loop-engineering/outputs/history/dashboard.err.log
+tail -f ~/.loopx/outputs/history/dashboard.err.log
 
 launchctl print gui/$(id -u)/com.hermes.loop-engineering-dashboard | grep -iE "state|last exit|program|stdout|stderr"
 ```
 
-## Common root cause: `~/.loop-engineering` isn't actually a full clone
+## Common root cause: `~/.loopx` isn't actually a full clone
 
 Both agents' plists (`launchd/*.plist.template`, rendered by
 `bin/scripts/install.sh`) point `ProgramArguments`/`StandardOutPath`/
-`StandardErrorPath` at paths under `~/.loop-engineering`. If that directory
+`StandardErrorPath` at paths under `~/.loopx`. If that directory
 was never fully populated by `install.sh` (e.g. it only contains an
 `outputs/` folder, with no `bin/`), every one of these jobs fails
 immediately:
@@ -58,7 +58,7 @@ python3: can't open file '/Users/encore/.loop-engineering/bin/web/dashboard_serv
 Check whether the install is actually there:
 
 ```bash
-ls ~/.loop-engineering
+ls ~/.loopx
 # Expected: bin/, launchd/, config/, instructions/gitlab-issue.md, outputs/, ...
 # If you only see outputs/, the clone step never completed.
 ```
@@ -66,7 +66,7 @@ ls ~/.loop-engineering
 ## Fix
 
 **Option A — finish the install (recommended):** re-run the installer so
-`~/.loop-engineering` becomes a real clone with the dashboard restarted on
+`~/.loopx` becomes a real clone with the dashboard restarted on
 the current code:
 
 ```bash

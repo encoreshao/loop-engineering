@@ -2,7 +2,7 @@
 
 This loop can run more than one scheduled task over time. Each task gets its
 own spec — goal, scope, safety boundary — under `docs/tasks/`, plus its own
-entry in `~/.loop-engineering/loops.json`, the unified scheduler's loop
+entry in `~/.loopx/loops.json`, the unified scheduler's loop
 registry (see `bin/loop_scheduler.py` and
 `docs/superpowers/specs/2026-09-14-unified-loop-scheduler-design.md`). A
 single launchd job, `com.hermes.loop-engineering` (`bin/loop_scheduler.py`,
@@ -27,7 +27,7 @@ Each task gets its own spec under `docs/tasks/`, its own instructions doc,
 and its own entry script — the topic monitor loop answered the "own
 instructions doc? own config? shares `projects.json`?" question this file
 used to defer: it has its own (`instructions/topic-monitor.md`,
-`~/.loop-engineering/topics.json`), and shares nothing with the GitLab
+`~/.loopx/topics.json`), and shares nothing with the GitLab
 loop's files except the one scheduler that runs both. The Inbox Triage loop
 likewise has its own instructions doc (`instructions/inbox-triage.md`) and
 config (`inboxes.json`, `mail_oauth.json`).

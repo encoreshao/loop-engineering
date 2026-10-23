@@ -22,7 +22,7 @@ the one scheduler that runs all three, `bin/loop_scheduler.py`.
 
 ## Setup
 
-`bin/scripts/setup.sh` scaffolds `~/.loop-engineering/inboxes.json` from
+`bin/scripts/setup.sh` scaffolds `~/.loopx/inboxes.json` from
 `config/inboxes.json.template`, the same way it scaffolds `projects.json`
 and `topics.json`. Unlike those two, though, connecting an actual mailbox
 is not a hand-edit-JSON step: it all happens on the dashboard's **Loops →
@@ -43,7 +43,7 @@ Inbox Triage → Setup** view (`/loops/inbox-triage-loop?view=setup`):
 4. Click **Test connection** to confirm the stored token's mailbox address
    still matches what you configured.
 
-The loop itself is registered in `~/.loop-engineering/loops.json` as
+The loop itself is registered in `~/.loopx/loops.json` as
 `inbox-triage-loop`, **disabled by default** — like the GitLab and topic
 loops, it must not act before an inbox is actually connected. Enable it from
 the dashboard's **Settings → Daemons** page (or by hand-editing its `loops.json` entry)
@@ -53,7 +53,7 @@ runner either way.
 
 ## Scope
 
-Every field below lives in `~/.loop-engineering/inboxes.json` (seeded from
+Every field below lives in `~/.loopx/inboxes.json` (seeded from
 `config/inboxes.json.template`), a JSON object of `default_categories` plus
 an `inboxes` array:
 

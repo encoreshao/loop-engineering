@@ -11,7 +11,7 @@ cargo build --release          # target/release/loopx
 
 ## Run Web mode
 
-Use a throwaway sandbox so nothing touches the real `~/.loop-engineering`:
+Use a throwaway sandbox so nothing touches the real `~/.loopx`:
 
 ```bash
 export LOOP_ENGINEERING_HOME=$(mktemp -d)

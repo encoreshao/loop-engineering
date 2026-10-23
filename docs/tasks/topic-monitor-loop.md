@@ -2,19 +2,19 @@
 
 ## Goal
 
-Every day, for each topic configured in `~/.loop-engineering/topics.json`, research what's new since the last run (using live web search — this loop reads the wider internet, not GitLab), write a short briefing of the notable items, and deliver it as a saved history entry plus a Slack message. Nothing already reported in the last 7 days is repeated. A quiet day — nothing new to report — still produces a briefing and a Slack message saying so, exactly as the GitLab issue loop still sends its end-of-run digest on a morning with zero assigned issues.
+Every day, for each topic configured in `~/.loopx/topics.json`, research what's new since the last run (using live web search — this loop reads the wider internet, not GitLab), write a short briefing of the notable items, and deliver it as a saved history entry plus a Slack message. Nothing already reported in the last 7 days is repeated. A quiet day — nothing new to report — still produces a briefing and a Slack message saying so, exactly as the GitLab issue loop still sends its end-of-run digest on a morning with zero assigned issues.
 
-This is a separate, independent loop from the [daily GitLab issue loop](gitlab-issue-loop.md) — its own entry script, instructions doc, and config file. Nothing about the GitLab loop's files is shared or changed by this task. Both loops are, however, triggered by the same daemon: the unified scheduler (`bin/loop_scheduler.py`), the single launchd job `com.hermes.loop-engineering` polling on a `StartInterval`, checks `~/.loop-engineering/loops.json` (the loop registry) and runs whichever registered loop is due — there is no longer a dedicated topic-monitor plist/daemon.
+This is a separate, independent loop from the [daily GitLab issue loop](gitlab-issue-loop.md) — its own entry script, instructions doc, and config file. Nothing about the GitLab loop's files is shared or changed by this task. Both loops are, however, triggered by the same daemon: the unified scheduler (`bin/loop_scheduler.py`), the single launchd job `com.hermes.loop-engineering` polling on a `StartInterval`, checks `~/.loopx/loops.json` (the loop registry) and runs whichever registered loop is due — there is no longer a dedicated topic-monitor plist/daemon.
 
 ## Setup
 
-Copy `config/topics.json.template` to `~/.loop-engineering/topics.json` and list the topics to monitor (see Scope below for the format). There is no dashboard form for managing topics — like `projects.json`, this file is hand-edited per machine.
+Copy `config/topics.json.template` to `~/.loopx/topics.json` and list the topics to monitor (see Scope below for the format). There is no dashboard form for managing topics — like `projects.json`, this file is hand-edited per machine.
 
-This loop's schedule lives as its own entry in `~/.loop-engineering/loops.json` (seeded by `bin/scripts/setup.sh` from `config/loops.json.template`), which defaults to every day at 10:00 AM. Like `projects.json`/`topics.json`, that entry is hand-edited per machine, not driven from a dashboard form — the Daemons page shows this loop's daemon (the unified scheduler, `com.hermes.loop-engineering`) with its own on/off switch and polling interval, but changing which days/time this specific loop runs on means editing its entry in `loops.json` directly.
+This loop's schedule lives as its own entry in `~/.loopx/loops.json` (seeded by `bin/scripts/setup.sh` from `config/loops.json.template`), which defaults to every day at 10:00 AM. Like `projects.json`/`topics.json`, that entry is hand-edited per machine, not driven from a dashboard form — the Daemons page shows this loop's daemon (the unified scheduler, `com.hermes.loop-engineering`) with its own on/off switch and polling interval, but changing which days/time this specific loop runs on means editing its entry in `loops.json` directly.
 
 ## Scope
 
-Which topics to monitor, and what "notable" means for each one, are **not** hardcoded in this repo — they live in `~/.loop-engineering/topics.json`, a JSON array of:
+Which topics to monitor, and what "notable" means for each one, are **not** hardcoded in this repo — they live in `~/.loopx/topics.json`, a JSON array of:
 
 ```json
 { "name": "ai-news", "label": "AI news", "brief": "Major model releases, funding rounds, notable research papers, and product launches in AI, from the last 24 hours.", "slack_bundle": null }
@@ -46,4 +46,4 @@ And, across the whole run:
 - Topics are processed one at a time, sequentially — never multiple research passes in parallel in the same run.
 - A quiet result (nothing notable since the last run) still produces a briefing and a Slack message saying so — never silently skipped.
 - Only the command allow-list in `instructions/topic-monitor.md` may run — no arbitrary shell, no reading `.env`/credentials/SSH keys.
-- The loop only touches: the topics listed in `~/.loop-engineering/topics.json`, and its own state under `outputs/topic-monitor/`.
+- The loop only touches: the topics listed in `~/.loopx/topics.json`, and its own state under `outputs/topic-monitor/`.

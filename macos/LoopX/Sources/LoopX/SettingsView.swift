@@ -14,7 +14,6 @@ final class SettingsModel: ObservableObject {
     @Published var accountStatus: [OAuthProvider: String] = [:]
     @Published var signingIn: OAuthProvider?
     private let oauth = OAuthSession()
-    @Published var legacyScheduler = false
     private let store: SettingsStore
     private let login: LaunchAtLogin
     var onChange: () -> Void = {}
@@ -72,10 +71,6 @@ struct SettingsView: View {
                 Toggle("Run scheduled loops while LoopX is open", isOn: $settings.runScheduler)
                 Text("Checks every 15 minutes and starts any loop that is due. Due loops act on your real GitLab and Slack.")
                     .font(.caption).foregroundStyle(.secondary)
-                if settings.runScheduler && settings.legacyScheduler {
-                    Text("The installed launchd scheduler (\(SchedulerRunner.legacyLabel)) is loaded and keeps running the loops; LoopX does not start a second one.")
-                        .font(.caption).foregroundStyle(.orange)
-                }
             }
             Section("Display") {
                 Picker("Dashboard window opens", selection: $settings.dashboardWindow) {
@@ -123,7 +118,6 @@ struct SettingsView: View {
         .frame(width: 440, height: 640)
         .onAppear {
             settings.refreshAccounts(lock: app.lock)
-            settings.legacyScheduler = SchedulerRunner.legacyJobLoaded()
         }
     }
 }

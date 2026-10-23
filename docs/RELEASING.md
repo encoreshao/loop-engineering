@@ -82,11 +82,11 @@ Without CI, the same steps by hand: `bin/scripts/build_loopx_app.sh`, `codesign 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install-loopx.sh | bash
 curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install-loopx.sh | bash -s -- --upgrade
-bin/scripts/uninstall-loopx.sh --project-dir ~/.loop-engineering   # --keep-config, --remove-app
+bin/scripts/uninstall-loopx.sh --project-dir ~/.loopx   # --keep-config, --remove-app
 ```
 
 `--upgrade` keeps your config and replaces only the program; see the header of `install-loopx.sh`.
-Web mode to app: `LoopX.app` finds the running backend through `~/.loop-engineering/loopx.lock` and adopts it
+Web mode to app: `LoopX.app` finds the running backend through `~/.loopx/loopx.lock` and adopts it
 (`loopx doctor` prints whether one is running), so the Web install can stay in place.
 
 ## What could not be verified here

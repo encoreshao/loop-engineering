@@ -129,7 +129,7 @@ subdirectories — see §9.
 | `gitlab_loop_runner.py` | Wires the real GitLab issue loop through `LoopRuntime`, one issue at a time |
 | `topic_monitor_runner.py` | Wires the real Topic Monitor loop through `LoopRuntime`, one topic at a time |
 | `loop_scheduler.py` | The single launchd-scheduled poll loop: reads `loops_config.list_loops()` and runs whichever registered loop(s) are due, via `run-loop-now.sh` |
-| `loops_config.py` | Loads the loops registry (`~/.loop-engineering/loops.json`) — name, schedule, entry point, and per-loop knobs for `run-loop-now.sh`/`loop_scheduler.py` |
+| `loops_config.py` | Loads the loops registry (`~/.loopx/loops.json`) — name, schedule, entry point, and per-loop knobs for `run-loop-now.sh`/`loop_scheduler.py` |
 
 ## 4. `LoopDefinition`
 
@@ -364,7 +364,7 @@ capabilities (`issues`, `merge_requests`, `pipelines`, `notify`, `feed`,
 
 **Native vs external accounts.** *Native* accounts are the ones added on the
 dashboard's `/connectors` page: non-secret settings live in
-`~/.loop-engineering/connectors.json`, secrets only in the Keychain. *External*
+`~/.loopx/connectors.json`, secrets only in the Keychain. *External*
 accounts are read through, never copied or migrated, from the files that
 already own them: `~/.gitlab/config.json` (GitLab instances, id = alias),
 `~/.slack/config.json` (`slack-default`, `slack-<bundle>`), and `inboxes.json`

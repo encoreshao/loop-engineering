@@ -52,11 +52,11 @@ installed `launchd/*.plist`'s absolute `Program`/`ProgramArguments` path
 `~/Library/LaunchAgents/`, which needs a real `launchctl unload`+`load`,
 not just `kickstart -k`, since the plist's own path changed).
 
-## Development mode: never touch the real `~/.loop-engineering` or real daemons
+## Development mode: never touch the real `~/.loopx` or real daemons
 
 Day-to-day development and verification happens entirely inside this
 checked-out repo directory, against a disposable sandbox — never against
-the real `~/.loop-engineering` (this machine's live `projects.json`,
+the real `~/.loopx` (this machine's live `projects.json`,
 `topics.json`, `ai_cli.json`, `instructions.md`, run history) and never by
 starting, stopping, or kickstarting the real installed `launchd` agents
 (`com.hermes.loop-engineering*`). Those are live, personal, possibly-in-use
@@ -74,7 +74,7 @@ curl -s -o /dev/null -w "HTTP %{http_code}\n" http://127.0.0.1:18420/<page>
 kill %1
 ```
 
-`LOOP_ENGINEERING_HOME` overrides the default `~/.loop-engineering` base
+`LOOP_ENGINEERING_HOME` overrides the default `~/.loopx` base
 directory everywhere it's resolved — `bin/loop_config.py`,
 `bin/topic_config.py`, `bin/ai_cli_config.py`'s `DEFAULT_CONFIG_PATH`,
 `bin/memory_store.py`'s `DEFAULT_MEMORY_ROOT`, `bin/loops_config.py`'s
@@ -108,7 +108,7 @@ a mailbox token) gets the same `.sandbox-<hash>` suffix under
 `LOOP_ENGINEERING_HOME`, via `mail_auth.sandboxed_service`.
 `tests/test_setup.py`'s `run_setup` now always runs `setup.sh` against a temp
 `HOME` (unless a test passes its own): the suite used to scaffold the real
-`~/.loop-engineering/connectors.json` as a side effect of running, the same
+`~/.loopx/connectors.json` as a side effect of running, the same
 class of leak as the `uninstall.sh` one below.
 For connector work, also `export HOME=$(mktemp -d)` before starting the
 sandboxed dashboard: `connectors_config` reads the GitLab instances and
@@ -129,7 +129,7 @@ the user's real projects.
 unless you pass their own `--dir`/`--project-dir` flag explicitly. Setting
 `LOOP_ENGINEERING_HOME` before running these does nothing to protect you.
 This bit us for real twice: the second time, the actual command that
-deleted the live `~/.loop-engineering` was the ordinary, CLAUDE.md-mandated
+deleted the live `~/.loopx` was the ordinary, CLAUDE.md-mandated
 `python3 -m pytest tests/ -q` — several pre-existing `tests/test_uninstall.py`
 cases invoked the real `bin/scripts/uninstall.sh` without `--project-dir`,
 so on any machine that also has a real install, running the test suite
@@ -237,7 +237,7 @@ a case; cases under `evals/chat/<name>/case.yaml`, written to
 with its one allowed Bash command pointed at a sandbox copy of
 `evals/chat/stub_dashboard.py`, which drives the real tool registry against canned
 connectors, so nothing reaches GitLab, mail or the calendar and no real Keychain or
-`~/.loop-engineering` is read. It grades tool calls, side effects and the reply
+`~/.loopx` is read. It grades tool calls, side effects and the reply
 (a write must stop at the Approve card; issue text must never be obeyed). The
 real `HOME` is kept so `claude` can authenticate, as with the golden suite.
 
@@ -332,7 +332,7 @@ This bit Connectors → Accounts and Harness → Gates.
 ## A bare `bundle exec rubocop` lint_cmd silently breaks under `worktree_root`
 
 Any `worktree_root` nested under a dot-directory (the scaffolded default,
-`~/.loop-engineering/worktrees`, is one) trips a real RuboCop quirk:
+`~/.loopx/worktrees`, is one) trips a real RuboCop quirk:
 `TargetFinder#hidden_path?` (`lib/rubocop/target_finder.rb`) treats any
 scan root whose path contains a hidden (dot-prefixed) directory component
 as a "hidden path," and for that case only, skips every *file-level*
@@ -347,7 +347,7 @@ showed up for real as a loop-posted GitLab comment second-guessing a lint
 project's code, config, or the loop's decision logic — only with how the
 configured `lint_cmd` string happened to be phrased.
 
-Fix it at the `lint_cmd` layer in `~/.loop-engineering/projects.json`, not
+Fix it at the `lint_cmd` layer in `~/.loopx/projects.json`, not
 by moving `worktree_root`: pass an explicit path argument, e.g.
 `bundle exec rubocop .` instead of bare `bundle exec rubocop`. An explicit
 path argument makes `TargetFinder` take `process_explicit_path`/the
@@ -400,7 +400,7 @@ issue (`worktree_root/<repo>-issue-<iid>`), a run made **before** the
 `database.yml` copy fix could have already poisoned the cache for that
 exact path, and a later run — even after the fix — would keep reading the
 stale cached offenses rather than recomputing. `kurrant.web`'s `lint_cmd`
-in `~/.loop-engineering/projects.json` now passes `--cache false` for this
+in `~/.loopx/projects.json` now passes `--cache false` for this
 reason. Weigh this against the loop's runtime budget if a future project's
 lint step is slow enough that full-project caching actually matters —
 but for any cop (in any project) that reads external state outside what

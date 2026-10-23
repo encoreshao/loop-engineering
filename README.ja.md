@@ -100,14 +100,14 @@ Loop X Engineering の使命は、Issue のトリアージに奪われる時間�
 
 ## クイックスタート
 
-**新: `loopx` バイナリをインストール（クローン不要、Python 不要）。** 最新の GitHub Release からお使いの Mac 用のビルド済み `loopx` をダウンロードして SHA-256 を検証し、`~/.loop-engineering/bin/loopx` に配置して、テンプレートから `projects.json`/`topics.json`/`loops.json` を作成します:
+**新: `loopx` バイナリをインストール（クローン不要、Python 不要）。** 最新の GitHub Release からお使いの Mac 用のビルド済み `loopx` をダウンロードして SHA-256 を検証し、`~/.loopx/bin/loopx` に配置して、テンプレートから `projects.json`/`topics.json`/`loops.json` を作成します:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install-loopx.sh | bash
 curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install-loopx.sh | bash -s -- --upgrade   # later
 ```
 
-後で更新するには `--upgrade` を付けます。設定はそのまま、プログラムだけを置き換え、ロード済みの launchd エージェントを再起動します。新規インストールでダッシュボードのエージェントも起動するには `--load-agents` を付けます。Homebrew なら `brew install encoreshao/tap/loopx`（続けて `brew services start loopx`）、または Release の DMG から署名済みの `LoopX.app` をインストールできます。初回起動のチェック（AI CLI・認証情報・設定）は `loopx doctor`（アプリ用は `--json`）。アンインストール（どちらのモードも）: `bin/scripts/uninstall-loopx.sh --project-dir ~/.loop-engineering`（`--keep-config`、`--remove-app`）。リリース手順は [`docs/RELEASING.md`](docs/RELEASING.md)。
+後で更新するには `--upgrade` を付けます。設定はそのまま、プログラムだけを置き換え、ロード済みの launchd エージェントを再起動します。新規インストールでダッシュボードのエージェントも起動するには `--load-agents` を付けます。Homebrew なら `brew install encoreshao/tap/loopx`（続けて `brew services start loopx`）、または Release の DMG から署名済みの `LoopX.app` をインストールできます。初回起動のチェック（AI CLI・認証情報・設定）は `loopx doctor`（アプリ用は `--json`）。アンインストール（どちらのモードも）: `bin/scripts/uninstall-loopx.sh --project-dir ~/.loopx`（`--keep-config`、`--remove-app`）。リリース手順は [`docs/RELEASING.md`](docs/RELEASING.md)。
 
 **従来のインストーラー**（このリポジトリをクローンして Python コードを実行します。移行が終わるまでサポートされます）:
 
@@ -115,7 +115,7 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install.sh | bash
 ```
 
-このリポジトリを `~/.loop-engineering` にクローンし（別の場所にする場合は `--dir <path>` を指定）、`bin/scripts/setup.sh` を実行します。これにより `gitlab-config` スキルがインストールされ、テンプレートから `projects.json`/`topics.json` の雛形が作成されます。続いてローカルの nginx リバースプロキシを設定し、ダッシュボードを常時稼働の `launchd` エージェントとして起動するため、このコマンド 1 つでダッシュボードが実際にアクセス可能な状態で動作します。どちらかを無効にするには `--skip-nginx` や `--skip-launchd-daemons` を指定してください。（スケジュールされた GitLab ループとトピックモニターは自動起動*されません*。`projects.json`/`topics.json` を記入する前に動作してしまうためです。設定が済んだら、ダッシュボードの **Settings → Daemons** ページから自分で起動してください。）後で同じコマンドを再実行すると、再クローンせずに最新の `main` を pull するだけです。
+このリポジトリを `~/.loopx` にクローンし（別の場所にする場合は `--dir <path>` を指定）、`bin/scripts/setup.sh` を実行します。これにより `gitlab-config` スキルがインストールされ、テンプレートから `projects.json`/`topics.json` の雛形が作成されます。続いてローカルの nginx リバースプロキシを設定し、ダッシュボードを常時稼働の `launchd` エージェントとして起動するため、このコマンド 1 つでダッシュボードが実際にアクセス可能な状態で動作します。どちらかを無効にするには `--skip-nginx` や `--skip-launchd-daemons` を指定してください。（スケジュールされた GitLab ループとトピックモニターは自動起動*されません*。`projects.json`/`topics.json` を記入する前に動作してしまうためです。設定が済んだら、ダッシュボードの **Settings → Daemons** ページから自分で起動してください。）後で同じコマンドを再実行すると、再クローンせずに最新の `main` を pull するだけです。
 
 すでにインストール済みで更新だけしたい場合は `--upgrade` を付けます。
 
@@ -145,7 +145,7 @@ bin/scripts/setup.sh --skip-skills-install
 
 > Clone and set up [https://github.com/encoreshao/loop-engineering](https://github.com/encoreshao/loop-engineering) for me: run its online installer
 > (`curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install.sh | bash`),
-> then help me fill in `~/.loop-engineering/projects.json` with my own GitLab project(s), and `~/.gitlab/config.json` with my GitLab token.
+> then help me fill in `~/.loopx/projects.json` with my own GitLab project(s), and `~/.gitlab/config.json` with my GitLab token.
 
 
 
@@ -156,7 +156,7 @@ bin/scripts/build_macos_app.sh      # -> dist/Loop X.app
 open "dist/Loop X.app"
 ```
 
-ダッシュボードを包むネイティブウィンドウです（pywebview と PyYAML を入れた専用 venv を使用）。起動中のダッシュボードデーモンに接続し、無ければ自身でダッシュボードを提供します。アプリはこのチェックアウトの `bin/desktop_app.py` を起動するため、チェックアウトは動かさないでください。設定と実行状態は `~/.loop-engineering` と `outputs/` に残ります。
+ダッシュボードを包むネイティブウィンドウです（pywebview と PyYAML を入れた専用 venv を使用）。起動中のダッシュボードデーモンに接続し、無ければ自身でダッシュボードを提供します。アプリはこのチェックアウトの `bin/desktop_app.py` を起動するため、チェックアウトは動かさないでください。設定と実行状態は `~/.loopx` と `outputs/` に残ります。
 
 ### アンインストール
 
@@ -164,14 +164,14 @@ open "dist/Loop X.app"
 bin/scripts/uninstall.sh                 # or: curl -fsSL .../uninstall.sh | bash
 ```
 
-このリポジトリの `launchd` エージェントをアンロードして削除し、`setup-nginx.sh` を実行していればその変更を元に戻し、`~/.loop-engineering` フォルダ全体（コード、設定、実行履歴をまとめて）を削除します。代わりにすべてをそのまま残したい場合（再インストール直前など）は `--keep-config` を指定してください。再実行しても安全です。
+このリポジトリの `launchd` エージェントをアンロードして削除し、`setup-nginx.sh` を実行していればその変更を元に戻し、`~/.loopx` フォルダ全体（コード、設定、実行履歴をまとめて）を削除します。代わりにすべてをそのまま残したい場合（再インストール直前など）は `--keep-config` を指定してください。再実行しても安全です。
 
 ## ディレクトリ構成
 
 デフォルトのインストールパスを使うと、すべてが 1 つのフォルダ配下に置かれます。
 
 ```
-~/.loop-engineering/            # install.sh's clone target
+~/.loopx/            # install.sh's clone target
 ├── bin/, docs/, tests/, ...    # this repo's own code (tracked in git)
 ├── projects.json                # your config: GitLab projects to track  ┐
 ├── topics.json                  # your config: topics to monitor         │
@@ -192,7 +192,7 @@ bin/scripts/uninstall.sh                 # or: curl -fsSL .../uninstall.sh | bas
     └── <project>-issue-<iid>/    #   that project's own checkout, on branch loop/issue-<iid>
 ```
 
-`projects.json`、`topics.json`、`loops.json`、`instructions.md`、`ai_cli.json` は、コードをどこにクローンしたかに関係なく、常に `~/.loop-engineering/…` に解決されます。上記のリポジトリフォルダ*内*に置かれるのは、`install.sh` のデフォルトのクローン先がたまたま同じパスだからにすぎません。手動で別の場所にクローンした場合でも、これら 5 つのファイルはコードとは別に `~/.loop-engineering/` に置かれます。`projects.json` の雛形の `worktree_root` も、同じ理由でデフォルトは `~/.loop-engineering/worktrees` です。
+`projects.json`、`topics.json`、`loops.json`、`instructions.md`、`ai_cli.json` は、コードをどこにクローンしたかに関係なく、常に `~/.loopx/…` に解決されます。上記のリポジトリフォルダ*内*に置かれるのは、`install.sh` のデフォルトのクローン先がたまたま同じパスだからにすぎません。手動で別の場所にクローンした場合でも、これら 5 つのファイルはコードとは別に `~/.loopx/` に置かれます。`projects.json` の雛形の `worktree_root` も、同じ理由でデフォルトは `~/.loopx/worktrees` です。
 
 さらに 2 つの設定ファイル `~/.gitlab/config.json` と `~/.slack/config.json` は、このツリーの完全に外側にあり、手動ではなくダッシュボードの **Loops → GitLab Issues → Projects** ページと **Notifications** ページから編集できます。
 
@@ -201,15 +201,15 @@ bin/scripts/uninstall.sh                 # or: curl -fsSL .../uninstall.sh | bas
 
 | ファイル                              | 内容                                                                                                                                                                                                                    | 管理方法                                                                                                                                                                      |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `~/.loop-engineering/projects.json`   | 追跡するプロジェクト、そのローカルチェックアウトのパス、ターゲットブランチ、install/lint/test コマンド、GitLab ユーザー名、worktree の作業ディレクトリ（`worktree_root`、デフォルトは `~/.loop-engineering/worktrees`） | ダッシュボードの **Loops → GitLab Issues → Projects** ページの「Tracked Projects」セクション、または [`config/projects.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/projects.json.template) を手動でコピー、または `bin/scripts/setup.sh` に任せる |
+| `~/.loopx/projects.json`   | 追跡するプロジェクト、そのローカルチェックアウトのパス、ターゲットブランチ、install/lint/test コマンド、GitLab ユーザー名、worktree の作業ディレクトリ（`worktree_root`、デフォルトは `~/.loopx/worktrees`） | ダッシュボードの **Loops → GitLab Issues → Projects** ページの「Tracked Projects」セクション、または [`config/projects.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/projects.json.template) を手動でコピー、または `bin/scripts/setup.sh` に任せる |
 | ↳ プロジェクトごとの `instance`（任意） | 1 つのプロジェクトについてトップレベルの `gitlab_instance` を上書きします。プロジェクトが複数の GitLab インスタンスにまたがる場合に設定します。省略時は `gitlab_instance` が使われます。                               | 同じファイルの各プロジェクトエントリ — テンプレートの `harbor` の例を参照                                                                                                     |
-| `~/.loop-engineering/topics.json`     | 監視するトピックと、それぞれで注目に値するものの基準（トピックモニターループのみ）                                                                                                                                      | [`config/topics.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/topics.json.template) を手動でコピー、または `bin/scripts/setup.sh` に任せる                                                                |
-| `~/.loop-engineering/inboxes.json`    | トリアージするメールボックス（プロバイダー、アカウント、カテゴリ、VIP/除外する送信者、Slack バンドル）と、共有のデフォルトカテゴリセット（Inbox Triage ループのみ）                                                    | ダッシュボードの **Loops → Inbox Triage → Setup** ページ（`/inbox/setup`）、または `bin/scripts/setup.sh` に [`config/inboxes.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/inboxes.json.template) から雛形を作成させる               |
-| `~/.loop-engineering/mail_oauth.json` | Gmail/Outlook OAuth アプリ自体のクライアント ID（Google の場合はクライアントシークレットも）— メールボックスごとの認証情報ではなく、一度きりのアプリ登録手順                                                            | ダッシュボードの **Loops → Inbox Triage → Setup** ページ                                                                                                                                              |
-| `~/.loop-engineering/loops.json`      | スケジュールされたループのレジストリ：各エントリの名前、スケジュール（曜日/時/分）、エントリポイントモジュール、タイムアウト、ループごとの設定項目 — `bin/loops_config.py` が読み込み、`bin/loop_scheduler.py` がポーリング | [`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template) を手動でコピー、または `bin/scripts/setup.sh` に任せる                                                                  |
-| `~/.loop-engineering/loop_scheduler_state.json` | ループごとの最終試行日。スケジューラーが同じループを 1 日に 2 回実行しないようにするためのもので、手動で編集するものではありません                                                                               | `bin/loop_scheduler.py` が自動で書き込みます。`bin/scripts/setup.sh` が登録済みの全ループについて今日の日付で初期化するため、スケジューラーを有効にしても即座に実行が走ることはありません |
-| `~/.loop-engineering/instructions.md` | 自由記述の独自指示。毎回の実行開始時にループが読み込みます                                                                                                                                                              | ダッシュボードの **Settings** ページの Instructions タブ                                                                                                                     |
-| `~/.loop-engineering/ai_cli.json`     | `run-loop-now.sh` が登録済みの全ループで呼び出す AI CLI（Claude Code または Codex CLI）。デフォルトは `claude`                                                                                                           | ダッシュボードの **Settings** ページの AI CLI タブ、または `bin/scripts/setup.sh` に任せる                                                                                                    |
+| `~/.loopx/topics.json`     | 監視するトピックと、それぞれで注目に値するものの基準（トピックモニターループのみ）                                                                                                                                      | [`config/topics.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/topics.json.template) を手動でコピー、または `bin/scripts/setup.sh` に任せる                                                                |
+| `~/.loopx/inboxes.json`    | トリアージするメールボックス（プロバイダー、アカウント、カテゴリ、VIP/除外する送信者、Slack バンドル）と、共有のデフォルトカテゴリセット（Inbox Triage ループのみ）                                                    | ダッシュボードの **Loops → Inbox Triage → Setup** ページ（`/inbox/setup`）、または `bin/scripts/setup.sh` に [`config/inboxes.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/inboxes.json.template) から雛形を作成させる               |
+| `~/.loopx/mail_oauth.json` | Gmail/Outlook OAuth アプリ自体のクライアント ID（Google の場合はクライアントシークレットも）— メールボックスごとの認証情報ではなく、一度きりのアプリ登録手順                                                            | ダッシュボードの **Loops → Inbox Triage → Setup** ページ                                                                                                                                              |
+| `~/.loopx/loops.json`      | スケジュールされたループのレジストリ：各エントリの名前、スケジュール（曜日/時/分）、エントリポイントモジュール、タイムアウト、ループごとの設定項目 — `bin/loops_config.py` が読み込み、`bin/loop_scheduler.py` がポーリング | [`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template) を手動でコピー、または `bin/scripts/setup.sh` に任せる                                                                  |
+| `~/.loopx/loop_scheduler_state.json` | ループごとの最終試行日。スケジューラーが同じループを 1 日に 2 回実行しないようにするためのもので、手動で編集するものではありません                                                                               | `bin/loop_scheduler.py` が自動で書き込みます。`bin/scripts/setup.sh` が登録済みの全ループについて今日の日付で初期化するため、スケジューラーを有効にしても即座に実行が走ることはありません |
+| `~/.loopx/instructions.md` | 自由記述の独自指示。毎回の実行開始時にループが読み込みます                                                                                                                                                              | ダッシュボードの **Settings** ページの Instructions タブ                                                                                                                     |
+| `~/.loopx/ai_cli.json`     | `run-loop-now.sh` が登録済みの全ループで呼び出す AI CLI（Claude Code または Codex CLI）。デフォルトは `claude`                                                                                                           | ダッシュボードの **Settings** ページの AI CLI タブ、または `bin/scripts/setup.sh` に任せる                                                                                                    |
 | `~/.gitlab/config.json`               | GitLab インスタンスの URL、トークン、プロジェクトエイリアス → プロジェクト ID の対応（`gitlab-config` スキルが読み込みます）                                                                                            | ダッシュボードの **Loops → GitLab Issues → Projects** ページ                                                                                                                                            |
 | `~/.slack/config.json`                | Slack incoming webhook の URL（およびバンドルごとの上書き）                                                                                                                                                              | ダッシュボードの **Settings** ページの Notifications タブ（デフォルトの webhook）/ **Loops → GitLab Issues → Projects** ページの Access bundles セクション（バンドルごとの上書き）                              |
 
@@ -223,7 +223,7 @@ python3 bin/loop_config.py assignee                # the GitLab username being t
 python3 bin/loop_config.py worktree-root           # where per-issue worktrees get created
 ```
 
-`~/.loop-engineering/projects.json` がまだ存在しない場合、それを必要とするすべてのスクリプトは、`bin/scripts/setup.sh` を実行するよう促すメッセージを出して即座に失敗します。パスを黙って推測することはありません。
+`~/.loopx/projects.json` がまだ存在しない場合、それを必要とするすべてのスクリプトは、`bin/scripts/setup.sh` を実行するよう促すメッセージを出して即座に失敗します。パスを黙って推測することはありません。
 
 **Access bundles** — プロジェクトごとのトークン/webhook の上書き
 
@@ -260,11 +260,11 @@ launchctl load -w ~/Library/LaunchAgents/com.hermes.loop-engineering-dashboard.p
 
 | エージェント                            | 実行内容                                                                                                                                         |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------|
-| `com.hermes.loop-engineering`           | 単一のスケジューラーのポーリングループ（`bin/loop_scheduler.py`）を 15 分ごとに実行（`StartInterval`）— `~/.loop-engineering/loops.json` に登録されたループのうち期限が来たものを `run-loop-now.sh` 経由で実行します |
+| `com.hermes.loop-engineering`           | 単一のスケジューラーのポーリングループ（`bin/loop_scheduler.py`）を 15 分ごとに実行（`StartInterval`）— `~/.loopx/loops.json` に登録されたループのうち期限が来たものを `run-loop-now.sh` 経由で実行します |
 | `com.hermes.loop-engineering-dashboard` | Web ダッシュボード。常時稼働（`RunAtLoad` + `KeepAlive`）                                                                                          |
 
 
-どのループをどのスケジュールで実行するかはコードではなく設定です。ループを追加したり実行タイミングを変えたりするには `~/.loop-engineering/loops.json` を編集してください（[`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template) を参照）。3 つ目のループを追加するのに必要なのは新しい `loops.json` エントリであり、新しい plist ではありません。**Settings → Daemons** ページのエージェントごとのスケジュールエディターは plist 自身の `StartCalendarInterval` にしか適用されませんが、`com.hermes.loop-engineering` にはもうそれがありません（固定の `StartInterval` で 15 分ごとにポーリングし、どのループの期限が来ているかは `loops.json` に委ねます）。そのため、ループ自体のスケジュール変更は、現時点では `loops.json` の手動編集で行います。
+どのループをどのスケジュールで実行するかはコードではなく設定です。ループを追加したり実行タイミングを変えたりするには `~/.loopx/loops.json` を編集してください（[`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template) を参照）。3 つ目のループを追加するのに必要なのは新しい `loops.json` エントリであり、新しい plist ではありません。**Settings → Daemons** ページのエージェントごとのスケジュールエディターは plist 自身の `StartCalendarInterval` にしか適用されませんが、`com.hermes.loop-engineering` にはもうそれがありません（固定の `StartInterval` で 15 分ごとにポーリングし、どのループの期限が来ているかは `loops.json` に委ねます）。そのため、ループ自体のスケジュール変更は、現時点では `loops.json` の手動編集で行います。
 
 ## ダッシュボード
 
@@ -275,7 +275,7 @@ localhost 専用で依存関係のない（stdlib の Python のみ、JS フレ�
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Dashboard** (`/`) | ビュー：Overview — 現在/前回の実行状況、ライブの進捗インジケーター、Run now ボタン; Activity — ループとのメッセージスレッドと、専用のライブ進捗インジケーター。ここに GitLab Issue のリンクを貼り付けると、誰にアサインされているかに関係なく、その Issue 1 件をループに即座に処理させられます。 |
 | **Loops** (`/loops`) | アクティブなループと利用可能なループを分けて表示するカタログ。表示中の各ループは、サイドバーの **Loops** 配下にも子リンクとして並びます（Inbox Triage は無効かつ一度も実行されていない間はそこに表示されません） |
-| — **GitLab Issues** (`/loops/gitlab-loop`) | ビュー：Live — 現在アサインされている Issue とオープンな MR をライブで取得して表示; Projects — `~/.gitlab/config.json`（インスタンス、プロジェクトエイリアス、access bundles）と `~/.loop-engineering/projects.json`（追跡するプロジェクト、ループの設定）を JSON を手動編集せずに管理 |
+| — **GitLab Issues** (`/loops/gitlab-loop`) | ビュー：Live — 現在アサインされている Issue とオープンな MR をライブで取得して表示; Projects — `~/.gitlab/config.json`（インスタンス、プロジェクトエイリアス、access bundles）と `~/.loopx/projects.json`（追跡するプロジェクト、ループの設定）を JSON を手動編集せずに管理 |
 | — **Topic Monitor** (`/loops/topic-loop`) | ビュー：Live — 設定済みの各トピックの状況と保存済みブリーフィング; Topics — 監視するトピックの追加・編集・削除 — 設定によって Live 状況表示が煩雑にならないよう、同じページ内の別ビューに分離 |
 | — **Inbox Triage** (`/loops/inbox-triage-loop`) | ビュー：Inbox Triage 自体のライブ状況（**Live**）と、メールボックスの接続・カテゴリ（**Setup**：Gmail/Outlook の接続、カテゴリ、VIP/除外する送信者、Slack バンドル） |
 | **Runs** (`/runs`) | ビュー：Loop Runs — `outputs/loop-runs/` 配下に記録されたすべての実行（処理した Issue またはトピックごとに 1 件）を新しい順に表示 — 読み取り専用。概要ストリップには総実行数、成功/エスカレーション率、平均コスト、実験的な Loop Efficiency Score を表示; History — 過去の各実行のレビューレポートを新しい順に表示; Logs — `logs/loop-engineering.log` の末尾 — GitLab ループ、トピックモニターループ、およびこのダッシュボード自身のチャットアシスタントにわたる、`claude` CLI の各呼び出しの出力 |
@@ -328,7 +328,7 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 - 必須項目には `*` が付き、それ以外は「(optional)」と表示され、入力例のプレースホルダーもあります。シークレット欄には **Show**／**Hide** の切り替えがあります。
 - ボタンは **Save**、**Save and test**（保存してからプローブを実行）、**Cancel** です。保存に失敗した場合は、シークレット以外の入力値を保持したままフォームが再表示されます。
 
-**データの保存先。** ページ上で追加したアカウントは*ネイティブ*で、シークレット以外の設定は `~/.loop-engineering/connectors.json` に、シークレットは macOS キーチェーンのサービス `loop-engineering.connectors` に保存されます（`LOOP_ENGINEERING_HOME` が設定されている場合は `.sandbox-<hash>` が付くため、サンドボックス実行が本物のシークレットに触れることはありません）。シークレットが `connectors.json` に書き込まれることはなく、保存後に再表示されることもありません。
+**データの保存先。** ページ上で追加したアカウントは*ネイティブ*で、シークレット以外の設定は `~/.loopx/connectors.json` に、シークレットは macOS キーチェーンのサービス `loop-engineering.connectors` に保存されます（`LOOP_ENGINEERING_HOME` が設定されている場合は `.sandbox-<hash>` が付くため、サンドボックス実行が本物のシークレットに触れることはありません）。シークレットが `connectors.json` に書き込まれることはなく、保存後に再表示されることもありません。
 
 **外部アカウント**は、すでにそれを管理しているファイルから読み取り専用で取り込まれ、移行は行われません。GitLab インスタンスは `~/.gitlab/config.json`（id はインスタンスのエイリアス）、Slack の Webhook は `~/.slack/config.json`（`slack-default` と、バンドルごとの Webhook に対する `slack-<bundle>`）、メールボックスは `inboxes.json`（id は受信箱の名前）から取得します。編集ページへのリンク付き「Managed on …」バッジが表示され、ここから Test を実行することもできます。
 
@@ -343,21 +343,21 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 
 | スクリプト                          | 用途                                                                                                                                                                                                                                 |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `run-loop-now.sh`                   | 登録済みループ 1 つを実行する汎用エントリポイント（`bin/loops_config.py` 経由で `~/.loop-engineering/loops.json` から検索）— `outputs/history/` にログを出力し、失敗時は Slack に通知します。`bin/loop_scheduler.py`（スケジュール時）またはダッシュボード（オンデマンド時）から呼び出されます |
-| `bin/loop_scheduler.py`             | launchd でスケジュールされる単一のポーリングループ：`~/.loop-engineering/loops.json` を読み込み、期限が来た登録済みループを `run-loop-now.sh` 経由で実行します                                                                       |
-| `bin/loops_config.py`               | `~/.loop-engineering/loops.json`（スケジュールされたループのレジストリ：名前、スケジュール、エントリポイント）を読み込みます。現在は書き込み機能がないため、変更するにはファイルを手動編集（またはテンプレートをコピー）してください |
+| `run-loop-now.sh`                   | 登録済みループ 1 つを実行する汎用エントリポイント（`bin/loops_config.py` 経由で `~/.loopx/loops.json` から検索）— `outputs/history/` にログを出力し、失敗時は Slack に通知します。`bin/loop_scheduler.py`（スケジュール時）またはダッシュボード（オンデマンド時）から呼び出されます |
+| `bin/loop_scheduler.py`             | launchd でスケジュールされる単一のポーリングループ：`~/.loopx/loops.json` を読み込み、期限が来た登録済みループを `run-loop-now.sh` 経由で実行します                                                                       |
+| `bin/loops_config.py`               | `~/.loopx/loops.json`（スケジュールされたループのレジストリ：名前、スケジュール、エントリポイント）を読み込みます。現在は書き込み機能がないため、変更するにはファイルを手動編集（またはテンプレートをコピー）してください |
 | `bin/gitlab_loop_runner.py`         | `gitlab-loop` 実行時に `run-loop-now.sh` が処理を委譲する Issue ごとのオーケストレーター：アサインされた Issue を検出し、各 Issue を専用の `LoopRuntime` で処理し（`outputs/loop-runs/` 配下に Issue ごとに `LoopResult` を 1 件）、`claude -p`/`codex exec` の呼び出しと、その `--allowedTools`/`--disallowedTools` による安全境界を担い、最後にバッチ全体に対して無条件の終了処理を 1 回実行します |
 | `bin/scripts/build_run_prompt.sh`   | `bin/gitlab_loop_runner.py` が AI CLI に渡すプロンプト文字列を構築します — `<alias> <issue_iid>` で単一 Issue 用プロンプト（ダッシュボードの Dashboard → Activity チャットからの対象限定実行）、`--batch-issue <alias> <issue_iid>` でスケジュールされたバッチ内の 1 Issue 用（終了処理なし）、`--batch-end-of-run` でバッチ全体のダイジェスト/daily-review の終了処理用 |
 | `bin/web/dashboard_server.py`       | Web ダッシュボード。小さな CLI（`write-status`、`write-skills-install-status`、`read-messages`、`add-message`、`chat-tool`）も兼ねており、`run-loop-now.sh`、`bin/loop_scheduler.py`、ダッシュボード自身のアクション、Dashboard → Activity ビューに埋め込まれたチャットアシスタントから使われます |
-| `bin/loop_config.py`                | `~/.loop-engineering/projects.json` を読み込みます                                                                                                                                                                                   |
+| `bin/loop_config.py`                | `~/.loopx/projects.json` を読み込みます                                                                                                                                                                                   |
 | `bin/list_assigned_issues.py`       | 設定済みのプロジェクト全体で、設定したユーザーにアサインされたオープンな GitLab Issue を一覧表示します                                                                                                                               |
 | `bin/track_new_comments.py`         | キャッシュされた Issue のノートのうち、ループが前回確認して以降に追加されたものを検出します                                                                                                                                          |
 | `bin/project_memory.py`             | GitLab キャッシュ内にインラインで保存された、プロジェクトごとの永続的な教訓（レガシー）を読み込みます                                                                                                                                |
 | `bin/memory_store.py`               | Issue ごとの永続的なタスクメモリを markdown ファイル（Issue ごとに 1 つ、加えてプロジェクトごとの MEMORY.md インデックス）として読み込み/記録します                                                                                  |
-| `bin/ai_cli_config.py`              | `~/.loop-engineering/ai_cli.json`（`run-loop-now.sh` が登録済みの全ループで呼び出す AI CLI、`claude` または `codex`）を読み書きします                                                                                                |
+| `bin/ai_cli_config.py`              | `~/.loopx/ai_cli.json`（`run-loop-now.sh` が登録済みの全ループで呼び出す AI CLI、`claude` または `codex`）を読み書きします                                                                                                |
 | `bin/topic_monitor_runner.py`       | `topic-loop` 実行時に `run-loop-now.sh` が処理を委譲するトピックごとのオーケストレーター：設定済みの各トピックを専用の `LoopRuntime` で処理し（`outputs/loop-runs/` 配下にトピックごとに `LoopResult` を 1 件）、`claude -p`/`codex exec` の呼び出しとその安全境界を担います — `bin/gitlab_loop_runner.py` が GitLab ループで果たすのと同じ役割をトピックモニターループで果たします |
 | `bin/scripts/build_topic_prompt.sh` | 設定済みのトピック 1 つ分のプロンプト文字列を構築します。上記の `build_run_prompt.sh` と同じ役割です。`topic_monitor_runner.py` からはもう呼ばれていませんが、文書化された手動の逃げ道として残しています                            |
-| `bin/topic_config.py`               | `~/.loop-engineering/topics.json` を読み込みます                                                                                                                                                                                     |
+| `bin/topic_config.py`               | `~/.loopx/topics.json` を読み込みます                                                                                                                                                                                     |
 | `bin/topic_seen.py`                 | トピックごとの 7 日間のローリング重複排除ウィンドウ。ブリーフィングが 2 日続けて同じ話題を繰り返さないようにします                                                                                                                   |
 | `bin/slack_notify.py`               | 設定済みの Slack incoming webhook にメッセージを投稿します                                                                                                                                                                           |
 | `bin/scripts/new_worktree.sh`       | `loop/issue-<iid>` ブランチ上に隔離された git worktree を作成（または再利用）します                                                                                                                                                  |

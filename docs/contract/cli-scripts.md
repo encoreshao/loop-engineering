@@ -3,7 +3,7 @@
 Recorded from the source at branch `rust-migration` (base `e7b3117`). This is the observable
 contract a Rust port must preserve byte-for-byte where agents or shell scripts parse it.
 Every sample below was produced by running the script against a scratch
-`LOOP_ENGINEERING_HOME`/`HOME`; nothing touched the real `~/.loop-engineering`.
+`LOOP_ENGINEERING_HOME`/`HOME`; nothing touched the real `~/.loopx`.
 
 ## 0. Renames and things that no longer exist
 
@@ -21,7 +21,7 @@ with exit 0; unhandled exceptions (missing config file, unknown project alias) p
 traceback on stderr and exit 1 (an unhandled `KeyError` or `FileNotFoundError`). A Rust port should
 exit 1 with a stderr message; the traceback text itself is not contract.
 
-Path resolution: `LOOP_ENGINEERING_HOME` (default `~/.loop-engineering`) is read **at import time**
+Path resolution: `LOOP_ENGINEERING_HOME` (default `~/.loopx`) is read **at import time**
 into module constants in `loop_config.py`, `topic_config.py`, `ai_cli_config.py`, `memory_store.py`,
 `loops_config.py`, `connectors_config.py`, `loop_scheduler.py`.
 
@@ -81,7 +81,7 @@ Purpose: list open GitLab issues assigned to a user, grouped by project alias.
 Invocation:
 - `list_assigned_issues.py` (no args): username from `loop_config.get_assignee_username()`, aliases from `loop_config.list_aliases()`.
 - `list_assigned_issues.py <username> <alias> [alias...]` (needs at least 3 argv entries).
-- Any other arity (exactly 1 or 2 args) prints `Usage: list_assigned_issues.py [username] [project_alias...] (with no arguments, both default from ~/.loop-engineering/projects.json)` to stderr, exit 1.
+- Any other arity (exactly 1 or 2 args) prints `Usage: list_assigned_issues.py [username] [project_alias...] (with no arguments, both default from ~/.loopx/projects.json)` to stderr, exit 1.
 
 Behavior: for each alias runs `python3 ~/.encore-skills/skills/gitlab-config/scripts/gitlab_api.py list-issues <alias> opened` (`subprocess.run(check=True)`, stdout parsed as a JSON array), keeps issues whose `assignees[].username == username`.
 stdout: `json.dumps(result, indent=2)`, shape `{"<alias>": [<full GitLab issue object>, ...], ...}` (aliases in input order; empty list when none). A failing `gitlab_api.py` raises `CalledProcessError` (traceback, exit 1).

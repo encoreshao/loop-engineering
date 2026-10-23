@@ -15,7 +15,7 @@ called out.
 
 | Variable | Effect |
 |---|---|
-| `LOOP_ENGINEERING_HOME` | Overrides the base dir for files under `~/.loop-engineering/`. Default `~/.loop-engineering`. Read once at process start. |
+| `LOOP_ENGINEERING_HOME` | Overrides the base dir for files under `~/.loopx/`. Default `~/.loopx`. Read once at process start. |
 | `HOME` | `~/.gitlab/config.json` and `~/.slack/config.json` are resolved from `Path.home()` and are **not** affected by `LOOP_ENGINEERING_HOME`. |
 | (repo checkout) | `outputs/status.json`, `outputs/messages.json` live under `<repo_root>/outputs/` (per-checkout run state), where `repo_root` is the checkout containing `bin/web/dashboard_server.py`. `LOOP_ENGINEERING_HOME` does not move them. |
 
@@ -71,7 +71,7 @@ are listed per file.
 ## 1. `projects.json`
 
 - **Path:** `$LOOP_ENGINEERING_HOME/projects.json` (default
-  `~/.loop-engineering/projects.json`). Template: `config/projects.json.template`
+  `~/.loopx/projects.json`). Template: `config/projects.json.template`
   (`{{HOME}}` in `worktree_root` is substituted by the installer).
 - **Readers:** `bin/loop_config.py` (strict; `load_config`, `get_project`,
   `get_instance`, `get_assignee_username`, `get_worktree_root`, `list_aliases`,
@@ -558,7 +558,7 @@ this file unless the user saves them.
    `unknown` are read-side synthetic states only; pid liveness check gates a
    stale `running`.
 8. Preserve the lenient-vs-strict split per reader listed above.
-9. Honor `LOOP_ENGINEERING_HOME` only for the `~/.loop-engineering` files,
+9. Honor `LOOP_ENGINEERING_HOME` only for the `~/.loopx` files,
    and `HOME` for the `~/.gitlab` / `~/.slack` files; `outputs/` is relative
    to the checkout.
 

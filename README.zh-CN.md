@@ -97,14 +97,14 @@ Loop X Engineering 的使命是把被 issue 分诊占用的时间还给你：它
 
 ## 快速开始
 
-**新：安装 `loopx` 二进制（无需克隆、无需 Python）。** 从最新的 GitHub Release 下载适合你 Mac 的预编译 `loopx`，校验 SHA-256，安装到 `~/.loop-engineering/bin/loopx`，并用模板生成 `projects.json`/`topics.json`/`loops.json`：
+**新：安装 `loopx` 二进制（无需克隆、无需 Python）。** 从最新的 GitHub Release 下载适合你 Mac 的预编译 `loopx`，校验 SHA-256，安装到 `~/.loopx/bin/loopx`，并用模板生成 `projects.json`/`topics.json`/`loops.json`：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install-loopx.sh | bash
 curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install-loopx.sh | bash -s -- --upgrade   # later
 ```
 
-之后加 `--upgrade` 升级：保留你的配置，只替换程序，并重启已加载的 launchd 代理。全新安装时加 `--load-agents` 可同时启动仪表盘代理。也可用 Homebrew：`brew install encoreshao/tap/loopx`（再 `brew services start loopx`），或从 Release 的 DMG 安装已签名的 `LoopX.app`。首次启动检查（AI CLI、凭据、配置）：`loopx doctor`（应用用 `--json`）。卸载（两种模式）：`bin/scripts/uninstall-loopx.sh --project-dir ~/.loop-engineering`（`--keep-config`、`--remove-app`）。发布流程见 [`docs/RELEASING.md`](docs/RELEASING.md)。
+之后加 `--upgrade` 升级：保留你的配置，只替换程序，并重启已加载的 launchd 代理。全新安装时加 `--load-agents` 可同时启动仪表盘代理。也可用 Homebrew：`brew install encoreshao/tap/loopx`（再 `brew services start loopx`），或从 Release 的 DMG 安装已签名的 `LoopX.app`。首次启动检查（AI CLI、凭据、配置）：`loopx doctor`（应用用 `--json`）。卸载（两种模式）：`bin/scripts/uninstall-loopx.sh --project-dir ~/.loopx`（`--keep-config`、`--remove-app`）。发布流程见 [`docs/RELEASING.md`](docs/RELEASING.md)。
 
 **旧版安装程序**（克隆本仓库并运行 Python 代码；迁移完成前仍受支持）：
 
@@ -112,7 +112,7 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install.sh | bash
 ```
 
-将本仓库克隆到 `~/.loop-engineering`（传入 `--dir <path>` 可指定其他位置），并运行 `bin/scripts/setup.sh`，它会安装 `gitlab-config` skill，并从模板生成 `projects.json`/`topics.json` 骨架。随后它会配置本地 nginx 反向代理，并将仪表盘作为常驻 `launchd` 代理启动，因此这一条命令结束时仪表盘就已可访问并在运行——传入 `--skip-nginx` 和/或 `--skip-launchd-daemons` 可跳过其中任一步。（定时 GitLab 循环和主题监控*不会*自动启动，因为它们会在你填写 `projects.json`/`topics.json` 之前就开始执行——配置完成后，请在仪表盘的 **Settings → Daemons** 页面自行启动。）之后再次运行同一命令只会拉取最新的 `main`，而不会重新克隆。
+将本仓库克隆到 `~/.loopx`（传入 `--dir <path>` 可指定其他位置），并运行 `bin/scripts/setup.sh`，它会安装 `gitlab-config` skill，并从模板生成 `projects.json`/`topics.json` 骨架。随后它会配置本地 nginx 反向代理，并将仪表盘作为常驻 `launchd` 代理启动，因此这一条命令结束时仪表盘就已可访问并在运行——传入 `--skip-nginx` 和/或 `--skip-launchd-daemons` 可跳过其中任一步。（定时 GitLab 循环和主题监控*不会*自动启动，因为它们会在你填写 `projects.json`/`topics.json` 之前就开始执行——配置完成后，请在仪表盘的 **Settings → Daemons** 页面自行启动。）之后再次运行同一命令只会拉取最新的 `main`，而不会重新克隆。
 
 已经安装过，只想更新？加上 `--upgrade`：
 
@@ -142,7 +142,7 @@ bin/scripts/setup.sh --skip-skills-install
 
 > 帮我克隆并设置 [https://github.com/encoreshao/loop-engineering](https://github.com/encoreshao/loop-engineering)：运行它的在线安装程序
 > （`curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install.sh | bash`），
-> 然后帮我在 `~/.loop-engineering/projects.json` 中填写我自己的 GitLab 项目，并在 `~/.gitlab/config.json` 中填写我的 GitLab 令牌。
+> 然后帮我在 `~/.loopx/projects.json` 中填写我自己的 GitLab 项目，并在 `~/.gitlab/config.json` 中填写我的 GitLab 令牌。
 
 
 
@@ -153,7 +153,7 @@ bin/scripts/build_macos_app.sh      # -> dist/Loop X.app
 open "dist/Loop X.app"
 ```
 
-围绕仪表盘的原生窗口（使用带 pywebview 和 PyYAML 的独立 venv）。它会连接正在运行的仪表盘守护进程，若没有则自行提供仪表盘。应用启动的是此检出目录中的 `bin/desktop_app.py`，请勿移动该目录；配置和运行状态仍保存在 `~/.loop-engineering` 和 `outputs/`。
+围绕仪表盘的原生窗口（使用带 pywebview 和 PyYAML 的独立 venv）。它会连接正在运行的仪表盘守护进程，若没有则自行提供仪表盘。应用启动的是此检出目录中的 `bin/desktop_app.py`，请勿移动该目录；配置和运行状态仍保存在 `~/.loopx` 和 `outputs/`。
 
 ### 卸载
 
@@ -161,14 +161,14 @@ open "dist/Loop X.app"
 bin/scripts/uninstall.sh                 # or: curl -fsSL .../uninstall.sh | bash
 ```
 
-卸载并移除本仓库的 `launchd` 代理，如果你运行过 `setup-nginx.sh` 则撤销其更改，并删除整个 `~/.loop-engineering` 文件夹——代码、配置和运行历史一并删除——传入 `--keep-config` 可保留它们（例如你准备重新安装）。可安全地重复运行。
+卸载并移除本仓库的 `launchd` 代理，如果你运行过 `setup-nginx.sh` 则撤销其更改，并删除整个 `~/.loopx` 文件夹——代码、配置和运行历史一并删除——传入 `--keep-config` 可保留它们（例如你准备重新安装）。可安全地重复运行。
 
 ## 目录结构
 
 使用默认安装路径时，所有内容都位于同一个文件夹下：
 
 ```
-~/.loop-engineering/            # install.sh's clone target
+~/.loopx/            # install.sh's clone target
 ├── bin/, docs/, tests/, ...    # this repo's own code (tracked in git)
 ├── projects.json                # your config: GitLab projects to track  ┐
 ├── topics.json                  # your config: topics to monitor         │
@@ -189,7 +189,7 @@ bin/scripts/uninstall.sh                 # or: curl -fsSL .../uninstall.sh | bas
     └── <project>-issue-<iid>/    #   that project's own checkout, on branch loop/issue-<iid>
 ```
 
-无论你把代码克隆到哪里，`projects.json`、`topics.json`、`loops.json`、`instructions.md` 和 `ai_cli.json` 始终解析到 `~/.loop-engineering/…`——它们之所以出现在上面的仓库文件夹*内部*，只是因为 `install.sh` 的默认克隆目标恰好是同一路径。如果你手动克隆到别处，这五个文件仍位于 `~/.loop-engineering/`，与代码分离。出于同样的原因，`projects.json` 骨架中的 `worktree_root` 默认也是 `~/.loop-engineering/worktrees`。
+无论你把代码克隆到哪里，`projects.json`、`topics.json`、`loops.json`、`instructions.md` 和 `ai_cli.json` 始终解析到 `~/.loopx/…`——它们之所以出现在上面的仓库文件夹*内部*，只是因为 `install.sh` 的默认克隆目标恰好是同一路径。如果你手动克隆到别处，这五个文件仍位于 `~/.loopx/`，与代码分离。出于同样的原因，`projects.json` 骨架中的 `worktree_root` 默认也是 `~/.loopx/worktrees`。
 
 另有两个配置文件完全位于此目录树之外，可在仪表盘的 **Loops → GitLab Issues → Projects** 和 **Settings → Notifications** 页面编辑，而无需手动修改：`~/.gitlab/config.json` 和 `~/.slack/config.json`。
 
@@ -198,15 +198,15 @@ bin/scripts/uninstall.sh                 # or: curl -fsSL .../uninstall.sh | bas
 
 | 文件                                  | 内容                                                                                                                                                                                                                   | 管理方式                                                                                                                                                                   |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `~/.loop-engineering/projects.json`   | 要跟踪哪些项目、它们的本地检出路径、目标分支、install/lint/test 命令、你的 GitLab 用户名，以及 worktree 临时目录（`worktree_root`，默认为 `~/.loop-engineering/worktrees`） | 仪表盘 **Loops → GitLab Issues → Projects** 页面的 “Tracked Projects” 区域，或手动复制 [`config/projects.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/projects.json.template)，或交给 `bin/scripts/setup.sh` 完成 |
+| `~/.loopx/projects.json`   | 要跟踪哪些项目、它们的本地检出路径、目标分支、install/lint/test 命令、你的 GitLab 用户名，以及 worktree 临时目录（`worktree_root`，默认为 `~/.loopx/worktrees`） | 仪表盘 **Loops → GitLab Issues → Projects** 页面的 “Tracked Projects” 区域，或手动复制 [`config/projects.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/projects.json.template)，或交给 `bin/scripts/setup.sh` 完成 |
 | ↳ 每个项目的 `instance`（可选）   | 为单个项目覆盖顶层的 `gitlab_instance`——当你的项目分布在多个 GitLab 实例上时设置。省略时回退到 `gitlab_instance`。                                               | 同一文件中的各项目条目——参见模板中的 `harbor` 示例                                                                                                            |
-| `~/.loop-engineering/topics.json`     | 要监控哪些主题，以及每个主题中什么算值得关注（仅主题监控循环）                                                                                                                               | 手动复制 [`config/topics.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/topics.json.template)，或交给 `bin/scripts/setup.sh` 完成                                                                |
-| `~/.loop-engineering/inboxes.json`    | 要分诊哪些邮箱（服务商、账号、分类、VIP/排除的发件人、Slack bundle）以及共享的默认分类集（仅 Inbox Triage 循环）                                                              | 仪表盘的 **Loops → Inbox Triage → Setup** 页面（`/inbox/setup`），或由 `bin/scripts/setup.sh` 从 [`config/inboxes.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/inboxes.json.template) 生成骨架               |
-| `~/.loop-engineering/mail_oauth.json` | Gmail/Outlook OAuth 应用自身的 client ID（Google 还包括 client secret）——这是一次性的应用注册步骤，而不是按邮箱的凭据                                                                           | 仪表盘的 **Loops → Inbox Triage → Setup** 页面                                                                                                                                                     |
-| `~/.loop-engineering/loops.json`      | 定时循环的注册表：每个条目的名称、计划（工作日/小时/分钟）、入口模块、超时以及各循环的参数——由 `bin/loops_config.py` 读取，由 `bin/loop_scheduler.py` 轮询                 | 手动复制 [`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template)，或交给 `bin/scripts/setup.sh` 完成                                                                  |
-| `~/.loop-engineering/loop_scheduler_state.json` | 每个循环上次尝试运行的日期，确保调度器不会在同一天重复运行同一循环——不需要手动编辑                                                                                            | 由 `bin/loop_scheduler.py` 自动写入；`bin/scripts/setup.sh` 会为每个已注册循环预填当天日期，因此启用调度器时不会立即触发一次运行 |
-| `~/.loop-engineering/instructions.md` | 你自己的自由文本指令，循环在每次运行开始时读取                                                                                                                                             | 仪表盘 **Settings** 页面的 Instructions 标签页                                                                                                                               |
-| `~/.loop-engineering/ai_cli.json`     | `run-loop-now.sh` 为每个已注册循环调用哪个 AI CLI（Claude Code 或 Codex CLI）；默认为 `claude`                                                                                                        | 仪表盘 **Settings** 页面的 AI CLI 标签页，或交给 `bin/scripts/setup.sh` 完成                                                                                                                |
+| `~/.loopx/topics.json`     | 要监控哪些主题，以及每个主题中什么算值得关注（仅主题监控循环）                                                                                                                               | 手动复制 [`config/topics.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/topics.json.template)，或交给 `bin/scripts/setup.sh` 完成                                                                |
+| `~/.loopx/inboxes.json`    | 要分诊哪些邮箱（服务商、账号、分类、VIP/排除的发件人、Slack bundle）以及共享的默认分类集（仅 Inbox Triage 循环）                                                              | 仪表盘的 **Loops → Inbox Triage → Setup** 页面（`/inbox/setup`），或由 `bin/scripts/setup.sh` 从 [`config/inboxes.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/inboxes.json.template) 生成骨架               |
+| `~/.loopx/mail_oauth.json` | Gmail/Outlook OAuth 应用自身的 client ID（Google 还包括 client secret）——这是一次性的应用注册步骤，而不是按邮箱的凭据                                                                           | 仪表盘的 **Loops → Inbox Triage → Setup** 页面                                                                                                                                                     |
+| `~/.loopx/loops.json`      | 定时循环的注册表：每个条目的名称、计划（工作日/小时/分钟）、入口模块、超时以及各循环的参数——由 `bin/loops_config.py` 读取，由 `bin/loop_scheduler.py` 轮询                 | 手动复制 [`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template)，或交给 `bin/scripts/setup.sh` 完成                                                                  |
+| `~/.loopx/loop_scheduler_state.json` | 每个循环上次尝试运行的日期，确保调度器不会在同一天重复运行同一循环——不需要手动编辑                                                                                            | 由 `bin/loop_scheduler.py` 自动写入；`bin/scripts/setup.sh` 会为每个已注册循环预填当天日期，因此启用调度器时不会立即触发一次运行 |
+| `~/.loopx/instructions.md` | 你自己的自由文本指令，循环在每次运行开始时读取                                                                                                                                             | 仪表盘 **Settings** 页面的 Instructions 标签页                                                                                                                               |
+| `~/.loopx/ai_cli.json`     | `run-loop-now.sh` 为每个已注册循环调用哪个 AI CLI（Claude Code 或 Codex CLI）；默认为 `claude`                                                                                                        | 仪表盘 **Settings** 页面的 AI CLI 标签页，或交给 `bin/scripts/setup.sh` 完成                                                                                                                |
 | `~/.gitlab/config.json`               | GitLab 实例 URL、令牌，以及项目别名 → 项目 ID 的映射（由 `gitlab-config` skill 读取）                                                                                                               | 仪表盘 **Loops → GitLab Issues → Projects** 页面                                                                                                                                                     |
 | `~/.slack/config.json`                | 你的 Slack incoming webhook URL（以及各 bundle 的覆盖设置）                                                                                                                                                          | 仪表盘 **Settings** 页面的 Notifications 标签页（默认 webhook）/ **Loops → GitLab Issues → Projects** 页面的 Access bundles 区域（各 bundle 覆盖设置）                                                              |
 
@@ -220,7 +220,7 @@ python3 bin/loop_config.py assignee                # the GitLab username being t
 python3 bin/loop_config.py worktree-root           # where per-issue worktrees get created
 ```
 
-如果 `~/.loop-engineering/projects.json` 尚不存在，每个需要它的脚本都会立即失败，并提示你运行 `bin/scripts/setup.sh`——不会悄悄猜测路径。
+如果 `~/.loopx/projects.json` 尚不存在，每个需要它的脚本都会立即失败，并提示你运行 `bin/scripts/setup.sh`——不会悄悄猜测路径。
 
 **Access bundles（访问包）**——按项目覆盖令牌/webhook
 
@@ -257,11 +257,11 @@ launchctl load -w ~/Library/LaunchAgents/com.hermes.loop-engineering-dashboard.p
 
 | 代理                                   | 运行内容                                                                                                                                             |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------|
-| `com.hermes.loop-engineering`           | 唯一的调度器轮询循环（`bin/loop_scheduler.py`），每 15 分钟一次（`StartInterval`）——通过 `run-loop-now.sh` 运行 `~/.loop-engineering/loops.json` 中已到期的已注册循环 |
+| `com.hermes.loop-engineering`           | 唯一的调度器轮询循环（`bin/loop_scheduler.py`），每 15 分钟一次（`StartInterval`）——通过 `run-loop-now.sh` 运行 `~/.loopx/loops.json` 中已到期的已注册循环 |
 | `com.hermes.loop-engineering-dashboard` | Web 仪表盘，常驻运行（`RunAtLoad` + `KeepAlive`）                                                                                          |
 
 
-运行哪些循环、按什么计划运行属于配置而非代码——编辑 `~/.loop-engineering/loops.json`（参见 [`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template)）即可添加循环或更改其到期时间；添加第三个循环只需新增一个 `loops.json` 条目，而不需要新的 plist。**Settings → Daemons** 页面中每个代理的计划编辑器只作用于 plist 自身的 `StartCalendarInterval`，而 `com.hermes.loop-engineering` 已不再有该字段（它以固定的 `StartInterval` 每 15 分钟轮询一次，并由 `loops.json` 决定哪个循环真正到期）——目前修改循环自身的计划需要手动编辑 `loops.json`。
+运行哪些循环、按什么计划运行属于配置而非代码——编辑 `~/.loopx/loops.json`（参见 [`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template)）即可添加循环或更改其到期时间；添加第三个循环只需新增一个 `loops.json` 条目，而不需要新的 plist。**Settings → Daemons** 页面中每个代理的计划编辑器只作用于 plist 自身的 `StartCalendarInterval`，而 `com.hermes.loop-engineering` 已不再有该字段（它以固定的 `StartInterval` 每 15 分钟轮询一次，并由 `loops.json` 决定哪个循环真正到期）——目前修改循环自身的计划需要手动编辑 `loops.json`。
 
 ## 仪表盘
 
@@ -272,7 +272,7 @@ launchctl load -w ~/Library/LaunchAgents/com.hermes.loop-engineering-dashboard.p
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Dashboard** (`/`) | 视图：Overview — 当前/上次运行状态、实时进度指示器，以及 Run now 按钮; Activity — 与循环的消息会话，并带有独立的实时进度指示器。在此粘贴 GitLab issue 链接即可让循环立即处理该 issue，无论它分配给了谁。 |
 | **Loops** (`/loops`) | 目录页，把已启用的循环与可用的循环分开列出；每个可见的循环也会作为子链接出现在侧边栏 **Loops** 之下（Inbox Triage 在被禁用且从未运行过时不会显示在那里） |
-| — **GitLab Issues** (`/loops/gitlab-loop`) | 视图：Live — 实时获取的当前分配给你的 issue 和未关闭的 MR; Projects — 管理 `~/.gitlab/config.json`（实例、项目别名、access bundles）和 `~/.loop-engineering/projects.json`（跟踪的项目、循环设置），无需手动编辑 JSON |
+| — **GitLab Issues** (`/loops/gitlab-loop`) | 视图：Live — 实时获取的当前分配给你的 issue 和未关闭的 MR; Projects — 管理 `~/.gitlab/config.json`（实例、项目别名、access bundles）和 `~/.loopx/projects.json`（跟踪的项目、循环设置），无需手动编辑 JSON |
 | — **Topic Monitor** (`/loops/topic-loop`) | 视图：Live — 每个已配置主题的状态和已保存的简报; Topics — 添加、编辑和删除监控主题——同一页面上的独立视图，避免配置项干扰 Live 状态视图 |
 | — **Inbox Triage** (`/loops/inbox-triage-loop`) | 视图：Inbox Triage 自身的实时状态（**Live**），以及邮箱连接与分类（**Setup**：连接 Gmail/Outlook、分类、VIP/排除的发件人、Slack bundle） |
 | **Runs** (`/runs`) | 视图：Loop Runs — `outputs/loop-runs/` 下记录的每次运行（每个处理过的 issue 或主题一条），按时间倒序——只读；概览栏显示总运行次数、成功/升级比例、平均成本，以及实验性的 Loop Efficiency Score; History — 每次历史运行的回顾报告，按时间倒序; Logs — `logs/loop-engineering.log` 的末尾部分——包括 GitLab 循环、主题监控循环以及本仪表盘自身聊天助手的每次 `claude` CLI 调用输出 |
@@ -325,7 +325,7 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 - 必填项标有 `*`，其余标注「(optional)」，并带有示例占位文字。密钥框带有 **Show**/**Hide** 切换。
 - 按钮有 **Save**、**Save and test**（先保存再探测）和 **Cancel**。保存失败时，表单会重新显示，并保留已填写的非机密值。
 
-**数据存放位置。** 在页面上添加的账号是*原生*账号：非机密设置保存在 `~/.loop-engineering/connectors.json`，密钥保存在 macOS 钥匙串中，服务名为 `loop-engineering.connectors`（设置了 `LOOP_ENGINEERING_HOME` 时会加上 `.sandbox-<hash>` 后缀，因此沙盒运行永远不会碰到真实密钥）。密钥不会写入 `connectors.json`，保存后也不会再次显示。
+**数据存放位置。** 在页面上添加的账号是*原生*账号：非机密设置保存在 `~/.loopx/connectors.json`，密钥保存在 macOS 钥匙串中，服务名为 `loop-engineering.connectors`（设置了 `LOOP_ENGINEERING_HOME` 时会加上 `.sandbox-<hash>` 后缀，因此沙盒运行永远不会碰到真实密钥）。密钥不会写入 `connectors.json`，保存后也不会再次显示。
 
 **外部账号**直接从原本管理它们的文件中读取，不做任何迁移：GitLab 实例来自 `~/.gitlab/config.json`（id 为实例别名），Slack Webhook 来自 `~/.slack/config.json`（`slack-default`，以及每个 bundle Webhook 对应的 `slack-<bundle>`），邮箱来自 `inboxes.json`（id 为收件箱名称）。它们会显示带链接的「Managed on …」徽标，指向可编辑它们的页面；你仍可在这里对其执行 Test。
 
@@ -340,21 +340,21 @@ curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bi
 
 | 脚本                              | 用途                                                                                                                                                                                                                              |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `run-loop-now.sh`                   | 单个已注册循环运行的通用入口（通过 `bin/loops_config.py` 从 `~/.loop-engineering/loops.json` 中查找）——日志写入 `outputs/history/`，失败时通知 Slack。由 `bin/loop_scheduler.py`（定时）或仪表盘（按需）调用 |
-| `bin/loop_scheduler.py`             | 唯一由 launchd 调度的轮询循环：读取 `~/.loop-engineering/loops.json`，并通过 `run-loop-now.sh` 运行已到期的已注册循环                                                                                  |
-| `bin/loops_config.py`               | 读取 `~/.loop-engineering/loops.json`——定时循环的注册表（名称、计划、入口）；目前没有写入路径，修改需手动编辑该文件（或复制模板）                                                 |
+| `run-loop-now.sh`                   | 单个已注册循环运行的通用入口（通过 `bin/loops_config.py` 从 `~/.loopx/loops.json` 中查找）——日志写入 `outputs/history/`，失败时通知 Slack。由 `bin/loop_scheduler.py`（定时）或仪表盘（按需）调用 |
+| `bin/loop_scheduler.py`             | 唯一由 launchd 调度的轮询循环：读取 `~/.loopx/loops.json`，并通过 `run-loop-now.sh` 运行已到期的已注册循环                                                                                  |
+| `bin/loops_config.py`               | 读取 `~/.loopx/loops.json`——定时循环的注册表（名称、计划、入口）；目前没有写入路径，修改需手动编辑该文件（或复制模板）                                                 |
 | `bin/gitlab_loop_runner.py`         | 运行 `gitlab-loop` 时 `run-loop-now.sh` 委托的逐 issue 编排器：发现分配的 issue，让每个 issue 运行在独立的 `LoopRuntime` 中（每个 issue 在 `outputs/loop-runs/` 下对应一个 `LoopResult`），负责 `claude -p`/`codex exec` 调用及其 `--allowedTools`/`--disallowedTools` 安全边界，然后为整批任务执行一次无条件的运行结束收尾 |
 | `bin/scripts/build_run_prompt.sh`   | 构建 `bin/gitlab_loop_runner.py` 交给 AI CLI 的提示词——`<alias> <issue_iid>` 为单 issue 提示词（仪表盘 Dashboard → Activity 聊天中的限定范围运行），`--batch-issue <alias> <issue_iid>` 用于定时批次中的单个 issue（不含运行结束收尾），`--batch-end-of-run` 用于批次唯一的汇总/daily-review 收尾 |
 | `bin/web/dashboard_server.py`       | Web 仪表盘；同时也是一个小型 CLI（`write-status`、`write-skills-install-status`、`read-messages`、`add-message`、`chat-tool`），供 `run-loop-now.sh`、`bin/loop_scheduler.py`、仪表盘自身的操作以及 Dashboard → Activity 视图内嵌的聊天助手使用 |
-| `bin/loop_config.py`                | 读取 `~/.loop-engineering/projects.json`                                                                                                                                                                                            |
+| `bin/loop_config.py`                | 读取 `~/.loopx/projects.json`                                                                                                                                                                                            |
 | `bin/list_assigned_issues.py`       | 列出已配置项目中分配给所配置用户的未关闭 GitLab issue                                                                                                                                                  |
 | `bin/track_new_comments.py`         | 检测缓存 issue 上自循环上次查看以来有哪些新 note                                                                                                                                                             |
 | `bin/project_memory.py`             | 读取（旧版）按项目存储的持久经验，内联保存在 GitLab 缓存中                                                                                                                                                |
 | `bin/memory_store.py`               | 以 markdown 文件形式读取/记录按 issue 的持久任务记忆（每个 issue 一个文件，外加每个项目一个 MEMORY.md 索引）                                                                                                                    |
-| `bin/ai_cli_config.py`              | 读写 `~/.loop-engineering/ai_cli.json`——`run-loop-now.sh` 为每个已注册循环调用哪个 AI CLI（`claude` 或 `codex`）                                                                                              |
+| `bin/ai_cli_config.py`              | 读写 `~/.loopx/ai_cli.json`——`run-loop-now.sh` 为每个已注册循环调用哪个 AI CLI（`claude` 或 `codex`）                                                                                              |
 | `bin/topic_monitor_runner.py`       | 运行 `topic-loop` 时 `run-loop-now.sh` 委托的逐主题编排器：让每个已配置主题运行在独立的 `LoopRuntime` 中（每个主题在 `outputs/loop-runs/` 下对应一个 `LoopResult`），负责 `claude -p`/`codex exec` 调用及其安全边界——它在主题监控循环中的角色与 `bin/gitlab_loop_runner.py` 在 GitLab 循环中的角色相同 |
 | `bin/scripts/build_topic_prompt.sh` | 为单个已配置主题构建提示词，角色与上面的 `build_run_prompt.sh` 相同；尽管 `topic_monitor_runner.py` 已不再调用它，仍作为有文档说明的手动后备方案保留                                       |
-| `bin/topic_config.py`               | 读取 `~/.loop-engineering/topics.json`                                                                                                                                                                                              |
+| `bin/topic_config.py`               | 读取 `~/.loopx/topics.json`                                                                                                                                                                                              |
 | `bin/topic_seen.py`                 | 每个主题滚动 7 天的去重窗口，避免简报连续两天重复同一条新闻                                                                                                                                      |
 | `bin/slack_notify.py`               | 向配置的 Slack incoming webhook 发送消息                                                                                                                                                                             |
 | `bin/scripts/new_worktree.sh`       | 在 `loop/issue-<iid>` 分支上创建（或复用）一个隔离的 git worktree                                                                                                                                                          |
