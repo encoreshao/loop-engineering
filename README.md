@@ -101,6 +101,17 @@ The last four are LoopKit plugins (`bin/loopkit.py`, `bin/loop_plugins/`): they 
 
 ## Quick start
 
+**New: install the `loopx` binary (no clone, no Python).** Downloads the prebuilt `loopx` for your Mac from the latest GitHub Release, verifies its SHA-256, installs it to `~/.loop-engineering/bin/loopx` and scaffolds `projects.json`/`topics.json`/`loops.json` from the templates:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install-loopx.sh | bash
+curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install-loopx.sh | bash -s -- --upgrade   # later
+```
+
+Add `--upgrade` to update later: it keeps your config, replaces only the program, and restarts the launchd agents that are already loaded (dashboard restarted, scheduler re-registered, never kicked). Pass `--load-agents` to also start the dashboard agent on a fresh install. Prefer Homebrew? `brew install encoreshao/tap/loopx` (then `brew services start loopx`), or install the signed `LoopX.app` from the release's DMG. First-launch check of the AI CLIs, credentials and config: `loopx doctor` (`--json` for the app). Uninstall either mode: `bin/scripts/uninstall-loopx.sh --project-dir ~/.loop-engineering` (`--keep-config`, `--remove-app`). Release procedure: [`docs/RELEASING.md`](docs/RELEASING.md).
+
+**Legacy installer** (clones this repo and runs the Python code; still supported while the migration finishes):
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install.sh | bash
 ```
@@ -360,6 +371,8 @@ Expand for the full list
 | `bin/scripts/setup.sh`              | One-command install: the `gitlab-config` skill + the `projects.json`/`topics.json`/`ai_cli.json`/`loops.json` scaffolds, plus a `loop_scheduler_state.json` seeded with today's date for every registered loop so enabling the scheduler right after install doesn't fire an immediate run |
 | `bin/scripts/setup-nginx.sh`        | Optional local nginx reverse proxy (`http://loop.x/` → the dashboard)                                                                                                                                                            |
 | `bin/scripts/uninstall.sh`          | Reverses `setup.sh`/`setup-nginx.sh`/`install.sh`; safe to pipe from `curl`                                                                                                                                                          |
+| `bin/scripts/install-loopx.sh`      | Clone-free installer for the `loopx` binary: downloads the release build for this Mac, verifies it against `SHA256SUMS`, scaffolds the config, renders `launchd/loopx/*.plist.template`; `--upgrade` keeps config and replaces only the program; `--load-agents`, `--skip-service`, `--release-base` |
+| `bin/scripts/uninstall-loopx.sh`    | Removes a loopx install of either mode (LaunchAgents, `loopx.lock`, Keychain entries, `--remove-app`, `--keep-config`) |
 
 
 

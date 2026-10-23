@@ -97,6 +97,17 @@ Loop X Engineering 的使命是把被 issue 分诊占用的时间还给你：它
 
 ## 快速开始
 
+**新：安装 `loopx` 二进制（无需克隆、无需 Python）。** 从最新的 GitHub Release 下载适合你 Mac 的预编译 `loopx`，校验 SHA-256，安装到 `~/.loop-engineering/bin/loopx`，并用模板生成 `projects.json`/`topics.json`/`loops.json`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install-loopx.sh | bash
+curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install-loopx.sh | bash -s -- --upgrade   # later
+```
+
+之后加 `--upgrade` 升级：保留你的配置，只替换程序，并重启已加载的 launchd 代理。全新安装时加 `--load-agents` 可同时启动仪表盘代理。也可用 Homebrew：`brew install encoreshao/tap/loopx`（再 `brew services start loopx`），或从 Release 的 DMG 安装已签名的 `LoopX.app`。首次启动检查（AI CLI、凭据、配置）：`loopx doctor`（应用用 `--json`）。卸载（两种模式）：`bin/scripts/uninstall-loopx.sh --project-dir ~/.loop-engineering`（`--keep-config`、`--remove-app`）。发布流程见 [`docs/RELEASING.md`](docs/RELEASING.md)。
+
+**旧版安装程序**（克隆本仓库并运行 Python 代码；迁移完成前仍受支持）：
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install.sh | bash
 ```

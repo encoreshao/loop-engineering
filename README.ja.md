@@ -100,6 +100,17 @@ Loop X Engineering の使命は、Issue のトリアージに奪われる時間�
 
 ## クイックスタート
 
+**新: `loopx` バイナリをインストール（クローン不要、Python 不要）。** 最新の GitHub Release からお使いの Mac 用のビルド済み `loopx` をダウンロードして SHA-256 を検証し、`~/.loop-engineering/bin/loopx` に配置して、テンプレートから `projects.json`/`topics.json`/`loops.json` を作成します:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install-loopx.sh | bash
+curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install-loopx.sh | bash -s -- --upgrade   # later
+```
+
+後で更新するには `--upgrade` を付けます。設定はそのまま、プログラムだけを置き換え、ロード済みの launchd エージェントを再起動します。新規インストールでダッシュボードのエージェントも起動するには `--load-agents` を付けます。Homebrew なら `brew install encoreshao/tap/loopx`（続けて `brew services start loopx`）、または Release の DMG から署名済みの `LoopX.app` をインストールできます。初回起動のチェック（AI CLI・認証情報・設定）は `loopx doctor`（アプリ用は `--json`）。アンインストール（どちらのモードも）: `bin/scripts/uninstall-loopx.sh --project-dir ~/.loop-engineering`（`--keep-config`、`--remove-app`）。リリース手順は [`docs/RELEASING.md`](docs/RELEASING.md)。
+
+**従来のインストーラー**（このリポジトリをクローンして Python コードを実行します。移行が終わるまでサポートされます）:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install.sh | bash
 ```

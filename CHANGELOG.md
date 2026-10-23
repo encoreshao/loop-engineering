@@ -11,6 +11,16 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ## [Unreleased]
 
+### Added
+
+- `loopx loopkit <plugin> <run_id> [--force]` and native `loopx run` for the LoopKit plugin loops (calendar prep, daily digest, MR review, pipeline doctor, release notes, RSS watch, stale sweeper; LinkedIn Autopilot runs natively once a browser backend is registered, else it still falls back to Python), plus the connector types (GitLab, GitHub, Jira, Linear, Notion, RSS, Slack, Telegram, webhook, mailbox, Google Calendar, LinkedIn) and `connectors.json` account registry in Rust; `loopx notify-loop` now routes to connector accounts instead of reporting `unknown connector`.
+- `loopx`, a single Rust binary being built to replace the Python helpers and shell scripts. So far it covers `config`, `issues list`, `issues comments`, `memory`, `topic config|seen|run`, `notify`, `worktree new`, `mr open`, `gitlab`, `events`, `ledger`, `status`, `risk`, `cost`, `learning`, `memory-store`, `loops`, `ai-cli`, `run` (a registered loop, including the full GitLab and topic-monitor runners) and `scheduler`. Nothing calls it by default yet; the Python scripts stay in place until the migration finishes, each matching its Python/shell counterpart's arguments, output and exit codes (checked by the same contract tests, which run against either with `LOOPX_BIN`).
+- `loopx auth <google|linkedin> start|status|refresh|logout`, the `/oauth/google/callback`, `/oauth/callback` and `/api/oauth/{provider}/start|status|logout` routes, and `loopx secrets migrate|list|set|delete`: OAuth tokens live in the macOS Keychain and `migrate` moves the plaintext tokens in `~/.gitlab/config.json` and `~/.slack/config.json` there (the gitlab-config skill cannot read a migrated file). See `docs/contract/oauth.md`.
+- `bin/scripts/install-loopx.sh` installs the prebuilt `loopx` from a GitHub Release (checks its SHA-256, no clone, no Python), scaffolds the config and renders the launchd agents; `--upgrade` keeps your config and replaces only the program, `--load-agents` starts the dashboard agent, `--skip-service` leaves launchd alone. `bin/scripts/uninstall-loopx.sh` removes either install mode (LaunchAgents, `loopx.lock`, `loop-engineering.*` Keychain entries, optionally `LoopX.app`; `--keep-config` keeps `projects.json`/`topics.json`/`loops.json`/`ai_cli.json`). The Python `install.sh`/`uninstall.sh` stay as the legacy path.
+- `loopx doctor [--json]` checks a fresh machine: the `claude` and `codex` CLIs and their versions, the selected AI CLI, the `gitlab-config` skill, `~/.gitlab` and `~/.slack` credential files (never printing tokens), the loop config files and whether a `loopx serve` backend is running, with next-step hints.
+- Release pipeline: a `v*` tag builds a universal `loopx`, signs and notarizes it when the Apple secrets exist, builds `LoopX.app`/DMG and the Sparkle appcast, publishes the GitHub Release with notes taken from this changelog and `SHA256SUMS`, and updates the Homebrew tap formula (`packaging/homebrew/loopx.rb`, `brew services start loopx`). See `docs/RELEASING.md`.
+- `LOOP_TOPIC_STATE_DIR` overrides where `topic_seen.py` keeps its dedup state.
+
 ## [0.4.0] - 2026-10-22
 
 ### Added

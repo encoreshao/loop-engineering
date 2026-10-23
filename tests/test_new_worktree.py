@@ -1,8 +1,10 @@
-import os
+"""Contract for `new_worktree.sh` / `loopx worktree new` (real local git repos).
+Run against Rust with LOOPX_BIN=target/debug/loopx.
+"""
 import subprocess
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parent.parent / "bin" / "scripts" / "new_worktree.sh"
+from cli_runner import run_cli
 
 
 def run_git(repo, *args):
@@ -35,9 +37,9 @@ def test_new_worktree_creates_branch_from_default(tmp_path):
     repo = make_repo(tmp_path)
     worktree_root = tmp_path / "worktrees"
 
-    result = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
-        check=True, capture_output=True, text=True,
+    result = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
+        check=True,
     )
     worktree_path = Path(result.stdout.strip())
 
@@ -50,16 +52,16 @@ def test_new_worktree_reuses_existing_branch(tmp_path):
     repo = make_repo(tmp_path)
     worktree_root = tmp_path / "worktrees"
 
-    first = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
-        check=True, capture_output=True, text=True,
+    first = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
+        check=True,
     )
     first_path = Path(first.stdout.strip())
     subprocess.run(["git", "-C", str(repo), "worktree", "remove", "--force", str(first_path)], check=True)
 
-    second = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
-        check=True, capture_output=True, text=True,
+    second = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
+        check=True,
     )
     worktree_path = Path(second.stdout.strip())
 
@@ -72,9 +74,9 @@ def test_new_worktree_merges_latest_default_branch_into_existing_branch(tmp_path
     repo = make_repo(tmp_path)
     worktree_root = tmp_path / "worktrees"
 
-    first = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
-        check=True, capture_output=True, text=True,
+    first = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
+        check=True,
     )
     first_path = Path(first.stdout.strip())
 
@@ -90,9 +92,9 @@ def test_new_worktree_merges_latest_default_branch_into_existing_branch(tmp_path
 
     subprocess.run(["git", "-C", str(repo), "worktree", "remove", "--force", str(first_path)], check=True)
 
-    second = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
-        check=True, capture_output=True, text=True,
+    second = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
+        check=True,
     )
     worktree_path = Path(second.stdout.strip())
 
@@ -104,16 +106,15 @@ def test_new_worktree_refuses_when_worktree_has_uncommitted_changes(tmp_path):
     repo = make_repo(tmp_path)
     worktree_root = tmp_path / "worktrees"
 
-    first = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
-        check=True, capture_output=True, text=True,
+    first = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
+        check=True,
     )
     worktree_path = Path(first.stdout.strip())
     (worktree_path / "README.md").write_text("uncommitted local edit\n")
 
-    result = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
-        capture_output=True, text=True,
+    result = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
     )
 
     assert result.returncode != 0
@@ -152,9 +153,9 @@ def test_new_worktree_copies_untracked_ruby_version_into_new_worktree(tmp_path):
     (repo / ".ruby-version").write_text("3.4.7\n")
     worktree_root = tmp_path / "worktrees"
 
-    result = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
-        check=True, capture_output=True, text=True,
+    result = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
+        check=True,
     )
     worktree_path = Path(result.stdout.strip())
 
@@ -169,9 +170,9 @@ def test_new_worktree_copies_untracked_ruby_version_into_existing_worktree(tmp_p
     run_git(repo, "push", "origin", "staging")
     worktree_root = tmp_path / "worktrees"
 
-    first = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
-        check=True, capture_output=True, text=True,
+    first = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
+        check=True,
     )
     worktree_path = Path(first.stdout.strip())
     assert not (worktree_path / ".ruby-version").exists()
@@ -180,9 +181,9 @@ def test_new_worktree_copies_untracked_ruby_version_into_existing_worktree(tmp_p
     # run on the same issue should pick it up too, not just first creation.
     (repo / ".ruby-version").write_text("3.4.7\n")
 
-    second = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
-        check=True, capture_output=True, text=True,
+    second = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
+        check=True,
     )
 
     assert (Path(second.stdout.strip()) / ".ruby-version").read_text() == "3.4.7\n"
@@ -208,9 +209,9 @@ def test_new_worktree_copies_untracked_database_yml_into_new_worktree(tmp_path):
     (repo / "config" / "database.yml").write_text("development:\n  adapter: postgresql\n")
     worktree_root = tmp_path / "worktrees"
 
-    result = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
-        check=True, capture_output=True, text=True,
+    result = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
+        check=True,
     )
     worktree_path = Path(result.stdout.strip())
 
@@ -228,9 +229,9 @@ def test_new_worktree_copies_untracked_database_yml_into_existing_worktree(tmp_p
     run_git(repo, "push", "origin", "staging")
     worktree_root = tmp_path / "worktrees"
 
-    first = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
-        check=True, capture_output=True, text=True,
+    first = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
+        check=True,
     )
     worktree_path = Path(first.stdout.strip())
     assert not (worktree_path / "config" / "database.yml").exists()
@@ -240,9 +241,9 @@ def test_new_worktree_copies_untracked_database_yml_into_existing_worktree(tmp_p
     # same issue should pick it up too, not just first creation.
     (repo / "config" / "database.yml").write_text("development:\n  adapter: postgresql\n")
 
-    second = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
-        check=True, capture_output=True, text=True,
+    second = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
+        check=True,
     )
 
     assert (Path(second.stdout.strip()) / "config" / "database.yml").read_text() == "development:\n  adapter: postgresql\n"
@@ -257,13 +258,13 @@ def test_new_worktree_initializes_submodules_in_new_worktree(tmp_path):
     add_submodule(repo, tmp_path)
     worktree_root = tmp_path / "worktrees"
 
-    result = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
+    result = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
         # Local file:// submodule URLs need explicit opt-in (git disallows
         # them by default since CVE-2022-39253); only needed for this test's
         # local-path fixture, not real SSH/HTTPS submodule URLs.
-        env={**os.environ, "GIT_ALLOW_PROTOCOL": "file"},
-        check=True, capture_output=True, text=True,
+        env={"GIT_ALLOW_PROTOCOL": "file"},
+        check=True,
     )
     worktree_path = Path(result.stdout.strip())
 
@@ -274,9 +275,9 @@ def test_new_worktree_initializes_submodules_in_existing_worktree(tmp_path):
     repo = make_repo(tmp_path)
     worktree_root = tmp_path / "worktrees"
 
-    first = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
-        check=True, capture_output=True, text=True,
+    first = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
+        check=True,
     )
     worktree_path = Path(first.stdout.strip())
     assert not (worktree_path / "vendor/gems/example").exists()
@@ -286,10 +287,10 @@ def test_new_worktree_initializes_submodules_in_existing_worktree(tmp_path):
     # same still-existing worktree directory, should init it too.
     add_submodule(repo, tmp_path)
 
-    second = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
-        env={**os.environ, "GIT_ALLOW_PROTOCOL": "file"},
-        check=True, capture_output=True, text=True,
+    second = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
+        env={"GIT_ALLOW_PROTOCOL": "file"},
+        check=True,
     )
 
     assert (Path(second.stdout.strip()) / "vendor/gems/example/lib.rb").read_text() == "# gem code\n"
@@ -299,9 +300,9 @@ def test_new_worktree_aborts_cleanly_on_merge_conflict(tmp_path):
     repo = make_repo(tmp_path)
     worktree_root = tmp_path / "worktrees"
 
-    first = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
-        check=True, capture_output=True, text=True,
+    first = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
+        check=True,
     )
     worktree_path = Path(first.stdout.strip())
     (worktree_path / "README.md").write_text("conflicting local change\n")
@@ -319,9 +320,8 @@ def test_new_worktree_aborts_cleanly_on_merge_conflict(tmp_path):
 
     subprocess.run(["git", "-C", str(repo), "worktree", "remove", "--force", str(worktree_path)], check=True)
 
-    result = subprocess.run(
-        ["bash", str(SCRIPT), str(repo), "staging", "123", str(worktree_root)],
-        capture_output=True, text=True,
+    result = run_cli(
+        "new_worktree.sh", str(repo), "staging", "123", str(worktree_root),
     )
 
     assert result.returncode != 0

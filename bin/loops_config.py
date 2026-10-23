@@ -42,7 +42,7 @@ DEFAULT_CONFIG_PATH = LOOP_ENGINEERING_HOME / "loops.json"
 # Every loop this checkout ships. An existing loops.json is never
 # overwritten by setup.sh, so a loop added to the template after install
 # (inbox-triage-loop, for one) would otherwise stay unregistered forever.
-TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "config" / "loops.json.template"
+TEMPLATE_PATH = Path(os.environ.get("LOOP_LOOPS_TEMPLATE") or Path(__file__).resolve().parent.parent / "config" / "loops.json.template")
 
 
 # Loops renamed after release: an installed loops.json still carries the old

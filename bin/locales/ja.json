@@ -1029,5 +1029,6 @@
   "Loop X is up to date.": "Loop X は最新です。",
   "People": "人物",
   "No people collected yet. They appear here after the next run.": "まだ収集された人物はいません。次回の実行後にここに表示されます。",
-  "{count} people": "{count}人"
+  "{count} people": "{count}人",
+  "Could not save": "保存できませんでした"
 }

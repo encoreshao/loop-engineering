@@ -101,6 +101,17 @@ Les quatre dernières sont des plugins LoopKit (`bin/loopkit.py`, `bin/loop_plug
 
 ## Démarrage rapide
 
+**Nouveau : installer le binaire `loopx` (sans clone, sans Python).** Télécharge le `loopx` précompilé pour votre Mac depuis la dernière GitHub Release, vérifie son SHA-256, l'installe dans `~/.loop-engineering/bin/loopx` et crée `projects.json`/`topics.json`/`loops.json` à partir des modèles :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install-loopx.sh | bash
+curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install-loopx.sh | bash -s -- --upgrade   # later
+```
+
+Ajoutez `--upgrade` pour mettre à jour : votre configuration est conservée, seul le programme est remplacé, et les agents launchd déjà chargés sont redémarrés. Ajoutez `--load-agents` pour démarrer aussi l'agent du tableau de bord lors d'une première installation. Vous préférez Homebrew ? `brew install encoreshao/tap/loopx` (puis `brew services start loopx`), ou installez `LoopX.app` signée depuis le DMG de la release. Vérification au premier lancement (CLI d'IA, identifiants, configuration) : `loopx doctor` (`--json` pour l'app). Désinstaller (les deux modes) : `bin/scripts/uninstall-loopx.sh --project-dir ~/.loop-engineering` (`--keep-config`, `--remove-app`). Procédure de release : [`docs/RELEASING.md`](docs/RELEASING.md).
+
+**Ancien installateur** (clone ce dépôt et exécute le code Python ; toujours pris en charge le temps de la migration) :
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/encoreshao/loop-engineering/main/bin/scripts/install.sh | bash
 ```

@@ -5,6 +5,7 @@ running. State lives in outputs/topic-monitor/state/<topic_name>.json, a
 rolling window of {url, title, seen_at} entries pruned to the last
 SEEN_WINDOW_DAYS days."""
 import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -13,9 +14,17 @@ DEFAULT_STATE_DIR = Path(__file__).resolve().parent.parent / "outputs" / "topic-
 SEEN_WINDOW_DAYS = 7
 
 
+def _default_state_dir():
+    """LOOP_TOPIC_STATE_DIR (resolved at call time, so a sandboxed run or the
+    Rust `loopx topic seen` contract tests can redirect it) over the checkout's
+    own outputs/topic-monitor/state."""
+    override = os.environ.get("LOOP_TOPIC_STATE_DIR")
+    return Path(override) if override else DEFAULT_STATE_DIR
+
+
 def _state_path(topic_name, state_dir=None):
     if state_dir is None:
-        state_dir = DEFAULT_STATE_DIR
+        state_dir = _default_state_dir()
     safe_name = Path(topic_name).name
     return Path(state_dir) / f"{safe_name}.json"
 
@@ -82,12 +91,12 @@ def main():
         sys.exit(1)
     command, topic_name = sys.argv[1], sys.argv[2]
     if command == "get":
-        print(json.dumps(get_seen(topic_name, DEFAULT_STATE_DIR), indent=2))
+        print(json.dumps(get_seen(topic_name), indent=2))
     elif command == "add":
         if len(sys.argv) < 5:
             print("Usage: topic_seen.py add <topic_name> <url> <title>", file=sys.stderr)
             sys.exit(1)
-        add_seen(topic_name, sys.argv[3], sys.argv[4], DEFAULT_STATE_DIR)
+        add_seen(topic_name, sys.argv[3], sys.argv[4])
         print("OK")
     else:
         print(f"Unknown command: {command}", file=sys.stderr)

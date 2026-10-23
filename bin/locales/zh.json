@@ -1029,5 +1029,6 @@
   "Loop X is up to date.": "Loop X 已是最新版本。",
   "People": "人员",
   "No people collected yet. They appear here after the next run.": "尚未收集到人员。下次运行后将显示在这里。",
-  "{count} people": "{count} 人"
+  "{count} people": "{count} 人",
+  "Could not save": "无法保存"
 }
