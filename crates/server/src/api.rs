@@ -70,6 +70,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/version", get(version))
         .route("/api/snapshot", get(snapshot))
         .route("/api/events", get(events))
+        .route("/static/loopx-notify.js", get(notify_script))
         .route("/api/approvals", get(list_approvals))
         .route("/api/approvals/:id", post(decide));
     match loopx_core::oauth::OauthContext::from_env() {
@@ -232,10 +233,50 @@ async fn decide(
     }
 }
 
+const NOTIFY_JS: &str = include_str!("notify.js");
+const NOTIFY_TAG: &str = "<script src=\"/static/loopx-notify.js\" defer></script>";
+
+async fn notify_script() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        NOTIFY_JS,
+    )
+        .into_response()
+}
+
+/// Add the notification script to a rendered page. It is done here, on the
+/// served response, so the page registry (and the golden UI comparison against
+/// the Python dashboard) stays byte-identical.
+async fn inject_notify(resp: Response) -> Response {
+    let is_html = resp
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("text/html"));
+    if !is_html || resp.status() != StatusCode::OK {
+        return resp;
+    }
+    let (mut parts, body) = resp.into_parts();
+    let Ok(bytes) = axum::body::to_bytes(body, 8 * 1024 * 1024).await else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    let out = match std::str::from_utf8(&bytes) {
+        Ok(html) if html.contains("</body>") => html
+            .replacen("</body>", &format!("{NOTIFY_TAG}</body>"), 1)
+            .into_bytes(),
+        _ => bytes.to_vec(),
+    };
+    parts.headers.remove(header::CONTENT_LENGTH);
+    Response::from_parts(parts, Body::from(out))
+}
+
 /// Everything not handled above: the legacy dashboard, or a plain 404.
 pub(crate) async fn fallback(State(s): State<Shared>, req: Request<Body>) -> Response {
     let req = match crate::ui::glue::try_serve(&s.ui, req).await {
-        Ok(resp) => return resp,
+        Ok(resp) => return inject_notify(resp).await,
         Err(req) => req,
     };
     match &s.proxy {
@@ -303,6 +344,42 @@ mod tests {
             b = b.header(*k, *v);
         }
         b.body(Body::from(body.to_string())).unwrap()
+    }
+
+    #[tokio::test]
+    async fn notify_script_is_served() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = router(state(dir.path()));
+        let resp = app
+            .oneshot(get_req("/static/loopx-notify.js"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let b = resp.into_body().collect().await.unwrap().to_bytes();
+        assert!(String::from_utf8_lossy(&b).contains("/api/events"));
+    }
+
+    #[tokio::test]
+    async fn inject_notify_adds_the_script_to_html_only() {
+        let html = Response::builder()
+            .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+            .body(Body::from("<html><body>hi</body></html>"))
+            .unwrap();
+        let out = inject_notify(html).await;
+        let b = out.into_body().collect().await.unwrap().to_bytes();
+        assert!(String::from_utf8_lossy(&b).contains("loopx-notify.js\" defer></script></body>"));
+        let json = Response::builder()
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from("</body>"))
+            .unwrap();
+        let b = inject_notify(json)
+            .await
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
+        assert_eq!(&b[..], b"</body>");
     }
 
     #[tokio::test]
