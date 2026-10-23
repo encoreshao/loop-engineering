@@ -23,3 +23,17 @@ pub fn run(args: &[String]) -> ExitCode {
         }
     }
 }
+
+/// `loopx _chat-eval-stub`: the chat eval's offline stand-in (see `chat_eval::stub_main`).
+pub fn eval_stub(args: &[String]) -> ExitCode {
+    match loopx_core::chat_eval::stub_main(args) {
+        Ok(result) => {
+            println!("{}", chat_tool::render(&result));
+            ExitCode::SUCCESS
+        }
+        Err(msg) => {
+            eprintln!("{msg}");
+            ExitCode::from(1)
+        }
+    }
+}

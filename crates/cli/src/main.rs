@@ -190,6 +190,12 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Offline stand-in for `chat-tool` used only by the chat eval
+    #[command(name = "_chat-eval-stub", hide = true)]
+    ChatEvalStub {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// The command the dashboard chat assistant runs: `<action> [args]` (status, history-*, run-now, topic-save, call <tool> <json>, ...)
     ChatTool {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -298,6 +304,7 @@ fn main() -> ExitCode {
         Command::Memory { args } => memory_cmd::run(&args),
         Command::Messages { args } => messages_cmd::run(&args),
         Command::ChatTool { args } => chat_tool_cmd::run(&args),
+        Command::ChatEvalStub { args } => chat_tool_cmd::eval_stub(&args),
         Command::Approvals { args } => approvals_cmd::run(&args),
         Command::Run { args } => run_cmds::run(&args),
         Command::Scheduler => run_cmds::scheduler(&[]),

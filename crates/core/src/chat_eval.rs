@@ -5,15 +5,11 @@
 //! `evals/chat/<name>/case.yaml`. Mirrors `bin/chat_eval.py`.
 //!
 //! Like the golden suite every real case costs money, so the suite has a hard
-//! budget. The model's only allowed command is pointed at
-//! `evals/chat/stub_dashboard.py` (a copy in a throwaway sandbox), so nothing
-//! here can reach GitLab, mail or the calendar. Grading and suite control are
-//! pure; [`run_case_real`] is the paid path.
-//!
-//! Until the dashboard chat (its system prompt, `build_chat_command`) and the
-//! chat tools are ported, the command and the stub are still the Python ones:
-//! [`build_command_via_python`] asks `bin/web/dashboard_server.py` for the
-//! argv, exactly like the Python harness did in-process.
+//! budget. The model's only allowed command is `loopx _chat-eval-stub`
+//! ([`stub_main`]), which runs the real chat tool registry against canned
+//! connectors from the case's fixture, so nothing here can reach GitLab, mail
+//! or the calendar. Grading and suite control are pure; [`run_case_real`] is
+//! the paid path.
 
 use crate::golden_eval::{
     checkout_root, evals_dir, run_killing_group_on_timeout, run_suite as run_golden_suite,
@@ -270,19 +266,10 @@ pub struct Sandbox {
     pub env: Vec<(String, String)>,
 }
 
-/// Stub tree + fixture under `root`; returns the paths and the child env.
-pub fn prepare_sandbox(case: &ChatCase, root: &Path, repo_root: &Path) -> Result<Sandbox, String> {
+/// Fixture under `root`; returns the paths and the child env.
+pub fn prepare_sandbox(case: &ChatCase, root: &Path) -> Result<Sandbox, String> {
     let io = |e: std::io::Error| e.to_string();
-    std::fs::create_dir_all(root.join("bin").join("web")).map_err(io)?;
-    let stub = repo_root
-        .join("evals")
-        .join("chat")
-        .join("stub_dashboard.py");
-    std::fs::copy(
-        &stub,
-        root.join("bin").join("web").join("dashboard_server.py"),
-    )
-    .map_err(|e| format!("cannot copy {}: {e}", stub.display()))?;
+    std::fs::create_dir_all(root).map_err(io)?;
     let fixture = root.join("fixture.json");
     std::fs::write(
         &fixture,
@@ -296,7 +283,6 @@ pub fn prepare_sandbox(case: &ChatCase, root: &Path, repo_root: &Path) -> Result
         ("LOOP_ENGINEERING_HOME".into(), s(root.join("home"))),
         ("LOOP_EVENTS_DIR".into(), s(root.join("events"))),
         ("LOOP_CHAT_EVAL_DIR".into(), s(root.to_path_buf())),
-        ("LOOP_CHAT_EVAL_REPO_BIN".into(), s(repo_root.join("bin"))),
         ("LOOP_CHAT_EVAL_FIXTURE".into(), s(fixture)),
         ("LOOP_CHAT_EVAL_LOG".into(), s(log.clone())),
     ];
@@ -307,44 +293,178 @@ pub fn prepare_sandbox(case: &ChatCase, root: &Path, repo_root: &Path) -> Result
     })
 }
 
-const BUILD_COMMAND_PY: &str = r#"
-import json, sys
-from pathlib import Path
-prompt, root, repo = sys.argv[1], sys.argv[2], sys.argv[3]
-sys.path.insert(0, str(Path(repo) / "bin" / "web"))
-import dashboard_server as ds
-original = ds.LOOP_DIR
-ds.LOOP_DIR = Path(root)
-try:
-    argv = ds.build_chat_command(prompt)
-finally:
-    ds.LOOP_DIR = original
-print(json.dumps([part.replace(str(original), str(root)) for part in argv]))
-"#;
-
-/// The dashboard's real chat command, with its one allowed Bash command (and
-/// the prompt's tool instructions) pointing at the sandbox stub. Asks the
-/// Python dashboard for it until the chat is ported.
-pub fn build_command_via_python(
-    prompt: &str,
-    sandbox: &Sandbox,
-    repo_root: &Path,
-) -> Result<Vec<String>, String> {
-    let out = std::process::Command::new("python3")
-        .args(["-c", BUILD_COMMAND_PY, prompt])
-        .arg(&sandbox.root)
-        .arg(repo_root)
-        .envs(sandbox.env.iter().map(|(k, v)| (k, v)))
-        .output()
-        .map_err(|e| format!("cannot run python3 to build the chat command: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "building the chat command failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
+/// The path the stub runs as: this very binary's hidden `_chat-eval-stub`.
+fn stub_command() -> Result<String, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("cannot find the loopx binary: {e}"))?;
+    let exe = exe.display().to_string();
+    if exe.contains(' ') {
+        return Err(format!("the loopx path must not contain spaces: {exe}"));
     }
-    serde_json::from_slice::<Vec<String>>(&out.stdout)
-        .map_err(|e| format!("building the chat command gave unexpected output: {e}"))
+    Ok(format!("{exe} _chat-eval-stub"))
+}
+
+/// The dashboard chat's real `claude -p` command (same flags, same generated
+/// system prompt) with its one allowed Bash command pointed at the stub.
+pub fn build_command_real(prompt: &str, _: &Sandbox, _: &Path) -> Result<Vec<String>, String> {
+    let chat = crate::chat::ChatCommand::new(&stub_command()?);
+    Ok(chat.build_command(prompt, &crate::chat_tools::describe_all()))
+}
+
+// ---- the offline stub the model's one allowed command runs ----------------
+
+type Effects = std::sync::Arc<std::sync::Mutex<Vec<String>>>;
+
+/// A connector serving the fixture's canned data; every write only records an
+/// effect for the grader and returns a plausible result.
+struct StubConnector {
+    account: crate::connectors::Account,
+    fixture: Value,
+    effects: Effects,
+}
+
+impl StubConnector {
+    fn effect(&self, name: &str) {
+        self.effects.lock().expect("effects").push(name.to_string());
+    }
+}
+
+impl crate::connectors::Connector for StubConnector {
+    fn info(&self) -> &'static crate::connectors::TypeInfo {
+        &crate::connectors::github::INFO
+    }
+    fn account(&self) -> &crate::connectors::Account {
+        &self.account
+    }
+    fn api(
+        &self,
+        method: &str,
+        path: &str,
+        _: &crate::connectors::ApiOpts,
+    ) -> crate::connectors::ConnResult<Value> {
+        let issue = &self.fixture["issue"];
+        if method == "POST" {
+            self.effect("gitlab.comment");
+            return Ok(json!({"id": 1}));
+        }
+        if path.contains("/notes") {
+            return Ok(self
+                .fixture
+                .get("notes")
+                .cloned()
+                .unwrap_or_else(|| json!([])));
+        }
+        Ok(json!({
+            "iid": issue["iid"], "title": issue["title"], "state": "opened", "labels": [],
+            "author": {"username": "reporter"}, "web_url": issue["web_url"],
+            "description": issue["description"],
+        }))
+    }
+    fn send_message(
+        &self,
+        _: &[String],
+        _: &[String],
+        _: &str,
+        _: &str,
+    ) -> crate::connectors::ConnResult<Value> {
+        self.effect("mail.send");
+        Ok(json!({"id": "m1", "thread_id": "t1"}))
+    }
+    fn search_messages(&self, _: &str, _: u32) -> crate::connectors::ConnResult<Vec<Value>> {
+        Ok(Vec::new())
+    }
+    fn read_message(&self, _: &str) -> crate::connectors::ConnResult<Value> {
+        Err(crate::connectors::ConnectorError::Message(
+            "no such message".into(),
+        ))
+    }
+    fn create_event(&self, _: &Value) -> crate::connectors::ConnResult<Value> {
+        self.effect("calendar.create_event");
+        Ok(json!({"id": "e1", "html_link": ""}))
+    }
+    fn list_events(&self, _: &str, _: &str, _: u32) -> crate::connectors::ConnResult<Vec<Value>> {
+        Ok(Vec::new())
+    }
+}
+
+/// `loopx _chat-eval-stub call <tool> <json>`: runs the real chat tool registry
+/// against canned connectors from `$LOOP_CHAT_EVAL_FIXTURE` and appends the call
+/// and its side effects to `$LOOP_CHAT_EVAL_LOG` for the grader.
+pub fn stub_main(args: &[String]) -> Result<Value, String> {
+    use crate::chat_tools::{self, Env, StaticProvider};
+    let var = |k: &str| std::env::var(k).map_err(|_| format!("eval stub: {k} is not set"));
+    let root = PathBuf::from(var("LOOP_CHAT_EVAL_DIR")?);
+    let fixture: Value = serde_json::from_str(
+        &std::fs::read_to_string(var("LOOP_CHAT_EVAL_FIXTURE")?).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    let log = PathBuf::from(var("LOOP_CHAT_EVAL_LOG")?);
+    let (Some("call"), Some(tool)) = (args.first().map(String::as_str), args.get(1)) else {
+        return Err("eval stub: only `call <tool> <json>` is available".into());
+    };
+    let effects: Effects = Effects::default();
+    let accounts = vec![
+        crate::connectors::Account::new("gl", "gitlab")
+            .with_setting("url", "https://gitlab.example.com"),
+        crate::connectors::Account::new("work", "mailbox"),
+        crate::connectors::Account::new("cal", "google_calendar"),
+    ];
+    let loader_accounts = accounts.clone();
+    let loader_fixture = fixture.clone();
+    let loader_effects = effects.clone();
+    let env = Env::new(&root, root.join("home"))
+        .with_provider(StaticProvider::new(accounts, move |id| {
+            let account = loader_accounts
+                .iter()
+                .find(|a| a.id == id)
+                .cloned()
+                .ok_or_else(|| crate::connectors::ConnectorError::Message("KeyError".into()))?;
+            Ok(Box::new(StubConnector {
+                account,
+                fixture: loader_fixture.clone(),
+                effects: loader_effects.clone(),
+            }))
+        }))
+        .with_inbox_provider(|_| Some("gmail".to_string()));
+    let auto: Vec<String> = fixture["auto_approve"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    chat_tools::settings::save(&env, auto).map_err(|e| format!("{e:?}"))?;
+    let result = chat_tools::run(
+        &env,
+        tool,
+        args.get(2).map_or("{}", String::as_str),
+        "chat-eval",
+    );
+    let status = if result.get("error").is_some() {
+        "error".to_string()
+    } else if let Some(s) = result
+        .get("status")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        s.to_string()
+    } else if crate::loops_config::py_truthy(&result["auto_approved"]) {
+        "auto_approved".to_string()
+    } else {
+        "ok".to_string()
+    };
+    let line = json!({
+        "tool": tool, "status": status,
+        "effects": effects.lock().expect("effects").clone(),
+    });
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log)
+        .map_err(|e| e.to_string())?;
+    writeln!(f, "{line}").map_err(|e| e.to_string())?;
+    Ok(result)
 }
 
 /// `(reply text, is_error, cost_usd)` from claude's stream-json output.
@@ -402,7 +522,7 @@ pub fn run_case_real(
         &uuid::Uuid::new_v4().simple().to_string()[..12]
     ));
     let result = (|| {
-        let sandbox = prepare_sandbox(case, &tmp.join("sandbox"), repo_root).map_err(crash)?;
+        let sandbox = prepare_sandbox(case, &tmp.join("sandbox")).map_err(crash)?;
         let argv = build_command(&case.prompt, &sandbox, repo_root).map_err(crash)?;
         let timeout = Duration::from_secs(timeout_seconds);
         let proc = match runner {
@@ -437,7 +557,7 @@ pub fn run_suite_real(cases: &[ChatCase], budget_usd: f64) -> Summary {
             &root,
             DEFAULT_TIMEOUT_SECONDS,
             None,
-            &build_command_via_python,
+            &build_command_real,
         )
     })
 }
