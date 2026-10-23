@@ -872,6 +872,7 @@ dependencies = [
  "libc",
  "loopx-core",
  "notify",
+ "regex",
  "serde_json",
  "tempfile",
  "thiserror",

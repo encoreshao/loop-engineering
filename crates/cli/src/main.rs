@@ -1,6 +1,7 @@
 mod accounting_cmds;
 mod approvals_cmd;
 mod auth_cmd;
+mod chat_tool_cmd;
 mod config_cmd;
 mod doctor_cmd;
 mod events_cmd;
@@ -189,6 +190,11 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// The command the dashboard chat assistant runs: `<action> [args]` (status, history-*, run-now, topic-save, call <tool> <json>, ...)
+    ChatTool {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Per-issue git worktrees
     Worktree {
         #[command(subcommand)]
@@ -291,6 +297,7 @@ fn main() -> ExitCode {
         Command::Config { args } => config_cmd::run(&args),
         Command::Memory { args } => memory_cmd::run(&args),
         Command::Messages { args } => messages_cmd::run(&args),
+        Command::ChatTool { args } => chat_tool_cmd::run(&args),
         Command::Approvals { args } => approvals_cmd::run(&args),
         Command::Run { args } => run_cmds::run(&args),
         Command::Scheduler => run_cmds::scheduler(&[]),

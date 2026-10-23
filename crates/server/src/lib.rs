@@ -3,6 +3,7 @@
 //! dashboard through [`proxy`].
 
 pub mod api;
+pub mod chat_tool;
 pub mod legacy;
 pub mod lock;
 pub mod oauth_routes;
