@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let status: StatusItemController
     let dashboard = DashboardWindowController()
     let hotkey = HotkeyManager()
+    let updater = Updater()
     let settingsModel: SettingsModel
     private var settingsWindow: NSWindow?
 
@@ -33,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         status.onOpenDashboard = { [weak self] in self?.dashboard.show() }
         status.onOpenSettings = { [weak self] in self?.showSettings() }
+        if updater.isEnabled { status.onCheckForUpdates = { [weak self] in self?.updater.checkForUpdates() } }
         status.onToggleHidden = { [weak self] in self?.notch.toggleHidden() }
         status.isHidden = { [weak self] in self?.notch.isHidden ?? false }
         status.onModeChange = { [weak self] m in self?.settingsModel.displayMode = m }

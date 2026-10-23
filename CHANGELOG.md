@@ -13,6 +13,7 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Added
 
+- The Mac app embeds Sparkle and adds a "Check for Updates…" menu item; it is enabled only when `build_loopx_app.sh` is given both `SPARKLE_FEED_URL` and `SPARKLE_PUBLIC_ED_KEY`.
 - The Mac app's Settings has an Accounts section that signs in to Google and LinkedIn inside the app (`ASWebAuthenticationSession`), using the backend's OAuth routes.
 - Web mode raises a browser notification (while the tab is in the background) for a new pending approval, an opened MR, an escalation or a failure, via `/static/loopx-notify.js` watching `/api/events`; permission is requested on the first click.
 - `loopx loopkit <plugin> <run_id> [--force]` and native `loopx run` for the LoopKit plugin loops (calendar prep, daily digest, MR review, pipeline doctor, release notes, RSS watch, stale sweeper; LinkedIn Autopilot runs natively once a browser backend is registered, else it still falls back to Python), plus the connector types (GitLab, GitHub, Jira, Linear, Notion, RSS, Slack, Telegram, webhook, mailbox, Google Calendar, LinkedIn) and `connectors.json` account registry in Rust; `loopx notify-loop` now routes to connector accounts instead of reporting `unknown connector`.

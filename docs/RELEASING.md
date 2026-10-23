@@ -30,7 +30,7 @@ artifacts.
    `xcrun notarytool history --key AuthKey_XXXX.p8 --key-id XXXX --issuer <uuid>`.
 3. **Sparkle EdDSA key.** From a Sparkle release (`Sparkle-2.x.tar.xz`): `./bin/generate_keys`
    stores the private key in your login Keychain and prints the public key. Put the public key in the
-   app's `Info.plist` as `SUPublicEDKey` (and the feed URL as `SUFeedURL`, see above). Export the
+   app's `Info.plist` as `SUPublicEDKey` (and the feed URL as `SUFeedURL`, see above): `build_loopx_app.sh` writes both from the `SPARKLE_PUBLIC_ED_KEY` and `SPARKLE_FEED_URL` environment variables and the app starts Sparkle only when both are set. Export the
    private key with `./bin/generate_keys -x sparkle_private.key` and save it as the
    secret `SPARKLE_ED_PRIVATE_KEY` (the file's contents). Losing this key means existing installs can
    never update again: back it up.

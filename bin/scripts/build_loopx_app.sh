@@ -11,6 +11,10 @@ set -euo pipefail
 # Nothing here registers a login item or touches ~/Library/LaunchAgents: the app does that itself,
 # on the machine that runs it.
 #
+# Sparkle: the app embeds Sparkle.framework and starts the updater only when both SPARKLE_FEED_URL
+# (https) and SPARKLE_PUBLIC_ED_KEY (base64 Ed25519 public key, `generate_keys`) are set in the
+# environment; they become SUFeedURL / SUPublicEDKey in Info.plist. Unset, the app has no updater.
+#
 # Needs only the Command Line Tools (no Xcode). For a universal app, pass a universal `loopx`
 # (lipo -create the two cargo targets); an arm64-only one still builds but only runs on Apple silicon.
 
@@ -53,15 +57,29 @@ echo "==> building LoopX (release, $ARCH)"
 swift build -c release --package-path "$PKG" "${ARCH_FLAGS[@]}" --product LoopX
 BIN_DIR="$(swift build -c release --package-path "$PKG" "${ARCH_FLAGS[@]}" --show-bin-path)"
 APP_BIN="$BIN_DIR/LoopX"
+SPARKLE_FW="$BIN_DIR/Sparkle.framework"
+[ -d "$SPARKLE_FW" ] || SPARKLE_FW="$(find "$BIN_DIR" -maxdepth 2 -name Sparkle.framework -type d | head -n1)"
+[ -d "$SPARKLE_FW" ] || { echo "error: Sparkle.framework not found next to the build output" >&2; exit 1; }
 [ -x "$APP_BIN" ] || { echo "error: build did not produce $APP_BIN" >&2; exit 1; }
 
 echo "==> assembling $OUT"
 case "$OUT" in /|""|"$HOME"|"$HOME/") echo "error: refusing to use '$OUT' as output" >&2; exit 2 ;; esac
 rm -rf "$OUT"
-mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Helpers" "$OUT/Contents/Library/LaunchAgents" "$OUT/Contents/Resources"
+mkdir -p "$OUT/Contents/Frameworks" "$OUT/Contents/MacOS" "$OUT/Contents/Helpers" "$OUT/Contents/Library/LaunchAgents" "$OUT/Contents/Resources"
 cp "$APP_BIN" "$OUT/Contents/MacOS/LoopX"
+ditto "$SPARKLE_FW" "$OUT/Contents/Frameworks/Sparkle.framework"
 cp "$LOOPX_BIN" "$OUT/Contents/Helpers/loopx"
 chmod 755 "$OUT/Contents/MacOS/LoopX" "$OUT/Contents/Helpers/loopx"
+
+SPARKLE_KEYS=""
+if [ -n "${SPARKLE_FEED_URL:-}" ] && [ -n "${SPARKLE_PUBLIC_ED_KEY:-}" ]; then
+  case "$SPARKLE_FEED_URL" in https://*) ;; *) echo "error: SPARKLE_FEED_URL must be https" >&2; exit 2 ;; esac
+  SPARKLE_KEYS="  <key>SUFeedURL</key><string>$SPARKLE_FEED_URL</string>
+  <key>SUPublicEDKey</key><string>$SPARKLE_PUBLIC_ED_KEY</string>
+  <key>SUEnableAutomaticChecks</key><true/>"
+elif [ -n "${SPARKLE_FEED_URL:-}${SPARKLE_PUBLIC_ED_KEY:-}" ]; then
+  echo "error: set both SPARKLE_FEED_URL and SPARKLE_PUBLIC_ED_KEY, or neither" >&2; exit 2
+fi
 
 cat > "$OUT/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -80,6 +98,7 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+$SPARKLE_KEYS
 </dict>
 </plist>
 PLIST

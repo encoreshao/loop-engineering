@@ -17,9 +17,17 @@ let package = Package(
         .library(name: "LoopXKit", targets: ["LoopXKit"]),
         .executable(name: "LoopX", targets: ["LoopX"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.6.4"),
+    ],
     targets: [
         .target(name: "LoopXKit"),
-        .executableTarget(name: "LoopX", dependencies: ["LoopXKit"]),
+        .executableTarget(
+            name: "LoopX",
+            dependencies: ["LoopXKit", .product(name: "Sparkle", package: "Sparkle")],
+            // The build script puts Sparkle.framework in Contents/Frameworks.
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
+        ),
         .testTarget(name: "LoopXKitTests", dependencies: ["LoopXKit"], swiftSettings: testSwiftSettings),
     ]
 )

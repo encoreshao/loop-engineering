@@ -8,6 +8,7 @@ final class StatusItemController: NSObject {
     private let menu = NSMenu()
     var onOpenDashboard: () -> Void = {}
     var onOpenSettings: () -> Void = {}
+    var onCheckForUpdates: (() -> Void)?
     var onToggleHidden: () -> Void = {}
     var onModeChange: (DisplayMode) -> Void = { _ in }
     var isHidden: () -> Bool = { false }
@@ -49,6 +50,7 @@ final class StatusItemController: NSObject {
 
     @objc private func openDashboard() { onOpenDashboard() }
     @objc private func openSettings() { onOpenSettings() }
+    @objc private func checkForUpdates() { onCheckForUpdates?() }
     @objc private func toggleHidden() { onToggleHidden() }
     @objc private func setMode(_ s: NSMenuItem) { if let m = DisplayMode(rawValue: s.representedObject as? String ?? "") { onModeChange(m) } }
     @objc private func quit() { NSApp.terminate(nil) }
@@ -85,6 +87,7 @@ extension StatusItemController: NSMenuDelegate {
         menu.addItem(modeItem)
         menu.addItem(.separator())
         add("Settings…", #selector(openSettings), ",")
+        if onCheckForUpdates != nil { add("Check for Updates…", #selector(checkForUpdates), "") }
         add("Quit LoopX", #selector(quit), "q")
     }
 
