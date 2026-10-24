@@ -17,7 +17,9 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Fixed
 
+- Saving a tracked GitLab project or the worktree root now checks that the loop can actually create worktrees: the target branch and an absolute local checkout path (`~` is expanded) are required, the checkout must be a git repository with an `origin` remote, and the worktree root must be absolute, outside every tracked checkout, and is created if missing. `loopx worktree new` reports the same misconfigurations by name instead of a bare git failure.
 - An installed `loopx` (DMG) now seeds every built-in loop definition, prompt and agent instruction into `~/.loopx`, so scheduled loops (topic, daily digest, ...) no longer fail with `cannot read ~/.loopx/loops/<loop>/loop.yaml`.
+- Seeding the bundled loop definitions no longer overwrites files already in `~/.loopx` (for example a `loop.yaml` you edited to `mode: gate`) the first time it runs; only an upgrade refreshes them.
 - The Runs page's empty-state hint now says `loopx loop run <loop.yaml>` instead of the removed `bin/loop_cli.py`.
 
 ### Changed

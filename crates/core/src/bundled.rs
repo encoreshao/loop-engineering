@@ -96,15 +96,19 @@ const VERSION_MARKER: &str = ".loopx-bundled-version";
 
 /// Write the bundled files under `root`. A git checkout (`.git` present) is
 /// never touched, so development edits stay authoritative. Elsewhere, missing
-/// files are created and, after an upgrade (the version marker differs), the
-/// files are refreshed so the instructions match the binary. Best effort.
+/// files are created (existing ones are kept) and, after an upgrade (a marker from
+/// another version), the files are refreshed so the instructions match the binary. Best effort.
 pub fn seed(root: &Path) {
     if root.join(".git").exists() {
         return;
     }
     let version = env!("CARGO_PKG_VERSION");
     let marker = root.join(VERSION_MARKER);
-    let stale = std::fs::read_to_string(&marker).ok().as_deref() != Some(version);
+    // No marker means files already there came from an install script or the user:
+    // fill in what is missing, never overwrite. Only a marker from another version
+    // marks the bundled copies as outdated.
+    let recorded = std::fs::read_to_string(&marker).ok();
+    let stale = recorded.as_deref().is_some_and(|v| v != version);
     for (rel, text) in FILES {
         let path = root.join(rel);
         if path.exists() && !stale {
@@ -115,7 +119,7 @@ pub fn seed(root: &Path) {
         }
         let _ = std::fs::write(&path, text);
     }
-    if stale {
+    if recorded.as_deref() != Some(version) {
         let _ = std::fs::write(&marker, version);
     }
 }
@@ -175,6 +179,17 @@ mod tests {
         std::fs::write(root.path().join(VERSION_MARKER), "0.0.0").unwrap();
         seed(root.path());
         assert_ne!(std::fs::read_to_string(&md).unwrap(), "local edit");
+    }
+
+    #[test]
+    fn a_root_without_a_marker_keeps_the_files_it_already_has() {
+        let root = tempfile::tempdir().unwrap();
+        let yaml = root.path().join("loops/gitlab-issue/loop.yaml");
+        std::fs::create_dir_all(yaml.parent().unwrap()).unwrap();
+        std::fs::write(&yaml, "local edit").unwrap();
+        seed(root.path());
+        assert_eq!(std::fs::read_to_string(&yaml).unwrap(), "local edit");
+        assert!(root.path().join("loops/topic-monitor/loop.yaml").is_file());
     }
 
     #[test]

@@ -1032,5 +1032,14 @@
   "{count} people": "{count} 人",
   "Could not save": "无法保存",
   "No launchd agents are installed. In the LoopX app, scheduled loops run from the app itself while it is open (LoopX Settings → Run scheduled loops while LoopX is open), checking every 15 minutes; the schedules are in Registered Loops below.": "未安装 launchd 代理。在 LoopX 应用中，计划循环会在应用打开期间由应用自身运行（LoopX 设置 → 在 LoopX 打开时运行计划循环），每 15 分钟检查一次；计划见下方已注册的循环。",
-  "{label}: signing in is not available in the Mac app yet": "{label}：Mac 应用暂不支持登录"
+  "{label}: signing in is not available in the Mac app yet": "{label}：Mac 应用暂不支持登录",
+  "Target branch is required": "目标分支为必填项",
+  "Local checkout path is required": "本地检出路径为必填项",
+  "Local checkout path must be an absolute path": "本地检出路径必须是绝对路径",
+  "Local checkout path is not a directory: {path}": "本地检出路径不是目录:{path}",
+  "Local checkout path is not a git repository: {path}": "本地检出路径不是 Git 仓库:{path}",
+  "The checkout at {path} has no origin remote to fetch from": "{path} 处的检出没有可供拉取的 origin 远程仓库",
+  "Worktree root must be an absolute path": "工作树根目录必须是绝对路径",
+  "Worktree root must be outside the project checkout {path}": "工作树根目录必须位于项目检出 {path} 之外",
+  "Could not create the worktree root: {error}": "无法创建工作树根目录:{error}"
 }

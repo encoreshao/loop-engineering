@@ -1032,5 +1032,14 @@
   "{count} people": "{count} personnes",
   "Could not save": "Impossible d'enregistrer",
   "No launchd agents are installed. In the LoopX app, scheduled loops run from the app itself while it is open (LoopX Settings → Run scheduled loops while LoopX is open), checking every 15 minutes; the schedules are in Registered Loops below.": "Aucun agent launchd n'est installé. Dans l'application LoopX, les boucles planifiées s'exécutent depuis l'application elle-même tant qu'elle est ouverte (Réglages LoopX → Exécuter les boucles planifiées tant que LoopX est ouvert), avec une vérification toutes les 15 minutes ; les horaires figurent dans les boucles enregistrées ci-dessous.",
-  "{label}: signing in is not available in the Mac app yet": "{label} : la connexion n'est pas encore disponible dans l'app Mac"
+  "{label}: signing in is not available in the Mac app yet": "{label} : la connexion n'est pas encore disponible dans l'app Mac",
+  "Target branch is required": "La branche cible est obligatoire",
+  "Local checkout path is required": "Le chemin du dépôt local est obligatoire",
+  "Local checkout path must be an absolute path": "Le chemin du dépôt local doit être un chemin absolu",
+  "Local checkout path is not a directory: {path}": "Le chemin du dépôt local n'est pas un dossier : {path}",
+  "Local checkout path is not a git repository: {path}": "Le chemin du dépôt local n'est pas un dépôt Git : {path}",
+  "The checkout at {path} has no origin remote to fetch from": "Le dépôt situé à {path} n'a pas de remote origin à récupérer",
+  "Worktree root must be an absolute path": "La racine des worktrees doit être un chemin absolu",
+  "Worktree root must be outside the project checkout {path}": "La racine des worktrees doit se trouver en dehors du dépôt du projet {path}",
+  "Could not create the worktree root: {error}": "Impossible de créer la racine des worktrees : {error}"
 }

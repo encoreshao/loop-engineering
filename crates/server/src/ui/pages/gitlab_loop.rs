@@ -16,6 +16,7 @@ use crate::ui::template::{Scope, Template};
 use crate::ui::{consts, gitlab as ui_gitlab};
 use chrono::{DateTime, Local, Utc};
 use loopx_core::loops_config::py_truthy;
+use loopx_core::worktree::{self, CheckoutProblem, RootProblem};
 use loopx_core::{events, gitlab, issue_tracking_config, pydumps, pyjson, status};
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
@@ -1376,16 +1377,56 @@ fn update_loop_settings(ctx: &UiCtx, assignee: &str, worktree_root: &str, instan
     if !has_key(&gitlab_config, "instances", instance) {
         return (false, name_msg(ctx, "Unknown instance: {name}", instance));
     }
+    let worktree_root = worktree::expand_home(worktree_root, &ctx.state.user_home);
     let path = projects_path(ctx);
     let mut config = read_json_or_empty(&path);
+    let checkouts: Vec<String> = config
+        .get("projects")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .map(|(_, p)| text(p, "local_path"))
+        .collect();
+    if let Err(problem) = worktree::check_worktree_root(&worktree_root, &checkouts) {
+        return (false, root_problem_message(ctx, problem));
+    }
     config["assignee_username"] = json!(assignee);
-    config["worktree_root"] = json!(worktree_root);
+    config["worktree_root"] = json!(&worktree_root);
     config["gitlab_instance"] = json!(instance);
     if config.get("projects").is_none() {
         config["projects"] = json!({});
     }
     tryw!(save(ctx, &config, &path));
     (true, ctx.t("Updated project settings"))
+}
+
+fn root_problem_message(ctx: &UiCtx, problem: RootProblem) -> String {
+    match problem {
+        RootProblem::Empty => ctx.t("Worktree root is required"),
+        RootProblem::NotAbsolute => ctx.t("Worktree root must be an absolute path"),
+        RootProblem::InsideCheckout(repo) => ctx.tf(
+            "Worktree root must be outside the project checkout {path}",
+            &[("path", &repo)],
+        ),
+        RootProblem::CannotCreate(e) => ctx.tf(
+            "Could not create the worktree root: {error}",
+            &[("error", &e)],
+        ),
+    }
+}
+
+fn checkout_problem_message(ctx: &UiCtx, problem: CheckoutProblem, path: &str) -> String {
+    let args = [("path", path)];
+    match problem {
+        CheckoutProblem::Empty => ctx.t("Local checkout path is required"),
+        CheckoutProblem::NotAbsolute => ctx.t("Local checkout path must be an absolute path"),
+        CheckoutProblem::NotADirectory => ctx.tf("Local checkout path is not a directory: {path}", &args),
+        CheckoutProblem::NotAGitRepo => ctx.tf("Local checkout path is not a git repository: {path}", &args),
+        CheckoutProblem::NoOrigin => ctx.tf(
+            "The checkout at {path} has no origin remote to fetch from",
+            &args,
+        ),
+    }
 }
 
 /// `fields`: alias, project_id, local_path, target_branch, install_cmd, lint_cmd,
@@ -1399,8 +1440,28 @@ fn upsert_tracked_project(ctx: &UiCtx, fields: &[String; 9]) -> (bool, String) {
     if project_id.is_empty() {
         return (false, ctx.t("Project ID is required"));
     }
+    if f[3].is_empty() {
+        return (false, ctx.t("Target branch is required"));
+    }
+    if f[2].is_empty() {
+        return (false, ctx.t("Local checkout path is required"));
+    }
+    let local_path = worktree::expand_home(f[2], &ctx.state.user_home);
+    if let Err(problem) = worktree::check_checkout(&local_path) {
+        return (false, checkout_problem_message(ctx, problem, &local_path));
+    }
     let path = projects_path(ctx);
     let mut config = read_json_or_empty(&path);
+    let root = text(&config, "worktree_root");
+    if !root.is_empty() {
+        let root = worktree::expand_home(&root, &ctx.state.user_home);
+        if Path::new(&root).starts_with(&local_path) {
+            return (
+                false,
+                root_problem_message(ctx, RootProblem::InsideCheckout(local_path)),
+            );
+        }
+    }
     let projects = obj_mut(&mut config, "projects");
     let renaming = !original.is_empty() && original != alias;
     if renaming {
@@ -1415,7 +1476,7 @@ fn upsert_tracked_project(ctx: &UiCtx, fields: &[String; 9]) -> (bool, String) {
     let is_new = !projects.contains_key(alias);
     let mut entry = json!({
         "project_id": project_id,
-        "local_path": f[2],
+        "local_path": local_path,
         "target_branch": f[3],
         "install_cmd": f[4],
         "lint_cmd": f[5],
@@ -1448,3 +1509,106 @@ fn delete_tracked_project(ctx: &UiCtx, alias: &str) -> (bool, String) {
 
 #[allow(dead_code)]
 fn unused(_: DateTime<Utc>) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::routes::UiRequest;
+    use crate::ui::state::UiState;
+
+    struct Sandbox {
+        dir: tempfile::TempDir,
+        state: UiState,
+        req: UiRequest,
+    }
+
+    impl Sandbox {
+        fn new() -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            let home = dir.path().join("home");
+            std::fs::create_dir_all(home.join(".gitlab")).unwrap();
+            std::fs::write(
+                home.join(".gitlab/config.json"),
+                r#"{"instances":{"g":{"url":"https://g.example","token":"t"}}}"#,
+            )
+            .unwrap();
+            let state = UiState::explicit(dir.path(), &dir.path().join("loopx"), &home, dir.path(), "tok", None);
+            Self { dir, state, req: UiRequest::get("/") }
+        }
+        fn ctx(&self) -> UiCtx<'_> {
+            UiCtx::new(&self.state, &self.req)
+        }
+        fn path(&self, rel: &str) -> String {
+            self.dir.path().join(rel).display().to_string()
+        }
+        fn repo(&self, name: &str, origin: bool) -> String {
+            let p = self.dir.path().join(name);
+            std::fs::create_dir_all(&p).unwrap();
+            let git = |a: &[&str]| {
+                assert!(std::process::Command::new("git").arg("-C").arg(&p).args(a).output().unwrap().status.success());
+            };
+            git(&["init", "-q"]);
+            if origin {
+                git(&["remote", "add", "origin", "https://example.invalid/x.git"]);
+            }
+            p.display().to_string()
+        }
+        fn project(&self, local_path: &str, branch: &str) -> (bool, String) {
+            let f = |s: &str| s.to_string();
+            upsert_tracked_project(
+                &self.ctx(),
+                &[f("app"), f("g/app"), f(local_path), f(branch), f(""), f(""), f(""), f(""), f("")],
+            )
+        }
+        fn saved(&self) -> Value {
+            read_json_or_empty(&projects_path(&self.ctx()))
+        }
+    }
+
+    #[test]
+    fn a_project_needs_a_target_branch_and_a_real_checkout() {
+        let sb = Sandbox::new();
+        let repo = sb.repo("repo", true);
+        assert_eq!(sb.project(&repo, "").1, "Target branch is required");
+        assert_eq!(sb.project("", "main").1, "Local checkout path is required");
+        assert_eq!(sb.project("repo", "main").1, "Local checkout path must be an absolute path");
+        assert!(sb.project(&sb.path("missing"), "main").1.contains("is not a directory"));
+        std::fs::create_dir(sb.path("plain")).unwrap();
+        assert!(sb.project(&sb.path("plain"), "main").1.contains("is not a git repository"));
+        let bare = sb.repo("local-only", false);
+        assert!(sb.project(&bare, "main").1.contains("has no origin remote"));
+        assert!(sb.saved().get("projects").is_none(), "nothing saved after rejections");
+        assert_eq!(sb.project(&repo, "main"), (true, "Added project app".to_string()));
+        assert_eq!(sb.saved()["projects"]["app"]["local_path"], repo);
+    }
+
+    #[test]
+    fn a_tilde_checkout_path_is_stored_absolute() {
+        let sb = Sandbox::new();
+        sb.repo("home/code/app", true);
+        assert!(sb.project("~/code/app", "main").0);
+        assert_eq!(sb.saved()["projects"]["app"]["local_path"], sb.path("home/code/app"));
+    }
+
+    #[test]
+    fn the_worktree_root_is_absolute_created_and_outside_checkouts() {
+        let sb = Sandbox::new();
+        let save = |root: &str| update_loop_settings(&sb.ctx(), "dev", root, "g");
+        assert_eq!(save("worktrees").1, "Worktree root must be an absolute path");
+        let root = sb.path("wt/nested");
+        assert!(save(&root).0);
+        assert!(Path::new(&root).is_dir());
+        assert_eq!(sb.saved()["worktree_root"], root);
+        assert!(save("~/wt").0);
+        assert_eq!(sb.saved()["worktree_root"], sb.path("home/wt"));
+        // A root inside a tracked checkout is refused from both directions.
+        let repo = sb.repo("repo", true);
+        assert!(sb.project(&repo, "main").0);
+        let inside = format!("{repo}/wt");
+        assert!(save(&inside).1.contains("must be outside the project checkout"));
+        assert!(sb.saved()["worktree_root"] != inside.as_str());
+        assert!(save(&sb.path("wt2")).0);
+        let on_root = sb.repo("wt2", true);
+        assert!(sb.project(&on_root, "main").1.contains("must be outside the project checkout"));
+    }
+}

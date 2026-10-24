@@ -1032,5 +1032,14 @@
   "{count} people": "{count}人",
   "Could not save": "保存できませんでした",
   "No launchd agents are installed. In the LoopX app, scheduled loops run from the app itself while it is open (LoopX Settings → Run scheduled loops while LoopX is open), checking every 15 minutes; the schedules are in Registered Loops below.": "launchd エージェントはインストールされていません。LoopX アプリでは、アプリを開いている間、スケジュールされたループがアプリ自体から実行されます（LoopX 設定 → LoopX を開いている間スケジュールされたループを実行）。15 分ごとに確認します。スケジュールは下の登録済みループにあります。",
-  "{label}: signing in is not available in the Mac app yet": "{label}: Mac アプリでのサインインはまだ利用できません"
+  "{label}: signing in is not available in the Mac app yet": "{label}: Mac アプリでのサインインはまだ利用できません",
+  "Target branch is required": "対象ブランチは必須です",
+  "Local checkout path is required": "ローカルチェックアウトのパスは必須です",
+  "Local checkout path must be an absolute path": "ローカルチェックアウトのパスは絶対パスで指定してください",
+  "Local checkout path is not a directory: {path}": "ローカルチェックアウトのパスはディレクトリではありません: {path}",
+  "Local checkout path is not a git repository: {path}": "ローカルチェックアウトのパスは Git リポジトリではありません: {path}",
+  "The checkout at {path} has no origin remote to fetch from": "{path} のチェックアウトには取得元の origin リモートがありません",
+  "Worktree root must be an absolute path": "ワークツリーのルートは絶対パスで指定してください",
+  "Worktree root must be outside the project checkout {path}": "ワークツリーのルートはプロジェクトのチェックアウト {path} の外に置いてください",
+  "Could not create the worktree root: {error}": "ワークツリーのルートを作成できませんでした: {error}"
 }
