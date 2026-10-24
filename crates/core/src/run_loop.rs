@@ -300,6 +300,7 @@ fn terminate_tree(child: &mut std::process::Child) {
 /// Registry entry points that run in this binary.
 pub fn run_entry(entry_point: &str, argv: &[String]) -> i32 {
     let root = repo_root();
+    crate::bundled::seed(&root);
     match entry_point {
         "bin.gitlab_loop_runner" | "gitlab-loop" => {
             let ctx = RunCtx::new(root);

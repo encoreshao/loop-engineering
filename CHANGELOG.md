@@ -15,6 +15,11 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 - `loopx chat-tool <action>`: the command the dashboard chat assistant runs (status, history, daemons, run-now, topic/project saves, enable/disable, `call <tool>`), ported from the Python dashboard so the chat no longer needs it.
 
+### Fixed
+
+- An installed `loopx` (DMG) now seeds every built-in loop definition, prompt and agent instruction into `~/.loopx`, so scheduled loops (topic, daily digest, ...) no longer fail with `cannot read ~/.loopx/loops/<loop>/loop.yaml`.
+- The Runs page's empty-state hint now says `loopx loop run <loop.yaml>` instead of the removed `bin/loop_cli.py`.
+
 ### Changed
 
 - The per-machine directory is now `~/.loopx` (was `~/.loop-engineering`). The first `loopx` run, `install-loopx.sh` or the Mac app's backend moves an existing one and leaves a symlink at the old name, so existing configs, worktree paths and launchd plists keep working; `uninstall-loopx.sh` finds either. `LOOP_ENGINEERING_HOME` still overrides it, and the Keychain service names are unchanged.

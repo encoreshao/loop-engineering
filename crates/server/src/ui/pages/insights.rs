@@ -800,7 +800,7 @@ fn budget_body(ctx: &UiCtx) -> String {
             "\n{heading}<div class=\"grid\"><section class=\"card\">\n<p>{}</p>\n</section></div>\n",
             ctx.tf(
                 "No runs yet - run {command} to produce one.",
-                &[("command", "<code>bin/loop_cli.py run &lt;loop.yaml&gt;</code>")]
+                &[("command", "<code>loopx loop run &lt;loop.yaml&gt;</code>")]
             )
         );
     }
