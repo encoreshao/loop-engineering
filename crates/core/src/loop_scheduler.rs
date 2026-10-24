@@ -104,6 +104,22 @@ pub fn write_state(state: &SchedulerState, path: &Path) -> std::io::Result<()> {
     std::fs::write(path, pyjson::to_string_pretty(state))
 }
 
+/// First-install seeding: mark every loop as attempted `today`, so the first poll
+/// does not see "never attempted" and fire an unattended run against live
+/// GitLab/Slack. Does nothing when the state file already exists.
+pub fn seed_state(loops: &[Value], state_path: &Path, today: NaiveDate) {
+    if state_path.exists() {
+        return;
+    }
+    let date = today.format("%Y-%m-%d").to_string();
+    let state: SchedulerState = loops
+        .iter()
+        .filter_map(|l| l.get("name").and_then(Value::as_str))
+        .map(|name| (name.to_string(), json!({"last_attempted_date": date})))
+        .collect();
+    let _ = write_state(&state, state_path);
+}
+
 /// Python `datetime.isoformat()` for a naive time.
 pub fn isoformat(t: NaiveDateTime) -> String {
     let micros = t.nanosecond() / 1000;
@@ -269,6 +285,23 @@ pub fn spawn_and_wait(argv: &[String]) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn seeding_marks_every_loop_attempted_today_and_never_overwrites() {
+        let d = tempfile::tempdir().unwrap();
+        let state_path = d.path().join("state.json");
+        let loops = vec![json!({"name": "a"}), json!({"name": "b"})];
+        let today = at(2026, 10, 24, 10, 0).date();
+
+        seed_state(&loops, &state_path, today);
+        let st = read_state(&state_path);
+        assert_eq!(st["a"]["last_attempted_date"], "2026-10-24");
+        assert_eq!(st["b"]["last_attempted_date"], "2026-10-24");
+
+        // A second call leaves the existing file alone.
+        seed_state(&[json!({"name": "c"})], &state_path, today);
+        assert!(!read_state(&state_path).contains_key("c"));
+    }
+
     #[test]
     fn a_second_poller_cannot_take_the_lock_until_the_first_lets_go() {
         let d = tempfile::tempdir().unwrap();

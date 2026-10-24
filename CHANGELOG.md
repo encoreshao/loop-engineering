@@ -23,6 +23,10 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 - `loopx serve --no-legacy` is accepted and ignored; the legacy Python dashboard no longer exists.
 - The Mac app's dashboard window now opens filling the screen's visible area (menu bar and Dock stay visible) the first time it is shown in a session; Settings > Display > "Dashboard window opens" switches it to native full screen or the standard window.
 
+### Fixed
+
+- A first launch of the Mac app (or `loopx serve`) on a fresh machine now seeds the scheduler state along with `loops.json`, as `install-loopx.sh` does, so turning on "Run scheduled loops" no longer fires the enabled loops straight away.
+
 ### Removed
 
 - All Python code: `bin/*.py`, the Python dashboard, scripts and their tests. Everything runs in the `loopx` binary; `loopx run` no longer falls back to `python3` for an entry point it does not know.

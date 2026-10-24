@@ -115,6 +115,16 @@ Add `--upgrade` to update later: it keeps your config, replaces only the program
 
 The `gitlab-config` skill (see Requirements) is installed from the dashboard's **Settings → Skills** page, which runs `bin/scripts/setup.sh`; you can run that script by hand instead.
 
+### Install the Mac app (DMG)
+
+Download `LoopX-<version>.dmg` from the latest GitHub Release, open it and drag **LoopX** onto **Applications**, then launch it. There is no installer step; everything is set up on first launch:
+
+- the app registers its bundled `loopx` as a background agent (`com.hermes.loopx.backend`); macOS may ask you to allow it under **System Settings → General → Login Items & Extensions**;
+- the backend scaffolds `~/.loopx/loops.json` and seeds `loop_scheduler_state.json` with today's date for every loop, so turning on **Run scheduled loops** never fires an immediate run;
+- the first-launch guide checks for the `claude` / `codex` CLIs and the `gitlab-config` skill. It cannot fill in your GitLab projects and token: add them under **Loops → GitLab Issues → Projects** and in `~/.gitlab/config.json`.
+
+Until a release is Developer ID signed and notarized, macOS Gatekeeper warns about the downloaded app (right-click → Open). To use the CLI from a shell, link the bundled binary: `sudo ln -sf /Applications/LoopX.app/Contents/Helpers/loopx /usr/local/bin/loopx`. The app only updates itself in Sparkle-enabled builds; otherwise download the new DMG and replace the app.
+
 ### Build from source
 
 ```bash
@@ -176,7 +186,7 @@ Two more config files live outside this tree entirely, editable from the dashboa
 | `~/.loopx/inboxes.json`    | Which mailboxes to triage (provider, account, categories, VIP/excluded senders, Slack bundle) and the shared default category set (Inbox Triage loop only)                                                              | Dashboard's **Loops → Inbox Triage → Setup** (`/loops/inbox-triage-loop?view=setup`), or let `install-loopx.sh` scaffold it from [`config/inboxes.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/inboxes.json.template)               |
 | `~/.loopx/mail_oauth.json` | The Gmail/Outlook OAuth app's own client ID (and, for Google, client secret) — a one-time app-registration step, not a per-mailbox credential                                                                           | Dashboard's **Loops → Inbox Triage → Setup** page                                                                                                                                                     |
 | `~/.loopx/loops.json`      | The registry of scheduled loops: each entry's name, schedule (weekdays/hour/minute), entry point module, timeout, and per-loop knobs — read by `loopx loops`, polled by `loopx scheduler`                 | Copy [`config/loops.json.template`](https://github.com/encoreshao/loop-engineering/blob/main/config/loops.json.template) by hand, or let `install-loopx.sh` do it                                                                  |
-| `~/.loopx/loop_scheduler_state.json` | Per-loop last-attempted date, so the scheduler never runs the same loop twice in a day — not something you hand-edit                                                                                            | Written automatically by `loopx scheduler`; seeded with today's date for every registered loop by `install-loopx.sh` so enabling the scheduler doesn't fire an immediate run |
+| `~/.loopx/loop_scheduler_state.json` | Per-loop last-attempted date, so the scheduler never runs the same loop twice in a day — not something you hand-edit                                                                                            | Written automatically by `loopx scheduler`; seeded with today's date for every registered loop by `install-loopx.sh` and on the first launch of the Mac app / `loopx serve`, so enabling the scheduler doesn't fire an immediate run |
 | `~/.loopx/instructions.md` (+ `instructions/<loop>.md`) | Your own free-text instructions, global and per loop, read at the start of every run                                                                                                                                             | Dashboard **Settings** page's Instructions tab                                                                                                                               |
 | `~/.loopx/ai_cli.json`     | Which AI CLI (Claude Code or Codex CLI) `loopx run` invokes for every registered loop; defaults to `claude`                                                                                                        | Dashboard **Settings** page's AI CLI tab, or let `install-loopx.sh` do it                                                                                                                |
 | `~/.gitlab/config.json`               | GitLab instance URLs, tokens, and project-alias → project-ID mappings (read by the `gitlab-config` skill)                                                                                                               | Dashboard **Loops → GitLab Issues → Projects** page                                                                                                                                                     |
@@ -317,7 +327,7 @@ Expand for the full list
 | `bin/scripts/install-loopx.sh` | Clone-free installer for the `loopx` binary: downloads the release build for this Mac, verifies it against `SHA256SUMS`, scaffolds the config, renders `launchd/loopx/*.plist.template`; `--upgrade` keeps config and replaces only the program; `--load-agents`, `--skip-service`, `--release-base` |
 | `bin/scripts/uninstall-loopx.sh` | Removes a loopx install of either mode (LaunchAgents, `loopx.lock`, Keychain entries, `--remove-app`, `--keep-config`) |
 | `bin/scripts/build_loopx_app.sh` | Builds the universal `LoopX.app` (Swift, `macos/LoopX`) around a given `loopx` binary |
-| `install-loopx.sh` | Installs the `gitlab-config` skill (the Settings → Skills install button runs it) |
+| `bin/scripts/setup.sh` | Installs the `gitlab-config` skill (the Settings → Skills install button runs it) |
 | `bin/scripts/release_notes.sh` | Prints a version's section of `CHANGELOG.md` for the release notes |
 
 

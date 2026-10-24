@@ -119,7 +119,16 @@ fn scaffold_loops_config(home_dir: &Path, repo_root: &Path) {
     let template = std::fs::read_to_string(repo_root.join("config").join("loops.json.template"))
         .unwrap_or_else(|_| include_str!("../../../../config/loops.json.template").to_string());
     let _ = std::fs::create_dir_all(home_dir);
-    let _ = std::fs::write(&target, template);
+    let _ = std::fs::write(&target, &template);
+    // The same reason install-loopx.sh seeds the state: without today's date for every
+    // loop, the first scheduler poll would fire the enabled ones straight away.
+    if let Ok(loops) = serde_json::from_str::<Vec<serde_json::Value>>(&template) {
+        loopx_core::loop_scheduler::seed_state(
+            &loops,
+            &home_dir.join("loop_scheduler_state.json"),
+            chrono::Local::now().date_naive(),
+        );
+    }
 }
 
 impl UiState {
@@ -268,6 +277,26 @@ impl UiState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scaffolding_a_fresh_home_seeds_the_scheduler_state_once() {
+        let home = tempfile::tempdir().unwrap();
+        let repo = tempfile::tempdir().unwrap();
+        scaffold_loops_config(home.path(), repo.path());
+
+        let state =
+            loopx_core::loop_scheduler::read_state(&home.path().join("loop_scheduler_state.json"));
+        let today = chrono::Local::now()
+            .date_naive()
+            .format("%Y-%m-%d")
+            .to_string();
+        assert_eq!(state["gitlab-loop"]["last_attempted_date"], today);
+
+        // An existing registry is left alone, so the state is not re-seeded either.
+        std::fs::remove_file(home.path().join("loop_scheduler_state.json")).unwrap();
+        scaffold_loops_config(home.path(), repo.path());
+        assert!(!home.path().join("loop_scheduler_state.json").exists());
+    }
 
     #[test]
     fn policy_syntax() {
