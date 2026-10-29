@@ -10,6 +10,9 @@
 
 # Loop X Engineering
 
+> [!WARNING]
+> **本项目已归档，不再维护。** 开发已迁移至后继项目 **[Loop X](https://github.com/encoreshao/loop-x)**，新的安装、问题反馈和更新请前往该仓库。
+
 ![CI](https://github.com/encoreshao/loop-engineering/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/github/license/encoreshao/loop-engineering)
 ![Python](https://img.shields.io/badge/python-3.12%2B-blue)
